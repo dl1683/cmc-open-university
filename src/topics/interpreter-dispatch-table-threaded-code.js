@@ -54,10 +54,13 @@ function dispatchGraph(title) {
 }
 
 function* dispatchLoop() {
+  const loopSteps = 4;
+  const nodeCount = 8;
+  const dispatchMethods = 2;
   yield {
     state: dispatchGraph('The interpreter spends its life in the dispatch loop'),
     highlight: { active: ['ip', 'decode', 'handler', 'next', 'e-ip-decode', 'e-handler-next', 'e-next-ip'], compare: ['done'] },
-    explanation: 'Every bytecode interpreter has an inner loop: read an opcode, choose the handler, mutate VM state, advance the instruction pointer, and repeat.',
+    explanation: `Every bytecode interpreter has an inner loop of ${loopSteps} phases: read an opcode, choose the handler, mutate VM state, advance the instruction pointer, and repeat across all ${nodeCount} dispatch-graph nodes.`,
   };
   yield {
     state: labelMatrix(
@@ -80,21 +83,23 @@ function* dispatchLoop() {
       ],
     ),
     highlight: { active: ['dispatch:work', 'dispatch:risk'], found: ['execute:work'], compare: ['fetch:risk'] },
-    explanation: 'Tiny bytecodes can be dominated by dispatch overhead. This is why handler layout, bytecode design, and quickening matter in production interpreters.',
-    invariant: 'A faster handler does not help much if dispatch cost dominates every instruction.',
+    explanation: `Tiny bytecodes can be dominated by dispatch overhead across all ${loopSteps} cost categories. This is why handler layout, bytecode design, and quickening matter in production interpreters.`,
+    invariant: `A faster handler does not help much if dispatch cost dominates every instruction — ${dispatchMethods} dispatch methods (table and switch) each carry that overhead.`,
   };
   yield {
     state: dispatchGraph('Threaded code reduces some branch overhead'),
     highlight: { active: ['table', 'handler', 'next', 'e-table-handler', 'e-handler-next'], compare: ['switch'], found: ['state'] },
-    explanation: 'Threaded-code interpreters arrange bytecode or handler addresses so a handler can jump straight to the next handler. The idea is dispatch-table locality, not operating-system threads.',
+    explanation: `Threaded-code interpreters arrange bytecode or handler addresses so a handler can jump straight to the next handler, bypassing the central loop's ${loopSteps}-phase overhead. The idea is dispatch-table locality, not operating-system threads.`,
   };
 }
 
 function* handlerTable() {
+  const opcodeCount = 4;
+  const vmStates = ['stack/regs', 'control', 'frames'];
   yield {
     state: dispatchGraph('A handler table maps opcodes to executable behavior'),
     highlight: { active: ['decode', 'table', 'handler', 'e-decode-table', 'e-table-handler'], compare: ['switch'] },
-    explanation: 'A dispatch table is a data structure: opcode value to handler. In a switch interpreter, the compiler builds something similar behind the scenes for dense cases.',
+    explanation: `A dispatch table is a data structure: opcode value to handler. With ${opcodeCount} opcodes defined, the table has ${opcodeCount} entries. In a switch interpreter, the compiler builds something similar behind the scenes for dense cases.`,
   };
   yield {
     state: labelMatrix(
@@ -117,12 +122,12 @@ function* handlerTable() {
       ],
     ),
     highlight: { active: ['add:effect', 'jump:state', 'call:state'], found: ['const:effect'] },
-    explanation: 'The handler table should make the stack effect or register effect explicit. Debuggers, validators, profilers, and bytecode printers all benefit from that metadata.',
+    explanation: `The handler table should make the stack effect or register effect explicit. Each of the ${opcodeCount} opcodes touches VM state (${vmStates.join(', ')}), and debuggers, validators, profilers, and bytecode printers all benefit from that metadata.`,
   };
   yield {
     state: dispatchGraph('Dispatch connects bytecode design to engine performance'),
     highlight: { active: ['ip', 'decode', 'table', 'handler', 'state'], found: ['done'] },
-    explanation: 'Bytecode Stack Virtual Machine and Register Virtual Machine: Lua Case Study choose different instruction formats. Dispatch is where those choices become runtime cost.',
+    explanation: `Bytecode Stack Virtual Machine and Register Virtual Machine: Lua Case Study choose different instruction formats. Dispatch is where those choices become runtime cost across ${vmStates.length} state domains: ${vmStates.join(', ')}.`,
   };
 }
 
@@ -143,7 +148,8 @@ export const article = {
         'The dispatch-cost matrix separates four per-bytecode costs: fetch, dispatch, execute, advance. Each cell names the work and the risk. This is how VM engineers decide what to optimize. If the dispatch row dominates, the interpreter needs better branching. If the execute row dominates, the handler itself is slow and dispatch optimization is irrelevant.',
         'The handler-table view shows the dispatch table as a first-class data structure. Each row maps an opcode to its effect and the VM state it touches. That same metadata drives disassembly, validation, profiling, and documentation in production VMs.',
         {type: 'note', text: 'The word "threaded" in this topic means handlers are threaded together by jumps -- each handler jumps directly to the next. It has nothing to do with OS threads or concurrency.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/interpreter-dispatch-table-threaded-code.gif', alt: 'Animated walkthrough of the interpreter dispatch table threaded code visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

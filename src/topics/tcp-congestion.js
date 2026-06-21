@@ -107,7 +107,8 @@ export const article = {
         'The plot frames track cwnd (congestion window) on the y-axis against round-trip times on the x-axis. The steep early curve is slow start: exponential growth while the sender knows nothing about the path. The gentler slope after ssthresh is congestion avoidance: linear probing near a guessed ceiling. The vertical drop at the loss marker is multiplicative decrease.',
         'The sawtooth shape is not noise. It is the control loop made visible: probe upward, hit a limit, cut back, probe again. Each cycle discovers whether the path has changed since the last loss event.',
         {type: 'callout', text: 'TCP congestion control is feedback control under blindness: the sender changes cwnd from ACK timing and loss, not from direct queue visibility.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/tcp-congestion.gif', alt: 'Animated walkthrough of the tcp congestion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

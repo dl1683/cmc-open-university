@@ -62,16 +62,17 @@ function diffusionGraph(title) {
 }
 
 function* maskCorruption() {
+  const noiseLevels = [
+    { id: 'x0', label: 'x0' },
+    { id: 't25', label: 't=.25' },
+    { id: 't60', label: 't=.60' },
+    { id: 't95', label: 't=.95' },
+  ];
   yield {
     state: labelMatrix(
       'Forward process: tokens become masks',
       TOKEN_ROWS,
-      [
-        { id: 'x0', label: 'x0' },
-        { id: 't25', label: 't=.25' },
-        { id: 't60', label: 't=.60' },
-        { id: 't95', label: 't=.95' },
-      ],
+      noiseLevels,
       [
         ['The', 'The', '[M]', '[M]'],
         ['model', '[M]', '[M]', '[M]'],
@@ -82,41 +83,47 @@ function* maskCorruption() {
       ],
     ),
     highlight: { active: ['p2:t25', 'p4:t25', 'p6:t25'], compare: ['p1:x0', 'p3:x0', 'p5:x0'], found: ['p1:t95', 'p6:t95'] },
-    explanation: 'A discrete diffusion language model corrupts text by replacing tokens with a special mask state. The schedule controls how many positions are hidden at each noise level, so training can ask the model to recover tokens from many partial contexts.',
-    invariant: 'The forward corruption is fixed; the learned model only parameterizes the reverse denoising distribution.',
+    explanation: `A discrete diffusion language model corrupts ${TOKEN_ROWS.length} tokens across ${noiseLevels.length} noise levels (${noiseLevels.map(n => n.label).join(', ')}) by replacing tokens with a special mask state. The schedule controls how many positions are hidden at each noise level.`,
+    invariant: `The forward corruption across ${noiseLevels.length} levels is fixed; the learned model only parameterizes the reverse denoising distribution.`,
   };
 
+  const graphInputNodes = ['prompt', 'mask', 'time', 'denoise'];
   yield {
     state: diffusionGraph('Masked language diffusion is a state machine'),
-    highlight: { active: ['prompt', 'mask', 'time', 'denoise', 'e-prompt-mask', 'e-time-denoise'], found: ['logits'] },
-    explanation: 'The runtime state is a prompt, a mutable token buffer, a mask bitset, and a timestep or noise level. The Transformer reads bidirectional context over the visible tokens and predicts every masked slot at once.',
+    highlight: { active: [...graphInputNodes, 'e-prompt-mask', 'e-time-denoise'], found: ['logits'] },
+    explanation: `The runtime state across ${graphInputNodes.length} input nodes ("${graphInputNodes.join('", "')}") is a prompt, a mutable token buffer of ${TOKEN_ROWS.length} slots, a mask bitset, and a timestep or noise level. The Transformer reads bidirectional context over the visible tokens and predicts every masked slot at once.`,
   };
 
+  const reverseSteps = 8;
+  const maskPoints = [{ x: 0, y: 1.0 }, { x: 1, y: 0.82 }, { x: 2, y: 0.64 }, { x: 3, y: 0.49 }, { x: 4, y: 0.34 }, { x: 5, y: 0.22 }, { x: 6, y: 0.12 }, { x: 7, y: 0.04 }, { x: 8, y: 0.0 }];
+  const midStep = 4;
+  const midVisible = 0.66;
   yield {
     state: plotState({
-      axes: { x: { label: 'reverse step', min: 0, max: 8 }, y: { label: 'fraction', min: 0, max: 1 } },
+      axes: { x: { label: 'reverse step', min: 0, max: reverseSteps }, y: { label: 'fraction', min: 0, max: 1 } },
       series: [
-        { id: 'masked', label: 'mask', points: [{ x: 0, y: 1.0 }, { x: 1, y: 0.82 }, { x: 2, y: 0.64 }, { x: 3, y: 0.49 }, { x: 4, y: 0.34 }, { x: 5, y: 0.22 }, { x: 6, y: 0.12 }, { x: 7, y: 0.04 }, { x: 8, y: 0.0 }] },
-        { id: 'visible', label: 'visible', points: [{ x: 0, y: 0.0 }, { x: 1, y: 0.18 }, { x: 2, y: 0.36 }, { x: 3, y: 0.51 }, { x: 4, y: 0.66 }, { x: 5, y: 0.78 }, { x: 6, y: 0.88 }, { x: 7, y: 0.96 }, { x: 8, y: 1.0 }] },
+        { id: 'masked', label: 'mask', points: maskPoints },
+        { id: 'visible', label: 'visible', points: [{ x: 0, y: 0.0 }, { x: 1, y: 0.18 }, { x: 2, y: 0.36 }, { x: 3, y: 0.51 }, { x: 4, y: midVisible }, { x: 5, y: 0.78 }, { x: 6, y: 0.88 }, { x: 7, y: 0.96 }, { x: 8, y: 1.0 }] },
       ],
       markers: [
-        { id: 'mid', x: 4, y: 0.66, label: 'half' },
+        { id: 'mid', x: midStep, y: midVisible, label: 'half' },
       ],
     }),
     highlight: { active: ['masked', 'visible', 'mid'] },
-    explanation: 'Sampling gradually trades masked positions for visible tokens. Unlike an autoregressive decoder, the next committed token does not have to be the immediate next position from the left.',
+    explanation: `Sampling over ${reverseSteps} reverse steps gradually trades masked positions for visible tokens. By step ${midStep}, ${(midVisible * 100).toFixed(0)}% of ${TOKEN_ROWS.length} slots are visible. Unlike an autoregressive decoder, the next committed token does not have to be the immediate next position from the left.`,
   };
 
+  const primerRows = [
+    { id: 'bitset', label: 'mask bits' },
+    { id: 'time', label: 'time id' },
+    { id: 'logit', label: 'logits' },
+    { id: 'conf', label: 'conf' },
+    { id: 'carry', label: 'carry' },
+  ];
   yield {
     state: labelMatrix(
       'Primer map',
-      [
-        { id: 'bitset', label: 'mask bits' },
-        { id: 'time', label: 'time id' },
-        { id: 'logit', label: 'logits' },
-        { id: 'conf', label: 'conf' },
-        { id: 'carry', label: 'carry' },
-      ],
+      primerRows,
       [
         { id: 'stores', label: 'stores' },
         { id: 'why', label: 'why' },
@@ -130,21 +137,24 @@ function* maskCorruption() {
       ],
     ),
     highlight: { active: ['bitset:stores', 'time:stores', 'conf:why'], found: ['carry:why'] },
-    explanation: 'The core data structures are ordinary and important: a mask bitset, a token buffer, a timestep, per-position logits, confidence scores, and a carry-over rule for positions that are already visible.',
+    explanation: `The ${primerRows.length} core data structures (${primerRows.map(r => r.label).join(', ')}) are ordinary and important: a mask bitset over ${TOKEN_ROWS.length} slots, a token buffer, a timestep, per-position logits, confidence scores, and a carry-over rule for positions that are already visible.`,
   };
 }
 
 function* parallelDenoise() {
+  const denoiseSteps = [
+    { id: 's0', label: 'step0' },
+    { id: 's1', label: 'step1' },
+    { id: 's2', label: 'step2' },
+    { id: 's3', label: 'step3' },
+  ];
+  const step1Commits = 3;
+  const step2Commits = 2;
   yield {
     state: labelMatrix(
       'Reverse denoising commits confident slots',
       TOKEN_ROWS,
-      [
-        { id: 's0', label: 'step0' },
-        { id: 's1', label: 'step1' },
-        { id: 's2', label: 'step2' },
-        { id: 's3', label: 'step3' },
-      ],
+      denoiseSteps,
       [
         ['[M]', 'The', 'The', 'The'],
         ['[M]', '[M]', 'model', 'model'],
@@ -155,21 +165,25 @@ function* parallelDenoise() {
       ],
     ),
     highlight: { active: ['p1:s1', 'p3:s1', 'p5:s1'], found: ['p2:s2', 'p6:s2'], compare: ['p4:s3'] },
-    explanation: 'A diffusion sampler can reveal several positions in one pass when their confidence is high. Harder positions remain masked until later context makes them easier to recover.',
-    invariant: 'Parallel commitment is useful only when the committed tokens remain mutually consistent.',
+    explanation: `A diffusion sampler can reveal ${step1Commits} positions in ${denoiseSteps[1].label} when their confidence is high, then ${step2Commits} more in ${denoiseSteps[2].label}. Harder positions remain masked across ${TOKEN_ROWS.length} slots until later context makes them easier to recover.`,
+    invariant: `Parallel commitment of up to ${step1Commits} tokens per step is useful only when the committed tokens remain mutually consistent.`,
   };
 
+  const confSlots = [
+    { id: 'p1', label: 'slot1' },
+    { id: 'p2', label: 'slot2' },
+    { id: 'p3', label: 'slot3' },
+    { id: 'p4', label: 'slot4' },
+    { id: 'p5', label: 'slot5' },
+    { id: 'p6', label: 'slot6' },
+  ];
+  const margins = [0.42, 0.08, 0.37, 0.05, 0.33, 0.16];
+  const committed = margins.filter(m => m > 0.30).length;
+  const masked = margins.filter(m => m <= 0.30).length;
   yield {
     state: labelMatrix(
       'Confidence ledger',
-      [
-        { id: 'p1', label: 'slot1' },
-        { id: 'p2', label: 'slot2' },
-        { id: 'p3', label: 'slot3' },
-        { id: 'p4', label: 'slot4' },
-        { id: 'p5', label: 'slot5' },
-        { id: 'p6', label: 'slot6' },
-      ],
+      confSlots,
       [
         { id: 'top', label: 'top' },
         { id: 'margin', label: 'margin' },
@@ -185,25 +199,27 @@ function* parallelDenoise() {
       ],
     ),
     highlight: { active: ['p1:act', 'p3:act', 'p5:act'], compare: ['p2:act', 'p4:act', 'p6:act'] },
-    explanation: 'The gate is usually a confidence or rank rule over position-wise logits. It should commit high-margin positions and leave uncertain positions masked, because over-eager parallel decoding can break token dependencies.',
+    explanation: `The gate is usually a confidence or rank rule over ${confSlots.length} position-wise logits. ${committed} high-margin positions are committed while ${masked} uncertain positions stay masked, because over-eager parallel decoding can break token dependencies.`,
   };
 
+  const remaskPath = ['logits', 'gate', 'commit', 'remask'];
   yield {
     state: diffusionGraph('Remasking repairs low-confidence guesses'),
-    highlight: { active: ['logits', 'gate', 'commit', 'remask', 'e-logits-gate', 'e-gate-commit', 'e-gate-remask'], compare: ['denoise'] },
-    explanation: 'Some samplers keep a remasking loop: predict candidates, keep the confident ones, and remask positions that look inconsistent. The loop is the language analogue of iterative image denoising.',
+    highlight: { active: [...remaskPath, 'e-logits-gate', 'e-gate-commit', 'e-gate-remask'], compare: ['denoise'] },
+    explanation: `Some samplers keep a remasking loop through ${remaskPath.length} nodes ("${remaskPath.join('" to "')}"):  predict candidates, keep the confident ones, and remask positions that look inconsistent. The loop is the language analogue of iterative image denoising.`,
   };
 
+  const compareRows = [
+    { id: 'order', label: 'order' },
+    { id: 'ctx', label: 'context' },
+    { id: 'cache', label: 'cache' },
+    { id: 'latency', label: 'latency' },
+    { id: 'control', label: 'control' },
+  ];
   yield {
     state: labelMatrix(
       'AR vs diffusion',
-      [
-        { id: 'order', label: 'order' },
-        { id: 'ctx', label: 'context' },
-        { id: 'cache', label: 'cache' },
-        { id: 'latency', label: 'latency' },
-        { id: 'control', label: 'control' },
-      ],
+      compareRows,
       [
         { id: 'arm', label: 'AR' },
         { id: 'diff', label: 'diffusion' },
@@ -217,7 +233,7 @@ function* parallelDenoise() {
       ],
     ),
     highlight: { active: ['order:diff', 'ctx:diff', 'control:diff'], compare: ['cache:arm', 'latency:arm'] },
-    explanation: 'The tradeoff is structural. Autoregressive models have a simple KV-cache path and exact left-to-right factorization. Masked diffusion models get parallel slot refinement, bidirectional context, and natural infilling, but serving needs different caches and schedulers.',
+    explanation: `The tradeoff spans ${compareRows.length} dimensions (${compareRows.map(r => r.label).join(', ')}). Autoregressive models have a simple KV-cache path and exact left-to-right factorization. Masked diffusion models get parallel slot refinement, bidirectional context, and natural infilling, but serving needs different caches and schedulers.`,
   };
 }
 
@@ -246,7 +262,8 @@ export const article = {
         },
         'The parallel-denoise view shows the reverse process. A fully masked buffer appears at step 0. Each column reveals tokens the model commits at that step. Active highlights mark positions being committed now. Found highlights mark positions that remain masked because confidence is too low. The confidence ledger makes the gate explicit: margin scores determine who gets committed and who waits.',
         'The graph view connects the two. Follow the edges from prompt and mask buffer through the Transformer denoiser to logits, then through the confidence gate to either commit or remask. That loop is the entire sampler. Every frame in both views corresponds to one pass through this graph.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/discrete-diffusion-language-model-primer.gif', alt: 'Animated walkthrough of the discrete diffusion language model primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

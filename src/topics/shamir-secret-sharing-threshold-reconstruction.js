@@ -111,23 +111,29 @@ function reconstructGraph(title) {
 }
 
 function* shareGeneration() {
+  const k = COEFFS.length;
+  const n = SHARES.length;
+  const secret = COEFFS[0];
+  const degree = k - 1;
+  const shareList = SHARES.map(s => `(${s.x},${s.y})`).join(', ');
+
   yield {
     state: shareGraph('Pick a random polynomial whose intercept is the secret'),
     highlight: { active: ['secret', 'coeffs', 'poly', 'e-secret-poly', 'e-coeffs-poly'], compare: ['vault'] },
-    explanation: 'For a 3-of-5 sharing scheme, choose a degree-2 polynomial over a finite field. The secret is the constant term. Here f(x) = 9 + 4x + 2x^2 mod 17, so f(0) = 9 is the secret.',
-    invariant: 'Threshold k uses a random polynomial of degree k - 1.',
+    explanation: `For a ${k}-of-${n} sharing scheme, choose a degree-${degree} polynomial over a finite field. The secret is the constant term. Here f(x) = ${COEFFS[0]} + ${COEFFS[1]}x + ${COEFFS[2]}x^2 mod ${PRIME}, so f(0) = ${secret} is the secret.`,
+    invariant: `Threshold k = ${k} uses a random polynomial of degree k - 1 = ${degree}.`,
   };
 
   yield {
     state: sharePlot('Evaluate the polynomial at public nonzero x positions'),
     highlight: { active: ['curve', 's1', 's2', 's3', 's4', 's5'], found: ['secret0'] },
-    explanation: 'Every share is one point on the hidden polynomial: (1,15), (2,8), (3,5), (4,6), and (5,11). The x value can be public; the y value is the share. The secret point at x = 0 is not handed out.',
+    explanation: `Every share is one point on the hidden polynomial: ${shareList}. The x value can be public; the y value is the share. The secret point at x = 0 is not handed out.`,
   };
 
   yield {
     state: shareGraph('Distribute shares so no one holder has the key'),
     highlight: { active: ['s1', 's2', 's3', 's4', 's5', 'e-poly-s1', 'e-poly-s2', 'e-poly-s3', 'e-poly-s4', 'e-poly-s5'], compare: ['secret'], found: ['vault'] },
-    explanation: 'Each trustee receives one point. A single copied secret would create one catastrophic holder. Shamir shares turn recovery into a threshold data structure: enough holders can recover, fewer holders cannot.',
+    explanation: `Each of the ${n} trustees receives one point. A single copied secret would create one catastrophic holder. Shamir shares turn recovery into a threshold data structure: any ${k} holders can recover, fewer than ${k} cannot.`,
   };
 
   yield {
@@ -145,34 +151,43 @@ function* shareGeneration() {
       ],
       [
         ['any copy', 'one breach'],
-        ['3 shares', '2 learn none'],
+        [`${k} shares`, `${k - 1} learn none`],
         ['loss ok', 'need quorum'],
-        ['steal 2', 'no secret'],
+        [`steal ${k - 1}`, 'no secret'],
       ],
     ),
     highlight: { found: ['shamir:recover', 'shamir:leak'], compare: ['copy:leak', 'backup:recover'] },
-    explanation: 'The point is not obscurity; it is information-theoretic thresholding. With fewer than k shares, every possible secret is still compatible with some degree-(k-1) polynomial.',
+    explanation: `The point is not obscurity; it is information-theoretic thresholding. With fewer than ${k} shares, every possible secret is still compatible with some degree-${degree} polynomial.`,
   };
 }
 
 function* thresholdReconstruct() {
+  const k = COEFFS.length;
+  const degree = k - 1;
+  const secret = COEFFS[0];
+  const chosen = [SHARES[0], SHARES[2], SHARES[4]];
+  const unused = [SHARES[1], SHARES[3]];
+  const weights = [4, 3, 11];
+  const rawSum = chosen.reduce((s, sh, i) => s + sh.y * weights[i], 0);
+  const recovered = rawSum % PRIME;
+
   yield {
     state: sharePlot('Any three points determine the degree-2 polynomial'),
     highlight: { active: ['s1', 's3', 's5'], found: ['secret0'], compare: ['s2', 's4'] },
-    explanation: 'Pick any threshold-sized subset. Shares (1,15), (3,5), and (5,11) are enough to reconstruct the unique degree-2 polynomial over mod 17 and read f(0). Shares 2 and 4 are not needed.',
-    invariant: 'k points determine one polynomial of degree at most k - 1.',
+    explanation: `Pick any threshold-sized subset. Shares (${chosen[0].x},${chosen[0].y}), (${chosen[1].x},${chosen[1].y}), and (${chosen[2].x},${chosen[2].y}) are enough to reconstruct the unique degree-${degree} polynomial over mod ${PRIME} and read f(0). Shares ${unused[0].x} and ${unused[1].x} are not needed.`,
+    invariant: `${k} points determine one polynomial of degree at most ${degree}.`,
   };
 
   yield {
     state: reconstructGraph('Lagrange interpolation evaluates f(0) directly'),
     highlight: { active: ['s1', 'lag1', 's3', 'lag3', 's5', 'lag5', 'e-s1-lag1', 'e-s3-lag3', 'e-s5-lag5'], compare: ['sum'] },
-    explanation: 'Lagrange interpolation does not need to rebuild every coefficient first. It computes weights for x = 0. For this subset the weights are 4, 3, and 11 modulo 17.',
+    explanation: `Lagrange interpolation does not need to rebuild every coefficient first. It computes weights for x = 0. For this subset the weights are ${weights.join(', ')} modulo ${PRIME}.`,
   };
 
   yield {
     state: reconstructGraph('Weighted shares collapse back to the intercept'),
     highlight: { active: ['lag1', 'lag3', 'lag5', 'sum', 'secret', 'e-lag1-sum', 'e-lag3-sum', 'e-lag5-sum', 'e-sum-secret'], found: ['secret'] },
-    explanation: 'The reconstruction is 15*4 + 5*3 + 11*11 = 196, and 196 mod 17 = 9. The recovered value is the intercept f(0), which was the original secret.',
+    explanation: `The reconstruction is ${chosen[0].y}*${weights[0]} + ${chosen[1].y}*${weights[1]} + ${chosen[2].y}*${weights[2]} = ${rawSum}, and ${rawSum} mod ${PRIME} = ${recovered}. The recovered value is the intercept f(0), which was the original secret.`,
   };
 
   yield {
@@ -191,14 +206,14 @@ function* thresholdReconstruct() {
       ],
       [
         ['big prime', 'wrap bugs'],
-        ['fresh coeffs', 'pattern leak'],
+        [`fresh ${degree} coeffs`, 'pattern leak'],
         ['verify sender', 'fake share'],
         ['secure room', 'hot secret'],
         ['wipe memory', 'residue'],
       ],
     ),
     highlight: { active: ['field:need', 'random:need', 'auth:need'], compare: ['combine:failure', 'erase:failure'] },
-    explanation: 'The math is simple; the implementation boundary is not. Real systems need a large field, strong randomness, authenticated shares, safe reconstruction ceremonies, and careful erasure after use.',
+    explanation: `The math is simple; the implementation boundary is not. Real systems need a field much larger than ${PRIME}, strong randomness for all ${degree} nonconstant coefficients, authenticated shares, safe reconstruction ceremonies, and careful erasure after use.`,
   };
 }
 
@@ -211,6 +226,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/shamir-secret-sharing-threshold-reconstruction.gif', alt: 'Animated walkthrough of the shamir secret sharing threshold reconstruction visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

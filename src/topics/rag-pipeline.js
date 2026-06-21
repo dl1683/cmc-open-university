@@ -95,7 +95,8 @@ export const article = {
         "The scatter plot is an embedding space. Each dot is a document chunk whose position encodes its meaning — documents about similar topics land near each other. The clusters you see (pets, plants, ML) form because the embedding model maps semantically related text to nearby vectors.",
         "When a question appears (active marker), watch where it lands. Its position is computed by the same embedding model, so it falls near documents that share its meaning. The found markers are the top-k nearest neighbors — the chunks the system judges most relevant. Visited markers are the remaining documents, passed over because they are too far in embedding space.",
         "The view then switches to the prompt assembly: retrieved chunks stacked above the question. This is the context window the language model will read. The generation step treats these chunks as ground truth, producing an answer that cites them. If the wrong chunks were retrieved, the model would generate a confident answer from the wrong facts — that failure mode is the core design tension in every RAG system.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/rag-pipeline.gif', alt: 'Animated walkthrough of the rag pipeline visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

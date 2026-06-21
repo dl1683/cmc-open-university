@@ -163,7 +163,8 @@ export const article = {
         },
         'The power-iteration view shows a fan of arrows. Each arrow is the result of one more multiply-and-normalize step. The fan converges toward 45 degrees because the dominant eigenvalue (3) amplifies its component faster than the subdominant (1). The final arrow, marked found, is the dominant eigenvector.',
         'The five-fields view shows a table. Each row is the same equation Av = lambda v wearing a different costume: web ranking, statistics, deep learning, graph clustering, physics. Read it as a census of where eigenvectors appear, not as separate algorithms.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/eigenvectors.gif', alt: 'Animated walkthrough of the eigenvectors visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

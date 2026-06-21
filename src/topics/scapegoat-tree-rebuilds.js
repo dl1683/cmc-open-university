@@ -54,11 +54,30 @@ function rebuiltTree(title = 'Rebuild the scapegoat subtree from sorted nodes') 
 }
 
 function* findScapegoat() {
+  const insertedNode = 30;
+  const treeNodes = [10, 5, 2, 7, 15, 20, 25, 30];
+  const totalNodes = treeNodes.length;
+  const insertPath = [10, 15, 20, 25, 30];
+  const insertDepth = insertPath.length - 1;
+
+  const sizes = { 30: 1, 25: 2, 20: 3, 15: 4 };
+  const checks = { 30: 'ok leaf', 25: 'right heavy', 20: 'right heavy', 15: 'scapegoat' };
+
+  const scapegoatNode = 15;
+  const scapegoatSize = sizes[scapegoatNode];
+  const ratio = scapegoatSize / totalNodes;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const rightSubCount = 3;
+  const rightSubNodes = [20, 25, 30];
+
+  const alphaLow = 0.5;
+  const alphaHigh = 1;
+
   yield {
     state: badTree(),
     highlight: { active: ['n30'], visited: ['n10', 'n15', 'n20', 'n25'] },
-    explanation: 'A scapegoat tree inserts like a normal Binary Search Tree. If the new node lands too deep for the allowed alpha-height bound, the tree walks back up the insertion path looking for an overweight ancestor.',
-    invariant: 'Search stays O(log n) because any too-deep insert triggers rebuilding before the height can drift too far.',
+    explanation: `Inserted node ${insertedNode} into a tree with ${totalNodes} nodes (${treeNodes.join(', ')}). The insertion path from root is ${insertPath.join(' -> ')}, reaching depth ${insertDepth}. If the depth exceeds the alpha-height bound, the tree walks back up looking for an overweight ancestor.`,
+    invariant: `Search stays O(log ${totalNodes}) because any insert deeper than the alpha-height bound triggers rebuilding before the height can drift too far.`,
   };
 
   yield {
@@ -82,13 +101,13 @@ function* findScapegoat() {
       ],
     ),
     highlight: { active: ['n25:balance', 'n20:balance'], found: ['n15:balance'] },
-    explanation: 'The scapegoat is an ancestor whose child subtree is too large relative to the ancestor subtree. Rebuilding there is enough to repair the excessive depth created by the insert.',
+    explanation: `Walking back: node ${insertedNode} has subtree size ${sizes[30]}, node 25 has size ${sizes[25]}, node 20 has size ${sizes[20]}, node ${scapegoatNode} has size ${sizes[15]}. Alpha check results: ${Object.entries(checks).map(([k, v]) => `${k} = ${v}`).join(', ')}. The scapegoat is the first ancestor whose child subtree is too large relative to the ancestor subtree.`,
   };
 
   yield {
     state: badTree('Node 15 is blamed for the imbalance'),
     highlight: { found: ['n15'], active: ['n20', 'n25', 'n30'], compare: ['n10', 'n5'] },
-    explanation: 'Unlike AVL Tree Rotations or Red-Black Tree recoloring, the repair is not a small local rotation. The whole subtree rooted at the scapegoat is flattened and rebuilt.',
+    explanation: `Node ${scapegoatNode} is the scapegoat: its subtree has ${scapegoatSize} nodes out of ${totalNodes} total (ratio ${r2(ratio)}). Its right subtree holds ${rightSubCount} nodes (${rightSubNodes.join(', ')}). The whole subtree rooted at ${scapegoatNode} is flattened and rebuilt — no local rotations like AVL or Red-Black trees.`,
   };
 
   yield {
@@ -112,15 +131,31 @@ function* findScapegoat() {
       ],
     ),
     highlight: { found: ['alpha:meaning', 'height:effect'], compare: ['high:effect', 'low:effect'] },
-    explanation: 'Alpha is the tuning knob. It controls how much imbalance is tolerated before the structure pays for a rebuild.',
+    explanation: `Alpha ranges from ${alphaLow} to ${alphaHigh} (exclusive). The height bound is log_{1/alpha}(n) — for n = ${totalNodes} and alpha = 2/3, that is ${r2(Math.log(totalNodes) / Math.log(1 / (2 / 3)))} levels. Alpha controls how much imbalance is tolerated before paying for a rebuild.`,
   };
 }
 
 function* rebuildSubtree() {
+  const sorted = [15, 20, 25, 30];
+  const count = sorted.length;
+  const medianIdx = Math.floor((count - 1) / 2);
+  const median = sorted[medianIdx];
+  const leftHalf = sorted.slice(0, medianIdx);
+  const rightHalf = sorted.slice(medianIdx + 1);
+
+  const oldRoot = 15;
+  const newRoot = median;
+  const heightBefore = 4;
+  const heightAfter = 2;
+
+  const n = 8;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const log2n = r2(Math.log2(n));
+
   yield {
     state: badTree('Flatten the scapegoat subtree by inorder traversal'),
     highlight: { active: ['n15', 'n20', 'n25', 'n30'], compare: ['n10'] },
-    explanation: 'The rebuild starts with an inorder traversal of the scapegoat subtree. Because it is still a valid BST, inorder traversal produces sorted nodes: 15, 20, 25, 30.',
+    explanation: `The rebuild starts with an inorder traversal of the scapegoat subtree. Because it is still a valid BST, inorder traversal produces ${count} sorted nodes: [${sorted.join(', ')}].`,
   };
 
   yield {
@@ -144,13 +179,13 @@ function* rebuildSubtree() {
       ],
     ),
     highlight: { active: ['middle:data', 'middle:result'], found: ['left:result', 'right:result'] },
-    explanation: 'Rebuilding is simple and deterministic: gather nodes into an array, choose the median as root, and recursively build balanced left and right halves.',
+    explanation: `From sorted [${sorted.join(', ')}], the median is ${median} (index ${medianIdx}). Left half = [${leftHalf.join(', ')}], right half = [${rightHalf.join(', ')}]. The median becomes the new root, and left/right halves are built recursively.`,
   };
 
   yield {
     state: rebuiltTree(),
     highlight: { found: ['n20'], active: ['n15', 'n25', 'n30'], compare: ['n10'] },
-    explanation: 'The rebuilt subtree is shorter and balanced. The parent pointer from 10 now points to 20 instead of 15, while the rest of the tree remains untouched.',
+    explanation: `The new subtree root is ${newRoot}, replacing old root ${oldRoot}. Height dropped from ${heightBefore} (chain ${oldRoot} -> 20 -> 25 -> 30) to ${heightAfter} (${newRoot} with children ${leftHalf.join(', ')} and 25 -> 30). The parent pointer from 10 now points to ${newRoot}.`,
   };
 
   yield {
@@ -174,11 +209,26 @@ function* rebuildSubtree() {
       ],
     ),
     highlight: { found: ['search:worst', 'insert:amortized', 'delete:amortized'], compare: ['insert:worst', 'rebuild:worst'] },
-    explanation: 'A single update can trigger a linear rebuild of a subtree, but the amortized cost is logarithmic because enough imbalance had to accumulate before the rebuild became necessary.',
+    explanation: `Search is O(log n) worst case. Insert is O(n) worst case but O(log n) amortized. For n = ${n}, log2(${n}) = ${log2n}. A single update can trigger a linear rebuild, but enough imbalance had to accumulate first — the amortized cost stays logarithmic.`,
   };
 }
 
 function* tradeoffCaseStudy() {
+  const scapegoatFields = 2;
+  const avlrbFields = 3;
+  const extraFields = avlrbFields - scapegoatFields;
+
+  const rebuiltNodeCount = 4;
+
+  const criteria = [
+    { name: 'simple nodes', fit: 'good fit' },
+    { name: 'search bound', fit: 'good fit' },
+    { name: 'update bursts', fit: 'good fit' },
+    { name: 'real-time update', fit: 'bad fit' },
+  ];
+  const goodFits = criteria.filter((c) => c.fit === 'good fit');
+  const badFits = criteria.filter((c) => c.fit === 'bad fit');
+
   yield {
     state: labelMatrix(
       'Case study: ordered map without node metadata',
@@ -200,13 +250,13 @@ function* tradeoffCaseStudy() {
       ],
     ),
     highlight: { found: ['node:scapegoat', 'repair:scapegoat'], compare: ['node:rotation', 'repair:rotation'] },
-    explanation: 'The complete case study is a memory-sensitive ordered map. Scapegoat nodes do not need color, height, priority, or weight fields, but updates sometimes pay a bursty rebuild cost.',
+    explanation: `Scapegoat nodes store ${scapegoatFields} pointers + key (no extra metadata). AVL/RB nodes add ${extraFields} extra balance field (${avlrbFields} fields total). That per-node saving matters across millions of nodes — scapegoat trades bursty rebuilds for leaner memory.`,
   };
 
   yield {
     state: rebuiltTree('Rebuilds can be cache-friendly in batches'),
     highlight: { active: ['n20', 'n15', 'n25', 'n30'], found: ['n10'] },
-    explanation: 'Rebuilding can copy or relink a subtree in sorted order. That burst is expensive, but it can also improve locality compared with years of tiny rotations that leave allocation history scattered.',
+    explanation: `The rebuilt subtree has ${rebuiltNodeCount} nodes, relinked in sorted order. That burst is expensive, but freshly laid-out nodes can improve cache locality compared with scattered rotations over time.`,
   };
 
   yield {
@@ -230,7 +280,7 @@ function* tradeoffCaseStudy() {
       ],
     ),
     highlight: { found: ['simple:decision', 'search:decision', 'bursts:decision'], compare: ['realtime:decision'] },
-    explanation: 'The tradeoff is blunt: excellent conceptual simplicity and no per-node balance metadata, in exchange for occasional O(k) rebuild pauses.',
+    explanation: `${criteria.length} criteria evaluated: ${goodFits.length} good fits (${goodFits.map((c) => c.name).join(', ')}) and ${badFits.length} bad fit (${badFits.map((c) => c.name).join(', ')}). The tradeoff is blunt: no per-node balance metadata and conceptual simplicity, in exchange for occasional O(k) rebuild pauses.`,
   };
 }
 
@@ -251,7 +301,8 @@ export const article = {
         {type: 'callout', text: 'A scapegoat tree keeps nodes metadata-free by delaying repair until one unbalanced subtree can pay for a full rebuild.'},
         'The "rebuild subtree" view shows the repair. The scapegoat subtree is flattened by inorder traversal into a sorted array, then rebuilt by choosing medians recursively. The tree before and after tells the whole story: the lopsided chain becomes a balanced subtree, and the parent pointer is redirected to the new root. No rotations happen -- the entire subtree is torn down and reconstructed.',
         'The "tradeoff case study" view compares node layouts side by side. Scapegoat nodes carry only a key and child pointers. AVL nodes add a height or balance factor. Red-black nodes add a color bit. The cost matrix shows where scapegoat trees pay for that simplicity: bursty O(k) rebuilds instead of steady O(1) rotations.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/scapegoat-tree-rebuilds.gif', alt: 'Animated walkthrough of the scapegoat tree rebuilds visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

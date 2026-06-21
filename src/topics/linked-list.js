@@ -79,7 +79,8 @@ export const article = {
         'Each rectangle is a node. The number inside is the stored value. Arrows between nodes are next pointers -- the only thing connecting one node to the next. The leftmost node is the head; the chain ends where the last arrow would point to null.',
         'An active (highlighted) node is the one the algorithm is currently inspecting or creating. Visited nodes have already been checked and passed over. A removed node is the one being unlinked from the chain. Watch the arrows, not the boxes: every structural change in a linked list is an arrow being redirected.',
         {type: 'callout', text: 'A linked list makes order explicit in pointers, so insertion can be cheap only when the code already holds the right node reference.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/linked-list.gif', alt: 'Animated walkthrough of the linked list visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

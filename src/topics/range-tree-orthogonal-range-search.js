@@ -83,52 +83,65 @@ function cascadeGraph(title) {
 }
 
 function* reporting() {
+  const graph1 = rangeTreeGraph('A 2D range tree nests y-structures under an x-tree');
+  const rootNode = graph1.nodes.find(n => n.id === 'root');
+  const leafNodes = graph1.nodes.filter(n => ['a', 'b', 'c', 'd'].includes(n.id));
+  const ylistNode = graph1.nodes.find(n => n.id === 'ylist');
   yield {
-    state: rangeTreeGraph('A 2D range tree nests y-structures under an x-tree'),
+    state: graph1,
     highlight: { active: ['root', 'left', 'right', 'ylist'], found: ['b', 'c', 'd'] },
-    explanation: 'A 2D range tree is a balanced Binary Search Tree over x. Each canonical x-subtree carries an associated structure sorted by y, so rectangle queries become x decomposition plus y filtering.',
-    invariant: 'Every point appears in O(log n) associated y-structures.',
+    explanation: `A 2D range tree is a balanced BST over x, rooted at ${rootNode.label}. Each canonical x-subtree carries an associated structure sorted by y (here ${ylistNode.note}), so rectangle queries across ${leafNodes.length} points become x decomposition plus y filtering.`,
+    invariant: `Every point appears in O(log n) associated y-structures — the root's y-list already holds all ${ylistNode.note.split(',').length} y-values: ${ylistNode.note}.`,
   };
 
+  const queryTitle = 'Query rectangle x[2,8], y[3,7]';
+  const matrixRows = [
+    { id: 'split', label: 'split node' },
+    { id: 'left_path', label: 'left path' },
+    { id: 'right_path', label: 'right path' },
+    { id: 'report', label: 'report' },
+  ];
+  const matrixCols = [
+    { id: 'x_step', label: 'x step' },
+    { id: 'y_step', label: 'y step' },
+  ];
+  const reported = 'B,C,D';
   yield {
     state: labelMatrix(
-      'Query rectangle x[2,8], y[3,7]',
-      [
-        { id: 'split', label: 'split node' },
-        { id: 'left_path', label: 'left path' },
-        { id: 'right_path', label: 'right path' },
-        { id: 'report', label: 'report' },
-      ],
-      [
-        { id: 'x_step', label: 'x step' },
-        { id: 'y_step', label: 'y step' },
-      ],
+      queryTitle,
+      matrixRows,
+      matrixCols,
       [
         ['find where x bounds diverge', 'root x=5'],
         ['take right subtrees on path', 'search y lists'],
         ['take left subtrees on path', 'search y lists'],
-        ['emit points in y range', 'B,C,D'],
+        ['emit points in y range', reported],
       ],
     ),
     highlight: { active: ['left_path:y_step', 'right_path:y_step'], found: ['report:y_step'], compare: ['split:x_step'] },
-    explanation: 'The x-tree identifies O(log n) canonical subtrees that exactly cover the x-range. Associated y-lists inside those subtrees report only points whose y coordinate lies in range.',
+    explanation: `The x-tree decomposes the query into ${matrixRows.length} phases (${matrixRows.map(r => r.label).join(', ')}). Associated y-lists inside canonical subtrees report only points whose y coordinate lies in range, yielding ${reported}.`,
   };
 
+  const graph3 = rangeTreeGraph('Associated y-lists avoid scanning whole subtrees');
+  const queryNode = graph3.nodes.find(n => n.id === 'query');
+  const foundPoints = graph3.nodes.filter(n => ['b', 'c'].includes(n.id));
+  const excludedPoints = graph3.nodes.filter(n => ['a', 'd'].includes(n.id));
   yield {
-    state: rangeTreeGraph('Associated y-lists avoid scanning whole subtrees'),
+    state: graph3,
     highlight: { active: ['query', 'e-query-left', 'e-query-right', 'ylist'], found: ['b', 'c'], compare: ['a', 'd'] },
-    explanation: 'Once a canonical subtree is fully inside the x-range, the query should not inspect every point by x. It uses the associated y-structure to report only y-range matches.',
+    explanation: `Once a canonical subtree is fully inside ${queryNode.note}, the query skips per-point x checks. The associated y-structure reports only ${foundPoints.map(n => n.label).join(', ')} while excluding ${excludedPoints.map(n => n.label).join(', ')}.`,
   };
 
+  const comparisonRows = [
+    { id: 'rangetree', label: 'range tree' },
+    { id: 'kdtree', label: 'k-d Tree' },
+    { id: 'rtree', label: 'R-Tree' },
+    { id: 'bit2d', label: '2D Fenwick' },
+  ];
   yield {
     state: labelMatrix(
       'Range tree versus nearby structures',
-      [
-        { id: 'rangetree', label: 'range tree' },
-        { id: 'kdtree', label: 'k-d Tree' },
-        { id: 'rtree', label: 'R-Tree' },
-        { id: 'bit2d', label: '2D Fenwick' },
-      ],
+      comparisonRows,
       [
         { id: 'query', label: 'query type' },
         { id: 'tradeoff' },
@@ -141,61 +154,73 @@ function* reporting() {
       ],
     ),
     highlight: { active: ['rangetree:query'], compare: ['kdtree:tradeoff', 'rtree:tradeoff'], found: ['bit2d:query'] },
-    explanation: 'Range trees are exact static search structures. They are not broad-phase collision indexes, and they are not just aggregate prefix structures.',
+    explanation: `Compared against ${comparisonRows.length - 1} alternatives (${comparisonRows.slice(1).map(r => r.label).join(', ')}), range trees are exact static search structures — not broad-phase collision indexes nor aggregate prefix structures.`,
   };
 }
 
 function* fractionalCascading() {
+  const cascGraph1 = cascadeGraph('Many associated y-lists search the same y bounds');
+  const catalogs = cascGraph1.nodes.filter(n => n.id.startsWith('cat'));
+  const bridgeNode = cascGraph1.nodes.find(n => n.id === 'bridges');
   yield {
-    state: cascadeGraph('Many associated y-lists search the same y bounds'),
+    state: cascGraph1,
     highlight: { active: ['range', 'cat1', 'cat2', 'cat3'], found: ['bridges'] },
-    explanation: 'A plain 2D range tree performs a y-range search in every canonical x-subtree. Fractional Cascading links those catalogs so repeated y-bound searches share work.',
-    invariant: 'The query y bounds are identical across the associated structures.',
+    explanation: `A plain 2D range tree performs a y-range search in every canonical x-subtree. Fractional Cascading links ${catalogs.length} catalogs (${catalogs.map(c => c.label).join(', ')}) via ${bridgeNode.note} so repeated y-bound searches share work.`,
+    invariant: `The query y bounds are identical across all ${catalogs.length} associated structures: ${catalogs.map(c => c.label).join(', ')}.`,
   };
 
+  const plainBound = 'O(log^2 n + k)';
+  const cascadedBound = 'O(log n + k)';
+  const spaceBound = 'O(n log n)';
+  const complexityRows = [
+    { id: 'plain', label: 'plain 2D tree' },
+    { id: 'cascaded', label: 'with cascading' },
+    { id: 'space', label: 'space' },
+    { id: 'output', label: 'reporting' },
+  ];
   yield {
     state: labelMatrix(
       'Query-time improvement',
-      [
-        { id: 'plain', label: 'plain 2D tree' },
-        { id: 'cascaded', label: 'with cascading' },
-        { id: 'space', label: 'space' },
-        { id: 'output', label: 'reporting' },
-      ],
+      complexityRows,
       [
         { id: 'bound', label: 'bound' },
         { id: 'why' },
       ],
       [
-        ['O(log^2 n + k)', 'search y at each level'],
-        ['O(log n + k)', 'one search plus bridges'],
-        ['O(n log n)', 'associated structures'],
+        [plainBound, 'search y at each level'],
+        [cascadedBound, 'one search plus bridges'],
+        [spaceBound, 'associated structures'],
         ['+k', 'must output answers'],
       ],
     ),
     highlight: { active: ['plain:bound', 'cascaded:bound'], found: ['cascaded:why'], compare: ['space:bound'] },
-    explanation: 'The classic improvement is exactly the same lesson as Fractional Cascading: one binary search, then bridge positions through related catalogs.',
+    explanation: `The classic improvement drops query time from ${plainBound} to ${cascadedBound}: one binary search, then bridge positions through related catalogs, all within ${spaceBound} space.`,
   };
 
+  const cascGraph3 = cascadeGraph('Bridge ranks into each catalog');
+  const bridgeEdges = cascGraph3.edges.filter(e => e.to === 'bridges');
+  const outputNode = cascGraph3.nodes.find(n => n.id === 'output');
   yield {
-    state: cascadeGraph('Bridge ranks into each catalog'),
+    state: cascGraph3,
     highlight: { active: ['bridges', 'e-cat2-bridges', 'e-cat3-bridges'], found: ['output'], compare: ['cat1', 'cat2', 'cat3'] },
-    explanation: 'The bridges map the lower and upper y-bound positions into each associated y-list. Reporting then scans only the matching slice in each list.',
+    explanation: `The ${bridgeEdges.length} bridge edges map lower and upper y-bound positions into each associated y-list. Reporting then scans only the matching slice in each list to ${outputNode.note} points.`,
   };
 
+  const caseStudyRows = [
+    { id: 'data', label: 'static labels' },
+    { id: 'query', label: 'viewport' },
+    { id: 'x', label: 'x tree' },
+    { id: 'y', label: 'associated y' },
+  ];
+  const caseStudyCols = [
+    { id: 'role', label: 'role' },
+    { id: 'reason' },
+  ];
   yield {
     state: labelMatrix(
       'Complete case study: map label windows',
-      [
-        { id: 'data', label: 'static labels' },
-        { id: 'query', label: 'viewport' },
-        { id: 'x', label: 'x tree' },
-        { id: 'y', label: 'associated y' },
-      ],
-      [
-        { id: 'role', label: 'role' },
-        { id: 'reason' },
-      ],
+      caseStudyRows,
+      caseStudyCols,
       [
         ['points with priority', 'mostly static'],
         ['axis-aligned box', 'orthogonal query'],
@@ -204,7 +229,7 @@ function* fractionalCascading() {
       ],
     ),
     highlight: { active: ['query:role', 'x:reason', 'y:reason'], found: ['data:reason'] },
-    explanation: 'For static point layers, a range tree can report all labels in the viewport exactly. Dynamic map engines often choose R-trees or tiled indexes instead because updates and geometry predicates dominate.',
+    explanation: `For ${caseStudyRows[0].label}, a range tree decomposes the problem into ${caseStudyRows.length} layers (${caseStudyRows.map(r => r.label).join(', ')}) to report all labels in the viewport exactly. Dynamic map engines often choose R-trees instead because updates and geometry predicates dominate.`,
   };
 }
 
@@ -224,7 +249,8 @@ export const article = {
         {type: 'callout', text: 'A range tree wins by decomposing one coordinate into canonical subtrees, then using stored order in the other coordinate instead of scanning candidates.'},
         'Highlighted nodes in green are the reported points -- they survived both the x decomposition and the y filter. Nodes in orange are active search nodes. Compare-colored nodes are points that exist in the tree but fall outside the query rectangle on at least one coordinate. The query node at the bottom shows the rectangle bounds: x in [2,8], y in [3,7].',
         'The fractional cascading view shifts focus to the repeated y-search problem. Y1, Y2, and Y3 are associated y-catalogs from different canonical subtrees. The bridges node represents the rank pointers that let a single binary search propagate through all catalogs without repeating work. The animation routes through bridges before reaching the output node to show that cascading replaces O(log n) independent searches with O(1) lookups per catalog.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/range-tree-orthogonal-range-search.gif', alt: 'Animated walkthrough of the range tree orthogonal range search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

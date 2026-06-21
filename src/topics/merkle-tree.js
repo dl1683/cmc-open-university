@@ -136,7 +136,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: 'callout', text: 'A Merkle tree lets one trusted root stand for many blocks because every parent hash commits to its full subtree.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/merkle-tree.gif', alt: 'Animated walkthrough of the merkle tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

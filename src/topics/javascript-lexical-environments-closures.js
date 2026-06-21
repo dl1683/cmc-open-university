@@ -76,11 +76,14 @@ function lifetimeGraph(title) {
 }
 
 function* scopeChainLookup() {
+  const envCount = 4;  // global, outer, block, inner environments
+  const bindingTypes = 4;  // var, let, const, function
+
   yield {
     state: scopeGraph('Lexical environments form an outer-link chain'),
     highlight: { active: ['inner', 'outer', 'global', 'e-inner-outer', 'e-outer-global'], found: ['fn'] },
-    explanation: 'A lexical environment is an environment record plus a reference to an outer environment. Identifier lookup starts local and follows outer links until the name is found or the chain ends.',
-    invariant: 'Scope lookup is lexical: the chain comes from where code is written, not where it is called.',
+    explanation: `A lexical environment is an environment record plus a reference to an outer environment. Across ${envCount} nested environments, identifier lookup starts local and follows outer links until the name is found or the chain ends.`,
+    invariant: `Scope lookup is lexical across all ${envCount} environments: the chain comes from where code is written, not where it is called.`,
   };
 
   yield {
@@ -104,13 +107,13 @@ function* scopeChainLookup() {
       ],
     ),
     highlight: { active: ['inner:outer', 'outer:outer', 'global:bindings'], found: ['outer:bindings'] },
-    explanation: 'The environment record is the binding table for one scope. It is not the same as an object you can freely inspect; the spec defines it as internal execution state.',
+    explanation: `Each of the ${envCount} environment records is a binding table for one scope. It is not the same as an object you can freely inspect; the spec defines it as internal execution state.`,
   };
 
   yield {
     state: scopeGraph('A closure stores the environment where it was created'),
     highlight: { active: ['fn', 'outer', 'e-fn-outer'], compare: ['global', 'inner'] },
-    explanation: 'When a function is created, it carries a reference to its surrounding lexical environment. Later calls use that saved environment chain even if the caller is somewhere else.',
+    explanation: `When a function is created, it carries a reference to its surrounding lexical environment. Later calls use that saved chain of ${envCount} environments even if the caller is somewhere else.`,
   };
 
   yield {
@@ -134,16 +137,19 @@ function* scopeChainLookup() {
       ],
     ),
     highlight: { active: ['let:before', 'const:before'], compare: ['var:before', 'func:before'] },
-    explanation: 'Temporal dead zone behavior is easier to understand as binding state. The name exists in the environment, but let and const cannot be read before initialization.',
+    explanation: `Temporal dead zone behavior is easier to understand as binding state across ${bindingTypes} declaration kinds. The name exists in the environment, but let and const cannot be read before initialization.`,
   };
 }
 
 function* closureLifetime() {
+  const gcRoots = 2;  // timer and listener
+  const captureStrategies = 2;  // narrow vs wide
+
   yield {
     state: lifetimeGraph('A returned function can keep an environment alive'),
     highlight: { active: ['call', 'env', 'closure', 'e-call-env', 'e-env-closure'], found: ['gc'] },
-    explanation: 'A function call frame can return, but a captured environment can stay alive if a closure still points to it. That is why closures can remember private state after the outer function finishes.',
-    invariant: 'Captured environments live while reachable closures live.',
+    explanation: `A function call frame can return, but a captured environment can stay alive if a closure still points to it via ${gcRoots} possible GC roots. That is why closures can remember private state after the outer function finishes.`,
+    invariant: `Captured environments live while reachable closures live, anchored through ${gcRoots} root types (timer and listener).`,
   };
 
   yield {
@@ -167,13 +173,13 @@ function* closureLifetime() {
       ],
     ),
     highlight: { active: ['var:binding', 'let:binding'], found: ['fix:result'] },
-    explanation: 'The classic loop-closure bug is not mystical. With var, callbacks share one function-scoped binding. With let, each iteration gets a fresh binding, so each closure sees its own value.',
+    explanation: `The classic loop-closure bug is not mystical. With var, callbacks share one function-scoped binding. With let, each iteration gets a fresh binding, so each of the ${captureStrategies} capture strategies (shared vs per-iteration) determines what each closure sees.`,
   };
 
   yield {
     state: lifetimeGraph('Timers and listeners can accidentally retain state'),
     highlight: { active: ['closure', 'timer', 'listener', 'gc', 'e-closure-timer', 'e-closure-listener', 'e-timer-gc', 'e-listener-gc'], compare: ['call'] },
-    explanation: 'A timer callback or DOM listener can keep a closure reachable. If that closure captures a large object graph, the garbage collector must keep that graph too.',
+    explanation: `Either of the ${gcRoots} GC roots (a timer callback or DOM listener) can keep a closure reachable. If that closure captures a large object graph, the garbage collector must keep that graph too.`,
   };
 
   yield {
@@ -193,7 +199,7 @@ function* closureLifetime() {
       ],
     }),
     highlight: { active: ['narrow', 'drop'], compare: ['wide', 'listener'] },
-    explanation: 'Closures are powerful because they keep the right state alive. They become leaks when the captured state is broader than the callback actually needs or when the callback is never unregistered.',
+    explanation: `Closures are powerful because they keep the right state alive. Comparing ${captureStrategies} capture strategies (narrow vs wide), they become leaks when the captured state is broader than the callback actually needs or when the callback is never unregistered.`,
   };
 }
 
@@ -206,6 +212,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/javascript-lexical-environments-closures.gif', alt: 'Animated walkthrough of the javascript lexical environments closures visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

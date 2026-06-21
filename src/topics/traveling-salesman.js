@@ -235,7 +235,8 @@ export const article = {
         'In nearest-neighbor mode, watch the greedy chain grow one city at a time. The visited (dimmed) nodes are candidates that were passed over in favor of a closer city. When 2-opt runs afterward, compare highlights mark the two edges being tested for removal. If reconnecting the tour a different way is cheaper, the segment between them reverses and the tour cost drops.',
         'The key visual signal: crossing edges. Two tour edges that cross each other can always be uncrossed for a shorter path in Euclidean space. 2-opt finds and fixes exactly these crossings.',
         {type: 'callout', text: 'TSP is easy to state and hard to solve because the object is a cycle, not a path: one greedy edge can make the final return edge expensive.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/traveling-salesman.gif', alt: 'Animated walkthrough of the traveling salesman visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

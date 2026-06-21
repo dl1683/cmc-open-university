@@ -73,10 +73,14 @@ function astGraph(title) {
 }
 
 function* bindingPower() {
+  const expression = 'a + b * c';
+  const operators = ['+', '*'];
+  const tokenKinds = ['number', '-', '+', '*'];
+
   yield {
     state: parseGraph('Pratt parsing is a dispatch table plus a loop'),
     highlight: { active: ['tokens', 'prefix', 'infix', 'bp'], compare: ['ast'] },
-    explanation: 'A Pratt parser turns each token kind into parse functions. Prefix parselets handle tokens that start expressions. Infix parselets handle operators that extend a left expression. Binding power decides when the loop stops.',
+    explanation: `A Pratt parser turns each of ${tokenKinds.length} token kinds into parse functions. Prefix parselets handle tokens that start expressions like ${expression}. Infix parselets handle ${operators.length} operators that extend a left expression. Binding power decides when the loop stops.`,
   };
   yield {
     state: labelMatrix(
@@ -100,21 +104,24 @@ function* bindingPower() {
       ],
     ),
     highlight: { active: ['star:bp', 'plus:bp'], found: ['minus:prefix', 'minus:infix'] },
-    explanation: 'The table is the data structure. One token can have both prefix and infix behavior, as unary minus and binary minus do. Higher binding power lets * claim b and c before + finishes.',
+    explanation: `The table is the data structure for ${expression}. One token can have both prefix and infix behavior, as unary minus and binary minus do. Higher binding power lets * claim b and c before + finishes.`,
   };
   yield {
     state: parseGraph('The loop keeps consuming operators that bind tightly enough'),
     highlight: { active: ['bp', 'loop', 'ast', 'e-bp-loop', 'e-loop-ast'], found: ['infix'] },
-    explanation: 'parseExpression(minPower) parses a prefix expression, then repeatedly looks at the next token. If the next infix operator binds tighter than minPower, it consumes the operator and recursively parses the right side.',
-    invariant: 'Precedence is a numeric stop condition, not a pile of nested parser functions.',
+    explanation: `parseExpression(minPower) parses a prefix expression, then repeatedly looks at the next token. If the next infix operator among ${operators.length} operators binds tighter than minPower, it consumes the operator and recursively parses the right side.`,
+    invariant: `Precedence is a numeric stop condition across ${tokenKinds.length} token kinds, not a pile of nested parser functions.`,
   };
 }
 
 function* astConstruction() {
+  const expression = 'a + b * c';
+  const astResult = '+(a, *(b, c))';
+
   yield {
     state: astGraph('a + b * c becomes +(a, *(b, c))'),
     highlight: { found: ['plus', 'a', 'mul', 'b', 'c'], active: ['e-plus-a', 'e-plus-mul', 'e-mul-b', 'e-mul-c'] },
-    explanation: 'Because * has higher binding power than +, the right side of + becomes the subtree b * c. The AST records structure that the flat token stream did not make explicit.',
+    explanation: `Because * has higher binding power than +, ${expression} becomes ${astResult}. The AST records structure that the flat token stream did not make explicit.`,
   };
   yield {
     state: labelMatrix(
@@ -137,12 +144,12 @@ function* astConstruction() {
       ],
     ),
     highlight: { active: ['ast:stores', 'ir:use'], compare: ['bytecode:stores'] },
-    explanation: 'Crafting Interpreters compiles expressions directly toward bytecode. LLVM Kaleidoscope builds an AST and then emits LLVM IR. The same parsing structure can feed either path.',
+    explanation: `Crafting Interpreters compiles expressions like ${expression} directly toward bytecode. LLVM Kaleidoscope builds an AST like ${astResult} and then emits LLVM IR. The same parsing structure can feed either path.`,
   };
   yield {
     state: parseGraph('ASTs link to later compiler data structures'),
     highlight: { active: ['ast', 'emit', 'e-ast-emit'], found: ['tokens', 'bp'], compare: ['prefix', 'infix'] },
-    explanation: 'The AST is not the whole compiler. Control Flow Graph & Dominator Tree handles branches. Static Single Assignment & Phi Nodes handles values across joins. Linear Scan Register Allocation handles final machine registers.',
+    explanation: `The AST for ${expression} is not the whole compiler. Control Flow Graph & Dominator Tree handles branches. Static Single Assignment & Phi Nodes handles values across joins. Linear Scan Register Allocation handles final machine registers.`,
   };
 }
 
@@ -155,6 +162,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/pratt-parser-expression-ast.gif', alt: 'Animated walkthrough of the pratt parser expression ast visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

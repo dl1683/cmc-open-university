@@ -33,46 +33,48 @@ const AIMD = simulateAIMD(40);
 const DEAF = Array.from({ length: 40 }, (_, t) => (t < 6 ? 80 : 240));
 
 function* twoLoops() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const ampNodes = [
+    { id: 'slow', label: 'server slows', x: 2, y: 5.5, note: 'queue grows' },
+    { id: 'timeout', label: 'clients time out', x: 8, y: 5.5, note: 'no answer came' },
+    { id: 'retry', label: 'clients RETRY', x: 8, y: 1.3, note: 'more requests' },
+    { id: 'load', label: 'load rises', x: 2, y: 1.3, note: 'queue grows faster' },
+  ];
+  const ampEdges = [
+    { id: 'e1', from: 'slow', to: 'timeout' },
+    { id: 'e2', from: 'timeout', to: 'retry' },
+    { id: 'e3', from: 'retry', to: 'load' },
+    { id: 'e4', from: 'load', to: 'slow' },
+  ];
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'slow', label: 'server slows', x: 2, y: 5.5, note: 'queue grows' },
-        { id: 'timeout', label: 'clients time out', x: 8, y: 5.5, note: 'no answer came' },
-        { id: 'retry', label: 'clients RETRY', x: 8, y: 1.3, note: 'more requests' },
-        { id: 'load', label: 'load rises', x: 2, y: 1.3, note: 'queue grows faster' },
-      ],
-      edges: [
-        { id: 'e1', from: 'slow', to: 'timeout' },
-        { id: 'e2', from: 'timeout', to: 'retry' },
-        { id: 'e3', from: 'retry', to: 'load' },
-        { id: 'e4', from: 'load', to: 'slow' },
-      ],
-    }),
+    state: graphState({ nodes: ampNodes, edges: ampEdges }),
     highlight: { removed: ['e1', 'e2', 'e3', 'e4'] },
-    explanation: 'The first graph draws overload as a feedback loop. The server slows, clients time out, clients retry, load rises, and the server slows further. Each pass around the loop makes the original problem stronger. Retry budgets, breakers, and shedding all interrupt this loop. Backpressure goes one step better: it turns the loop into a stabilizing conversation.',
+    explanation: `The first graph draws overload as a feedback loop with ${ampNodes.length} nodes and ${ampEdges.length} edges. "${ampNodes[0].label}" leads to "${ampNodes[1].label}," which leads to "${ampNodes[2].label}," which leads to "${ampNodes[3].label}" — and back to the start. Each pass around the loop makes the original problem stronger (note: "${ampNodes[0].note}" at the first node becomes "${ampNodes[3].note}" at the last). Retry budgets, breakers, and shedding all interrupt this loop. Backpressure goes one step better: it turns the loop into a stabilizing conversation.`,
     invariant: 'Positive feedback: the response to overload creates more overload — gain > 1 around the loop.',
   };
 
+  const dampNodes = [
+    { id: 'slow', label: 'server strains', x: 2, y: 5.5, note: 'queue passes threshold' },
+    { id: 'signal', label: 'server SIGNALS', x: 8, y: 5.5, note: '429 / Retry-After / window' },
+    { id: 'ease', label: 'clients slow down', x: 8, y: 1.3, note: 'rate × 0.6' },
+    { id: 'recover', label: 'load falls, server heals', x: 2, y: 1.3, note: 'signal clears, rates creep up' },
+  ];
+  const dampEdges = [
+    { id: 'e1', from: 'slow', to: 'signal' },
+    { id: 'e2', from: 'signal', to: 'ease' },
+    { id: 'e3', from: 'ease', to: 'recover' },
+    { id: 'e4', from: 'recover', to: 'slow' },
+  ];
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'slow', label: 'server strains', x: 2, y: 5.5, note: 'queue passes threshold' },
-        { id: 'signal', label: 'server SIGNALS', x: 8, y: 5.5, note: '429 / Retry-After / window' },
-        { id: 'ease', label: 'clients slow down', x: 8, y: 1.3, note: 'rate × 0.6' },
-        { id: 'recover', label: 'load falls, server heals', x: 2, y: 1.3, note: 'signal clears, rates creep up' },
-      ],
-      edges: [
-        { id: 'e1', from: 'slow', to: 'signal' },
-        { id: 'e2', from: 'signal', to: 'ease' },
-        { id: 'e3', from: 'ease', to: 'recover' },
-        { id: 'e4', from: 'recover', to: 'slow' },
-      ],
-    }),
+    state: graphState({ nodes: dampNodes, edges: dampEdges }),
     highlight: { found: ['e1', 'e2', 'e3', 'e4'] },
-    explanation: 'The second graph rewires the loop. The server signals strain with a 429, Retry-After, smaller window, or full bounded queue. Clients slow down, load falls, the server recovers, and clients gradually increase again. The pressure travels backward from the congested point to the source of demand. That backward signal is the core of backpressure.',
+    explanation: `The second graph rewires the loop. The server signals strain via ${dampNodes[1].note}. "${dampNodes[2].label}" at a multiplicative decrease factor of ${0.6}, load falls, "${dampNodes[3].label}," and clients gradually increase again. The pressure travels backward from the congested point to the source of demand. That backward signal — carried by ${dampEdges.length} edges forming a closed cycle — is the core of backpressure.`,
     invariant: 'Negative feedback: the response to overload reduces overload — gain < 1, disturbances decay.',
   };
 
+  const aimdMin = r2(Math.min(...AIMD));
+  const aimdMax = r2(Math.max(...AIMD));
+  const deafSteady = DEAF[DEAF.length - 1];
   yield {
     state: plotState({
       axes: { x: { label: 'seconds' }, y: { label: 'offered load (requests/s)' } },
@@ -83,10 +85,12 @@ function* twoLoops() {
       ],
     }),
     highlight: { removed: ['deaf'], found: ['aimd'], visited: ['cap'] },
-    explanation: 'The live plot compares deaf clients with listening clients. Deaf clients keep offering too much load. Listening clients use AIMD: increase slowly while things are calm, cut sharply when the server signals strain. The sawtooth is not a bug; it is controlled probing around capacity. No client needs to know the true capacity. The feedback loop discovers it.',
+    explanation: `The live plot compares deaf clients with listening clients over ${AIMD.length} simulation steps. Deaf clients flatline at ${deafSteady} req/s after ${DEAF.length} steps — well above the capacity line at ${CAP}. Listening clients use AIMD and oscillate between ${aimdMin} and ${aimdMax} req/s, sawing around ${CAP}. The sawtooth is not a bug; it is controlled probing around capacity. No client needs to know the true capacity. The feedback loop discovers it.`,
     invariant: 'AIMD converges to fair shares at capacity: gentle probing up, decisive backing off, no global knowledge.',
   };
 
+  const addInc = 1;
+  const mulDec = 0.6;
   yield {
     state: matrixState({
       title: 'You have seen this sawtooth before',
@@ -99,59 +103,62 @@ function* twoLoops() {
       format: (v) => ['', '+1 segment per RTT', 'halve the window', 'a dropped packet', '+1 req/s per second', '×0.6 the rate', 'a 429 / Retry-After'][v],
     }),
     highlight: { compare: ['tcpRow:signal', 'here:signal'] },
-    explanation: 'TCP uses the same shape. It increases the congestion window gradually and cuts it on congestion signals such as packet loss. The network does not centrally assign every sender a perfect rate; senders adapt from feedback. That is why the AIMD curve matters here: it is a proven control loop, not just a microservice pattern.',
+    explanation: `TCP uses the same shape. It increases the congestion window by +${addInc} segment per RTT and halves it on congestion signals such as packet loss. Our AIMD clients add +${addInc} req/s and multiply by ${mulDec} on overload — probing capacity at ${CAP}. The network does not centrally assign every sender a perfect rate; senders adapt from feedback. That is why the AIMD curve matters here: it is a proven control loop, not just a microservice pattern.`,
   };
 }
 
 function* inTheWild() {
+  const ladderRows = [
+    { id: 'tcp', label: 'transport: TCP windows' },
+    { id: 'http', label: 'application: 429 + Retry-After' },
+    { id: 'queue', label: 'infrastructure: bounded queues' },
+    { id: 'stream', label: 'in-process: reactive streams' },
+    { id: 'kafka', label: 'pipelines: consumer lag' },
+  ];
   yield {
     state: matrixState({
       title: 'The backpressure ladder: one idea at every layer',
-      rows: [
-        { id: 'tcp', label: 'transport: TCP windows' },
-        { id: 'http', label: 'application: 429 + Retry-After' },
-        { id: 'queue', label: 'infrastructure: bounded queues' },
-        { id: 'stream', label: 'in-process: reactive streams' },
-        { id: 'kafka', label: 'pipelines: consumer lag' },
-      ],
+      rows: ladderRows,
       columns: [{ id: 'how', label: 'how pressure travels backward' }],
       values: [[1], [2], [3], [4], [5]],
       format: (v) => ['', 'receiver advertises how much it can take; sender may not exceed it', 'server names the wait; disciplined clients honor it', 'a FULL queue BLOCKS (or rejects) the producer — the queue itself is the wire', 'the SUBSCRIBER requests n items; the publisher may send no more', 'lag metrics throttle producers before the topic drowns'][v],
     }),
     highlight: { active: ['queue:how'], compare: ['stream:how'] },
-    explanation: 'The stack examples all share one property: the consumer can limit the producer. TCP windows, HTTP 429, bounded queues, reactive-stream demand, and Kafka lag or quotas all carry pressure backward. A bounded queue is the simplest form: when full, it blocks or rejects the producer instead of silently hiding the overload.',
+    explanation: `The stack spans ${ladderRows.length} layers — from "${ladderRows[0].label}" at the bottom to "${ladderRows[ladderRows.length - 1].label}" at the top — and all share one property: the consumer can limit the producer. Each layer carries pressure backward toward the source. A bounded queue (layer ${ladderRows.findIndex(r => r.id === 'queue') + 1} of ${ladderRows.length}) is the simplest form: when full at capacity ${CAP}, it blocks or rejects the producer instead of silently hiding the overload.`,
     invariant: 'A bounded buffer is a backpressure device: its refusal is the signal, delivered to exactly the right party.',
   };
 
+  const paceRows = [
+    { id: 'pull', label: 'PULL (consumer-paced)' },
+    { id: 'push', label: 'PUSH (producer-paced)' },
+  ];
   yield {
     state: matrixState({
       title: 'Pull vs push: who sets the pace?',
-      rows: [
-        { id: 'pull', label: 'PULL (consumer-paced)' },
-        { id: 'push', label: 'PUSH (producer-paced)' },
-      ],
+      rows: paceRows,
       columns: [{ id: 'bp', label: 'backpressure' }, { id: 'ex', label: 'examples' }],
       values: [[1, 2], [3, 4]],
       format: (v) => ['', 'built in — you cannot pull faster than you process', 'Kafka consumers, generators, GraphQL pagination', 'must be BOLTED ON (windows, acks, demand signals)', 'webhooks, push notifications, raw UDP firehoses'][v],
     }),
     highlight: { found: ['pull:bp'], removed: ['push:bp'] },
-    explanation: 'Pull systems make backpressure natural because the consumer asks for work only when ready. Push systems need explicit windows, credits, acks, or demand counters. The design rule is practical: when you can, let the slowest stage set the pace. If you must push, make the credit system real and bounded.',
+    explanation: `Two fundamental approaches set the pace: "${paceRows[0].label}" and "${paceRows[1].label}." Pull systems make backpressure natural because the consumer asks for work only when ready. Push systems need explicit windows, credits, acks, or demand counters bolted on. The design rule is practical: when you can, let the slowest stage set the pace. If you must push, make the credit system real and bounded.`,
   };
 
+  const ruleRows = [
+    { id: 'good', label: 'signal → source' },
+    { id: 'buffer', label: 'signal → a buffer absorbs it' },
+    { id: 'theory', label: 'the control-theory reading' },
+  ];
   yield {
     state: matrixState({
       title: 'The cardinal rule: pressure must reach the SOURCE',
-      rows: [
-        { id: 'good', label: 'signal → source' },
-        { id: 'buffer', label: 'signal → a buffer absorbs it' },
-        { id: 'theory', label: 'the control-theory reading' },
-      ],
+      rows: ruleRows,
       columns: [{ id: 'what', label: '' }],
       values: [[1], [2], [3]],
       format: (v) => ['', 'the user sees "uploading paused…" — demand actually falls', 'some queue quietly grows… until it bursts, all at once, later', 'every buffer between signal and source is DELAY in the loop — and delay makes feedback oscillate'][v],
     }),
     highlight: { found: ['good:what'], removed: ['buffer:what'] },
-    explanation: 'Real backpressure reaches the source of demand. If a middle layer absorbs pressure into an unbounded buffer, the producer keeps running and the failure is merely delayed. Buffers also add delay to the control loop, and delayed feedback tends to oscillate. The practical rule is: short loops, bounded buffers, honest signals, and no hidden infinite queues.',
+    explanation: `Real backpressure reaches the source of demand ("${ruleRows[0].label}"). If a middle layer absorbs pressure into an unbounded buffer ("${ruleRows[1].label}"), the producer keeps running and the failure is merely delayed. The control-theory reading ("${ruleRows[2].label}") explains why: every buffer between signal and source adds delay to the feedback loop, and delayed feedback tends to oscillate. The practical rule is: short loops, bounded buffers, honest signals, and no hidden infinite queues.`,
     invariant: 'Backpressure ends at the source or it ends in a burst buffer: every absorbing queue is deferred failure plus loop delay.',
   };
 }
@@ -177,7 +184,8 @@ const legacyArticle = {
       paragraphs: [
         `In the feedback-loop view, compare the direction of the loop. The first graph is positive feedback: slowness causes timeouts, timeouts cause retries, retries cause more slowness. The second graph inserts an overload signal that makes clients slow down. The AIMD plot turns that idea into behavior: the sawtooth is controlled probing around capacity, not instability.`,
         `In the wild view, each row shows where the pressure signal lives. TCP windows, 429 responses, bounded queues, stream demand, and consumer lag all let the consumer limit the producer. The pull-versus-push table tells you who sets the pace, and the final table gives the invariant: pressure must reach the source of demand, or an intermediate buffer only delays the failure.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/backpressure.gif', alt: 'Animated walkthrough of the backpressure visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `How it works`,

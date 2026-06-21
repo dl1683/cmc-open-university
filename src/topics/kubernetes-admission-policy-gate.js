@@ -89,40 +89,51 @@ function celGraph(title) {
 }
 
 function* admissionChain() {
+  const phases = ['authn', 'authz', 'mutate', 'schema', 'vap', 'webhook', 'audit', 'persist'];
+  const preAdmissionSteps = ['client', 'authn', 'authz'];
+  const compareTargets = ['mutate', 'persist'];
   yield {
     state: admissionGraph('Admission handles write requests after authn and authz'),
-    highlight: { active: ['client', 'authn', 'authz', 'e-client-authn', 'e-authn-authz'], compare: ['mutate', 'persist'] },
-    explanation: 'Admission is the last write gate before cluster state changes. The request has already passed authentication and authorization, but it has not reached etcd yet. Reads do not pass through this path.',
+    highlight: { active: ['client', 'authn', 'authz', 'e-client-authn', 'e-authn-authz'], compare: compareTargets },
+    explanation: `Admission is the last write gate before cluster state changes, spanning ${phases.length} phases from authentication to persistence. The request has already passed ${preAdmissionSteps.slice(1).join(' and ')} (${preAdmissionSteps.length - 1} steps), but it has not reached etcd yet. Reads do not pass through this path.`,
   };
+  const mutatingActive = ['authz', 'mutate', 'schema'];
+  const validationMethods = ['vap', 'webhook'];
   yield {
     state: admissionGraph('Mutating admission changes the object before validation'),
-    highlight: { active: ['authz', 'mutate', 'schema', 'e-authz-mutate', 'e-mutate-schema'], compare: ['vap', 'webhook'] },
-    explanation: 'Mutating admission can add defaults or patches, but it is the wrong place for final safety decisions. Because later mutation may change the object, policy that must see final state belongs in validation.',
+    highlight: { active: ['authz', 'mutate', 'schema', 'e-authz-mutate', 'e-mutate-schema'], compare: validationMethods },
+    explanation: `Mutating admission (${mutatingActive[1]}) can add defaults or patches, but it is the wrong place for final safety decisions. Because later mutation may change the object, policy that must see final state belongs in one of the ${validationMethods.length} validation methods: ${validationMethods.join(' or ')}.`,
     invariant: 'Validate the final object, not an earlier draft.',
   };
+  const validatorNodes = ['vap', 'webhook'];
+  const validatorLabels = { vap: 'ValidatingAdmissionPolicy (CEL, in-process)', webhook: 'Validating webhook (HTTP, external)' };
   yield {
     state: admissionGraph('Validation can be in-process CEL or external webhook'),
     highlight: { active: ['schema', 'vap', 'webhook', 'e-schema-vap', 'e-schema-webhook'], found: ['audit'] },
-    explanation: 'ValidatingAdmissionPolicy evaluates CEL expressions inside the API server. Validating webhooks call an HTTP service. Both can reject the request before persistence.',
+    explanation: `${validatorLabels[validatorNodes[0]]} evaluates CEL expressions inside the API server. ${validatorLabels[validatorNodes[1]]} calls an HTTP service. Both ${validatorNodes.length} validators can reject the request before persistence.`,
   };
+  const decisionFields = ['request', 'policy version', 'action', 'message', 'audit annotation'];
+  const rejectionActive = ['vap', 'webhook', 'audit'];
   yield {
     state: admissionGraph('A rejection stops persistence and returns an error'),
     highlight: { active: ['vap', 'webhook', 'audit', 'e-vap-audit', 'e-webhook-audit'], removed: ['persist'] },
-    explanation: 'If any admission controller rejects the request, the write is rejected. The useful data structure is a decision record: request, policy version, action, message, and audit annotation.',
+    explanation: `If any of the ${rejectionActive.length} active admission stages (${rejectionActive.join(', ')}) rejects the request, the write is blocked. The useful data structure is a decision record with ${decisionFields.length} fields: ${decisionFields.join(', ')}.`,
   };
+  const matrixRows = [
+    { id: 'mutate', label: 'mutate' },
+    { id: 'schema', label: 'schema' },
+    { id: 'vap', label: 'VAP/CEL' },
+    { id: 'webhook', label: 'webhook' },
+  ];
+  const matrixCols = [
+    { id: 'good', label: 'good for' },
+    { id: 'hazard', label: 'hazard' },
+  ];
   yield {
     state: labelMatrix(
       'Admission phase choices',
-      [
-        { id: 'mutate', label: 'mutate' },
-        { id: 'schema', label: 'schema' },
-        { id: 'vap', label: 'VAP/CEL' },
-        { id: 'webhook', label: 'webhook' },
-      ],
-      [
-        { id: 'good', label: 'good for' },
-        { id: 'hazard', label: 'hazard' },
-      ],
+      matrixRows,
+      matrixCols,
       [
         ['defaults', 'side effects'],
         ['API shape', 'not business policy'],
@@ -131,46 +142,56 @@ function* admissionChain() {
       ],
     ),
     highlight: { active: ['vap:good', 'webhook:good'], compare: ['mutate:hazard', 'webhook:hazard'] },
-    explanation: 'A strong design separates cheap structural checks, in-process policy, and expensive external verification. The failure mode is a webhook that turns every write into a slow or fragile control-plane dependency.',
+    explanation: `A strong design separates ${matrixRows.length} admission phases across ${matrixCols.length} dimensions (${matrixCols.map(c => c.label).join(' vs. ')}). The failure mode is ${matrixRows[matrixRows.length - 1].label}, which turns every write into a slow or fragile control-plane dependency.`,
   };
 }
 
 function* celPolicyBinding() {
+  const policyInputs = ['policy', 'request'];
+  const celEvalOutcome = ['true', 'false'];
   yield {
     state: celGraph('A ValidatingAdmissionPolicy contains abstract logic'),
     highlight: { active: ['policy', 'request', 'cel', 'e-policy-cel', 'e-request-cel'], compare: ['binding'] },
-    explanation: 'ValidatingAdmissionPolicy stores CEL expressions. The expression evaluates the admission object and returns true or false for each validation.',
+    explanation: `ValidatingAdmissionPolicy stores CEL expressions fed by ${policyInputs.length} inputs (${policyInputs.join(' and ')}). Each expression evaluates the admission object and returns one of ${celEvalOutcome.length} outcomes: ${celEvalOutcome.join(' or ')}.`,
   };
+  const actions = ['Deny', 'Warn', 'Audit'];
+  const bindingActive = ['binding', 'cel', 'warn', 'audit', 'deny'];
   yield {
     state: celGraph('A binding gives the policy scope and action'),
     highlight: { active: ['binding', 'cel', 'warn', 'audit', 'deny', 'e-binding-cel', 'e-cel-warn', 'e-cel-audit', 'e-cel-deny'], compare: ['params'] },
-    explanation: 'A binding connects policy logic to resources and declares validation actions. Kubernetes supports Deny, Warn, and Audit actions for validation failures.',
+    explanation: `A binding connects policy logic to resources and declares validation actions across ${bindingActive.length} active nodes. Kubernetes supports ${actions.length} actions for validation failures: ${actions.join(', ')}.`,
   };
+  const paramExamples = ['namespace', 'owner', 'image registry', 'label', 'limit'];
+  const foundResources = ['policy', 'binding'];
   yield {
     state: celGraph('Parameter resources turn generic policy into cluster policy'),
-    highlight: { active: ['params', 'cel', 'e-params-cel'], found: ['policy', 'binding'] },
-    explanation: 'Parameter resources let cluster administrators reuse one policy template with different namespace, owner, image registry, label, or limit settings.',
+    highlight: { active: ['params', 'cel', 'e-params-cel'], found: foundResources },
+    explanation: `Parameter resources let cluster administrators reuse one policy template across ${paramExamples.length} configuration dimensions (${paramExamples.join(', ')}), with ${foundResources.join(' and ')} already established.`,
   };
+  const externalChecks = ['Signature', 'SLSA provenance', 'Rekor inclusion'];
+  const supplyChainActive = ['image', 'deny', 'audit'];
   yield {
     state: celGraph('Supply-chain gates often need a webhook or sidecar verifier'),
     highlight: { active: ['image', 'deny', 'audit', 'e-deny-image', 'e-audit-image'], compare: ['cel'] },
-    explanation: 'CEL is strong for fields already in the Kubernetes object. Signature, SLSA provenance, and Rekor inclusion checks usually require external artifact lookups or a controller-maintained cache.',
+    explanation: `CEL is strong for fields already in the Kubernetes object, but ${externalChecks.length} supply-chain checks (${externalChecks.join(', ')}) usually require external artifact lookups or a controller-maintained cache. The ${supplyChainActive.length} active nodes (${supplyChainActive.join(', ')}) show the downstream path after CEL.`,
     invariant: 'Put network-heavy verification behind bounded caches and clear failure policy.',
   };
+  const imageChecks = [
+    { id: 'digest', label: 'digest pin' },
+    { id: 'sig', label: 'signature' },
+    { id: 'slsa', label: 'SLSA level' },
+    { id: 'identity', label: 'identity' },
+    { id: 'runtime', label: 'runtime' },
+  ];
+  const imageCols = [
+    { id: 'check', label: 'check' },
+    { id: 'source', label: 'source' },
+  ];
   yield {
     state: labelMatrix(
       'Image admission case study',
-      [
-        { id: 'digest', label: 'digest pin' },
-        { id: 'sig', label: 'signature' },
-        { id: 'slsa', label: 'SLSA level' },
-        { id: 'identity', label: 'identity' },
-        { id: 'runtime', label: 'runtime' },
-      ],
-      [
-        { id: 'check', label: 'check' },
-        { id: 'source', label: 'source' },
-      ],
+      imageChecks,
+      imageCols,
       [
         ['image@sha256', 'object field'],
         ['valid Sigstore', 'verifier cache'],
@@ -180,7 +201,7 @@ function* celPolicyBinding() {
       ],
     ),
     highlight: { active: ['digest:check', 'runtime:check'], found: ['sig:check', 'slsa:check', 'identity:check'] },
-    explanation: 'A complete image gate combines object fields with external evidence: digest pinning, signature verification, provenance level, signing identity, and runtime security profile.',
+    explanation: `A complete image gate combines ${imageChecks.length} checks across ${imageCols.length} dimensions (${imageCols.map(c => c.label).join(' and ')}): ${imageChecks.map(c => c.label).join(', ')}.`,
   };
 }
 
@@ -203,7 +224,8 @@ export const article = {
         },
         'The "CEL policy binding" view shows how a ValidatingAdmissionPolicy object, a binding, parameter resources, and the incoming request feed into the CEL evaluator, which produces Warn, Audit, or Deny outcomes. The supply-chain gate at the end highlights where CEL stops and external verification begins.',
         'In both views, removed markers mean persistence was blocked. Found markers mean a decision outcome is now determined. Follow the edges to see which inputs feed each decision point.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/kubernetes-admission-policy-gate.gif', alt: 'Animated walkthrough of the kubernetes admission policy gate visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -1,4 +1,4 @@
-﻿// Bulkheads: a ship survives a breach because the hull is compartmentalized
+// Bulkheads: a ship survives a breach because the hull is compartmentalized
 // — flooding stays in one chamber. A service survives a sick dependency the
 // same way: give each dependency its OWN pool, and doom stops spreading.
 
@@ -16,127 +16,155 @@ export const topic = {
 };
 
 function* sharedDoom() {
+  const nodes = [
+    { id: 'pool', label: 'SERVICE B — one pool, 200 threads', x: 4.5, y: 3.5, note: 'serves ALL three dependencies' },
+    { id: 'pay', label: 'payments', x: 8.7, y: 5.8, note: 'healthy, 30ms' },
+    { id: 'search', label: 'search', x: 8.7, y: 3.5, note: 'healthy, 50ms' },
+    { id: 'recs', label: 'recommendations', x: 8.7, y: 1.2, note: 'SICK: 30s hangs' },
+  ];
+  const edges = [
+    { id: 'ep', from: 'pool', to: 'pay' },
+    { id: 'es', from: 'pool', to: 'search' },
+    { id: 'er', from: 'pool', to: 'recs' },
+  ];
+  const depNodes = nodes.slice(1);
+  const poolSize = 200;
+  const sickRate = 20;
+  const hangTime = 30;
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'pool', label: 'SERVICE B — one pool, 200 threads', x: 4.5, y: 3.5, note: 'serves ALL three dependencies' },
-        { id: 'pay', label: 'payments', x: 8.7, y: 5.8, note: 'healthy, 30ms' },
-        { id: 'search', label: 'search', x: 8.7, y: 3.5, note: 'healthy, 50ms' },
-        { id: 'recs', label: 'recommendations', x: 8.7, y: 1.2, note: 'SICK: 30s hangs' },
-      ],
-      edges: [
-        { id: 'ep', from: 'pool', to: 'pay' },
-        { id: 'es', from: 'pool', to: 'search' },
-        { id: 'er', from: 'pool', to: 'recs' },
-      ],
-    }),
-    highlight: { removed: ['recs', 'er'], active: ['pool'] },
-    explanation: 'The shared pool is the bug. Payments, search, and recommendations all borrow from the same 200 threads. When recommendations starts hanging for 30 seconds, each recommendation call holds one of those threads. At 20 calls per second, demand for held threads quickly exceeds the whole pool. The decorative dependency can now starve the critical path because there is no wall between them.',
-    invariant: 'A shared pool makes every dependency a creditor on the same account: one default bankrupts all.',
+    state: graphState({ nodes, edges }),
+    highlight: { removed: [nodes[3].id, edges[2].id], active: [nodes[0].id] },
+    explanation: `The shared pool is the bug. ${depNodes.map(n => n.label).join(', ')} all borrow from the same ${poolSize} threads. When ${nodes[3].label} starts hanging for ${hangTime} seconds, each recommendation call holds one of those threads. At ${sickRate} calls per second, demand for held threads quickly exceeds the whole pool. The decorative dependency can now starve the critical path because there is no wall between them.`,
+    invariant: `A shared pool makes every dependency a creditor on the same account: one default bankrupts all ${depNodes.length} consumers.`,
   };
 
+  const casualtyRows = [
+    { id: 'recs', label: 'recommendations (the sick one)' },
+    { id: 'pay', label: 'payments (perfectly healthy)' },
+    { id: 'search', label: 'search (perfectly healthy)' },
+  ];
+  const casualtyCols = [{ id: 'threads', label: 'threads held' }, { id: 'status', label: 'user-visible status' }];
+  const casualtyVals = [[poolSize, 1], [0, 2], [0, 2]];
+  const casualtyTitle = 'Ten seconds later: who actually died?';
   yield {
     state: matrixState({
-      title: 'Ten seconds later: who actually died?',
-      rows: [
-        { id: 'recs', label: 'recommendations (the sick one)' },
-        { id: 'pay', label: 'payments (perfectly healthy)' },
-        { id: 'search', label: 'search (perfectly healthy)' },
-      ],
-      columns: [{ id: 'threads', label: 'threads held' }, { id: 'status', label: 'user-visible status' }],
-      values: [[200, 1], [0, 2], [0, 2]],
-      format: (v) => (v === 1 ? 'degraded — expected' : v === 2 ? 'DOWN — collateral damage âš ' : `${v}/200`),
+      title: casualtyTitle,
+      rows: casualtyRows,
+      columns: casualtyCols,
+      values: casualtyVals,
+      format: (v) => (v === 1 ? 'degraded — expected' : v === 2 ? 'DOWN — collateral damage âš ' : `${v}/${poolSize}`),
     }),
-    highlight: { removed: ['pay:status', 'search:status'], compare: ['recs:threads'] },
-    explanation: 'The casualty report is the point of the pattern. Recommendations is sick, but payments and search are healthy. In a shared pool, healthy work still cannot get a worker because sick work is holding all of them. A survivable feature outage becomes a site outage. Bulkheads exist to make "what failed?" match "what users lost."',
+    highlight: { removed: [`${casualtyRows[1].id}:${casualtyCols[1].id}`, `${casualtyRows[2].id}:${casualtyCols[1].id}`], compare: [`${casualtyRows[0].id}:${casualtyCols[0].id}`] },
+    explanation: `The casualty report is the point of the pattern. ${casualtyRows[0].label} is sick, but ${casualtyRows[1].id} and ${casualtyRows[2].id} are healthy. In a shared pool, healthy work still cannot get a worker because sick work is holding all ${casualtyVals[0][0]} of them. A survivable feature outage becomes a site outage. Bulkheads exist to make "what failed?" match "what users lost."`,
   };
 
+  const drownRows = [
+    { id: 's0', label: 't = 0s' },
+    { id: 's2', label: 't = 2s' },
+    { id: 's5', label: 't = 5s' },
+    { id: 's10', label: 't = 10s' },
+  ];
+  const drownCols = [{ id: 'held', label: 'threads held by recs' }, { id: 'free', label: 'free for everyone else' }];
+  const drownVals = [[0, poolSize], [40, 160], [100, 100], [poolSize, 0]];
+  const drownTitle = `The drowning, second by second (${sickRate} sick calls/s, ${hangTime}s holds)`;
   yield {
     state: matrixState({
-      title: 'The drowning, second by second (20 sick calls/s, 30s holds)',
-      rows: [
-        { id: 's0', label: 't = 0s' },
-        { id: 's2', label: 't = 2s' },
-        { id: 's5', label: 't = 5s' },
-        { id: 's10', label: 't = 10s' },
-      ],
-      columns: [{ id: 'held', label: 'threads held by recs' }, { id: 'free', label: 'free for everyone else' }],
-      values: [[0, 200], [40, 160], [100, 100], [200, 0]],
+      title: drownTitle,
+      rows: drownRows,
+      columns: drownCols,
+      values: drownVals,
       format: (v) => String(v),
     }),
-    highlight: { removed: ['s10:free'], compare: ['s0:free'] },
-    explanation: 'The stopwatch makes the failure mechanical. If 20 calls per second enter a dependency and none return for 30 seconds, the held-thread count climbs by 20 every second. More threads only delays the empty-pool moment; it does not change the slope. Because the threads are waiting, not computing, faster CPUs do not help. You need containment, fast failure, or both.',
-    invariant: 'Held threads grow at (arrival rate) per second until holds release or the pool empties — whichever comes first.',
+    highlight: { removed: [`${drownRows[3].id}:${drownCols[1].id}`], compare: [`${drownRows[0].id}:${drownCols[1].id}`] },
+    explanation: `The stopwatch makes the failure mechanical. If ${sickRate} calls per second enter a dependency and none return for ${hangTime} seconds, the held-thread count climbs by ${drownVals[1][0]} every second. More threads only delays the empty-pool moment; it does not change the slope. Because the threads are waiting, not computing, faster CPUs do not help. You need containment, fast failure, or both.`,
+    invariant: `Held threads grow at ${drownVals[1][0]} per second until holds release or the pool empties at ${drownVals[3][0]} — whichever comes first.`,
   };
 }
 
 function* compartments() {
+  const compRows = [
+    { id: 'pay', label: 'payments pool' },
+    { id: 'search', label: 'search pool' },
+    { id: 'recs', label: 'recommendations pool' },
+  ];
+  const compCols = [{ id: 'size', label: 'pool size' }, { id: 'sick', label: 'when recs sickens…' }];
+  const compVals = [[80, 1], [80, 1], [40, 2]];
+  const totalThreads = compVals.reduce((sum, row) => sum + row[0], 0);
+  const compTitle = `The same ${totalThreads} threads, bulkheaded per dependency`;
   yield {
     state: matrixState({
-      title: 'The same 200 threads, bulkheaded per dependency',
-      rows: [
-        { id: 'pay', label: 'payments pool' },
-        { id: 'search', label: 'search pool' },
-        { id: 'recs', label: 'recommendations pool' },
-      ],
-      columns: [{ id: 'size', label: 'pool size' }, { id: 'sick', label: 'when recs sickens…' }],
-      values: [[80, 1], [80, 1], [40, 2]],
-      format: (v) => (v === 1 ? 'untouched — full speed' : v === 2 ? 'saturates at 40, fails fast' : `${v} threads`),
+      title: compTitle,
+      rows: compRows,
+      columns: compCols,
+      values: compVals,
+      format: (v) => (v === 1 ? 'untouched — full speed' : v === 2 ? `saturates at ${compVals[2][0]}, fails fast` : `${v} threads`),
     }),
-    highlight: { found: ['pay:sick', 'search:sick'], removed: ['recs:sick'] },
-    explanation: 'Now the same 200 threads are divided by dependency. Recommendations can fill its 40-thread compartment, but it cannot borrow the 80 reserved for payments or the 80 reserved for search. The blast radius is no longer discovered during the outage; it is configured ahead of time. A full compartment should fail fast or trigger a breaker, not spill into neighbors.',
-    invariant: 'A bulkhead converts "how bad can it get?" from a discovery into a configuration: blast radius = pool size.',
+    highlight: { found: [`${compRows[0].id}:${compCols[1].id}`, `${compRows[1].id}:${compCols[1].id}`], removed: [`${compRows[2].id}:${compCols[1].id}`] },
+    explanation: `Now the same ${totalThreads} threads are divided by dependency. ${compRows[2].label} can fill its ${compVals[2][0]}-thread compartment, but it cannot borrow the ${compVals[0][0]} reserved for ${compRows[0].id} or the ${compVals[1][0]} reserved for ${compRows[1].id}. The blast radius is no longer discovered during the outage; it is configured ahead of time. A full compartment should fail fast or trigger a breaker, not spill into neighbors.`,
+    invariant: `A bulkhead converts "how bad can it get?" from a discovery into a configuration: blast radius = ${compCols[0].label}.`,
   };
 
+  const lawRows = [
+    { id: 'law', label: 'the law' },
+    { id: 'pay', label: 'payments: 200 rps × 0.05s' },
+    { id: 'search', label: 'search: 300 rps × 0.08s' },
+    { id: 'recs', label: 'recs: 20 rps × 0.4s (p99!)' },
+  ];
+  const lawCols = [{ id: 'calc', label: '' }];
+  const lawVals = [[1], [2], [3], [4]];
+  const lawFormatEntries = ['', 'threads needed ≈ arrival rate × time held (L = λ·W)', '= 10 busy threads → pool of 80 covers spikes', '= 24 busy → 80 gives 3× headroom', '= 8 busy at p99 → 40 caps the worst case'];
   yield {
     state: matrixState({
       title: 'Sizing the compartments: Little\'s Law does the math',
-      rows: [
-        { id: 'law', label: 'the law' },
-        { id: 'pay', label: 'payments: 200 rps Ã— 0.05s' },
-        { id: 'search', label: 'search: 300 rps Ã— 0.08s' },
-        { id: 'recs', label: 'recs: 20 rps Ã— 0.4s (p99!)' },
-      ],
-      columns: [{ id: 'calc', label: '' }],
-      values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'threads needed â‰ˆ arrival rate Ã— time held (L = λÂ·W)', '= 10 busy threads â†’ pool of 80 covers spikes', '= 24 busy â†’ 80 gives 3Ã— headroom', '= 8 busy at p99 â†’ 40 caps the worst case'][v],
+      rows: lawRows,
+      columns: lawCols,
+      values: lawVals,
+      format: (v) => lawFormatEntries[v],
     }),
-    highlight: { active: ['law:calc'] },
-    explanation: 'Sizing is not guesswork. Little\'s Law says concurrency demand is roughly arrival rate times time held. Payments at 200 rps and 50ms needs about 10 busy threads on average, then you add headroom. Use tail latency for the hold time, not only the mean, because the compartment matters most during bad days. Too small rejects normal traffic; too large lets one dependency consume the shared budget again.',
-    invariant: 'L = λÂ·W: pool demand equals arrival rate times hold time — size compartments against the p99 W.',
+    highlight: { active: [`${lawRows[0].id}:${lawCols[0].id}`] },
+    explanation: `Sizing is not guesswork. Little's Law says concurrency demand is roughly arrival rate times time held. ${lawRows[1].label} needs about 10 busy threads on average, then you add headroom. Use tail latency for the hold time, not only the mean, because the compartment matters most during bad days. Too small rejects normal traffic; too large lets one dependency consume the shared budget again.`,
+    invariant: `L = λ·W: pool demand equals arrival rate times hold time — size compartments against the p99 W, as shown for ${lawRows.length - 1} dependencies.`,
   };
 
+  const realRows = [
+    { id: 'conn', label: 'database connection pools' },
+    { id: 'sema', label: 'semaphores / async limits' },
+    { id: 'cgroup', label: 'containers & cgroups' },
+    { id: 'cluster', label: 'cell-based architecture' },
+  ];
+  const realCols = [{ id: 'how', label: 'the compartment' }];
+  const realVals = [[1], [2], [3], [4]];
+  const realFormatEntries = ['', 'per-service connection caps — one chatty app can\'t starve the DB', 'max concurrent calls per dependency, no threads needed', 'CPU/memory limits per container — a leak stays in its box', 'whole user-shards isolated: an outage hits one cell, not all'];
   yield {
     state: matrixState({
       title: 'Bulkheads you already run (maybe without the name)',
-      rows: [
-        { id: 'conn', label: 'database connection pools' },
-        { id: 'sema', label: 'semaphores / async limits' },
-        { id: 'cgroup', label: 'containers & cgroups' },
-        { id: 'cluster', label: 'cell-based architecture' },
-      ],
-      columns: [{ id: 'how', label: 'the compartment' }],
-      values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'per-service connection caps — one chatty app can\'t starve the DB', 'max concurrent calls per dependency, no threads needed', 'CPU/memory limits per container — a leak stays in its box', 'whole user-shards isolated: an outage hits one cell, not all'][v],
+      rows: realRows,
+      columns: realCols,
+      values: realVals,
+      format: (v) => realFormatEntries[v],
     }),
-    highlight: { compare: ['conn:how', 'cgroup:how'] },
-    explanation: 'Bulkheads are not only thread pools. A database connection cap, semaphore, queue limit, Kubernetes memory limit, API quota, and cell-based architecture all do the same job: reserve a bounded resource for one class of work so another class cannot consume it all. At architecture scale, a cell is a bulkhead for users rather than threads.',
+    highlight: { compare: [`${realRows[0].id}:${realCols[0].id}`, `${realRows[2].id}:${realCols[0].id}`] },
+    explanation: `Bulkheads are not only thread pools. ${realRows.map(r => r.label).join(', ')} all do the same job: reserve a bounded resource for one class of work so another class cannot consume it all. At architecture scale, a ${realRows[3].label} is a bulkhead for users rather than threads.`,
   };
 
+  const pairRows = [
+    { id: 'bulk', label: 'bulkhead' },
+    { id: 'breaker', label: 'circuit breaker' },
+    { id: 'together', label: 'in concert' },
+  ];
+  const pairCols = [{ id: 'role', label: 'role' }];
+  const pairVals = [[1], [2], [3]];
+  const pairFormatEntries = ['', 'CONTAINS instantly: caps the blast radius before anything reacts', 'RECOVERS adaptively: sheds load from the sick, probes it back to health', 'compartment floods → calls fail fast → breaker trips → silence heals → probe → reopen'];
   yield {
     state: matrixState({
       title: 'The pair that works the incident together',
-      rows: [
-        { id: 'bulk', label: 'bulkhead' },
-        { id: 'breaker', label: 'circuit breaker' },
-        { id: 'together', label: 'in concert' },
-      ],
-      columns: [{ id: 'role', label: 'role' }],
-      values: [[1], [2], [3]],
-      format: (v) => ['', 'CONTAINS instantly: caps the blast radius before anything reacts', 'RECOVERS adaptively: sheds load from the sick, probes it back to health', 'compartment floods â†’ calls fail fast â†’ breaker trips â†’ silence heals â†’ probe â†’ reopen'][v],
+      rows: pairRows,
+      columns: pairCols,
+      values: pairVals,
+      format: (v) => pairFormatEntries[v],
     }),
-    highlight: { compare: ['bulk:role', 'breaker:role'], found: ['together:role'] },
-    explanation: 'Bulkheads and breakers solve different phases. The bulkhead is structural containment: it caps the worst case before any detector reacts. The breaker is adaptive recovery: it notices failures, removes load, and probes for health. Together, a compartment fills, calls fail fast, the breaker opens, the dependency gets quiet, and a probe reintroduces traffic carefully.',
+    highlight: { compare: [`${pairRows[0].id}:${pairCols[0].id}`, `${pairRows[1].id}:${pairCols[0].id}`], found: [`${pairRows[2].id}:${pairCols[0].id}`] },
+    explanation: `${pairRows[0].label} and ${pairRows[1].label} solve different phases. The ${pairRows[0].label} is structural containment: it caps the worst case before any detector reacts. The ${pairRows[1].label} is adaptive recovery: it notices failures, removes load, and probes for health. ${pairRows[2].label}, a compartment fills, calls fail fast, the breaker opens, the dependency gets quiet, and a probe reintroduces traffic carefully.`,
   };
 }
 
@@ -159,7 +187,8 @@ export const article = {
         },
         '"Compartments, sized by math" shows the same 200 threads divided into per-dependency pools. When recommendations sickens, its compartment fills and fails fast. Found highlights on the payments and search rows prove they keep full capacity. The matrix view traces the numbers second by second so you can verify the math yourself.',
         'At each frame, check three things: which compartment is saturating, whether the boundary held, and what the user-visible effect would be. If the boundary held, the outage shape matches the dependency shape. If it did not, the pool design is the bug.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/bulkheads.gif', alt: 'Animated walkthrough of the bulkheads visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

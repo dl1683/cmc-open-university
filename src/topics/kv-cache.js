@@ -33,6 +33,7 @@ export function* run(input) {
   if (!['with KV cache', 'without cache (naive)'].includes(String(input.mode))) {
     throw new InputError('Pick a generation mode.');
   }
+  const r2 = (v) => Math.round(v * 100) / 100;
 
   const dims = Array.from({ length: D }, (_, j) => ({ id: `d${j}`, label: `d${j}` }));
   const matrixOf = (tokens, title) => matrixState({
@@ -42,47 +43,147 @@ export function* run(input) {
     values: tokens.map(kVector),
   });
   const rowIds = (count) => Array.from({ length: count }, (_, i) => `r${i}`);
+  const allCells = (count) => Array.from({ length: count }, (_, i) => dims.map((d) => `r${i}:${d.id}`)).flat();
 
   let totalVectorComputes = 0;
+  let naiveRunningTotal = 0;
 
-  yield {
-    state: matrixOf(PROMPT, 'Prefill: K vectors for the prompt'),
-    highlight: { active: rowIds(PROMPT.length) },
-    explanation: `Attention needs a Key and Value vector for EVERY token in the context (see Attention Mechanism). Step one — PREFILL: the model processes the whole prompt ("${PROMPT.join(' ')}") at once, computing K and V for each token. This is the pause before an LLM's first word. ${cached ? 'With a KV cache, these vectors are now SAVED.' : 'In naive mode, nothing is saved — remember that.'}`,
-  };
-  totalVectorComputes += PROMPT.length;
+  if (cached) {
+    // ====== WITH KV CACHE MODE ======
 
-  const context = [...PROMPT];
-  for (const next of GENERATED) {
-    context.push(next);
-    const newIndex = context.length - 1;
-    if (cached) {
+    // --- 1. Empty cache ---
+    yield {
+      state: matrixState({ title: 'Empty KV cache: no tokens processed yet', rows: [], columns: dims, values: [] }),
+      highlight: {},
+      explanation: `The KV cache starts empty. The model has received the prompt "${PROMPT.join(' ')}" but has not yet computed any Key or Value vectors. The cache will grow by one row per token — and once a row is written, it is NEVER recomputed.`,
+    };
+
+    // --- 2. Prefill step 1: compute K/V for "the" ---
+    totalVectorComputes += 1;
+    yield {
+      state: matrixOf([PROMPT[0]], `Prefill step 1: compute K/V for "${PROMPT[0]}"`),
+      highlight: { active: ['r0'] },
+      explanation: `Prefill begins. The model computes K and V vectors for "${PROMPT[0]}" — the first prompt token. One row enters the cache: [${kVector(PROMPT[0]).map((v) => r2(v)).join(', ')}]. This row is now permanent. Running total: ${totalVectorComputes} vector computation${totalVectorComputes === 1 ? '' : 's'}.`,
+    };
+
+    // --- 3. Prefill step 2: compute K/V for "cat" ---
+    totalVectorComputes += 1;
+    yield {
+      state: matrixOf(PROMPT, `Prefill step 2: compute K/V for "${PROMPT[1]}"`),
+      highlight: { active: ['r1'], visited: ['r0'] },
+      explanation: `"${PROMPT[1]}" is processed. Its K/V row is computed and appended to the cache. The row for "${PROMPT[0]}" (faded) is already stored — not touched again. Cache now holds ${PROMPT.length} rows. Running total: ${totalVectorComputes} vector computations.`,
+    };
+
+    // --- 4. Prefill complete ---
+    yield {
+      state: matrixOf(PROMPT, 'Prefill complete: cache holds the full prompt'),
+      highlight: { visited: rowIds(PROMPT.length) },
+      explanation: `Prefill is done. The cache stores K and V for all ${PROMPT.length} prompt tokens. This parallel pass is the pause before an LLM's first word — long prompts make it slow. From here on, generation adds one row at a time and reuses everything already stored.`,
+      invariant: 'K and V for a token depend only on tokens at positions <= that token. Past tokens cannot see the future, so cached rows are always valid.',
+    };
+
+    // --- 5-8. Generate each token ---
+    const context = [...PROMPT];
+    for (let gi = 0; gi < GENERATED.length; gi += 1) {
+      const next = GENERATED[gi];
+      context.push(next);
+      const newIndex = context.length - 1;
       totalVectorComputes += 1;
+      naiveRunningTotal = PROMPT.length;
+      for (let s = 0; s <= gi; s += 1) naiveRunningTotal += PROMPT.length + 1 + s;
+      const naiveAtThisStep = context.length;
+
+      // --- Generate step ---
       yield {
-        state: matrixOf(context, `Generate "${next}": compute 1 new row, reuse ${newIndex}`),
+        state: matrixOf(context, `Generate "${next}": 1 new row, ${newIndex} reused from cache`),
         highlight: { active: [`r${newIndex}`], visited: rowIds(newIndex) },
-        explanation: `Generate "${next}": attention must look at all ${context.length} tokens — but the K and V vectors for the first ${newIndex} are sitting in the cache, untouched (faded rows). Only the NEW token's vectors get computed: one row of work, no matter how long the context is. Running total: ${totalVectorComputes} vector computations.`,
-        invariant: 'K and V for a token never change once computed — past tokens cannot see the future, so caching is always safe.',
+        explanation: `Generate "${next}": attention needs all ${context.length} K/V rows, but ${newIndex} are already in cache (faded). Only 1 new row is computed. Without the cache, this step would recompute all ${naiveAtThisStep} rows. Running total: ${totalVectorComputes} computations (naive would be at ${naiveRunningTotal}).`,
+        invariant: 'Each decode step computes exactly 1 new K/V row, regardless of context length.',
       };
-    } else {
-      totalVectorComputes += context.length;
+
+      // --- After first generated token, show compute savings ---
+      if (gi === 0) {
+        yield {
+          state: matrixOf(context, `Compute savings so far: ${totalVectorComputes} cached vs ${naiveRunningTotal} naive`),
+          highlight: { found: [`r${newIndex}`], visited: rowIds(newIndex) },
+          explanation: `After generating "${next}": cached mode used ${totalVectorComputes} total K/V computations. Naive mode would have used ${naiveRunningTotal} — the full prompt (${PROMPT.length}) plus a recompute of all ${context.length} rows for this step. Already saving ${naiveRunningTotal - totalVectorComputes} redundant computations, and the gap widens with every token.`,
+        };
+      }
+    }
+
+    // --- 9. Total compute comparison ---
+    const naiveTotal = PROMPT.length + (PROMPT.length + 1) + (PROMPT.length + 2) + (PROMPT.length + 3);
+    const n = context.length;
+    yield {
+      state: matrixOf(context, `Total: ${totalVectorComputes} cached vs ${naiveTotal} naive K/V computations`),
+      highlight: { found: rowIds(n) },
+      explanation: `Generation complete. Cached: ${totalVectorComputes} K/V computations for ${n} tokens — exactly 1 per token, O(n). Naive: ${naiveTotal} — O(n^2). The cache saved ${naiveTotal - totalVectorComputes} redundant computations (${Math.round((1 - totalVectorComputes / naiveTotal) * 100)}% reduction). At real scale — 100K context, thousands generated — this is the difference between streaming text and waiting minutes per word.`,
+    };
+
+    // --- 10. Memory cost ---
+    const cacheEntries = n * D * 2;
+    yield {
+      state: matrixOf(context, `Memory cost: cache holds ${n} rows x ${D} dims x 2 (K+V)`),
+      highlight: { active: allCells(n) },
+      explanation: `The price of speed: the cache now holds ${cacheEntries} values (${n} tokens x ${D} dims x 2 for K and V). At real scale (70B model, 80 layers, 8 KV heads, d_head=128, 4096 tokens, FP16): 1.34 GB per request. Serve 32 concurrent users: 43 GB of GPU memory for cache alone, on top of model weights. This is why engineers quantize the KV cache (INT8, FP8), use GQA/MQA to share K/V across heads, and why long-context models are expensive to serve.`,
+    };
+
+  } else {
+    // ====== WITHOUT CACHE (NAIVE) MODE ======
+
+    // --- 1. Empty state ---
+    yield {
+      state: matrixState({ title: 'No cache: starting from scratch', rows: [], columns: dims, values: [] }),
+      highlight: {},
+      explanation: `Naive mode: no KV cache. Every time the model needs to attend, it recomputes K and V for ALL tokens from scratch. Watch how the work grows quadratically.`,
+    };
+
+    // --- 2. Prefill: compute all prompt tokens ---
+    naiveRunningTotal += PROMPT.length;
+    yield {
+      state: matrixOf(PROMPT, `Prefill: compute K/V for all ${PROMPT.length} prompt tokens`),
+      highlight: { active: rowIds(PROMPT.length) },
+      explanation: `Prefill: the model computes K/V for the full prompt ("${PROMPT.join(' ')}") — ${PROMPT.length} rows. Same as cached mode so far. Running total: ${naiveRunningTotal} computations. But without a cache, NOTHING is saved for reuse.`,
+    };
+
+    // --- 3-7. Generate each token, recomputing everything ---
+    const context = [...PROMPT];
+    for (let gi = 0; gi < GENERATED.length; gi += 1) {
+      const next = GENERATED[gi];
+      context.push(next);
+      naiveRunningTotal += context.length;
+      const cachedWouldBe = PROMPT.length + gi + 1;
+
       yield {
         state: matrixOf(context, `Generate "${next}": recompute ALL ${context.length} rows`),
         highlight: { active: rowIds(context.length) },
-        explanation: `Generate "${next}" without a cache: the model recomputes K and V for EVERY token in the context — all ${context.length} rows light up, even though ${newIndex} of them are identical to last step's results. Running total: ${totalVectorComputes} vector computations and climbing quadratically.`,
+        explanation: `Generate "${next}": the model recomputes K/V for ALL ${context.length} tokens — every row lights up. ${context.length - 1} of these are identical to last step's results. With a cache, only 1 row would be computed. Running total: ${naiveRunningTotal} (cached would be ${cachedWouldBe}).`,
+      };
+
+      // After each generation step, show the waste
+      yield {
+        state: matrixOf(context, `Wasted work: ${context.length - 1} redundant rows recomputed`),
+        highlight: { swap: rowIds(context.length - 1), active: [`r${context.length - 1}`] },
+        explanation: `Of ${context.length} rows just computed, ${context.length - 1} (highlighted in red) were already known from previous steps — their K/V values are determined by causal masking and cannot change. Only the newest row (green) is genuinely new. Wasted so far: ${naiveRunningTotal - cachedWouldBe} redundant computations.`,
       };
     }
-  }
 
-  const n = context.length;
-  const naiveTotal = PROMPT.length + (PROMPT.length + 1) + (PROMPT.length + 2) + (PROMPT.length + 3);
-  yield {
-    state: matrixOf(context, 'The full context after generation'),
-    highlight: {},
-    explanation: cached
-      ? `Done: ${totalVectorComputes} vector computations for ${n} tokens — exactly one per token, O(n) total. Naive mode would have used ${naiveTotal} (re-run this topic without the cache). Scale to a real chat — 100,000 context tokens, thousands generated — and the cache is the difference between streaming text and waiting minutes per word. The price: the cache lives in GPU memory and GROWS with context length (layers × tokens × 2 vectors) — this is precisely why long contexts are expensive and why engineers quantize the KV cache or share it across heads (GQA, MQA).`
-      : `Done: ${totalVectorComputes} vector computations versus ${PROMPT.length + GENERATED.length} with a cache — O(n²) versus O(n). Each generated token redid nearly all the previous work. No production LLM runs this way; flip the control to "with KV cache" to see what every real inference server (vLLM, TensorRT-LLM, llama.cpp) actually does.`,
-  };
+    // --- 8. Total comparison ---
+    const n = context.length;
+    const cachedTotal = PROMPT.length + GENERATED.length;
+    yield {
+      state: matrixOf(context, `Total: ${naiveRunningTotal} naive vs ${cachedTotal} with cache`),
+      highlight: { swap: rowIds(n) },
+      explanation: `Done: ${naiveRunningTotal} K/V computations without cache vs ${cachedTotal} with cache — O(n^2) vs O(n). Each generated token redid nearly all the previous work. The wasted computations: ${naiveRunningTotal - cachedTotal}. No production LLM runs this way; flip to "with KV cache" to see what vLLM, TensorRT-LLM, and llama.cpp actually do.`,
+    };
+
+    // --- 9. Memory "savings" vs compute waste ---
+    yield {
+      state: matrixOf(context, 'Naive mode uses less memory but far more compute'),
+      highlight: {},
+      explanation: `The one advantage of naive mode: zero cache memory. But the compute cost is devastating: ${naiveRunningTotal} vs ${cachedTotal} for just ${GENERATED.length} generated tokens. At 1,000 generated tokens, naive mode does ~500,000 K/V computations; cached mode does ~1,000. Every production system pays the memory cost because the compute savings are overwhelming.`,
+    };
+  }
 }
 
 export const article = {
@@ -97,7 +198,8 @@ export const article = {
         },
         'Active (highlighted) rows are K/V vectors being computed right now. Visited (faded) rows are cached vectors reused without recomputation. In cached mode, only one row lights up per generation step -- the new token. In naive mode, every row lights up every step because the model recomputes all of them. The running total at the bottom proves the difference: linear growth versus quadratic.',
         'The prefill step lights up all prompt rows at once. That parallel pass is why LLMs pause before the first token. Every subsequent step adds one generated token and shows exactly how much work the cache saves.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/kv-cache.gif', alt: 'Animated walkthrough of the kv cache visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

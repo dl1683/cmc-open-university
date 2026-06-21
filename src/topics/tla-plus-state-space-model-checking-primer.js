@@ -71,11 +71,19 @@ function stateExplosionPlot() {
 }
 
 function* stateGraph() {
+  const graphNodeCount = 9;
+  const graphEdgeCount = 9;
+  const specPieces = ['vars', 'Init', 'Next', 'Inv'];
+  const checkerStructures = ['frontier', 'seen set', 'parents', 'fingerprint'];
+  const maxProcesses = 6;
+  const boundedPeak = 1900;
+  const unboundedPeak = 5000;
+
   yield {
     state: modelGraph('TLC explores the reachable state graph'),
     highlight: { active: ['spec', 'init', 'next', 'frontier', 'seen', 'e-spec-init', 'e-spec-next', 'e-init-frontier', 'e-next-frontier', 'e-frontier-seen'], found: ['inv'] },
-    explanation: 'A TLA+ spec defines variables, initial states, and next-state actions. TLC explores the finite reachable state graph, remembering states it has seen and checking properties along the way.',
-    invariant: 'Model checking checks the model you bounded, not the implementation or every possible universe.',
+    explanation: `A TLA+ spec defines variables, initial states, and next-state actions. TLC explores the finite reachable state graph across ${graphNodeCount} nodes linked by ${graphEdgeCount} edges, remembering states it has seen and checking properties along the way.`,
+    invariant: `Model checking exhaustively checks the ${graphNodeCount}-node model you bounded, not the implementation or every possible universe.`,
   };
 
   yield {
@@ -99,13 +107,13 @@ function* stateGraph() {
       ],
     ),
     highlight: { active: ['vars:means', 'next:bug', 'inv:bug'], found: ['init:means'] },
-    explanation: 'The useful mental model is small: state variables describe a snapshot, Init creates starting snapshots, Next creates successor snapshots, and invariants must hold in every reachable snapshot.',
+    explanation: `The useful mental model is small: ${specPieces.length} pieces (${specPieces.join(', ')}) are all you need. State variables describe a snapshot, Init creates starting snapshots, Next creates successor snapshots, and invariants must hold in every reachable snapshot.`,
   };
 
   yield {
     state: stateExplosionPlot(),
     highlight: { active: ['small', 'wide', 'cap'] },
-    explanation: 'State spaces grow quickly. Good models bound data, abstract irrelevant values, split properties, and keep enough detail to preserve the design bug being investigated.',
+    explanation: `State spaces grow quickly: at ${maxProcesses} processes the bounded model has ${boundedPeak} states while the unbounded model reaches ${unboundedPeak}. Good models bound data, abstract irrelevant values, split properties, and keep enough detail to preserve the design bug being investigated.`,
   };
 
   yield {
@@ -129,11 +137,16 @@ function* stateGraph() {
       ],
     ),
     highlight: { active: ['frontier:stores', 'seen:stores', 'parent:why'], found: ['finger:why'] },
-    explanation: 'Model checking is a graph search with engineering constraints: frontier queues, visited-state sets, fingerprints, parent pointers, and sometimes disk-backed storage.',
+    explanation: `Model checking is a graph search with ${checkerStructures.length} engineering data structures (${checkerStructures.join(', ')}): frontier queues, visited-state sets, fingerprints, parent pointers, and sometimes disk-backed storage.`,
   };
 }
 
 function* counterexampleTrace() {
+  const traceSteps = ['s0', 's1', 's2', 's3'];
+  const traceLen = traceSteps.length;
+  const fixCategories = ['spec bug', 'model gap', 'design bug', 'bad bound'];
+  const disciplines = ['abstract', 'fairness', 'symmetry', 'trace'];
+
   yield {
     state: labelMatrix(
       'Counterexample trace',
@@ -156,13 +169,13 @@ function* counterexampleTrace() {
       ],
     ),
     highlight: { active: ['s3:check'], found: ['s1:action', 's2:action'] },
-    explanation: 'The payoff is a concrete trace: a short sequence of model states and actions showing how the design violates an invariant or deadlocks.',
+    explanation: `The payoff is a concrete trace: ${traceLen} states (${traceSteps.join(' → ')}) form a short sequence of model states and actions showing how the design violates an invariant or deadlocks.`,
   };
 
   yield {
     state: modelGraph('Invariant failure points back to the trace'),
     highlight: { active: ['inv', 'trace', 'fix', 'e-inv-trace', 'e-trace-fix'], compare: ['ok'] },
-    explanation: 'A counterexample is not only a red mark. It is a reproducible design execution that tells the engineer which interleaving or missing state transition matters.',
+    explanation: `A counterexample is not only a red mark. It is a reproducible design execution across ${traceLen} states that tells the engineer which interleaving or missing state transition matters.`,
   };
 
   yield {
@@ -186,7 +199,7 @@ function* counterexampleTrace() {
       ],
     ),
     highlight: { active: ['design:response', 'model:response'], compare: ['spec:response'] },
-    explanation: 'Do not blindly patch the invariant. Decide whether the trace exposes a spec typo, a missing environment behavior, a real design flaw, or an unrealistic bound.',
+    explanation: `Do not blindly patch the invariant. The ${fixCategories.length} fix categories (${fixCategories.join(', ')}) help decide whether the trace exposes a spec typo, a missing environment behavior, a real design flaw, or an unrealistic bound.`,
   };
 
   yield {
@@ -210,7 +223,7 @@ function* counterexampleTrace() {
       ],
     ),
     highlight: { found: ['abstract:good', 'trace:good'], compare: ['fair:risk'] },
-    explanation: 'A useful model is intentionally smaller than production but still faithful to the failure mode. The art is choosing abstractions that preserve the bug class.',
+    explanation: `A useful model is intentionally smaller than production but still faithful to the failure mode. The ${disciplines.length} disciplines (${disciplines.join(', ')}) guide the art of choosing abstractions that preserve the bug class.`,
   };
 }
 
@@ -228,6 +241,13 @@ export const article = {
     { title: 'Current TLA+ Tools', url: 'https://github.com/tlaplus/tlaplus/blob/master/general/docs/current-tools.md' },
   ],
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/tla-plus-state-space-model-checking-primer.gif', alt: 'Animated walkthrough of the tla plus state space model checking primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

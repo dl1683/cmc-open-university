@@ -125,7 +125,8 @@ export const article = {
         },
         'Active highlights mark the slot being written. Compare highlights during the prefix-sum phase show which neighbor contributes. At the end, the sorted highlight confirms every position is final.',
         'The backwards scan in phase 3 is the detail that matters most. When two copies of the same value exist, the copy scanned first (the one further right in the input) is placed at the higher output index. The copy scanned second lands one position lower. Their original left-to-right order survives in the output. That is stability, and the animation makes it visible step by step.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/counting-sort.gif', alt: 'Animated walkthrough of the counting sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

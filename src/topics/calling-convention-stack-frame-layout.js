@@ -54,20 +54,22 @@ function callGraph(title) {
 }
 
 function* callBoundary() {
+  const callHighlight = { active: ['caller', 'args', 'stack', 'call', 'e-caller-args', 'e-caller-stack'], compare: ['ret'] };
   yield {
     state: callGraph('A calling convention is a contract at every call edge'),
-    highlight: { active: ['caller', 'args', 'stack', 'call', 'e-caller-args', 'e-caller-stack'], compare: ['ret'] },
-    explanation: 'Before a call, the caller places arguments where the ABI expects them: usually some registers first, then stack slots for overflow or special cases.',
+    highlight: callHighlight,
+    explanation: `Before a call, the caller places arguments where the ABI expects them — ${callHighlight.active.length} components are active in this phase: usually some registers first, then stack slots for overflow or special cases.`,
   };
+  const contractRows = [
+    { id: 'arg', label: 'arguments' },
+    { id: 'ret', label: 'return' },
+    { id: 'caller', label: 'caller-save' },
+    { id: 'callee', label: 'callee-save' },
+  ];
   yield {
     state: labelMatrix(
       'Call contract',
-      [
-        { id: 'arg', label: 'arguments' },
-        { id: 'ret', label: 'return' },
-        { id: 'caller', label: 'caller-save' },
-        { id: 'callee', label: 'callee-save' },
-      ],
+      contractRows,
       [
         { id: 'owner', label: 'owner' },
         { id: 'example', label: 'example' },
@@ -80,31 +82,34 @@ function* callBoundary() {
       ],
     ),
     highlight: { active: ['arg:example', 'ret:example'], found: ['callee:owner'], compare: ['caller:owner'] },
-    explanation: 'The ABI also says which registers may be clobbered by a call and which must be restored by the callee before returning.',
-    invariant: 'Caller and callee must agree exactly, even if they were compiled by different compilers.',
+    explanation: `The ABI defines ${contractRows.length} contract elements (${contractRows.map(r => r.label).join(', ')}) specifying which registers may be clobbered by a call and which must be restored by the callee before returning.`,
+    invariant: `All ${contractRows.length} contract elements must be agreed exactly between caller and callee, even if they were compiled by different compilers.`,
   };
+  const retHighlight = { active: ['ret', 'caller2', 'e-ret-caller2'], found: ['save'], compare: ['frame'] };
   yield {
     state: callGraph('Return values move through ABI-defined locations'),
-    highlight: { active: ['ret', 'caller2', 'e-ret-caller2'], found: ['save'], compare: ['frame'] },
-    explanation: 'Return values usually come back in defined registers or memory locations. The caller resumes assuming the ABI contract was honored.',
+    highlight: retHighlight,
+    explanation: `Return values usually come back in defined registers or memory locations. The caller resumes through ${retHighlight.active.length} active stages (${retHighlight.active.join(' -> ')}) assuming the ABI contract was honored.`,
   };
 }
 
 function* frameLowering() {
+  const lowerHighlight = { active: ['frame', 'save', 'call', 'e-call-frame', 'e-call-save'], compare: ['args'] };
   yield {
     state: callGraph('Frame lowering lays out local storage'),
-    highlight: { active: ['frame', 'save', 'call', 'e-call-frame', 'e-call-save'], compare: ['args'] },
-    explanation: 'A stack frame stores spills, saved registers, outgoing arguments, local allocas, alignment padding, and metadata needed by unwinding or debugging.',
+    highlight: lowerHighlight,
+    explanation: `A stack frame stores spills, saved registers, outgoing arguments, local allocas, alignment padding, and metadata needed by unwinding or debugging — ${lowerHighlight.active.length} components (${lowerHighlight.active.filter(a => !a.startsWith('e-')).join(', ')}) are active during lowering.`,
   };
+  const slotRows = [
+    { id: 'retaddr', label: 'return addr' },
+    { id: 'saved', label: 'saved regs' },
+    { id: 'spill', label: 'spills' },
+    { id: 'local', label: 'locals' },
+  ];
   yield {
     state: labelMatrix(
       'Frame slots',
-      [
-        { id: 'retaddr', label: 'return addr' },
-        { id: 'saved', label: 'saved regs' },
-        { id: 'spill', label: 'spills' },
-        { id: 'local', label: 'locals' },
-      ],
+      slotRows,
       [
         { id: 'why', label: 'why' },
         { id: 'owner', label: 'owner' },
@@ -117,12 +122,13 @@ function* frameLowering() {
       ],
     ),
     highlight: { active: ['saved:why', 'spill:why', 'local:owner'], found: ['retaddr:why'] },
-    explanation: 'Frame layout is where register allocation, calling convention, alignment, and debug/unwind information meet.',
+    explanation: `Frame layout maps ${slotRows.length} slot types (${slotRows.map(r => r.label).join(', ')}) — this is where register allocation, calling convention, alignment, and debug/unwind information meet.`,
   };
+  const epilogueHighlight = { active: ['save', 'frame', 'ret'], compare: ['caller'], found: ['caller2'] };
   yield {
     state: callGraph('Prologue builds the frame; epilogue tears it down'),
-    highlight: { active: ['save', 'frame', 'ret'], compare: ['caller'], found: ['caller2'] },
-    explanation: 'The prologue adjusts the stack and saves required registers. The epilogue restores them, places the return value, and transfers control back to the caller.',
+    highlight: epilogueHighlight,
+    explanation: `The prologue adjusts the stack and saves required registers across ${epilogueHighlight.active.length} active nodes (${epilogueHighlight.active.join(', ')}). The epilogue restores them, places the return value, and transfers control back to the caller.`,
   };
 }
 
@@ -135,6 +141,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/calling-convention-stack-frame-layout.gif', alt: 'Animated walkthrough of the calling convention stack frame layout visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

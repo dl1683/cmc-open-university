@@ -62,17 +62,21 @@ function memoryGraph(title, notes = {}) {
 }
 
 function* defUsePhiGraph() {
+  const accessNodeTypes = 4; // liveOnEntry, MemoryDef, MemoryUse, MemoryPhi
+  const graphNodeCount = 8;
+  const graphEdgeCount = 11;
+
   yield {
     state: memoryGraph('MemorySSA gives memory its own SSA-like graph'),
     highlight: { active: ['loe', 'defP', 'defQ', 'phi', 'useP'], compare: ['entry'] },
-    explanation: 'Ordinary SSA names register-like values. MemorySSA names memory accesses: stores and write-like calls become MemoryDefs, loads become MemoryUses, and joins get MemoryPhis.',
-    invariant: 'Every MemoryUse has a defining memory access to start a clobber walk from.',
+    explanation: `Ordinary SSA names register-like values. MemorySSA names memory accesses across ${graphNodeCount} nodes and ${graphEdgeCount} edges: stores and write-like calls become MemoryDefs, loads become MemoryUses, and joins get MemoryPhis.`,
+    invariant: `Every MemoryUse has a defining memory access to start a clobber walk from — ${accessNodeTypes} access-node types cover all memory operations.`,
   };
 
   yield {
     state: memoryGraph('MemoryPhi merges may-reach memory definitions', { phi: 'may reach' }),
     highlight: { active: ['defP', 'defQ', 'phi', 'e-defP-phi', 'e-defQ-phi'], found: ['useP'] },
-    explanation: 'At a CFG join, two different writes may reach the following load. Unlike normal SSA phi nodes, a MemoryPhi usually represents may-reach memory until alias analysis disambiguates it.',
+    explanation: `At a CFG join, two different writes may reach the following load. Unlike normal SSA phi nodes, a MemoryPhi usually represents may-reach memory until alias analysis disambiguates it across the ${graphEdgeCount}-edge graph.`,
   };
 
   yield {
@@ -97,17 +101,20 @@ function* defUsePhiGraph() {
       ],
     ),
     highlight: { active: ['def:represents', 'use:optimizer', 'phi:example'], compare: ['entry:optimizer'] },
-    explanation: 'The data structure is intentionally small: map instructions to MemoryUse or MemoryDef nodes, map blocks to MemoryPhi nodes, and keep links to defining accesses.',
+    explanation: `The data structure is intentionally small: ${accessNodeTypes} access-node types map instructions to MemoryUse or MemoryDef nodes, map blocks to MemoryPhi nodes, and keep links to defining accesses.`,
   };
 
   yield {
     state: memoryGraph('Alias analysis decides whether a candidate def matters', { aa: 'p vs q' }),
     highlight: { active: ['aa', 'defP', 'defQ', 'useP', 'e-aa-defP', 'e-aa-defQ'], found: ['value'] },
-    explanation: 'MemorySSA alone is conservative. The clobber walker asks alias analysis whether a candidate write can affect the load address. NoAlias writes can be skipped; MayAlias or MustAlias writes stop the walk.',
+    explanation: `MemorySSA alone is conservative. The clobber walker queries alias analysis across ${graphNodeCount} nodes to decide whether a candidate write can affect the load address. NoAlias writes can be skipped; MayAlias or MustAlias writes stop the walk.`,
   };
 }
 
 function* clobberWalkCaseStudy() {
+  const programLines = 4;
+  const aliasOutcomes = 3; // NoAlias, MayAlias, MustAlias
+
   yield {
     state: labelMatrix(
       'Tiny program',
@@ -130,13 +137,13 @@ function* clobberWalkCaseStudy() {
       ],
     ),
     highlight: { active: ['i1:memssa', 'i2:memssa', 'i3:memssa'], found: ['i4:meaning'] },
-    explanation: 'The optimizer wants to know whether the load of *p can be replaced with 7. The answer depends on whether the intervening store to *q may clobber *p.',
+    explanation: `The optimizer wants to know whether the load of *p can be replaced with 7. Across ${programLines} instructions, the answer depends on whether the intervening store to *q may clobber *p.`,
   };
 
   yield {
     state: memoryGraph('Start the clobber walk at the load defining access', { defP: 'store p=7', defQ: 'store q=9', useP: 'load p', aa: 'q vs p' }),
     highlight: { active: ['useP', 'phi', 'defQ', 'aa', 'e-use-aa', 'e-aa-defQ'], compare: ['defP'] },
-    explanation: 'The walker starts from the defining memory access for the load and walks backward through candidate writes. The newest candidate is checked first because it would dominate any older answer.',
+    explanation: `The walker starts from the defining memory access for the load and walks backward through candidate writes. The newest candidate among ${programLines} instructions is checked first because it would dominate any older answer.`,
   };
 
   yield {
@@ -158,14 +165,14 @@ function* clobberWalkCaseStudy() {
       ],
     ),
     highlight: { active: ['noalias:walker', 'mustalias:result'], compare: ['mayalias:result'] },
-    explanation: 'If q and p are proven disjoint, Def Q is irrelevant and the walker continues to Def P. If q may alias p, the optimizer must stop and keep the load.',
+    explanation: `Each of ${aliasOutcomes} alias outcomes drives a different action: if q and p are proven disjoint (NoAlias), Def Q is irrelevant and the walker continues to Def P. If q may alias p (MayAlias), the optimizer must stop and keep the load.`,
   };
 
   yield {
     state: memoryGraph('A precise clobber turns a memory question into a value fact', { defP: 'p=7', defQ: 'NoAlias', useP: 'load p', aa: 'skip q', value: 'x=7' }),
     highlight: { active: ['defP', 'useP', 'value', 'e-use-value'], removed: ['defQ'], found: ['aa'] },
-    explanation: 'Once the walker proves Def P is the clobbering write for load *p, ordinary SSA optimizations can use the result. MemorySSA is a bridge from messy memory effects back to sparse value reasoning.',
-    invariant: 'Wrong alias answers are correctness bugs, so conservative MayAlias beats unsafe folding.',
+    explanation: `Once the walker proves Def P is the clobbering write for load *p, ordinary SSA optimizations can use the result. MemorySSA bridges ${programLines} lines of messy memory effects back to sparse value reasoning.`,
+    invariant: `Wrong alias answers are correctness bugs — with ${aliasOutcomes} possible outcomes, conservative MayAlias beats unsafe folding.`,
   };
 }
 
@@ -178,6 +185,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/memory-ssa-alias-graph.gif', alt: 'Animated walkthrough of the memory ssa alias graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

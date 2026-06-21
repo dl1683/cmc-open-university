@@ -74,20 +74,23 @@ function domGraph(title) {
 }
 
 function* cfgToDominators() {
+  const cfgNodes = ['entry', 'test', 'then', 'else', 'join', 'loop', 'exit'];
+  const cfgEdges = ['e-entry-test', 'e-test-then', 'e-test-else', 'e-then-join', 'e-else-join', 'e-join-loop', 'e-loop-join', 'e-join-exit'];
   yield {
     state: cfgGraph('A CFG makes control flow explicit'),
     highlight: { active: ['entry', 'test', 'then', 'else', 'join'], compare: ['loop'] },
-    explanation: 'A control-flow graph turns code into basic blocks and directed edges. Branches, joins, loops, exits, and exceptional paths become graph structure rather than hidden syntax.',
+    explanation: `A control-flow graph turns code into ${cfgNodes.length} basic blocks connected by ${cfgEdges.length} directed edges. Branches, joins, loops, exits, and exceptional paths become graph structure rather than hidden syntax.`,
   };
+  const domRules = [
+    { id: 'entry', label: 'entry dominates all' },
+    { id: 'test', label: 'test dominates join' },
+    { id: 'then', label: 'then not dominate join' },
+    { id: 'join', label: 'join dominates exit' },
+  ];
   yield {
     state: labelMatrix(
       'Dominator rule',
-      [
-        { id: 'entry', label: 'entry dominates all' },
-        { id: 'test', label: 'test dominates join' },
-        { id: 'then', label: 'then not dominate join' },
-        { id: 'join', label: 'join dominates exit' },
-      ],
+      domRules,
       [
         { id: 'reason', label: 'reason' },
         { id: 'use', label: 'compiler use' },
@@ -100,31 +103,35 @@ function* cfgToDominators() {
       ],
     ),
     highlight: { active: ['test:reason', 'then:reason'], found: ['then:use'] },
-    explanation: 'Node A dominates node B if every path from entry to B passes through A. Immediate dominators compress that relation into a tree.',
-    invariant: 'Dominance is about all paths, not most paths.',
+    explanation: `${domRules.length} dominator rules show: node A dominates node B if every path from entry to B passes through A. Immediate dominators compress that relation from ${cfgNodes.length} blocks into a tree.`,
+    invariant: `Dominance is about all ${cfgEdges.length} possible paths, not most paths.`,
   };
+  const domTreeEdges = ['d-entry-test', 'd-test-then', 'd-test-else', 'd-test-join', 'd-join-loop', 'd-join-exit'];
   yield {
     state: domGraph('The dominator tree is a compact analysis result'),
     highlight: { found: ['entry', 'test', 'join', 'exit'], active: ['d-entry-test', 'd-test-join', 'd-join-exit'] },
-    explanation: 'The dominator tree removes ordinary CFG edges and keeps immediate-dominator parent links. Many compiler passes ask dominance questions constantly, so caching this tree is a big deal.',
+    explanation: `The dominator tree reduces ${cfgEdges.length} CFG edges to ${domTreeEdges.length} immediate-dominator parent links. Many compiler passes ask dominance questions constantly, so caching this tree is a big deal.`,
   };
 }
 
 function* frontiersAndLoops() {
+  const loopHeader = 'join';
+  const loopBody = 'loop';
   yield {
     state: cfgGraph('Backedges reveal natural loops'),
     highlight: { active: ['join', 'loop', 'e-join-loop', 'e-loop-join'], compare: ['exit'] },
-    explanation: 'A backedge from a block to one of its dominators marks a natural loop. Loop optimizations need the header, body, exits, and values carried around the backedge.',
+    explanation: `A backedge from "${loopBody}" to its dominator "${loopHeader}" marks a natural loop. Loop optimizations need the header, body, exits, and values carried around the backedge.`,
   };
+  const frontierRows = [
+    { id: 'then', label: 'then assigns x' },
+    { id: 'else', label: 'else assigns x' },
+    { id: 'join', label: 'join block' },
+    { id: 'loop', label: 'loop header' },
+  ];
   yield {
     state: labelMatrix(
       'Dominance frontier intuition',
-      [
-        { id: 'then', label: 'then assigns x' },
-        { id: 'else', label: 'else assigns x' },
-        { id: 'join', label: 'join block' },
-        { id: 'loop', label: 'loop header' },
-      ],
+      frontierRows,
       [
         { id: 'frontier', label: 'frontier role' },
         { id: 'why', label: 'why it matters' },
@@ -137,12 +144,12 @@ function* frontiersAndLoops() {
       ],
     ),
     highlight: { active: ['then:frontier', 'else:frontier', 'join:why'], found: ['loop:why'] },
-    explanation: 'A dominance frontier is where a definition stops dominating all incoming paths. That is exactly where SSA phi nodes are usually needed.',
+    explanation: `${frontierRows.length} blocks illustrate dominance frontiers: where a definition stops dominating all incoming paths. That is exactly where SSA phi nodes are needed, including at the "${loopHeader}" header.`,
   };
   yield {
     state: domGraph('CFG facts feed later compiler passes'),
     highlight: { active: ['test', 'join', 'loop'], found: ['entry'], compare: ['then', 'else'] },
-    explanation: 'Static Single Assignment & Phi Nodes uses dominance frontiers. Register allocation uses liveness over CFG edges. Optimization passes use dominance to prove that a value is available before a use.',
+    explanation: `Static Single Assignment & Phi Nodes uses dominance frontiers from all ${frontierRows.length} frontier candidates. Register allocation uses liveness over CFG edges. Optimization passes use dominance to prove that a value is available before a use.`,
   };
 }
 
@@ -155,6 +162,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/control-flow-graph-dominator-tree.gif', alt: 'Animated walkthrough of the control flow graph dominator tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

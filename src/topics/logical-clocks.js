@@ -16,6 +16,9 @@ export const topic = {
 };
 
 function* wallClocksLie() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const skewMs = 80;
+  const nEvents = 3;
   yield {
     state: matrixState({
       title: 'The lost update: two servers, clocks 80ms apart',
@@ -29,7 +32,7 @@ function* wallClocksLie() {
       format: (v) => ['', 'S1: user sets name = "Ana"', '10:00:00.100 (S1 clock, 80ms fast)', 'S2: user FIXES it to "Anna"', '10:00:00.050 (S2 clock, correct)', 'keeps the "later" stamp…', '"Ana" wins — the CORRECTION is silently dropped âš '][v],
     }),
     highlight: { removed: ['lww:stamp'] },
-    explanation: 'Read the table in real order first: "Ana" is written, then the user corrects it to "Anna." Now read the timestamps: the first server is 80ms fast, so last-write-wins keeps the older value. The bug is not a crash or a lost packet; it is a merge rule trusting clocks more than causality.',
+    explanation: `Read the ${nEvents} events in real order: "Ana" is written, then the user corrects it to "Anna." Now read the timestamps: S1 is ${skewMs}ms fast, so last-write-wins keeps the older value. The bug is not a crash or a lost packet; it is a merge rule trusting clocks more than causality — ${skewMs}ms of skew silently dropped a correct user action.`,
     invariant: 'Wall-clock order across machines is not event order: clock skew can reverse any two events closer than the skew.',
   };
 
@@ -47,9 +50,12 @@ function* wallClocksLie() {
       format: (v) => ['', '~10–50 ppm: seconds lost per day, unsynced', 'a few ms on a LAN; tens to hundreds of ms across the internet', 'a paused VM "stops time"; leap seconds get smeared over hours', 'any two events within the skew window are UNORDERABLE by timestamp'][v],
     }),
     highlight: { compare: ['ntp:num', 'vm:num'] },
-    explanation: 'This step puts a size on the risk. Ordinary clocks drift, NTP only narrows the error window, and virtual machines or leap-smear behavior can pause time from the application\'s point of view. If two writes are closer together than the skew window, a timestamp cannot safely say which user action came first.',
+    explanation: `This step puts a size on the risk. Ordinary clocks drift at ~${r2(10)}–${r2(50)} ppm, NTP only narrows the error window to a few ms on a LAN, and virtual machines or leap-smear behavior can pause time from the application's point of view. If two writes are closer together than the ${skewMs}ms skew window, a timestamp cannot safely say which user action came first.`,
   };
 
+  const hbNodes = ['A', 'B', 'C', 'D', 'E'];
+  const hbEdges = 4;
+  const nProcesses = 2;
   yield {
     state: graphState({
       nodes: [
@@ -67,12 +73,21 @@ function* wallClocksLie() {
       ],
     }),
     highlight: { active: ['bd'], compare: ['a', 'c'] },
-    explanation: 'The graph replaces clock time with evidence. Same-process arrows, message arrows, and transitive chains create happens-before order: A can be known to precede E because there is an arrow path. A and C have no path either way, so they are concurrent. A correct distributed algorithm must not depend on choosing a real first event between them.',
+    explanation: `The graph shows ${hbNodes.length} events across ${nProcesses} processes connected by ${hbEdges} arrows. Same-process arrows, message arrows, and transitive chains create happens-before order: ${hbNodes[0]} can be known to precede ${hbNodes[4]} because there is an arrow path. ${hbNodes[0]} and ${hbNodes[2]} have no path either way, so they are concurrent. A correct distributed algorithm must not depend on choosing a real first event between them.`,
     invariant: 'Happens-before is a partial order: events unreachable by arrows are concurrent — unordered in principle, not just in practice.',
   };
 }
 
 function* logicalAndTrue() {
+  const lamportClocks = [1, 2, 1, 3, 4]; // A, B, C, D, E
+  const bClock = lamportClocks[1];
+  const dClock = lamportClocks[3];
+  const vecX = [2, 0];
+  const vecY = [3, 1];
+  const vecZ = [0, 1];
+  const epsilonRange = [1, 7];
+  const nTools = 5;
+  const hlcBits = 64;
   yield {
     state: graphState({
       nodes: [
@@ -90,7 +105,7 @@ function* logicalAndTrue() {
       ],
     }),
     highlight: { found: ['d'] },
-    explanation: 'Lamport clocks make the arrows countable. Tick for local events, and on receive jump to max(local, message) + 1. In the diagram, B carries 2 to P2, so D becomes 3. The guarantee is one-way: causally earlier means a smaller clock. The reverse is false; a larger number may be causal order or just an arbitrary tie-break over concurrent work.',
+    explanation: `Lamport clocks make the arrows countable. Tick for local events, and on receive jump to max(local, message) + 1. In the diagram, B carries ${bClock} to P2, so D becomes ${dClock} (= max(${lamportClocks[2]}, ${bClock}) + 1). The guarantee is one-way: causally earlier means a smaller clock. The reverse is false; a larger number may be causal order or just an arbitrary tie-break over concurrent work.`,
     invariant: 'Lamport: happens-before â‡’ smaller clock. The reverse implication does not hold — concurrency is invisible.',
   };
 
@@ -107,7 +122,7 @@ function* logicalAndTrue() {
       format: (v) => ['—', 'CONCURRENT: [2,0] vs [0,1] — each wins one slot', 'X â†’ Y: [2,0] â‰¤ [3,1] componentwise', 'Z â†’ Y: [0,1] â‰¤ [3,1]', 'CONCURRENT (symmetric)'][v],
     }),
     highlight: { compare: ['v1:vsZ'], found: ['v2:vsX'] },
-    explanation: 'Vector clocks keep one counter per participant, so comparison can distinguish "before" from "unrelated." If every slot in X is less than or equal to Y, X happened before Y. If each vector wins in some slot, as [2,0] and [0,1] do, the writes are concurrent and need an application merge instead of a silent overwrite.',
+    explanation: `Vector clocks keep one counter per participant, so comparison can distinguish "before" from "unrelated." If every slot in X is less than or equal to Y, X happened before Y. If each vector wins in some slot, as [${vecX}] and [${vecZ}] do, the writes are concurrent and need an application merge instead of a silent overwrite. X happened before Y because [${vecX}] is componentwise ≤ [${vecY}].`,
     invariant: 'Vector â‰¤ in every slot â‡” happens-before; mutual non-domination â‡” concurrent. Cost: one counter per participant.',
   };
 
@@ -125,7 +140,7 @@ function* logicalAndTrue() {
       format: (v) => ['', 'GPS receivers + atomic clocks in every datacenter', 'now() returns an INTERVAL [earliest, latest], ε â‰ˆ 1–7ms wide', 'hold each commit until its interval has fully passed (~ε)', 'timestamps become globally TRUE — snapshot reads need no coordination'][v],
     }),
     highlight: { active: ['wait:what'], found: ['payoff:what'] },
-    explanation: 'TrueTime is the expensive alternative: keep a bounded uncertainty interval and wait until it has passed before exposing a commit. The animation highlights commit-wait because that is the trick. Spanner does not pretend clocks are perfect; it pays hardware and latency so a timestamp becomes globally unambiguous after the wait.',
+    explanation: `TrueTime is the expensive alternative: keep a bounded uncertainty interval (epsilon ≈ ${epsilonRange[0]}–${epsilonRange[1]}ms) and wait until it has passed before exposing a commit. The animation highlights commit-wait because that is the trick. Spanner does not pretend clocks are perfect; it pays hardware and ~${epsilonRange[1]}ms of latency so a timestamp becomes globally unambiguous after the wait.`,
     invariant: 'Commit-wait spends ε milliseconds of latency to make a timestamp globally unambiguous: uncertainty waited out, not ignored.',
   };
 
@@ -144,7 +159,7 @@ function* logicalAndTrue() {
       format: (v) => ['', 'human-readable stamps', 'silent reordering within the skew', 'causal total order', 'concurrency invisible', 'full causality + conflict detection', 'O(n) vectors, churn pain', 'causality + close-to-real time in 64 bits', 'still bounded by clock quality', 'globally true timestamps', 'atomic clocks + ε wait per commit'][v],
     }),
     highlight: { compare: ['lamport:gives', 'vector:gives'], found: ['hlc:gives'] },
-    explanation: 'The rows are a design menu. Wall clocks are readable but unsafe near skew. Lamport clocks are tiny but hide concurrency. Vector clocks expose conflicts but grow with participants. Hybrid logical clocks are the common compromise: close to wall time, causally safe enough for many databases, and constant size. TrueTime buys a stronger contract with hardware and write latency.',
+    explanation: `The ${nTools} rows are a design menu. Wall clocks are readable but unsafe near skew. Lamport clocks are tiny but hide concurrency. Vector clocks expose conflicts but grow with participants (O(n) per stamp). Hybrid logical clocks are the common compromise: close to wall time, causally safe enough for many databases, and constant size (${hlcBits} bits). TrueTime buys a stronger contract with hardware and ~${epsilonRange[1]}ms write latency.`,
   };
 }
 
@@ -165,7 +180,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/logical-clocks.gif', alt: 'Animated walkthrough of the logical clocks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

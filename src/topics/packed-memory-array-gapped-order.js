@@ -56,24 +56,28 @@ function pmaGraph(title) {
 }
 
 function* gappedInserts() {
+  const graph = pmaGraph('Sorted data stays mostly contiguous, with gaps');
+  const stageCount = graph.data.nodes.length;
   yield {
-    state: pmaGraph('Sorted data stays mostly contiguous, with gaps'),
+    state: graph,
     highlight: { active: ['array', 'gap', 'insert'], found: ['rebalance'], compare: ['search'] },
-    explanation: 'A packed memory array stores sorted elements in an array larger than the current item count. The empty slots are deliberate gaps that make nearby inserts cheaper than shifting a dense array.',
-    invariant: 'The physical order is the sorted logical order, with blanks interspersed.',
+    explanation: `A packed memory array connects ${stageCount} pipeline stages — from search through rebalance — to store sorted elements in an array larger than the current item count. The empty slots are deliberate gaps that make nearby inserts cheaper than shifting a dense array.`,
+    invariant: `The physical order is the sorted logical order, with blanks interspersed across all ${stageCount} stages.`,
   };
 
+  const insertValue = 37;
+  const insertSlots = [
+    { id: 's0', label: 'slot 0' },
+    { id: 's1', label: 'slot 1' },
+    { id: 's2', label: 'slot 2' },
+    { id: 's3', label: 'slot 3' },
+    { id: 's4', label: 'slot 4' },
+    { id: 's5', label: 'slot 5' },
+  ];
   yield {
     state: labelMatrix(
-      'Insert 37 into a gapped sorted array',
-      [
-        { id: 's0', label: 'slot 0' },
-        { id: 's1', label: 'slot 1' },
-        { id: 's2', label: 'slot 2' },
-        { id: 's3', label: 'slot 3' },
-        { id: 's4', label: 'slot 4' },
-        { id: 's5', label: 'slot 5' },
-      ],
+      `Insert ${insertValue} into a gapped sorted array`,
+      insertSlots,
       [
         { id: 'before', label: 'before' },
         { id: 'after', label: 'after' },
@@ -81,25 +85,26 @@ function* gappedInserts() {
       [
         ['10', '10'],
         ['25', '25'],
-        ['gap', '37'],
+        ['gap', String(insertValue)],
         ['40', '40'],
         ['gap', 'gap'],
         ['60', '60'],
       ],
     ),
     highlight: { active: ['s2:before'], found: ['s2:after'], compare: ['s4:after'] },
-    explanation: 'If a nearby gap exists, insertion is local. The structure keeps enough slack that many updates avoid moving a long suffix of the array.',
+    explanation: `Across ${insertSlots.length} slots, inserting ${insertValue} is local if a nearby gap exists. The structure keeps enough slack that many updates avoid moving a long suffix of the array.`,
   };
 
+  const gapGoals = [
+    { id: 'search', label: 'binary search' },
+    { id: 'scan', label: 'range scan' },
+    { id: 'insert', label: 'insert' },
+    { id: 'delete', label: 'delete' },
+  ];
   yield {
     state: labelMatrix(
       'Why gaps are not random holes',
-      [
-        { id: 'search', label: 'binary search' },
-        { id: 'scan', label: 'range scan' },
-        { id: 'insert', label: 'insert' },
-        { id: 'delete', label: 'delete' },
-      ],
+      gapGoals,
       [
         { id: 'needs', label: 'needs' },
         { id: 'pma_answer', label: 'PMA answer' },
@@ -112,18 +117,19 @@ function* gappedInserts() {
       ],
     ),
     highlight: { active: ['scan:pma_answer', 'insert:pma_answer'], found: ['delete:pma_answer'], compare: ['search:needs'] },
-    explanation: 'The hard part is balancing two goals: keep data packed enough for fast scans, but sparse enough that future inserts find local slack.',
+    explanation: `The hard part is balancing ${gapGoals.length} design goals: keep data packed enough for fast scans, but sparse enough that future inserts find local slack.`,
   };
 
+  const neighborRows = [
+    { id: 'dense', label: 'dense sorted array' },
+    { id: 'btree', label: 'B-tree' },
+    { id: 'piece', label: 'Piece Table' },
+    { id: 'alex', label: 'ALEX' },
+  ];
   yield {
     state: labelMatrix(
       'Neighbors',
-      [
-        { id: 'dense', label: 'dense sorted array' },
-        { id: 'btree', label: 'B-tree' },
-        { id: 'piece', label: 'Piece Table' },
-        { id: 'alex', label: 'ALEX' },
-      ],
+      neighborRows,
       [
         { id: 'similarity', label: 'similarity' },
         { id: 'difference' },
@@ -136,51 +142,57 @@ function* gappedInserts() {
       ],
     ),
     highlight: { active: ['alex:similarity', 'dense:similarity'], found: ['btree:difference'], compare: ['piece:difference'] },
-    explanation: 'Packed memory arrays are a general ordered-layout idea. ALEX uses related gapped data nodes; editor buffers use different gap or descriptor strategies for text workloads.',
+    explanation: `Packed memory arrays are a general ordered-layout idea compared here against ${neighborRows.length} alternatives. ALEX uses related gapped data nodes; editor buffers use different gap or descriptor strategies for text workloads.`,
   };
 }
 
 function* densityRebalance() {
+  const graph = pmaGraph('Density thresholds choose the rebalance window');
+  const stageCount = graph.data.nodes.length;
   yield {
-    state: pmaGraph('Density thresholds choose the rebalance window'),
+    state: graph,
     highlight: { active: ['density', 'rebalance', 'e-density-rebalance'], found: ['gap'], compare: ['array'] },
-    explanation: 'After an insert or delete, the PMA checks density thresholds over progressively larger regions. If a small region is too dense or too sparse, it spreads elements over a larger region.',
-    invariant: 'Small regions tolerate different density than large regions.',
+    explanation: `After an insert or delete, the PMA checks density thresholds across ${stageCount} pipeline stages over progressively larger regions. If a small region is too dense or too sparse, it spreads elements over a larger region.`,
+    invariant: `Small regions tolerate different density than large regions, enforced across all ${stageCount} stages.`,
   };
 
+  const densities = ['100%', '82%', '61%'];
+  const overflowData = [
+    [densities[0], 'too full'],
+    [densities[1], 'still too full'],
+    [densities[2], 'acceptable window'],
+    ['even gaps', 'future inserts cheap'],
+  ];
+  const overflowRows = [
+    { id: 'small', label: 'small segment' },
+    { id: 'parent', label: 'parent region' },
+    { id: 'grand', label: 'larger region' },
+    { id: 'done', label: 'after spread' },
+  ];
   yield {
     state: labelMatrix(
       'Local region overflows',
-      [
-        { id: 'small', label: 'small segment' },
-        { id: 'parent', label: 'parent region' },
-        { id: 'grand', label: 'larger region' },
-        { id: 'done', label: 'after spread' },
-      ],
+      overflowRows,
       [
         { id: 'density', label: 'density' },
         { id: 'action' },
       ],
-      [
-        ['100%', 'too full'],
-        ['82%', 'still too full'],
-        ['61%', 'acceptable window'],
-        ['even gaps', 'future inserts cheap'],
-      ],
+      overflowData,
     ),
     highlight: { active: ['small:action', 'parent:action'], found: ['grand:action', 'done:density'] },
-    explanation: 'The rebalance does not always rebuild the whole array. It climbs until it finds a region whose density can absorb the update, then evenly redistributes that region.',
+    explanation: `The rebalance climbs from ${densities[0]} to ${densities[1]} to ${densities[2]} across ${overflowRows.length} levels. It does not always rebuild the whole array — it stops when it finds a region whose density can absorb the update, then evenly redistributes that region.`,
   };
 
+  const costRows = [
+    { id: 'insert', label: 'insert' },
+    { id: 'scan', label: 'scan S items' },
+    { id: 'space', label: 'space' },
+    { id: 'rebuild', label: 'occasional rebuild' },
+  ];
   yield {
     state: labelMatrix(
       'Cost intuition',
-      [
-        { id: 'insert', label: 'insert' },
-        { id: 'scan', label: 'scan S items' },
-        { id: 'space', label: 'space' },
-        { id: 'rebuild', label: 'occasional rebuild' },
-      ],
+      costRows,
       [
         { id: 'cost', label: 'cost' },
         { id: 'reason' },
@@ -193,18 +205,19 @@ function* densityRebalance() {
       ],
     ),
     highlight: { found: ['scan:cost', 'space:cost'], compare: ['rebuild:cost'], active: ['insert:reason'] },
-    explanation: 'The asymptotic analyses vary by model, but the mental model is stable: spend occasional rebalancing work to preserve fast ordered scans and reasonable updates.',
+    explanation: `The ${costRows.length} cost dimensions vary by model, but the mental model is stable: spend occasional rebalancing work to preserve fast ordered scans and reasonable updates.`,
   };
 
+  const caseRows = [
+    { id: 'workload', label: 'workload' },
+    { id: 'layout', label: 'layout' },
+    { id: 'query', label: 'range query' },
+    { id: 'update', label: 'insert burst' },
+  ];
   yield {
     state: labelMatrix(
       'Complete case study: mutable sorted runs',
-      [
-        { id: 'workload', label: 'workload' },
-        { id: 'layout', label: 'layout' },
-        { id: 'query', label: 'range query' },
-        { id: 'update', label: 'insert burst' },
-      ],
+      caseRows,
       [
         { id: 'role', label: 'role' },
         { id: 'lesson' },
@@ -217,7 +230,7 @@ function* densityRebalance() {
       ],
     ),
     highlight: { active: ['layout:lesson', 'query:lesson'], found: ['update:lesson'], compare: ['workload:role'] },
-    explanation: 'This is the same design pressure seen in learned indexes and cache-oblivious trees: keep ordered data physically close, but leave enough slack that updates do not destroy locality.',
+    explanation: `This ${caseRows.length}-phase case study shows the same design pressure seen in learned indexes and cache-oblivious trees: keep ordered data physically close, but leave enough slack that updates do not destroy locality.`,
   };
 }
 
@@ -247,7 +260,8 @@ export const article = {
           type: 'note',
           text: 'Watch for the gap that disappears after an insert, and then watch the rebalance view to see how the structure creates fresh gaps by spreading values over a wider window. The cost of that spread is the price of keeping future inserts cheap.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/packed-memory-array-gapped-order.gif', alt: 'Animated walkthrough of the packed memory array gapped order visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',
@@ -280,6 +294,12 @@ export const article = {
             'B-tree: updates cost O(log n) and page splits are bounded; range scans pay leaf-to-leaf pointer traversal and node metadata.',
             'PMA: updates copy only local runs most of the time; range scans stay near sequential while paying for gap skips.',
           ],
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg',
+          alt: 'Row-major and column-major memory layout diagrams',
+          caption: 'The PMA is a memory-layout argument first: keep ordered values close enough that scans behave like contiguous array reads. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Row_and_column_major_order.svg.',
         },
         'Neither baseline is silly. The PMA is useful only when the workload wants both properties at once: ordered range scans with array-like locality and middle updates that do not routinely move half the structure.',
       ],
@@ -314,6 +334,12 @@ export const article = {
         {
           type: 'note',
           text: 'The hierarchy is implicit -- region boundaries are array index ranges, not separate nodes. No pointers, no allocations.',
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Binary_tree_in_array.svg/500px-Binary_tree_in_array.svg.png',
+          alt: 'Binary tree nodes mapped onto array positions',
+          caption: 'Implicit region hierarchies store structure in positions. A PMA uses array ranges as levels without allocating separate tree nodes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_tree_in_array.svg.',
         },
         'Insert: binary-search for the predecessor in sorted order. If a nearby empty slot exists within the same small segment, shift a short run and write the new value. This is the cheap path -- constant or near-constant work.',
         'If the small segment is too full, climb the hierarchy. Check the parent region density, then the grandparent, and so on until a window is found whose density will be within bounds after the update. Redistribute the live values in that window into evenly spaced positions, creating fresh gaps.',

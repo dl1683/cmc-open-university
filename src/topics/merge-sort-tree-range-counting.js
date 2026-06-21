@@ -79,17 +79,24 @@ function bridgeGraph(title) {
 }
 
 function* rangeCount() {
+  const arraySize = 8;
+  const queryLeft = 2;
+  const queryRight = 6;
+  const threshold = 5;
+  const canonicalNodes = 3;
+  const totalCount = 4;
+
   yield {
     state: treeGraph('Every segment node stores a sorted catalog'),
     highlight: { active: ['root', 'left', 'right'], found: ['a', 'b', 'c', 'd'] },
-    explanation: 'A merge-sort tree is a segment tree where every node stores the values in its interval as a sorted list. Construction is exactly the merge step from Merge Sort applied at every internal node.',
-    invariant: 'Each array value appears in one node per level, so total storage is O(n log n).',
+    explanation: `A merge-sort tree is a segment tree where every node stores the values in its interval as a sorted list. This ${arraySize}-element array is split recursively; construction is exactly the merge step from Merge Sort applied at every internal node.`,
+    invariant: `Each of the ${arraySize} array values appears in one node per level, so total storage is O(n log n).`,
   };
 
   yield {
     state: treeGraph('Range [2..6] decomposes into canonical nodes'),
     highlight: { active: ['query', 'b', 'c', 'd', 'e-query-b', 'e-query-c', 'e-query-d'], compare: ['a'], found: ['root'] },
-    explanation: 'The range query does not scan positions one by one. It decomposes the interval into O(log n) disjoint segment-tree nodes, then searches each node catalog.',
+    explanation: `The range query [${queryLeft}..${queryRight}] does not scan positions one by one. It decomposes the interval into ${canonicalNodes} disjoint segment-tree nodes, then binary-searches each node's sorted catalog for values <= ${threshold}.`,
   };
 
   yield {
@@ -113,7 +120,7 @@ function* rangeCount() {
       ],
     ),
     highlight: { active: ['b:count', 'c:count', 'd:count'], found: ['total:count'] },
-    explanation: 'Each catalog answer is one Binary Search. The range count is the sum of those local counts.',
+    explanation: `Each catalog answer is one binary search for values <= ${threshold}. The ${canonicalNodes} local counts sum to ${totalCount}, the final range count.`,
   };
 
   yield {
@@ -137,16 +144,20 @@ function* rangeCount() {
       ],
     ),
     highlight: { found: ['count:cost'], compare: ['update:cost'], active: ['build:reason'] },
-    explanation: 'Merge-sort trees shine for static arrays or batched rebuilds. Fully dynamic updates require balanced containers in each node or a different structure.',
+    explanation: `Merge-sort trees shine for static arrays or batched rebuilds. With ${arraySize} elements the O(n log n) build is modest, but fully dynamic updates require balanced containers in each node or a different structure.`,
   };
 }
 
 function* fractionalCascading() {
+  const catalogCount = 3;
+  const searchKey = 5;
+  const neighborStructures = 4;
+
   yield {
     state: bridgeGraph('Same x is searched across every visited catalog'),
     highlight: { active: ['x', 'n1', 'n2', 'n3'], found: ['ans'] },
-    explanation: 'The query value x is identical for all canonical nodes. That repeated-search pattern is exactly where Fractional Cascading can remove most binary searches.',
-    invariant: 'The catalogs are related by the segment-tree structure and mostly static.',
+    explanation: `The query value x = ${searchKey} is identical for all ${catalogCount} canonical nodes. That repeated-search pattern is exactly where Fractional Cascading can remove most binary searches.`,
+    invariant: `All ${catalogCount} catalogs are related by the segment-tree structure and mostly static, making bridge pointers feasible.`,
   };
 
   yield {
@@ -170,13 +181,13 @@ function* fractionalCascading() {
       ],
     ),
     highlight: { active: ['plain:query', 'bridged:query'], found: ['successor:query'], compare: ['kth:tradeoff'] },
-    explanation: 'Fractional cascading augments catalogs with bridge positions. It is excellent for range successor and count-style searches when the array is static enough.',
+    explanation: `Fractional cascading augments all ${catalogCount} catalogs with bridge positions. Instead of ${catalogCount} independent binary searches for x = ${searchKey}, one full search plus pointer walks suffices.`,
   };
 
   yield {
     state: bridgeGraph('Bridge pointers carry the search position forward'),
     highlight: { active: ['e-x-n1', 'e-n1-n2', 'e-n2-n3', 'n1', 'n2'], compare: ['x'], found: ['ans'] },
-    explanation: 'After one full binary search, each next catalog starts near the correct rank. A small local adjustment gives the count or successor position for that node.',
+    explanation: `After one full binary search in the first catalog, the remaining ${catalogCount - 1} catalogs start near the correct rank via bridge pointers. A small local adjustment gives the count or successor position for each node.`,
   };
 
   yield {
@@ -200,7 +211,7 @@ function* fractionalCascading() {
       ],
     ),
     highlight: { active: ['mst:best_for'], found: ['wavelet:best_for'], compare: ['fenwick:limit', 'segment:limit'] },
-    explanation: 'The structure belongs between general Segment Tree ideas and succinct sequence indexes. It is often the easiest way to understand why Wavelet Tree is useful.',
+    explanation: `Among these ${neighborStructures} structures, the merge-sort tree sits between general segment trees and succinct sequence indexes. It is often the easiest way to understand why a Wavelet Tree is useful.`,
   };
 }
 
@@ -213,6 +224,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/merge-sort-tree-range-counting.gif', alt: 'Animated walkthrough of the merge sort tree range counting visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

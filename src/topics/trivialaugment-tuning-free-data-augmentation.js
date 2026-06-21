@@ -55,10 +55,17 @@ function trivialGraph(title) {
 }
 
 function* oneRandomOp() {
+  const nodeCount = 6;
+  const edgeCount = 6;
+  const opsPerImage = 1;
+  const sampledOp = 'solarize';
+  const sampledBin = 17;
+  const ladderMethods = ['AutoAug', 'RandAug', 'Trivial'];
+
   yield {
     state: trivialGraph('TrivialAugment samples exactly one operation'),
     highlight: { active: ['image', 'op', 'mag', 'apply', 'e-image-op', 'e-image-mag', 'e-op-apply', 'e-mag-apply'], found: ['view', 'train'] },
-    explanation: 'TrivialAugment removes policy search and even removes the N knob from RandAugment. For each image, choose one augmentation operation and one magnitude bin at random, then train on the transformed view.',
+    explanation: `TrivialAugment removes policy search and even removes the N knob from RandAugment. For each image, choose ${opsPerImage} augmentation operation and ${opsPerImage} magnitude bin at random, then train on the transformed view across a ${nodeCount}-node pipeline.`,
   };
 
   yield {
@@ -80,8 +87,8 @@ function* oneRandomOp() {
       ],
     ),
     highlight: { active: ['op:value', 'mag:value'], found: ['label:rule'] },
-    explanation: 'The algorithm is intentionally almost embarrassing. The work shifts from searching a complex policy to checking whether the augmentation space itself contains label-preserving operations.',
-    invariant: 'The augmentation space is the policy.',
+    explanation: `The algorithm is intentionally almost embarrassing: it drew "${sampledOp}" at bin ${sampledBin}. The work shifts from searching a complex policy to checking whether the augmentation space itself contains label-preserving operations.`,
+    invariant: `The augmentation space is the policy — ${opsPerImage} op and ${opsPerImage} magnitude replace the entire search.`,
   };
 
   yield {
@@ -104,17 +111,23 @@ function* oneRandomOp() {
       ],
     ),
     highlight: { active: ['trivial:search', 'trivial:knobs', 'trivial:lesson'], compare: ['auto:search', 'rand:knobs'] },
-    explanation: 'The ladder is the teaching point. If a tuning-free baseline is competitive, expensive policy search must justify its cost with honest held-out gains.',
+    explanation: `The ${ladderMethods.length}-method ladder is the teaching point. If ${ladderMethods[2]} (tuning-free) is competitive, expensive policy search like ${ladderMethods[0]} must justify its cost with honest held-out gains.`,
   };
 
   yield {
     state: trivialGraph('Simplicity makes the baseline hard to dismiss'),
     highlight: { active: ['op', 'mag', 'apply', 'view', 'train', 'e-op-apply', 'e-mag-apply', 'e-apply-view', 'e-view-train'] },
-    explanation: 'Because the policy is so small, failures are easier to diagnose. If performance is poor, inspect the operation catalog, magnitude bins, domain semantics, and training pipeline before inventing a larger search system.',
+    explanation: `Because the policy is so small (${opsPerImage} op, ${opsPerImage} magnitude, ${nodeCount} pipeline nodes, ${edgeCount} edges), failures are easier to diagnose. Inspect the operation catalog and magnitude bins before inventing a larger search system.`,
   };
 }
 
 function* baselineDiscipline() {
+  const trivialScore = 84;
+  const searchScore = 85.5;
+  const margin = searchScore - trivialScore;
+  const validationChecks = 4;
+  const connectedMethods = ['RandAug', 'SimCLR'];
+
   yield {
     state: plotState({
       axes: { x: { label: 'method complexity', min: 0, max: 4 }, y: { label: 'validation score', min: 70, max: 90 } },
@@ -129,7 +142,7 @@ function* baselineDiscipline() {
       ],
     }),
     highlight: { active: ['baseline', 'trivial'], compare: ['search'] },
-    explanation: 'The generic shape is common in ML systems: a tiny baseline captures most of the gain, and a complex search adds a small uncertain margin. The margin must beat variance, cost, and implementation risk.',
+    explanation: `The generic shape is common in ML systems: Trivial scores ${trivialScore} while policy search adds only ${margin} points to reach ${searchScore}. That small margin must beat variance, cost, and implementation risk.`,
   };
 
   yield {
@@ -153,7 +166,7 @@ function* baselineDiscipline() {
       ],
     ),
     highlight: { found: ['domain:question', 'labels:question', 'pipeline:question', 'slices:question'] },
-    explanation: 'Tuning-free does not mean evaluation-free. Medical images, digits, satellite images, traffic signs, and product photos all have different invariances. A safe catalog in one domain can corrupt labels in another.',
+    explanation: `Tuning-free does not mean evaluation-free. All ${validationChecks} checks must pass: domain safety, label preservation, pipeline throughput, and slice regression. A safe catalog in one domain can corrupt labels in another.`,
   };
 
   yield {
@@ -177,7 +190,7 @@ function* baselineDiscipline() {
       ],
     ),
     highlight: { active: ['rand:shared', 'simclr:shared', 'leak:risk', 'bench:risk'] },
-    explanation: 'TrivialAugment belongs in the same family as RandAugment and SimCLR: augmentation teaches invariance. Data Leakage and benchmark variance decide whether the claimed gain is real.',
+    explanation: `TrivialAugment belongs in the same family as ${connectedMethods.join(' and ')}: augmentation teaches invariance. Data leakage and benchmark variance decide whether the ${margin}-point margin from policy search is real.`,
   };
 }
 
@@ -198,7 +211,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/trivialaugment-tuning-free-data-augmentation.gif', alt: 'Animated walkthrough of the trivialaugment tuning free data augmentation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why TrivialAugment exists',

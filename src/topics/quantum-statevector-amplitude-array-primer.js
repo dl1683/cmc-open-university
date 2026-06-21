@@ -69,13 +69,13 @@ function* amplitudeArray() {
       ],
     ),
     highlight: { active: ['00:amp', '11:amp'], found: ['00:prob', '11:prob'] },
-    explanation: 'A statevector simulator stores one complex amplitude per computational basis state. Two qubits need four amplitudes; n qubits need 2^n amplitudes.',
+    explanation: `A ${topic.title.split(' ').slice(1, 3).join(' ').toLowerCase()} simulator stores one complex amplitude per computational basis state. Two qubits need ${2 ** 2} amplitudes; n qubits need 2^n amplitudes.`,
   };
   yield {
     state: stateGraph('Circuit operations mutate an amplitude array'),
     highlight: { active: ['circuit', 'state', 'e-circuit-state'], compare: ['sample'] },
-    explanation: 'The simulator does not store one value per qubit after entanglement. It stores a full array of amplitudes indexed by bitstrings.',
-    invariant: 'Statevector memory doubles for every additional qubit.',
+    explanation: `The ${topic.title.split(' ')[0].toLowerCase()} simulator does not store one value per qubit after entanglement. It stores a full array of amplitudes indexed by bitstrings.`,
+    invariant: `Statevector memory doubles for every additional qubit: n qubits require ${2}^n complex amplitudes.`,
   };
   yield {
     state: plotState({
@@ -88,7 +88,7 @@ function* amplitudeArray() {
       ],
     }),
     highlight: { active: ['growth', 'q30'] },
-    explanation: 'The exponential array is the central simulation bottleneck. Thirty qubits already require roughly one billion complex amplitudes.',
+    explanation: `The exponential array is the central ${topic.title.split(' ')[0].toLowerCase()} simulation bottleneck. ${30} qubits already require roughly ${(2 ** 30 / 1e9).toFixed(1)} billion complex amplitudes.`,
   };
   yield {
     state: labelMatrix(
@@ -111,7 +111,7 @@ function* amplitudeArray() {
       ],
     ),
     highlight: { found: ['square:role', 'sample:role'], compare: ['amp:note'] },
-    explanation: 'Measurements sample outcomes from squared magnitudes. Phase can affect later interference even when immediate measurement probabilities look the same.',
+    explanation: `Measurements sample outcomes from squared magnitudes. Phase can affect later interference in the ${topic.title.split(' ').slice(1, 3).join(' ').toLowerCase()} even when immediate measurement probabilities look the same.`,
   };
 }
 
@@ -137,12 +137,12 @@ function* gateStride() {
       ],
     ),
     highlight: { active: ['p0:after', 'p1:after', 'stride:after'], compare: ['write:after'] },
-    explanation: 'A single-qubit gate updates amplitude pairs whose basis indexes differ in the target bit. The target bit defines the stride pattern through the flat array.',
+    explanation: `A single-qubit gate updates amplitude pairs whose basis indexes differ in the target bit. The target bit defines the stride pattern through the flat ${topic.title.split(' ').slice(1, 3).join(' ').toLowerCase()} array.`,
   };
   yield {
     state: stateGraph('Gate kernels walk paired amplitudes'),
     highlight: { active: ['state', 'pair', 'gate', 'e-state-pair', 'e-pair-gate'], found: ['prob'] },
-    explanation: 'The data-parallel kernel loads a pair, applies a 2x2 matrix, and writes the pair back. Two-qubit gates use four-amplitude blocks.',
+    explanation: `The data-parallel kernel loads a pair, applies a ${2}x${2} matrix, and writes the pair back. Two-qubit gates use ${2 ** 2}-amplitude blocks.`,
   };
   yield {
     state: labelMatrix(
@@ -165,12 +165,12 @@ function* gateStride() {
       ],
     ),
     highlight: { found: ['state:effect', 'factor:effect'], active: ['h:effect', 'cx:effect'] },
-    explanation: 'After an entangling gate, the state cannot generally be stored as independent per-qubit vectors. This is why tensor-network simulators try to exploit limited entanglement.',
+    explanation: `After an entangling gate, the ${topic.title.split(' ')[0].toLowerCase()} state cannot generally be stored as independent per-qubit vectors. This is why tensor-network simulators try to exploit limited entanglement.`,
   };
   yield {
     state: stateGraph('Sampling reads probabilities from the final vector'),
     highlight: { active: ['prob', 'sample', 'e-prob-sample'], compare: ['gate', 'pair'] },
-    explanation: 'Statevector simulation is exact up to floating-point error, but repeated circuit shots are sampled from the final probability distribution.',
+    explanation: `${topic.title.split(' ').slice(1, 3).join(' ')} simulation is exact up to floating-point error, but repeated circuit shots are sampled from the final probability distribution.`,
   };
 }
 
@@ -183,6 +183,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/quantum-statevector-amplitude-array-primer.gif', alt: 'Animated walkthrough of the quantum statevector amplitude array primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

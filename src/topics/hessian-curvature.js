@@ -244,7 +244,8 @@ export const article = {
           label: '2D loss surface with curvature ellipses',
           text: '                  w2\n                  ^\n                  |    .---.             steep curvature (large eigenvalue)\n                  | .-/     \\-.\n          ......././           \\.\\.......\n        ./      / /     *       \\ \\      \\.\n       /   .../ /    minimum     \\ \\...   \\\n      |   /   | |                 | |   \\   |\n  ----+--/----+-+--------+--------+-+----\\--+----> w1\n      |   \\   | |                 | |   /   |\n       \\   ...| \\                / /...   /\n        .\\     \\ \\              / /      /.\n          .......\\.\\.          /./........\n                  | .-.     .-.\n                  |    .---.\n                  |\n\n  Outer ellipse: high loss contour (large L)\n  Inner ellipse: low loss contour (small L)\n  Axis ratio = sqrt(lambda_max / lambda_min) = sqrt(kappa)\n  Eigenvectors point along the long and short axes',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/hessian-curvature.gif', alt: 'Animated walkthrough of the hessian curvature visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

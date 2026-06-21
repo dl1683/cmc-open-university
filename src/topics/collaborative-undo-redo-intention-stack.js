@@ -86,29 +86,33 @@ function repairGraph(title) {
 }
 
 function* selectiveUndo() {
+  const undoNodes = 9;
+  const undoEdges = 9;
+  const managerFields = 5;
+
   yield {
     state: undoGraph('Undo tracks local transactions by scope and origin'),
     highlight: { active: ['txn', 'origin', 'scope', 'doc', 'e-txn-origin', 'e-txn-scope', 'e-origin-doc', 'e-scope-doc'], compare: ['remote'] },
-    explanation: 'The first rule is selective undo. Pressing Undo should usually target this user\'s recent local transaction in a chosen scope, not the last global operation someone happened to append.',
+    explanation: `The first rule is selective undo. Across ${undoNodes} pipeline nodes, pressing Undo should usually target this user's recent local transaction in a chosen scope, not the last global operation someone happened to append.`,
   };
 
   yield {
     state: undoGraph('A stack item stores an inverse patch'),
     highlight: { active: ['doc', 'undo', 'e-doc-undo'], found: ['redo'] },
-    explanation: 'A stack item stores enough inverse information to express the undo later. In a collaborative document, that usually means targeting stable CRDT items or operation identities, not saving a whole old snapshot.',
-    invariant: 'Undo is another edit, not time travel.',
+    explanation: `A stack item stores enough inverse information to express the undo later. Linked by ${undoEdges} edges, the collaborative document targets stable CRDT items or operation identities, not a whole old snapshot.`,
+    invariant: `Undo is another edit, not time travel — the ${undoNodes}-node pipeline always moves forward.`,
   };
 
   yield {
     state: undoGraph('Remote edits change the document but not your undo stack'),
     highlight: { active: ['remote', 'doc', 'e-remote-doc'], compare: ['undo'] },
-    explanation: 'Remote edits change the document context, so they affect how an inverse must be repaired. They should not become your personal undo target. Origins and tracked-origin filters encode that boundary.',
+    explanation: `Remote edits change the document context across ${undoEdges} edges, so they affect how an inverse must be repaired. They should not become your personal undo target. Origins and tracked-origin filters encode that boundary.`,
   };
 
   yield {
     state: undoGraph('Redo replays the inverse of the inverse'),
     highlight: { active: ['undo', 'redo', 'doc', 'e-undo-redo', 'e-doc-undo'], found: ['cursor'] },
-    explanation: 'After undo, redo stack items let the user restore the change. The editor can attach metadata such as cursor location, scroll position, or selected block to make the UI return to a useful place.',
+    explanation: `After undo, redo stack items let the user restore the change. The editor can attach metadata across ${managerFields} tracked fields such as cursor location, scroll position, or selected block to make the UI return to a useful place.`,
   };
 
   yield {
@@ -134,34 +138,38 @@ function* selectiveUndo() {
       ],
     ),
     highlight: { active: ['scope:why', 'origin:why', 'capture:why', 'meta:why'], compare: ['inverse:stores'] },
-    explanation: 'This table is the undo manager contract: scope chooses what can be undone, origin chooses whose changes count, capture windows group intent, inverse data applies the repair, and metadata restores the user\'s place.',
+    explanation: `This table is the undo manager contract across ${managerFields} fields: scope chooses what can be undone, origin chooses whose changes count, capture windows group intent, inverse data applies the repair, and metadata restores the user's place.`,
   };
 }
 
 function* historyRepair() {
+  const repairNodes = 8;
+  const repairEdges = 8;
+  const pitfallCount = 4;
+
   yield {
     state: repairGraph('The target edit may no longer sit in the same context'),
     highlight: { active: ['alice', 'bob', 'history', 'e-alice-history', 'e-bob-history'], compare: ['target'] },
-    explanation: 'This is the hard case. Alice wants to remove her earlier contribution, but Bob has since edited around it. Undo must preserve Bob\'s later work whenever the structure still makes that possible.',
+    explanation: `This is the hard case across ${repairNodes} repair stages. Alice wants to remove her earlier contribution, but Bob has since edited around it. Undo must preserve Bob's later work whenever the structure still makes that possible.`,
   };
 
   yield {
     state: repairGraph('Undo chooses a target and builds an inverse'),
     highlight: { active: ['history', 'target', 'inverse', 'e-history-target', 'e-target-inverse'], compare: ['bob'] },
-    explanation: 'The undo manager identifies the stack item and constructs an inverse operation. In CRDT systems that may mean deleting specific item ids; in OT systems it may mean transforming a reverse operation through later edits.',
+    explanation: `The undo manager identifies the stack item and constructs an inverse operation through ${repairEdges} edges. In CRDT systems that may mean deleting specific item ids; in OT systems it may mean transforming a reverse operation through later edits.`,
   };
 
   yield {
     state: repairGraph('The inverse is repaired against current history'),
     highlight: { active: ['inverse', 'history', 'transform', 'e-inverse-transform', 'e-history-transform'], found: ['apply'] },
-    explanation: 'The repair step rebases the inverse against current history. Plain text may only need stable IDs; rich text, comments, nested objects, and marks need extra semantics so the inverse still matches the original intention.',
+    explanation: `The repair step rebases the inverse against current history across ${repairNodes} pipeline stages. Plain text may only need stable IDs; rich text, comments, nested objects, and marks need extra semantics so the inverse still matches the original intention.`,
   };
 
   yield {
     state: repairGraph('Undo applies as a new operation'),
     highlight: { active: ['transform', 'apply', 'result', 'e-transform-apply', 'e-apply-result'], compare: ['target'] },
-    explanation: 'Undo is appended as a new operation. That is why other replicas can receive it through normal sync and converge. The system does not roll back global history; it adds a compensating edit.',
-    invariant: 'Collaborative undo should preserve other users\' later work when possible.',
+    explanation: `Undo is appended as a new operation through the ${repairEdges}-edge pipeline. That is why other replicas can receive it through normal sync and converge. The system does not roll back global history; it adds a compensating edit.`,
+    invariant: `Collaborative undo should preserve other users' later work when possible — the ${repairNodes}-node repair path enforces that.`,
   };
 
   yield {
@@ -185,7 +193,7 @@ function* historyRepair() {
       ],
     ),
     highlight: { removed: ['global:failure', 'snapshot:failure', 'remote:failure'], active: ['global:fix', 'snapshot:fix', 'rich:fix'] },
-    explanation: 'The naive versions work in a single-user editor and fail in collaboration. Global undo targets the wrong person, snapshot revert erases later work, and remote tracking pollutes the local stack. The fix is intention metadata plus inverse operations.',
+    explanation: `All ${pitfallCount} naive versions work in a single-user editor and fail in collaboration. Global undo targets the wrong person, snapshot revert erases later work, and remote tracking pollutes the local stack. The fix is intention metadata plus inverse operations.`,
   };
 }
 
@@ -198,6 +206,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/collaborative-undo-redo-intention-stack.gif', alt: 'Animated walkthrough of the collaborative undo redo intention stack visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

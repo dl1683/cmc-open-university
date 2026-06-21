@@ -80,17 +80,22 @@ function tupleTable(title) {
 }
 
 function* tupleBounds() {
+  const numTuples = 5;
+  const streamN = 10;
+  const targetRank = Math.ceil(0.5 * streamN);
+  const querySteps = ['target', 'scan', 'choose', 'error'];
+
   yield {
     state: summaryGraph('GK stores rank intervals, not all samples'),
     highlight: { active: ['stream', 'insert', 'tuples', 'e-stream-insert', 'e-insert-tuples'], compare: ['compress'] },
-    explanation: 'Greenwald-Khanna keeps a sorted summary of tuples. Each tuple stores a value, a gap from the previous retained value, and slack in its possible rank. The summary answers quantiles without retaining every sample.',
-    invariant: 'Every retained value represents a bounded rank interval in the full stream.',
+    explanation: `Greenwald-Khanna keeps a sorted summary of ${numTuples} tuples from a stream of ${streamN} values. Each tuple stores a value, a gap from the previous retained value, and slack in its possible rank. The summary answers quantiles without retaining every sample.`,
+    invariant: `Every retained value among ${numTuples} tuples represents a bounded rank interval in the full stream of ${streamN}.`,
   };
 
   yield {
     state: tupleTable('Tuple fields'),
     highlight: { active: ['t3:v', 't3:g', 't3:d', 't3:range'], compare: ['t2:range', 't4:range'] },
-    explanation: 'The tuple (v, g, d) says: value v has a minimum rank after adding the gaps, and a maximum rank that also includes d. Quantile queries search these rank intervals.',
+    explanation: `The tuple (v, g, d) says: value v has a minimum rank after adding the gaps, and a maximum rank that also includes d. Across ${numTuples} tuples, quantile queries search these rank intervals.`,
   };
 
   yield {
@@ -114,7 +119,7 @@ function* tupleBounds() {
       ],
     ),
     highlight: { active: ['target:value', 'scan:meaning'], found: ['choose:value'], compare: ['error:meaning'] },
-    explanation: 'The answer is not necessarily an observed exact median. It is a retained value whose rank interval is close enough to the requested rank under the configured epsilon.',
+    explanation: `Querying p50 with N=${streamN} targets rank ${targetRank}. The answer walks ${querySteps.length} steps: ${querySteps.join(', ')}. It is a retained value whose rank interval is close enough to the requested rank under the configured epsilon.`,
   };
 
   yield {
@@ -138,15 +143,19 @@ function* tupleBounds() {
       ],
     ),
     highlight: { active: ['fit:lesson', 'use:lesson'], compare: ['cost:lesson'] },
-    explanation: 'GK is attractive when the product needs a deterministic rank-error contract. It is less tailored to p99 value error than t-digest or DDSketch, but its bound is crisp.',
+    explanation: `GK is attractive when the product needs a deterministic rank-error contract over ${numTuples} tuples from a stream of ${streamN}. It is less tailored to p99 value error than t-digest or DDSketch, but its bound is crisp.`,
   };
 }
 
 function* compressSummary() {
+  const mergeSteps = ['pair', 'test', 'merge', 'keep'];
+  const competitors = ['GK', 'KLL', 't-digest', 'DDSketch'];
+  const numTupleFields = 3; // v, g, delta
+
   yield {
     state: summaryGraph('Compression deletes tuples only when the rank bound survives'),
     highlight: { active: ['tuples', 'compress', 'e-tuples-compress'], compare: ['query'] },
-    explanation: 'The summary periodically checks adjacent tuples. If merging two neighbors keeps every possible rank interval within the allowed error, the older tuple can be removed.',
+    explanation: `The summary periodically checks adjacent tuples across all ${numTupleFields} fields (v, g, delta). If merging two neighbors keeps every possible rank interval within the allowed error, the older tuple can be removed.`,
   };
 
   yield {
@@ -170,14 +179,14 @@ function* compressSummary() {
       ],
     ),
     highlight: { active: ['test:result', 'merge:result'], compare: ['keep:result'] },
-    explanation: 'The exact GK condition is more formal, but the data-structure idea is simple: a tuple can disappear only if the next tuple can still certify the rank range it used to protect.',
+    explanation: `The merge rule walks ${mergeSteps.length} steps: ${mergeSteps.join(', ')}. The data-structure idea is simple: a tuple can disappear only if the next tuple can still certify the rank range it used to protect.`,
   };
 
   yield {
     state: tupleTable('Fewer tuples, same rank promise'),
     highlight: { removed: ['t2:v', 't2:g', 't2:d'], found: ['t3:range'], active: ['t4:range'] },
-    explanation: 'Compression spends approximation budget to save memory. The summary does not claim every retained value is exact. It claims the rank error is bounded.',
-    invariant: 'The summary shrinks by spending rank slack, never by breaking the epsilon contract.',
+    explanation: `Compression spends approximation budget to save memory. After removing tuple t2, the remaining tuples absorb its ${numTupleFields}-field rank information. The summary does not claim every retained value is exact — it claims the rank error is bounded.`,
+    invariant: `The summary shrinks by spending rank slack across ${numTupleFields} tuple fields, never by breaking the epsilon contract.`,
   };
 
   yield {
@@ -201,7 +210,7 @@ function* compressSummary() {
       ],
     ),
     highlight: { active: ['gk:style', 'gk:best'], found: ['kll:style', 'dds:best'] },
-    explanation: 'GK is the deterministic baseline. KLL improves compactness with randomness. t-digest changes shape for tail resolution. DDSketch changes the error contract to relative value error.',
+    explanation: `This table compares ${competitors.length} quantile sketches: ${competitors.join(', ')}. GK is the deterministic baseline. KLL improves compactness with randomness. t-digest changes shape for tail resolution. DDSketch changes the error contract to relative value error.`,
   };
 }
 
@@ -221,7 +230,8 @@ export const article = {
         {type: 'callout', text: 'GK turns deletion into proof state: every retained value carries a rank interval large enough to remember what was discarded.'},
         'Active highlights mark the tuple or operation under inspection. Found highlights mark a query result whose rank interval covers the target. Removed highlights show tuples deleted by compression. Compare highlights show neighboring tuples whose rank intervals constrain the decision.',
         'Watch the rank column. Every tuple carries a range like 6..8 meaning the tuple\'s true rank in the full sorted stream falls somewhere in that window. Compression widens a neighbor\'s window; it never lets a window exceed the epsilon budget.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/greenwald-khanna-quantile-summary.gif', alt: 'Animated walkthrough of the greenwald khanna quantile summary visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

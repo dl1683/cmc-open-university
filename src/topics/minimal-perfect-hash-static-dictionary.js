@@ -35,6 +35,12 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* buildPerfectIds() {
+  const keys = ['cat', 'dog', 'eel', 'fox'];
+  const keyCount = keys.length; // 4
+  const slotRange = `0..${keyCount - 1}`; // '0..3'
+  const nodeCount = 5; // keys, builder, mphf, ids, values
+  const edgeCount = 4;
+
   yield {
     state: graphState({
       nodes: [
@@ -52,8 +58,8 @@ function* buildPerfectIds() {
       ],
     }, { title: 'Fixed keys become dense array ids' }),
     highlight: { active: ['builder', 'mphf'], found: ['ids', 'values'] },
-    explanation: 'Given a fixed set of n keys, a minimal perfect hash function maps every stored key to a unique integer from 0 to n-1. No collisions, no empty slots for member keys.',
-    invariant: 'Perfect means no collisions for the known set; minimal means the range has exactly n slots.',
+    explanation: `Given a fixed set of ${keyCount} keys, a minimal perfect hash function maps every stored key to a unique integer from 0 to ${keyCount - 1}. No collisions, no empty slots for member keys.`,
+    invariant: `Perfect means no collisions for the known set; minimal means the range has exactly ${keyCount} slots (${slotRange}).`,
   };
 
   yield {
@@ -77,7 +83,7 @@ function* buildPerfectIds() {
       ],
     ),
     highlight: { collision: ['cat:ordinary', 'dog:ordinary', 'eel:ordinary', 'fox:ordinary'], found: ['cat:perfect', 'dog:perfect', 'eel:perfect', 'fox:perfect'] },
-    explanation: 'An ordinary hash can collide and needs probing or chaining. A perfect-hash builder searches for auxiliary data so this exact key set lands in unique slots.',
+    explanation: `An ordinary hash can collide and needs probing or chaining. A perfect-hash builder searches for auxiliary data so these ${keyCount} keys (${keys.join(', ')}) land in unique slots.`,
   };
 
   yield {
@@ -101,7 +107,7 @@ function* buildPerfectIds() {
       ],
     ),
     highlight: { found: ['slot0:payload', 'slot1:payload', 'slot2:payload', 'slot3:payload'] },
-    explanation: 'Once keys have dense ids, payload storage becomes a plain array. That is the attraction: compact metadata plus direct indexing for a read-only dictionary.',
+    explanation: `Once ${keyCount} keys have dense ids in range ${slotRange}, payload storage becomes a plain ${keyCount}-entry array. That is the attraction: compact metadata plus direct indexing for a read-only dictionary.`,
   };
 
   yield {
@@ -113,11 +119,17 @@ function* buildPerfectIds() {
       ],
     }),
     highlight: { found: ['mphf'], compare: ['hash'] },
-    explanation: 'The chart is conceptual. Minimal perfect hashing achieves a dense member-key range, but only because construction is offline and the key set is fixed.',
+    explanation: `The chart compares 2 strategies. Minimal perfect hashing achieves a dense member-key range (${slotRange} for ${keyCount} keys), but only because construction is offline and the key set is fixed.`,
   };
 }
 
 function* lookupAndCaveats() {
+  const lookupSteps = 5; // query -> mphf -> slot -> verify -> answer
+  const lookupEdges = 4;
+  const constructionFamilies = 4;
+  const fitScenarios = 4;
+  const outcomeRows = 4;
+
   yield {
     state: graphState({
       nodes: [
@@ -135,8 +147,8 @@ function* lookupAndCaveats() {
       ],
     }, { title: 'Absent keys still need verification' }),
     highlight: { active: ['mphf', 'slot', 'verify'], found: ['answer'] },
-    explanation: 'A minimal perfect hash is perfect only on the stored key set. If you ask about a non-key, the function may still return an integer in range. Store a fingerprint or original key if misses must be detected.',
-    invariant: 'MPHF gives an address; membership semantics require verification unless all queries are guaranteed members.',
+    explanation: `A minimal perfect hash is perfect only on the stored key set. The lookup pipeline has ${lookupSteps} stages (query, MPHF, slot, verify, answer). If you ask about a non-key, the function may still return an integer in range. Store a fingerprint or original key if misses must be detected.`,
+    invariant: `MPHF gives an address across ${lookupEdges} transitions; membership semantics require verification unless all queries are guaranteed members.`,
   };
 
   yield {
@@ -160,7 +172,7 @@ function* lookupAndCaveats() {
       ],
     ),
     highlight: { found: ['member:mphf', 'trusted:needed'], compare: ['nonmember:needed', 'untrusted:needed'] },
-    explanation: 'This is the most important operational distinction. MPHF is an addressing function, not an approximate membership filter. Use Bloom-style filters or fingerprints when absent keys are common.',
+    explanation: `This is the most important operational distinction across ${outcomeRows} scenarios. MPHF is an addressing function, not an approximate membership filter. Use Bloom-style filters or fingerprints when absent keys are common.`,
   };
 
   yield {
@@ -184,7 +196,7 @@ function* lookupAndCaveats() {
       ],
     ),
     highlight: { active: ['graph:idea', 'bucket:idea', 'split:idea'], found: ['compress:tradeoff'] },
-    explanation: 'Modern MPHFs differ in how they search for collision-free assignments and how they store auxiliary data. The design space balances bits per key, construction time, and lookup throughput.',
+    explanation: `Modern MPHFs span ${constructionFamilies} major construction families (graph peeling, bucket search, recursive split, compressed aux). The design space balances bits per key, construction time, and lookup throughput.`,
   };
 
   yield {
@@ -208,7 +220,7 @@ function* lookupAndCaveats() {
       ],
     ),
     highlight: { found: ['compiler:fit', 'genome:fit', 'staticMap:fit'], compare: ['mutable:reason'] },
-    explanation: 'MPHFs shine when the set is built once and queried heavily: language keywords, static URL dictionaries, genome k-mers, frozen feature maps, and compact read-only lookup tables.',
+    explanation: `Across ${fitScenarios} fit scenarios, MPHFs shine when the set is built once and queried heavily: language keywords, static URL dictionaries, genome k-mers, and frozen feature maps. Mutable sets remain a weak fit because any insertion requires a rebuild.`,
   };
 }
 
@@ -221,6 +233,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/minimal-perfect-hash-static-dictionary.gif', alt: 'Animated walkthrough of the minimal perfect hash static dictionary visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

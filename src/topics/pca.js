@@ -169,7 +169,8 @@ export const article = {
         'The first view computes PCA live on twelve correlated 2-D points. Faded points are the original data. The covariance matrix step shows the second-order summary: variances on the diagonal, co-movement off it. The arrow labeled PC1 is the direction of maximum variance; PC2 is the perpendicular remainder. Arrow length scales with the square root of the eigenvalue, so a long arrow means a loud direction. Projected points (highlighted) show the 2-D-to-1-D compression: each original point drops perpendicularly onto the PC1 line and becomes a single coordinate.',
         { type: 'callout', text: 'PCA is the best linear shadow of centered data: rotate to the loud axes, then keep the coordinates that carry variance.' },
         'The second view shows PCA on a ring -- the honest failure case. The shadow row below the ring is the PC1 projection. When opposite points on the ring land on the same shadow position, you are watching a collision caused by PCA\'s linearity assumption. The comparison table and pipeline step spell out how PCA and t-SNE/UMAP divide labor in practice.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/pca.gif', alt: 'Animated walkthrough of the pca visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

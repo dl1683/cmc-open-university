@@ -61,11 +61,19 @@ function matrixGraph(title) {
 }
 
 function* bitLevels() {
+  const inputSeq = '3 1 4 1 5 0 2 6';
+  const seqLen = 8;
+  const bitLevelCount = 3;
+  const zeroCounts = [5, 5, 4];
+  const zeroCountStr = zeroCounts.join(', ');
+  const nodeCount = 8;
+  const edgeCount = 9;
+
   yield {
     state: matrixGraph('Stable partitions replace explicit tree nodes'),
     highlight: { active: ['input', 'b2', 'z2', 'o2', 'e-input-b2'], found: ['rank'] },
-    explanation: 'A wavelet matrix processes integer values from the most significant bit downward. At each level, it records a bitvector and stably moves zero-bit values before one-bit values.',
-    invariant: 'The zero count at each level tells where the one bucket begins.',
+    explanation: `A wavelet matrix processes ${seqLen} integer values from the most significant bit downward. At each of ${bitLevelCount} levels, it records a bitvector and stably moves zero-bit values before one-bit values.`,
+    invariant: `The zero count at each level (here ${zeroCountStr}) tells where the one bucket begins.`,
   };
 
   yield {
@@ -89,13 +97,13 @@ function* bitLevels() {
       ],
     ),
     highlight: { active: ['level2:bitvector', 'level1:bitvector', 'level0:bitvector'], found: ['meta:next_order'] },
-    explanation: 'The matrix stores one bitvector per level plus zero counts. Rank on those bitvectors maps intervals into the zero or one bucket at the next level.',
+    explanation: `The matrix stores one bitvector per level (${bitLevelCount} total) plus zero counts ${zeroCountStr}. Rank on those bitvectors maps intervals into the zero or one bucket at the next level.`,
   };
 
   yield {
     state: matrixGraph('Rank maps a position through each level'),
     highlight: { active: ['b2', 'b1', 'b0', 'rank', 'e-b1-rank', 'e-b0-rank'], compare: ['z2', 'o2'], found: ['answer'] },
-    explanation: 'To access or rank a value, carry a position through the levels. Rank0 keeps the position in the zero bucket; zeroCount + rank1 moves it into the one bucket.',
+    explanation: `To access or rank a value, carry a position through ${bitLevelCount} levels. Rank0 keeps the position in the zero bucket; zeroCount + rank1 moves it into the one bucket for the sequence ${inputSeq}.`,
   };
 
   yield {
@@ -119,11 +127,19 @@ function* bitLevels() {
       ],
     ),
     highlight: { active: ['matrix:shape', 'alphabet:effect'], compare: ['tree:shape'], found: ['cache:effect'] },
-    explanation: 'The matrix is not a different problem. It is a layout refinement that makes wavelet-style queries practical for integer alphabets and array-centric implementations.',
+    explanation: `The matrix is not a different problem. It is a layout refinement that replaces a pointer-heavy tree with ${bitLevelCount} flat bitvectors, making wavelet-style queries practical for integer alphabets and array-centric implementations.`,
   };
 }
 
 function* rangeQuantile() {
+  const queryL = 1;
+  const queryR = 7;
+  const queryK = 3;
+  const bitLevelCount = 3;
+  const rangeValues = '1,4,1,5,0,2';
+  const rangeLen = 6;
+  const costPerQuery = 'O(log sigma)';
+
   yield {
     state: labelMatrix(
       '3rd smallest in range [1,7)',
@@ -145,14 +161,14 @@ function* rangeQuantile() {
       ],
     ),
     highlight: { active: ['bit2:decision', 'bit1:decision', 'bit0:decision'], found: ['bit0:answer_bits'] },
-    explanation: 'Range quantile carries [l, r) through each bit level. Count how many elements in the range have bit 0. If k fits there, choose 0; otherwise choose 1 and subtract the zero count.',
-    invariant: 'Every chosen bit narrows the value interval without sorting the query range.',
+    explanation: `Range quantile carries [${queryL}, ${queryR}) through each of ${bitLevelCount} bit levels. Count how many of the ${rangeLen} elements in the range have bit 0. If k=${queryK} fits there, choose 0; otherwise choose 1 and subtract the zero count.`,
+    invariant: `Every chosen bit narrows the value interval without sorting the ${rangeLen}-element query range.`,
   };
 
   yield {
     state: matrixGraph('Interval remapping is rank arithmetic'),
     highlight: { active: ['b2', 'b1', 'b0', 'rank'], found: ['answer'], compare: ['input'] },
-    explanation: 'The query does not extract values. It remaps l and r through bitvectors using rank, exactly as Wavelet Tree queries remap intervals through child nodes.',
+    explanation: `The query does not extract values. It remaps l=${queryL} and r=${queryR} through ${bitLevelCount} bitvectors using rank, exactly as Wavelet Tree queries remap intervals through child nodes.`,
   };
 
   yield {
@@ -176,7 +192,7 @@ function* rangeQuantile() {
       ],
     ),
     highlight: { active: ['quantile:walk', 'predecessor:walk'], found: ['access:cost', 'rank:cost'] },
-    explanation: 'The same rank/select support underlies many query types. Range quantile is the easiest to visualize because each level chooses one answer bit.',
+    explanation: `The same rank/select support underlies all four query types, each costing ${costPerQuery}. Range quantile is the easiest to visualize because each of ${bitLevelCount} levels chooses one answer bit.`,
   };
 
   yield {
@@ -200,7 +216,7 @@ function* rangeQuantile() {
       ],
     ),
     highlight: { active: ['query:role', 'matrix:reason'], found: ['result:role'], compare: ['snapshot:reason'] },
-    explanation: 'For static arrays of measurements, a wavelet matrix can answer percentile-style window queries without building a separate sorted catalog for every possible window.',
+    explanation: `For static arrays of measurements, a wavelet matrix can answer percentile-style window queries in ${costPerQuery} per query without building a separate sorted catalog for every possible window.`,
   };
 }
 
@@ -220,7 +236,8 @@ export const article = {
         {type: 'callout', text: 'A wavelet matrix turns range order into rank arithmetic: each bit level chooses one answer bit while keeping the query interval contiguous.'},
         'The "range quantile" view answers "3rd smallest in [1,7)." Each frame picks one answer bit by counting zeros inside the current interval. Active highlights are the decision at each level. Found highlights are the accumulated answer bits. Watch the interval [l, r) shrink through the levels -- the structure never extracts or sorts the window.',
         'At every frame, ask: what information does the bitvector carry, and why does stable partitioning keep the interval contiguous at the next level?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/wavelet-matrix-range-quantile.gif', alt: 'Animated walkthrough of the wavelet matrix range quantile visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

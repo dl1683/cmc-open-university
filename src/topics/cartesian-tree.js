@@ -59,34 +59,42 @@ function stackState(items, title) {
 }
 
 function* rmqReduction() {
+  const rootActive = ['i3'];
+  const otherItems = ['i0', 'i1', 'i2', 'i4', 'i5'];
   yield {
     state: arrayQueue('Array: [5, 2, 6, 1, 3, 4]'),
-    highlight: { active: ['i3'], compare: ['i0', 'i1', 'i2', 'i4', 'i5'] },
-    explanation: 'A min Cartesian tree starts from an array. The smallest value becomes the root. Everything left of it becomes the left subtree, everything right of it becomes the right subtree, recursively.',
+    highlight: { active: rootActive, compare: otherItems },
+    explanation: `A min Cartesian tree starts from an array. The smallest value becomes the root (highlighted at position ${rootActive[0].slice(1)}). Everything left of it becomes the left subtree, everything right of it becomes the right subtree, recursively.`,
   };
 
+  const treeFound = ['n3'];
+  const treeActive = ['n1', 'n4'];
+  const treeCompare = ['n0', 'n2', 'n5'];
   yield {
     state: cartesianTree('In-order positions stay sorted; values obey min-heap order'),
-    highlight: { found: ['n3'], active: ['n1', 'n4'], compare: ['n0', 'n2', 'n5'] },
-    explanation: 'Read the tree in-order and you recover indexes 0, 1, 2, 3, 4, 5. Read parent-to-child values and every parent is smaller than its children. Those two invariants make the tree unique when values are distinct.',
-    invariant: 'In-order traversal equals array order; parent value <= child value.',
+    highlight: { found: treeFound, active: treeActive, compare: treeCompare },
+    explanation: `Read the tree in-order and you recover indexes 0, 1, 2, 3, 4, 5. Read parent-to-child values and every parent is smaller than its children. Those ${treeActive.length + treeCompare.length + treeFound.length} nodes make the tree unique when values are distinct.`,
+    invariant: `In-order traversal equals array order; parent value <= child value (root is ${treeFound[0]}).`,
   };
 
+  const rmqEndpoints = ['n0', 'n2'];
+  const lcaNode = ['n1'];
   yield {
     state: cartesianTree('RMQ [0, 2] becomes LCA of endpoints 0 and 2'),
-    highlight: { active: ['n0', 'n2'], found: ['n1'], compare: ['n3'] },
-    explanation: 'The minimum in range [0,2] is value 2 at index 1. In the Cartesian tree, that node is the lowest common ancestor of endpoints 0 and 2. RMQ has become an LCA query.',
+    highlight: { active: rmqEndpoints, found: lcaNode, compare: ['n3'] },
+    explanation: `The minimum in range [0,2] is value 2 at index ${lcaNode[0].slice(1)}. In the Cartesian tree, that node is the lowest common ancestor of endpoints ${rmqEndpoints[0].slice(1)} and ${rmqEndpoints[1].slice(1)}. RMQ has become an LCA query.`,
   };
 
+  const toolRows = [
+    { id: 'scan', label: 'scan range' },
+    { id: 'segment', label: 'Segment Tree' },
+    { id: 'sparse', label: 'Sparse Table' },
+    { id: 'cart', label: 'Cartesian Tree + LCA' },
+  ];
   yield {
     state: labelMatrix(
       'Range-minimum tools',
-      [
-        { id: 'scan', label: 'scan range' },
-        { id: 'segment', label: 'Segment Tree' },
-        { id: 'sparse', label: 'Sparse Table' },
-        { id: 'cart', label: 'Cartesian Tree + LCA' },
-      ],
+      toolRows,
       [
         { id: 'update', label: 'updates?' },
         { id: 'query', label: 'query' },
@@ -100,41 +108,46 @@ function* rmqReduction() {
       ],
     ),
     highlight: { active: ['cart:lesson'], compare: ['segment:query', 'sparse:query'] },
-    explanation: 'Cartesian trees are less about replacing Segment Trees in ordinary code and more about showing a deep equivalence: static RMQ can be reduced to LCA.',
+    explanation: `Cartesian trees are less about replacing Segment Trees in ordinary code and more about showing a deep equivalence: static RMQ can be reduced to LCA. This matrix compares ${toolRows.length} approaches.`,
   };
 }
 
 function* linearConstruction() {
+  const initialStack = [{ id: 's0', value: '0:5' }];
   yield {
-    state: stackState([{ id: 's0', value: '0:5' }], 'Monotonic stack holds the right spine'),
+    state: stackState(initialStack, 'Monotonic stack holds the right spine'),
     highlight: { active: ['s0'] },
-    explanation: 'The linear construction scans left to right and keeps the right spine of the partial Cartesian tree in a monotonic stack. New smaller values pop larger spine nodes.',
+    explanation: `The linear construction scans left to right and keeps the right spine of the partial Cartesian tree in a monotonic stack (starting with ${initialStack[0].value}). New smaller values pop larger spine nodes.`,
   };
 
+  const nextStack = [
+    { id: 's1', value: '1:2' },
+    { id: 's2', value: '2:6' },
+  ];
   yield {
-    state: stackState([
-      { id: 's1', value: '1:2' },
-      { id: 's2', value: '2:6' },
-    ], 'After 2 arrives, 5 is popped under it; then 6 extends the spine'),
+    state: stackState(nextStack, 'After 2 arrives, 5 is popped under it; then 6 extends the spine'),
     highlight: { active: ['s1', 's2'] },
-    explanation: 'When value 2 arrives, value 5 can no longer stay above it because the heap property requires smaller values nearer the root. Later value 6 is larger, so it becomes the current right child.',
+    explanation: `When value ${nextStack[0].value.split(':')[1]} arrives, value 5 can no longer stay above it because the heap property requires smaller values nearer the root. Later value ${nextStack[1].value.split(':')[1]} is larger, so it becomes the current right child.`,
   };
 
+  const finalRoot = ['n3'];
+  const finalActive = ['n1', 'n4'];
   yield {
     state: cartesianTree('Final tree after scanning all values once'),
-    highlight: { found: ['n3'], active: ['n1', 'n4'], compare: ['n0', 'n2', 'n5'] },
-    explanation: 'Value 1 pops the spine and becomes the root. Values 3 and 4 then attach on the right. Each array item is pushed once and popped at most once, matching Monotonic Queue style amortization.',
+    highlight: { found: finalRoot, active: finalActive, compare: ['n0', 'n2', 'n5'] },
+    explanation: `Value 1 pops the spine and becomes the root (${finalRoot[0]}). Values 3 and 4 then attach on the right. Each array item is pushed once and popped at most once, matching Monotonic Queue style amortization.`,
   };
 
+  const constructionRows = [
+    { id: 'spine', label: 'right spine stack' },
+    { id: 'pop', label: 'pop larger values' },
+    { id: 'attach', label: 'attach last popped' },
+    { id: 'finish', label: 'finish scan' },
+  ];
   yield {
     state: labelMatrix(
       'Construction invariant',
-      [
-        { id: 'spine', label: 'right spine stack' },
-        { id: 'pop', label: 'pop larger values' },
-        { id: 'attach', label: 'attach last popped' },
-        { id: 'finish', label: 'finish scan' },
-      ],
+      constructionRows,
       [
         { id: 'meaning', label: 'meaning' },
         { id: 'cost', label: 'cost' },
@@ -147,7 +160,7 @@ function* linearConstruction() {
       ],
     ),
     highlight: { found: ['finish:cost'], active: ['spine:meaning', 'pop:cost'] },
-    explanation: 'The algorithm is another expression of dominance. A smaller later value dominates larger nodes on the right spine until it finds a smaller ancestor.',
+    explanation: `The algorithm is another expression of dominance across ${constructionRows.length} steps. A smaller later value dominates larger nodes on the right spine until it finds a smaller ancestor.`,
   };
 }
 
@@ -160,6 +173,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/cartesian-tree.gif', alt: 'Animated walkthrough of the cartesian tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

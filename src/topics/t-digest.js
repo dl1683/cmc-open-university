@@ -90,6 +90,10 @@ function distributionPlot(title) {
 }
 
 function* centroidCompression() {
+  const numBatches = 4;
+  const numCentroids = 6;
+  const quantiles = ['p50', 'p95', 'p99'];
+
   yield {
     state: labelMatrix(
       'Raw latency stream arrives in arbitrary order',
@@ -111,22 +115,23 @@ function* centroidCompression() {
       ],
     ),
     highlight: { active: ['b1:samples', 'b2:samples', 'b3:samples', 'b4:samples'], compare: ['b4:samples'] },
-    explanation: 'Quantile monitoring cannot keep every latency forever. A t-digest keeps a compact summary that can answer rank questions like p50, p95, and p99 while the stream continues to arrive.',
+    explanation: `Quantile monitoring cannot keep every latency forever. Across ${numBatches} batches of arriving samples, a t-digest keeps a compact summary that can answer rank questions like ${quantiles.join(', ')} while the stream continues to arrive.`,
   };
 
   yield {
     state: centroidTable('Compress sorted samples into weighted centroids'),
     highlight: { active: ['c3:mean', 'c3:weight', 'c4:mean', 'c4:weight'], found: ['c1:weight', 'c6:weight'] },
-    explanation: 'The digest stores centroids: each centroid has a mean and a weight. Middle ranks can tolerate larger clusters because a small rank error near p50 is usually acceptable. The tails get small clusters because p99 accuracy is where operators notice pain.',
-    invariant: 'Centroids are ordered by mean; weights approximate how many samples each centroid represents.',
+    explanation: `The digest stores ${numCentroids} centroids: each centroid has a mean and a weight. Middle ranks can tolerate larger clusters because a small rank error near ${quantiles[0]} is usually acceptable. The tails get small clusters because ${quantiles[2]} accuracy is where operators notice pain.`,
+    invariant: `Centroids are ordered by mean; ${numCentroids} weights approximate how many samples each centroid represents.`,
   };
 
   yield {
     state: distributionPlot('Tail-aware compression gives more resolution near p99'),
     highlight: { active: ['p95', 'p99'], compare: ['p50'], found: ['cdf'] },
-    explanation: 'The sketch is designed for relative accuracy near the tails. That is why t-digest is popular for latency SLOs: the question is rarely "what is the exact average?" It is "how bad is the slow tail?"',
+    explanation: `The sketch is designed for relative accuracy near the tails. It tracks ${quantiles.length} key quantiles (${quantiles.join(', ')}). That is why t-digest is popular for latency SLOs: the question is rarely "what is the exact average?" It is "how bad is the slow tail?"`,
   };
 
+  const siblingSketchNames = ['HyperLogLog', 'Count-Min', 't-digest', 'reservoir'];
   yield {
     state: labelMatrix(
       'How t-digest compares to sibling sketches',
@@ -149,11 +154,15 @@ function* centroidCompression() {
       ],
     ),
     highlight: { found: ['td:question', 'td:state', 'td:merge'], compare: ['hll:question', 'cms:question'] },
-    explanation: 'Sketches are not interchangeable. HyperLogLog answers cardinality, Count-Min Sketch answers approximate frequencies, and t-digest answers rank statistics. A serious observability system often uses several sketches side by side.',
+    explanation: `Sketches are not interchangeable — this table compares ${siblingSketchNames.length} sketch types: ${siblingSketchNames.join(', ')}. HyperLogLog answers cardinality, Count-Min Sketch answers approximate frequencies, and t-digest answers rank statistics.`,
   };
 }
 
 function* mergeQuantiles() {
+  const shards = ['api', 'search', 'ads', 'billing'];
+  const mergeSteps = ['append centroids', 'sort by mean', 'compress', 'query rank'];
+  const totalCentroids = 12 + 18 + 10 + 7;
+
   yield {
     state: labelMatrix(
       'Each shard builds a local digest',
@@ -176,7 +185,7 @@ function* mergeQuantiles() {
       ],
     ),
     highlight: { active: ['api:centroids', 'search:centroids', 'ads:centroids', 'billing:centroids'], compare: ['billing:tail'] },
-    explanation: 'A distributed service cannot ship every raw request latency to one coordinator. Each shard summarizes locally. The coordinator merges the centroids, compresses again, and estimates global quantiles.',
+    explanation: `A distributed service with ${shards.length} shards (${shards.join(', ')}) cannot ship every raw request latency to one coordinator. Each shard summarizes locally into a combined ${totalCentroids} centroids. The coordinator merges them, compresses again, and estimates global quantiles.`,
   };
 
   yield {
@@ -201,15 +210,16 @@ function* mergeQuantiles() {
       ],
     ),
     highlight: { active: ['append:operation', 'sort:operation', 'compress:operation'], found: ['query:output'] },
-    explanation: 'The merge path is why t-digest fits distributed telemetry. Local summaries are first-class data. You can roll them up per host, rack, region, and service without replaying raw events.',
+    explanation: `The ${mergeSteps.length}-step merge path (${mergeSteps.join(' -> ')}) is why t-digest fits distributed telemetry. Local summaries are first-class data. You can roll them up per host, rack, region, and service without replaying raw events.`,
   };
 
   yield {
     state: distributionPlot('Read p95 and p99 from the merged summary'),
     highlight: { found: ['p95', 'p99'], active: ['cdf'] },
-    explanation: 'After merging, quantile queries walk cumulative centroid weights until the desired rank is reached. The answer is an interpolation through the compressed CDF, not a raw observation.',
+    explanation: `After merging ${totalCentroids} centroids from ${shards.length} shards, quantile queries walk cumulative centroid weights until the desired rank is reached. The answer is an interpolation through the compressed CDF, not a raw observation.`,
   };
 
+  const operationalLessons = ['compression', 'ordering', 'tail accuracy', 'alerting'];
   yield {
     state: labelMatrix(
       'Operational lessons',
@@ -231,7 +241,7 @@ function* mergeQuantiles() {
       ],
     ),
     highlight: { active: ['tail:good', 'alerts:danger'], compare: ['compression:danger'] },
-    explanation: 'The sketch is only part of the monitoring design. Tail latency must still be broken down by route, customer tier, shard, and release. Otherwise a globally good p99 can hide a small group having a terrible day.',
+    explanation: `The sketch is only part of the monitoring design — ${operationalLessons.length} lessons (${operationalLessons.join(', ')}) apply. Tail latency must still be broken down by route, customer tier, shard, and release. Otherwise a globally good p99 can hide a small group having a terrible day.`,
   };
 }
 
@@ -251,7 +261,8 @@ export const article = {
         'The "centroid compression" view shows raw latency samples arriving in batches, then being compressed into weighted centroids ordered by mean. Active highlights mark the centroids being built or merged right now. Found highlights mark the quantile estimates (p50, p95, p99) read from the compressed summary. The CDF plot shows where each centroid sits in cumulative rank space.',
         'The "merge quantiles" view shows four distributed shards, each building a local digest. The coordinator concatenates their centroids, sorts by mean, recompresses under the same scale rule, and reads global quantile estimates from the merged result. Watch how the billing shard contributes few centroids but its 900 ms tail still appears in the final answer because weights carry traffic volume.',
         'At each frame, ask: how many samples does this centroid represent, what rank region does it cover, and why is that cluster allowed to be that size? The scale function is the answer to the third question every time.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/t-digest.gif', alt: 'Animated walkthrough of the t digest visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -110,7 +110,8 @@ export const article = {
         'Active (highlighted) cells are the values being computed right now. When a neuron\'s pre-activation is negative, ReLU silences it to zero and the animation marks it as removed -- that neuron contributes nothing to the output for this particular input. Different inputs activate different subsets of neurons; watch how changing the inputs in the control box reshapes which neurons fire.',
         'The key inference at each frame: the weighted sum is pure linear algebra (rotation, scaling, shifting). The ReLU bend is what makes the network more than a single matrix multiply. Without that bend, every layer would collapse into one.',
         {type: 'callout', text: 'A forward pass is repeated affine mixing plus nonlinear gating; depth only helps because the gates prevent the layers from collapsing into one matrix.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/nn-forward-pass.gif', alt: 'Animated walkthrough of the nn forward pass visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

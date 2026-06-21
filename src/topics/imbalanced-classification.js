@@ -133,7 +133,8 @@ export const article = {
         {type: 'callout', text: 'On imbalanced data, the denominator decides the story: accuracy rewards the majority, precision prices the alert queue.'},
         'Active cells are the current computation. Found cells are correct catches (true positives). Compare cells highlight two quantities that use the same numerator but different denominators -- the core of the accuracy paradox. Removed cells are missed positives or discarded data.',
         'At each frame, read the denominator. That single choice -- dividing by all examples, all negatives, or all alarms -- is the entire argument about whether a model is good or broken.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/imbalanced-classification.gif', alt: 'Animated walkthrough of the imbalanced classification visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

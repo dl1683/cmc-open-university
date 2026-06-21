@@ -57,28 +57,31 @@ function simclrGraph(title) {
 }
 
 function* positivePairs() {
+  const pipelineNodes = ['img', 'crop1', 'crop2', 'enc1', 'enc2', 'z1', 'z2'];
+  const numViews = 2;
   yield {
     state: simclrGraph('Two augmented views define the positive pair'),
     highlight: { active: ['img', 'crop1', 'crop2', 'e-img-crop1', 'e-img-crop2'], compare: ['z1', 'z2'] },
-    explanation: 'SimCLR starts without labels. It creates two different augmented views of the same image. Those two views are the positive pair: the model should learn that they represent the same underlying object.',
+    explanation: `SimCLR starts without labels. It creates ${numViews} different augmented views of the same image across a ${pipelineNodes.length}-node pipeline. Those ${numViews} views are the positive pair: the model should learn that they represent the same underlying object.`,
   };
 
   yield {
     state: simclrGraph('The same encoder maps both views into representation space'),
     highlight: { active: ['enc1', 'enc2', 'e-crop1-enc1', 'e-crop2-enc2'], found: ['z1', 'z2'] },
-    explanation: 'Both views pass through the same encoder. The projection head maps representations into the space where the contrastive loss is applied. The representation before the projection head is what downstream tasks usually keep.',
-    invariant: 'Augmentations define what the model should ignore.',
+    explanation: `Both ${numViews} views pass through the same encoder with shared weights. The projection head maps representations into the space where the contrastive loss is applied. The representation before the projection head is what downstream tasks usually keep.`,
+    invariant: `Augmentations across ${numViews} views define what the model should ignore.`,
   };
 
+  const augmentations = [
+    { id: 'crop', label: 'random crop' },
+    { id: 'color', label: 'color distortion' },
+    { id: 'blur', label: 'blur' },
+    { id: 'weak', label: 'too weak' },
+  ];
   yield {
     state: labelMatrix(
       'Augmentation strength is the teaching signal',
-      [
-        { id: 'crop', label: 'random crop' },
-        { id: 'color', label: 'color distortion' },
-        { id: 'blur', label: 'blur' },
-        { id: 'weak', label: 'too weak' },
-      ],
+      augmentations,
       [
         { id: 'effect', label: 'effect' },
         { id: 'lesson', label: 'lesson' },
@@ -91,18 +94,19 @@ function* positivePairs() {
       ],
     ),
     highlight: { active: ['crop:lesson', 'color:lesson', 'blur:lesson'], compare: ['weak:lesson'] },
-    explanation: 'The local corpus notes emphasize this point: simple cropping plus strong color distortion did more than fancy augmentation policies. The augmentations define the self-supervised task.',
+    explanation: `${augmentations.length} augmentation strategies are compared (${augmentations.map(a => a.label).join(', ')}). Simple cropping plus strong color distortion did more than fancy augmentation policies. The augmentations define the self-supervised task.`,
   };
 
+  const stages = [
+    { id: 'pretrain', label: 'self-supervised pretrain' },
+    { id: 'linear', label: 'linear probe' },
+    { id: 'finetune', label: 'fine-tune' },
+    { id: 'deploy', label: 'downstream model' },
+  ];
   yield {
     state: labelMatrix(
       'After pretraining, labels become cheaper',
-      [
-        { id: 'pretrain', label: 'self-supervised pretrain' },
-        { id: 'linear', label: 'linear probe' },
-        { id: 'finetune', label: 'fine-tune' },
-        { id: 'deploy', label: 'downstream model' },
-      ],
+      stages,
       [
         { id: 'uses', label: 'uses' },
         { id: 'payoff', label: 'payoff' },
@@ -115,20 +119,22 @@ function* positivePairs() {
       ],
     ),
     highlight: { found: ['pretrain:payoff', 'linear:payoff', 'finetune:payoff'] },
-    explanation: 'Contrastive learning separates representation learning from label-heavy training. The encoder learns reusable visual features before the task-specific classifier sees labels.',
+    explanation: `Contrastive learning separates representation learning from label-heavy training across ${stages.length} stages (${stages.map(s => s.label).join(' -> ')}). The encoder learns reusable visual features before the task-specific classifier sees labels.`,
   };
 }
 
 function* batchNegatives() {
+  const batchViews = [
+    { id: 'cat1', label: 'cat view 1' },
+    { id: 'cat2', label: 'cat view 2' },
+    { id: 'dog1', label: 'dog view 1' },
+    { id: 'car1', label: 'car view 1' },
+  ];
+  const numNegPerAnchor = batchViews.length - 2; // exclude self and positive
   yield {
     state: labelMatrix(
       'Every other view in the batch is a negative',
-      [
-        { id: 'cat1', label: 'cat view 1' },
-        { id: 'cat2', label: 'cat view 2' },
-        { id: 'dog1', label: 'dog view 1' },
-        { id: 'car1', label: 'car view 1' },
-      ],
+      batchViews,
       [
         { id: 'cat1', label: 'cat1' },
         { id: 'cat2', label: 'cat2' },
@@ -143,18 +149,19 @@ function* batchNegatives() {
       ],
     ),
     highlight: { found: ['cat1:cat2', 'cat2:cat1'], removed: ['cat1:dog1', 'cat1:car1'] },
-    explanation: 'The contrastive loss pulls the positive pair together and pushes all other examples in the batch apart. Bigger batches provide more negatives, which is one reason SimCLR benefits from large batches.',
+    explanation: `With ${batchViews.length} views in this batch, each anchor gets 1 positive and ${numNegPerAnchor} negatives. The contrastive loss pulls the positive pair together and pushes all other examples apart. Bigger batches provide more negatives.`,
   };
 
+  const lossComponents = [
+    { id: 'pos', label: 'positive similarity' },
+    { id: 'neg', label: 'negative similarities' },
+    { id: 'temp', label: 'temperature' },
+    { id: 'loss', label: 'loss' },
+  ];
   yield {
     state: labelMatrix(
       'NT-Xent loss intuition',
-      [
-        { id: 'pos', label: 'positive similarity' },
-        { id: 'neg', label: 'negative similarities' },
-        { id: 'temp', label: 'temperature' },
-        { id: 'loss', label: 'loss' },
-      ],
+      lossComponents,
       [
         { id: 'want', label: 'want' },
         { id: 'mechanism', label: 'mechanism' },
@@ -167,19 +174,20 @@ function* batchNegatives() {
       ],
     ),
     highlight: { active: ['pos:mechanism', 'neg:mechanism', 'temp:mechanism'], found: ['loss:want'] },
-    explanation: 'SimCLR uses a softmax-style contrastive loss. The positive pair should win against all negatives. Temperature controls how sharply similarity differences affect the probabilities.',
-    invariant: 'The loss needs both a positive pair and a set of negatives.',
+    explanation: `SimCLR uses a softmax-style contrastive loss with ${lossComponents.length} components (${lossComponents.map(c => c.label).join(', ')}). The positive pair should win against all negatives. Temperature controls how sharply similarity differences affect the probabilities.`,
+    invariant: `The loss needs both a positive pair and a set of ${numNegPerAnchor} negatives per anchor in this ${batchViews.length}-view batch.`,
   };
 
+  const batchFactors = [
+    { id: 'negatives', label: 'negative examples' },
+    { id: 'coverage', label: 'semantic coverage' },
+    { id: 'compute', label: 'compute cost' },
+    { id: 'memory', label: 'memory cost' },
+  ];
   yield {
     state: labelMatrix(
       'Why large batch helps contrastive learning',
-      [
-        { id: 'negatives', label: 'negative examples' },
-        { id: 'coverage', label: 'semantic coverage' },
-        { id: 'compute', label: 'compute cost' },
-        { id: 'memory', label: 'memory cost' },
-      ],
+      batchFactors,
       [
         { id: 'small', label: 'small batch' },
         { id: 'large', label: 'large batch' },
@@ -192,18 +200,19 @@ function* batchNegatives() {
       ],
     ),
     highlight: { active: ['negatives:large', 'coverage:large'], compare: ['compute:large', 'memory:large'] },
-    explanation: 'Large batches make the self-supervised classification problem harder and more informative. Batch Size Scaling is therefore part of the SimCLR story, not just an engineering afterthought.',
+    explanation: `${batchFactors.length} factors (${batchFactors.map(f => f.label).join(', ')}) change with batch size. Large batches make the self-supervised classification problem harder and more informative.`,
   };
 
+  const failureModes = [
+    { id: 'shortcut', label: 'augmentation shortcut' },
+    { id: 'false', label: 'false negatives' },
+    { id: 'collapse', label: 'representation collapse' },
+    { id: 'transfer', label: 'bad transfer' },
+  ];
   yield {
     state: labelMatrix(
       'Failure modes',
-      [
-        { id: 'shortcut', label: 'augmentation shortcut' },
-        { id: 'false', label: 'false negatives' },
-        { id: 'collapse', label: 'representation collapse' },
-        { id: 'transfer', label: 'bad transfer' },
-      ],
+      failureModes,
       [
         { id: 'symptom', label: 'symptom' },
         { id: 'response', label: 'response' },
@@ -216,7 +225,7 @@ function* batchNegatives() {
       ],
     ),
     highlight: { active: ['shortcut:response', 'false:response', 'transfer:response'] },
-    explanation: 'Self-supervision is not free truth. The pretext task teaches exactly the invariances and distinctions encoded by augmentations, negatives, and data distribution.',
+    explanation: `Self-supervision has ${failureModes.length} failure modes (${failureModes.map(f => f.label).join(', ')}). The pretext task teaches exactly the invariances and distinctions encoded by augmentations, negatives, and data distribution.`,
   };
 }
 
@@ -229,6 +238,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/contrastive-learning-simclr.gif', alt: 'Animated walkthrough of the contrastive learning simclr visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this topic exists',
       paragraphs: [

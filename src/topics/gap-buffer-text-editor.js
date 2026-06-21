@@ -60,17 +60,22 @@ function gapGraph(title) {
 }
 
 function* moveTheGap() {
+  const regionCount = 3; // left span, gap, right span
+  const insertWord = 'brave ';
+  const insertLen = insertWord.length;
+  const operations = ['local insert', 'local delete', 'cursor jump edit', 'gap exhausted'];
+
   yield {
     state: gapGraph('One array is split into left span, gap, and right span'),
     highlight: { active: ['left', 'gap', 'right', 'cursor', 'e-left-gap', 'e-gap-right', 'e-cursor-gap'], compare: ['insert', 'move', 'grow'] },
-    explanation: 'A gap buffer is one array split into two real spans with an unused gap between them. The cursor lives at the start of the gap, so typing can fill free slots without shifting the suffix.',
-    invariant: 'Rendered text is left span plus right span; bytes inside the gap are ignored.',
+    explanation: `A gap buffer is one array split into ${regionCount} logical regions — left span, gap, and right span. The cursor lives at the start of the gap, so typing can fill free slots without shifting the suffix.`,
+    invariant: `Rendered text is left span plus right span across ${regionCount} regions; bytes inside the gap are ignored.`,
   };
 
   yield {
     state: gapGraph('Typing consumes the gap'),
     highlight: { active: ['insert', 'gap', 'cursor', 'e-insert-gap', 'e-cursor-gap'], found: ['left'] },
-    explanation: 'Insertion at the cursor is cheap while the gap has space: write the new characters into gap_start, advance gap_start, and leave the suffix untouched.',
+    explanation: `Insertion at the cursor is cheap while the gap has space: write the new characters into gap_start, advance gap_start, and leave the suffix untouched. The left span grows by ${insertLen} slots when inserting "${insertWord.trim()}".`,
   };
 
   yield {
@@ -92,13 +97,13 @@ function* moveTheGap() {
       ],
     ),
     highlight: { active: ['write:layout', 'write:cost'], found: ['after:layout'] },
-    explanation: 'For a burst of local typing, the cost is proportional to the inserted text, not to the document length. That is the whole reason the structure exists.',
+    explanation: `For a burst of local typing like inserting ${insertLen} characters ("${insertWord.trim()}"), the cost is proportional to the inserted text, not to the document length. That is the whole reason the structure exists.`,
   };
 
   yield {
     state: gapGraph('A distant edit moves the gap first'),
     highlight: { active: ['move', 'right', 'gap', 'e-right-move', 'e-move-gap'], compare: ['insert'], found: ['render'] },
-    explanation: 'When the user edits far away, the gap must move. Moving right copies characters from the right span to the left span; moving left copies characters from the left span to the right span. This is usually a memmove.',
+    explanation: `When the user edits far away, the gap must move across all ${regionCount} regions. Moving right copies characters from the right span to the left span; moving left copies characters from the left span to the right span. This is usually a memmove.`,
   };
 
   yield {
@@ -122,11 +127,15 @@ function* moveTheGap() {
       ],
     ),
     highlight: { active: ['local_insert:cost', 'delete:cost'], compare: ['move:cost', 'grow:cost'] },
-    explanation: 'The performance profile is intentionally uneven. Gap buffers are fast for the common case of typing near the cursor and less attractive for edits scattered across a large file.',
+    explanation: `The performance profile across ${operations.length} operations is intentionally uneven. Gap buffers are fast for ${operations[0]} and ${operations[1]} near the cursor and less attractive for edits scattered across a large file.`,
   };
 }
 
 function* editorTradeoffs() {
+  const bufferTypes = ['gap buffer', 'piece table', 'rope', 'sequence CRDT'];
+  const seriesCount = 3; // gap, rope, piece in the plot
+  const prodConcerns = ['line lookup', 'undo', 'Unicode', 'multi-cursor', 'large files'];
+
   yield {
     state: plotState({
       axes: { x: { label: 'distance from current cursor', min: 0, max: 100 }, y: { label: 'relative edit cost', min: 0, max: 1 } },
@@ -140,7 +149,7 @@ function* editorTradeoffs() {
       ],
     }),
     highlight: { active: ['gap', 'locality'], compare: ['rope', 'piece'] },
-    explanation: 'A gap buffer is a locality bet. If edits cluster around one cursor, it is simple and fast. If edits jump around a huge file, tree-like buffers have steadier costs.',
+    explanation: `A gap buffer is a locality bet. This plot compares ${seriesCount} buffer strategies as cursor distance grows from 0 to 100. If edits cluster around one cursor, the gap buffer is simple and fast. If edits jump around a huge file, tree-like buffers have steadier costs.`,
   };
 
   yield {
@@ -164,13 +173,13 @@ function* editorTradeoffs() {
       ],
     ),
     highlight: { active: ['gap:best', 'piece:best', 'rope:best'], compare: ['crdt:weakness'] },
-    explanation: 'The right editor buffer depends on workload. A terminal editor with one active cursor can love a gap buffer; an IDE with huge files, snapshots, and many scattered edits often prefers a piece tree or rope layer.',
+    explanation: `The right editor buffer depends on workload. This table compares ${bufferTypes.length} structures: ${bufferTypes.join(', ')}. A terminal editor with one active cursor can love a gap buffer; an IDE with huge files and scattered edits often prefers a piece tree or rope.`,
   };
 
   yield {
     state: gapGraph('Complete editor case study'),
     highlight: { active: ['left', 'gap', 'right', 'cursor', 'insert', 'render'], compare: ['move', 'grow'] },
-    explanation: 'A minimal editor opens a file into one gap buffer, places the gap at the cursor, edits locally, renders left plus right spans, and records undo as inverse edits. It can be a serious design, not just a teaching toy.',
+    explanation: `A minimal editor opens a file into one gap buffer, places the gap at the cursor, edits locally, renders left plus right spans, and records undo as inverse edits. All ${bufferTypes.length} buffer types can back a real editor, but the gap buffer's simplicity makes it a serious design, not just a teaching toy.`,
   };
 
   yield {
@@ -196,7 +205,7 @@ function* editorTradeoffs() {
       ],
     ),
     highlight: { active: ['lines:need', 'unicode:need', 'multi:need'], compare: ['large:trap'] },
-    explanation: 'The core array is only the storage layer. Real editors add line indexes, undo stacks, encoding rules, rendering caches, syntax trees, and sometimes multiple buffers or chunks.',
+    explanation: `The core array is only the storage layer. Real editors face ${prodConcerns.length} production concerns — ${prodConcerns.join(', ')} — adding line indexes, undo stacks, encoding rules, rendering caches, and syntax trees on top.`,
   };
 }
 
@@ -216,7 +225,8 @@ export const article = {
         'Watch the insert frame first: characters fill the gap without touching the suffix. Then watch the distant-edit frame: the gap must slide across the array before a new burst of typing can begin. The matrix shows exact before/after layouts so you can trace each byte.',
         {type: 'callout', text: 'A gap buffer makes cursor-local editing cheap by moving empty capacity to the edit point instead of shifting the suffix on every keystroke.'},
         'In the editor-tradeoffs view, the plot compares edit cost against cursor distance. The gap buffer curve rises steeply because moving the gap copies text proportional to the jump. Rope and piece-table curves stay flatter because their tree structures avoid moving contiguous memory.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/gap-buffer-text-editor.gif', alt: 'Animated walkthrough of the gap buffer text editor visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

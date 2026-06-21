@@ -407,7 +407,8 @@ export const article = {
         {type: 'callout', text: '2-SAT is fast because every clause becomes implication edges, and contradiction reduces to one SCC membership test for each variable and its negation.'},
         'The animation builds the implication graph clause by clause. Each clause (a OR b) adds two edges: NOT a -> b and NOT b -> a. Active nodes (highlighted) show the current implication pair being added.',
         'Once the graph is complete, Tarjan\'s SCC algorithm runs. Nodes in the same SCC are mutually forced: if any one is true, all must be true. The critical check is whether any variable x and its negation ~x land in the same SCC. If they do, x must be both true and false, which is impossible. If they do not, the formula is satisfiable, and the algorithm assigns truth values by SCC topological order. Found nodes (final highlight) are the TRUE literals in the satisfying assignment.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/two-sat.gif', alt: 'Animated walkthrough of the two sat visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

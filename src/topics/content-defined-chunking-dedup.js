@@ -53,22 +53,24 @@ function cdcFlow(title) {
 }
 
 function* cutBoundaries() {
+  const pipelineStages = ['bytes', 'roll', 'cut', 'hash', 'store'];
   yield {
     state: cdcFlow('Content chooses the chunk boundaries'),
     highlight: { active: ['roll', 'cut'], found: ['hash', 'store'] },
-    explanation: 'Content-defined chunking scans bytes with a rolling fingerprint. When the fingerprint matches a boundary rule, the current chunk ends. The chunk is then named by a strong content hash.',
-    invariant: 'The rolling hash cuts boundaries; the strong hash identifies chunk equality.',
+    explanation: `Content-defined chunking scans bytes with a rolling fingerprint across ${pipelineStages.length} pipeline stages (${pipelineStages.join(' -> ')}). When the fingerprint matches a boundary rule, the current chunk ends and is named by a strong content hash.`,
+    invariant: `The rolling hash at stage "${pipelineStages[1]}" cuts boundaries; the strong hash at stage "${pipelineStages[3]}" identifies chunk equality.`,
   };
 
+  const boundaryRows = [
+    { id: 'small', label: 'too small' },
+    { id: 'scan', label: 'scan' },
+    { id: 'hit', label: 'mask hit' },
+    { id: 'max', label: 'max size' },
+  ];
   yield {
     state: labelMatrix(
       'Boundary rule',
-      [
-        { id: 'small', label: 'too small' },
-        { id: 'scan', label: 'scan' },
-        { id: 'hit', label: 'mask hit' },
-        { id: 'max', label: 'max size' },
-      ],
+      boundaryRows,
       [
         { id: 'condition', label: 'condition' },
         { id: 'action', label: 'action' },
@@ -81,18 +83,19 @@ function* cutBoundaries() {
       ],
     ),
     highlight: { active: ['scan:condition', 'hit:condition'], found: ['hit:action', 'max:action'] },
-    explanation: 'Real chunkers usually combine a target rule with minimum and maximum sizes. That prevents tiny chunks and caps runaway chunks when the boundary predicate is unlucky.',
+    explanation: `Real chunkers evaluate ${boundaryRows.length} boundary conditions (${boundaryRows.map(r => r.label).join(', ')}). Minimum and maximum sizes prevent tiny chunks and cap runaway chunks when the boundary predicate is unlucky.`,
   };
 
+  const comparisonRows = [
+    { id: 'orig', label: 'original' },
+    { id: 'edit', label: 'insert byte' },
+    { id: 'fixed', label: 'fixed blocks' },
+    { id: 'cdc', label: 'CDC chunks' },
+  ];
   yield {
     state: labelMatrix(
       'Fixed blocks versus CDC',
-      [
-        { id: 'orig', label: 'original' },
-        { id: 'edit', label: 'insert byte' },
-        { id: 'fixed', label: 'fixed blocks' },
-        { id: 'cdc', label: 'CDC chunks' },
-      ],
+      comparisonRows,
       [
         { id: 'boundary', label: 'boundary' },
         { id: 'reuse', label: 'reuse' },
@@ -105,30 +108,32 @@ function* cutBoundaries() {
       ],
     ),
     highlight: { compare: ['fixed:reuse'], found: ['cdc:reuse'] },
-    explanation: 'A single insertion near the front shifts every later fixed-size block. CDC boundaries are tied to local byte patterns, so the chunker can resynchronize after the edit and reuse later chunks.',
+    explanation: `Comparing ${comparisonRows.length} scenarios: a single insertion near the front shifts every later fixed-size block. CDC boundaries are tied to local byte patterns, so the chunker resyncs after the edit and reuses later chunks.`,
   };
 
   yield {
     state: cdcFlow('A chunk manifest rebuilds the file'),
     highlight: { active: ['hash', 'store'], found: ['bytes'], compare: ['roll'] },
-    explanation: 'The file becomes a manifest: ordered chunk ids plus metadata. Restore reads the manifest, fetches chunks by content hash, and concatenates them back into the original byte stream.',
+    explanation: `The file becomes a manifest: ordered chunk ids plus metadata. Restore reads the manifest, fetches chunks by content hash from the "${pipelineStages[4]}" stage, and concatenates them back into the original byte stream.`,
   };
 }
 
 function* dedupCaseStudy() {
+  const dedupStages = [
+    { id: 'cut', label: 'chunk' },
+    { id: 'hash', label: 'digest' },
+    { id: 'lookup', label: 'lookup' },
+    { id: 'manifest', label: 'manifest' },
+  ];
+  const dedupCols = [
+    { id: 'work', label: 'work' },
+    { id: 'risk', label: 'risk' },
+  ];
   yield {
     state: labelMatrix(
       'Dedup pipeline',
-      [
-        { id: 'cut', label: 'chunk' },
-        { id: 'hash', label: 'digest' },
-        { id: 'lookup', label: 'lookup' },
-        { id: 'manifest', label: 'manifest' },
-      ],
-      [
-        { id: 'work', label: 'work' },
-        { id: 'risk', label: 'risk' },
-      ],
+      dedupStages,
+      dedupCols,
       [
         ['CDC scan', 'CPU'],
         ['strong hash', 'collision budget'],
@@ -137,19 +142,20 @@ function* dedupCaseStudy() {
       ],
     ),
     highlight: { active: ['cut:work', 'hash:work'], found: ['lookup:work', 'manifest:work'] },
-    explanation: 'Backup systems are chunk indexes plus manifests. New chunks are stored once; existing chunk ids are reused. The manifest is the recipe for each snapshot.',
-    invariant: 'Deduplication saves storage only when the chunk identity is stable across versions.',
+    explanation: `Backup systems are chunk indexes plus manifests. The dedup pipeline has ${dedupStages.length} stages (${dedupStages.map(s => s.label).join(', ')}), each with its own ${dedupCols.map(c => c.label).join(' and ')} profile.`,
+    invariant: `Deduplication saves storage only when chunk identity is stable across versions — all ${dedupStages.length} stages must agree.`,
   };
 
+  const systems = [
+    { id: 'lbfs', label: 'LBFS' },
+    { id: 'restic', label: 'restic' },
+    { id: 'borg', label: 'Borg' },
+    { id: 'fastcdc', label: 'FastCDC' },
+  ];
   yield {
     state: labelMatrix(
       'System examples',
-      [
-        { id: 'lbfs', label: 'LBFS' },
-        { id: 'restic', label: 'restic' },
-        { id: 'borg', label: 'Borg' },
-        { id: 'fastcdc', label: 'FastCDC' },
-      ],
+      systems,
       [
         { id: 'chunker', label: 'chunker' },
         { id: 'lesson', label: 'lesson' },
@@ -162,18 +168,19 @@ function* dedupCaseStudy() {
       ],
     ),
     highlight: { found: ['lbfs:lesson', 'restic:lesson', 'borg:lesson'], active: ['fastcdc:chunker'] },
-    explanation: 'The implementations differ, but the shape repeats: rolling or gear-style chunker for boundaries, strong digest for identity, and an index for finding chunks already present.',
+    explanation: `${systems.length} real systems (${systems.map(s => s.label).join(', ')}) differ in implementation, but the shape repeats: rolling or gear-style chunker for boundaries, strong digest for identity, and an index for finding chunks already present.`,
   };
 
+  const privacyRows = [
+    { id: 'lengths', label: 'chunk lengths' },
+    { id: 'dedup', label: 'cross-user dedup' },
+    { id: 'encrypt', label: 'encryption' },
+    { id: 'keyed', label: 'keyed chunker' },
+  ];
   yield {
     state: labelMatrix(
       'Security and privacy',
-      [
-        { id: 'lengths', label: 'chunk lengths' },
-        { id: 'dedup', label: 'cross-user dedup' },
-        { id: 'encrypt', label: 'encryption' },
-        { id: 'keyed', label: 'keyed chunker' },
-      ],
+      privacyRows,
       [
         { id: 'leaks', label: 'can leak' },
         { id: 'mitigation', label: 'mitigation' },
@@ -186,13 +193,13 @@ function* dedupCaseStudy() {
       ],
     ),
     highlight: { compare: ['lengths:leaks', 'dedup:leaks'], found: ['dedup:mitigation', 'keyed:mitigation'] },
-    explanation: 'CDC is a storage optimization with privacy consequences. Even encrypted backups can leak through chunk lengths, deduplication side channels, or shared chunk indexes if the threat model is wrong.',
+    explanation: `CDC is a storage optimization with ${privacyRows.length} privacy attack surfaces (${privacyRows.map(r => r.label).join(', ')}). Even encrypted backups can leak through chunk lengths, deduplication side channels, or shared chunk indexes.`,
   };
 
   yield {
     state: cdcFlow('The right boundary rule is workload-dependent'),
     highlight: { active: ['roll', 'cut'], compare: ['hash'], found: ['store'] },
-    explanation: 'Target size, min/max size, rolling hash type, chunk-index design, encryption, and tenant isolation all change the outcome. CDC is not one algorithm; it is a boundary-selection layer inside a larger storage system.',
+    explanation: `Target size, min/max size, rolling hash type, chunk-index design, encryption, and tenant isolation all change the outcome. CDC is not one algorithm; it is a boundary-selection layer inside a larger storage system with ${dedupStages.length} pipeline stages.`,
   };
 }
 
@@ -205,6 +212,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/content-defined-chunking-dedup.gif', alt: 'Animated walkthrough of the content defined chunking dedup visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -58,6 +58,10 @@ function radixGraph(title) {
 }
 
 function* prefixTrie() {
+  const requestTypes = ['chat request 1', 'chat request 2', 'agent request', 'RAG request'];
+  const requestCount = requestTypes.length;
+  const sysTokenRange = '0..300';
+
   yield {
     state: labelMatrix(
       'Requests often share long prefixes',
@@ -79,20 +83,20 @@ function* prefixTrie() {
       ],
     ),
     highlight: { active: ['chat1:shared', 'chat2:shared', 'agent:shared', 'rag:shared'], compare: ['chat1:unique', 'chat2:unique'] },
-    explanation: 'LLM servers repeatedly process identical prefixes: system prompts, tool schemas, few-shot examples, policy text, retrieved documents, and conversation history. Prefix caching keeps the KV cache for those prefixes instead of recomputing prefill every time.',
+    explanation: `LLM servers repeatedly process identical prefixes: system prompts, tool schemas, few-shot examples, policy text, retrieved documents, and conversation history. All ${requestCount} request types here share a prefix. Prefix caching keeps the KV cache for those prefixes instead of recomputing prefill every time.`,
   };
 
   yield {
     state: radixGraph('A radix-style prefix tree indexes reusable KV segments'),
     highlight: { active: ['root', 'sys', 'policy', 'tools', 'e-root-sys', 'e-sys-policy', 'e-sys-tools'], compare: ['user1', 'user2', 'agent'] },
-    explanation: 'A trie stores shared token prefixes once. A radix tree compresses chains of tokens into longer edges. RadixAttention uses this structure to find the longest reusable KV prefix for a new request.',
-    invariant: 'Prefix caching reuses exact KV states for exact token prefixes.',
+    explanation: `A trie stores shared token prefixes once. A radix tree compresses chains of tokens into longer edges. The root edge covers system-prompt tokens ${sysTokenRange}. RadixAttention uses this structure to find the longest reusable KV prefix for a new request.`,
+    invariant: `Prefix caching reuses exact KV states for exact token prefixes — all ${requestCount} requests share the same root path.`,
   };
 
   yield {
     state: radixGraph('A new request skips prefill for the matching prefix'),
     highlight: { found: ['new', 'policy', 'e-new-policy'], active: ['sys', 'e-root-sys', 'e-sys-policy'] },
-    explanation: 'If a new request starts with the same system prompt and policy block, the server can attach to the cached KV state at the matching node. It only computes the suffix after the shared prefix.',
+    explanation: `If a new request starts with the same system prompt (tokens ${sysTokenRange}) and policy block, the server can attach to the cached KV state at the matching node. It only computes the suffix after the shared prefix.`,
   };
 
   yield {
@@ -116,15 +120,19 @@ function* prefixTrie() {
       ],
     ),
     highlight: { found: ['ttft:effect', 'gpu:effect', 'correct:why'], compare: ['memory:effect'] },
-    explanation: 'The win is mostly prefill latency and compute. The cost is memory pressure and cache management. Output stays identical because the reused KV cache is the exact result of processing the same tokens.',
+    explanation: `The win is mostly prefill latency and compute. The cost is memory pressure and cache management. Across ${requestCount} request types, output stays identical because the reused KV cache is the exact result of processing the same tokens.`,
   };
 }
 
 function* evictionAndReuse() {
+  const evictionCategories = ['system prompt', 'policy block', 'old chat suffix', 'rare tool trace'];
+  const cacheTypes = ['PagedAttention', 'prefix caching', 'RadixAttention', 'block hash cache'];
+  const typeCount = cacheTypes.length;
+
   yield {
     state: radixGraph('The cache is useful only if hot prefixes survive'),
     highlight: { active: ['sys', 'policy', 'tools'], compare: ['user1', 'user2', 'agent'] },
-    explanation: 'Prefix caches compete with live request KV cache for GPU memory. A serving system needs an eviction policy so hot prefixes survive and cold suffixes leave.',
+    explanation: `Prefix caches compete with live request KV cache for GPU memory. With ${evictionCategories.length} segment categories to manage, a serving system needs an eviction policy so hot prefixes survive and cold suffixes leave.`,
   };
 
   yield {
@@ -148,8 +156,8 @@ function* evictionAndReuse() {
       ],
     ),
     highlight: { found: ['system:evict', 'policy:evict'], removed: ['oldchat:evict', 'raretool:evict'] },
-    explanation: 'Evicting a leaf suffix usually hurts less than evicting a shared root. Practical policies combine recency, prefix length, reference counts, memory size, and active-request safety.',
-    invariant: 'Never evict KV blocks still needed by live decode requests.',
+    explanation: `Evicting a leaf suffix usually hurts less than evicting a shared root. Across ${evictionCategories.length} categories, practical policies combine recency, prefix length, reference counts, memory size, and active-request safety.`,
+    invariant: `Never evict KV blocks still needed by live decode requests — ${evictionCategories.length} categories are ranked by reuse frequency.`,
   };
 
   yield {
@@ -173,7 +181,7 @@ function* evictionAndReuse() {
       ],
     ),
     highlight: { active: ['paged:solves', 'prefix:solves'], found: ['radix:unit', 'hash:unit'] },
-    explanation: 'PagedAttention and prefix caching solve different layers. PagedAttention manages live KV memory efficiently. Prefix caching reuses KV from previous prompts. A strong server often uses both.',
+    explanation: `${typeCount} approaches are compared: PagedAttention and prefix caching solve different layers. PagedAttention manages live KV memory efficiently. Prefix caching reuses KV from previous prompts. A strong server often uses both.`,
   };
 
   yield {
@@ -197,7 +205,7 @@ function* evictionAndReuse() {
       ],
     ),
     highlight: { found: ['agents:result', 'fewshot:result'], compare: ['rag:result', 'random:result'] },
-    explanation: 'The workload decides the value. Agents, chat templates, and few-shot evaluations have shared prefixes. One-off prompts with little overlap mostly create cache churn.',
+    explanation: `The workload decides the value. Agents, chat templates, and few-shot evaluations have shared prefixes. Across ${typeCount} caching strategies, one-off prompts with little overlap mostly create cache churn.`,
   };
 }
 
@@ -236,7 +244,8 @@ const legacyArticle = {
       paragraphs: [
         'The prefix-trie view starts with repeated prompt structure. The shared system prompt is near the root, and user-specific suffixes are leaves. The new request follows the longest matching path, then computes only what comes after that node.',
         'The eviction view shows the tax. Shared roots are valuable because many leaves depend on them. Cold leaves are cheaper to drop. The PagedAttention comparison explains the layer split: PagedAttention manages live KV blocks; prefix caching decides which previous prompt states are worth reusing.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/prefix-caching-radixattention.gif', alt: 'Animated walkthrough of the prefix caching radixattention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Real-world uses',

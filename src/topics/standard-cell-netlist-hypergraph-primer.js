@@ -55,138 +55,145 @@ function netlistGraph(title, notes = {}) {
 }
 
 function* netlistHypergraph() {
+  const graph1 = netlistGraph('Cells, pins, and nets form a typed hypergraph');
+  const nodeCount = graph1.nodes.length;
+  const edgeCount = graph1.edges.length;
+  const nandNote = graph1.nodes.find(n => n.id === 'u1').note;
+  const invNote = graph1.nodes.find(n => n.id === 'u2').note;
+  const dffNote = graph1.nodes.find(n => n.id === 'ff').note;
   yield {
-    state: netlistGraph('Cells, pins, and nets form a typed hypergraph'),
+    state: graph1,
     highlight: { active: ['u1', 'u2', 'ff'], compare: ['n1', 'n2'], found: ['e-a-n1', 'e-b-n1', 'e-n1-u1'] },
-    explanation: 'A Verilog netlist is not just a graph of gates. Each net is a hyperedge that connects one driver pin to many load pins, and every pin has direction, capacitance, and timing meaning.',
-    invariant: 'Cell instance, pin, net, and timing-arc IDs must remain stable across synthesis, placement, timing, and routing reports.',
+    explanation: `A Verilog netlist is not just a graph of gates. This circuit has ${nodeCount} nodes and ${edgeCount} edges, with cells like ${nandNote}, ${invNote}, and ${dffNote}. Each net is a hyperedge that connects one driver pin to many load pins, and every pin has direction, capacitance, and timing meaning.`,
+    invariant: `Cell instance, pin, net, and timing-arc IDs across all ${nodeCount} objects must remain stable across synthesis, placement, timing, and routing reports.`,
   };
 
+  const matrixRows1 = [
+    { id: 'cell', label: 'cell' },
+    { id: 'pin', label: 'pin' },
+    { id: 'net', label: 'net' },
+    { id: 'arc', label: 'arc' },
+  ];
+  const matrixCols1 = [
+    { id: 'key', label: 'key' },
+    { id: 'payload', label: 'payload' },
+    { id: 'index', label: 'index' },
+  ];
+  const mat1 = labelMatrix('Netlist tables', matrixRows1, matrixCols1, [
+    ['U1', 'NAND2_X1', 'by id'],
+    ['U1/A', 'dir cap', 'by net'],
+    ['n2', 'driver loads', 'fanout'],
+    ['A->Y', 'delay slew', 'Liberty'],
+  ]);
   yield {
-    state: labelMatrix(
-      'Netlist tables',
-      [
-        { id: 'cell', label: 'cell' },
-        { id: 'pin', label: 'pin' },
-        { id: 'net', label: 'net' },
-        { id: 'arc', label: 'arc' },
-      ],
-      [
-        { id: 'key', label: 'key' },
-        { id: 'payload', label: 'payload' },
-        { id: 'index', label: 'index' },
-      ],
-      [
-        ['U1', 'NAND2_X1', 'by id'],
-        ['U1/A', 'dir cap', 'by net'],
-        ['n2', 'driver loads', 'fanout'],
-        ['A->Y', 'delay slew', 'Liberty'],
-      ],
-    ),
+    state: mat1,
     highlight: { active: ['cell:key', 'pin:payload'], found: ['net:index', 'arc:index'] },
-    explanation: 'Real tools keep several indexes over the same design: instance tables, pin tables, net driver/load lists, and Liberty timing arcs. The point is not one perfect graph; it is synchronized views.',
+    explanation: `Real tools keep ${matrixRows1.length} synchronized tables (${matrixRows1.map(r => r.label).join(', ')}), each with ${matrixCols1.length} columns. The point is not one perfect graph; it is synchronized views over the same design.`,
   };
 
+  const arcNotes = { u1: 'arc', u2: 'arc', ff: 'seq' };
+  const graph2 = netlistGraph('A timing view or cone walk reuses connectivity', arcNotes);
+  const seqNode = graph2.nodes.find(n => n.id === 'ff');
   yield {
-    state: netlistGraph('A timing view or cone walk reuses connectivity', { u1: 'arc', u2: 'arc', ff: 'seq' }),
+    state: graph2,
     highlight: { active: ['a', 'b', 'n1', 'u1', 'n2'], compare: ['ff', 'clk'], found: ['y', 'e-u2-y'] },
-    explanation: 'A fanin cone for output Y starts from an endpoint and walks backward through nets and cell arcs. Sequential elements stop or restart the walk depending on the analysis mode.',
+    explanation: `A fanin cone for output Y starts from an endpoint and walks backward through the ${graph2.edges.length} edges. U1 and U2 are re-labeled "${arcNotes.u1}" while ${seqNode.label} is marked "${arcNotes.ff}" — sequential elements stop or restart the walk depending on the analysis mode.`,
   };
 
+  const studyRows = [
+    { id: 'netlist', label: 'netlist' },
+    { id: 'timing', label: 'timing' },
+    { id: 'place', label: 'place' },
+    { id: 'route', label: 'route' },
+  ];
+  const studyCols = [
+    { id: 'data', label: 'data' },
+    { id: 'next', label: 'next' },
+  ];
+  const mat2 = labelMatrix('Study map', studyRows, studyCols, [
+    ['cells pins nets', 'STA'],
+    ['arcs slack', 'closure'],
+    ['rows bins', 'legalize'],
+    ['G-cells', 'DRC'],
+  ]);
   yield {
-    state: labelMatrix(
-      'Study map',
-      [
-        { id: 'netlist', label: 'netlist' },
-        { id: 'timing', label: 'timing' },
-        { id: 'place', label: 'place' },
-        { id: 'route', label: 'route' },
-      ],
-      [
-        { id: 'data', label: 'data' },
-        { id: 'next', label: 'next' },
-      ],
-      [
-        ['cells pins nets', 'STA'],
-        ['arcs slack', 'closure'],
-        ['rows bins', 'legalize'],
-        ['G-cells', 'DRC'],
-      ],
-    ),
+    state: mat2,
     highlight: { active: ['netlist:data', 'timing:next'], found: ['place:next', 'route:data'] },
-    explanation: 'The netlist is the shared identity layer. Timing, placement, routing, and DRC all attach their own state to the same cells, pins, and nets.',
+    explanation: `The netlist is the shared identity layer across ${studyRows.length} domains (${studyRows.map(r => r.label).join(', ')}). Each domain attaches its own ${studyCols.length}-column state to the same cells, pins, and nets.`,
   };
 }
 
 function* coneIndex() {
+  const levelNotes = { u1: 'level 1', u2: 'level 2', ff: 'stop' };
+  const graph3 = netlistGraph('Levelized traversal turns connectivity into worklists', levelNotes);
+  const stopNode = graph3.nodes.find(n => n.note === 'stop');
   yield {
-    state: netlistGraph('Levelized traversal turns connectivity into worklists', { u1: 'level 1', u2: 'level 2', ff: 'stop' }),
+    state: graph3,
     highlight: { active: ['a', 'b', 'n1', 'u1', 'n2', 'u2'], compare: ['ff'], found: ['y'] },
-    explanation: 'A topological level order lets analysis visit drivers before loads for combinational paths. Flip-flops and latches create timing boundaries that stop pure combinational propagation.',
+    explanation: `A topological level order across ${graph3.nodes.length} nodes lets analysis visit drivers before loads for combinational paths. ${stopNode.label} is marked "${levelNotes.ff}" — flip-flops and latches create timing boundaries that stop pure combinational propagation.`,
   };
 
+  const travRows = [
+    { id: 'fanin', label: 'fanin' },
+    { id: 'fanout', label: 'fanout' },
+    { id: 'level', label: 'level' },
+    { id: 'cone', label: 'cone' },
+  ];
+  const travCols = [
+    { id: 'shape', label: 'shape' },
+    { id: 'use', label: 'use' },
+  ];
+  const mat3 = labelMatrix('Traversal indexes', travRows, travCols, [
+    ['loads -> driver', 'backtrace'],
+    ['driver -> loads', 'propagate'],
+    ['topo buckets', 'STA'],
+    ['bitset / mark', 'debug'],
+  ]);
   yield {
-    state: labelMatrix(
-      'Traversal indexes',
-      [
-        { id: 'fanin', label: 'fanin' },
-        { id: 'fanout', label: 'fanout' },
-        { id: 'level', label: 'level' },
-        { id: 'cone', label: 'cone' },
-      ],
-      [
-        { id: 'shape', label: 'shape' },
-        { id: 'use', label: 'use' },
-      ],
-      [
-        ['loads -> driver', 'backtrace'],
-        ['driver -> loads', 'propagate'],
-        ['topo buckets', 'STA'],
-        ['bitset / mark', 'debug'],
-      ],
-    ),
+    state: mat3,
     highlight: { active: ['fanin:use', 'fanout:use'], found: ['level:shape', 'cone:use'] },
-    explanation: 'Fanin and fanout indexes are cheap compared with repeated graph scans. Large tools also cache cones, levels, and dirty marks for incremental analysis.',
+    explanation: `${travRows.length} traversal indexes (${travRows.map(r => r.label).join(', ')}) are cheap compared with repeated graph scans. Large tools also cache cones, levels, and dirty marks for incremental analysis.`,
   };
 
+  const coneSeries = [
+    { id: 'local', label: 'cone', points: [{ x: 0, y: 1 }, { x: 2, y: 8 }, { x: 4, y: 23 }, { x: 6, y: 42 }, { x: 8, y: 60 }] },
+    { id: 'full', label: 'full', points: [{ x: 0, y: 1 }, { x: 2, y: 22 }, { x: 4, y: 55 }, { x: 6, y: 88 }, { x: 8, y: 118 }] },
+  ];
+  const coneMarkers = [
+    { id: 'cut', label: 'cut', x: 4, y: 23 },
+    { id: 'all', label: 'all', x: 8, y: 118 },
+  ];
+  const plot1 = plotState({
+    axes: { x: { label: 'logic depth', min: 0, max: 8 }, y: { label: 'visited', min: 0, max: 120 } },
+    series: coneSeries,
+    markers: coneMarkers,
+  }, { title: 'Cone indexes keep debug local' });
   yield {
-    state: plotState({
-      axes: { x: { label: 'logic depth', min: 0, max: 8 }, y: { label: 'visited', min: 0, max: 120 } },
-      series: [
-        { id: 'local', label: 'cone', points: [{ x: 0, y: 1 }, { x: 2, y: 8 }, { x: 4, y: 23 }, { x: 6, y: 42 }, { x: 8, y: 60 }] },
-        { id: 'full', label: 'full', points: [{ x: 0, y: 1 }, { x: 2, y: 22 }, { x: 4, y: 55 }, { x: 6, y: 88 }, { x: 8, y: 118 }] },
-      ],
-      markers: [
-        { id: 'cut', label: 'cut', x: 4, y: 23 },
-        { id: 'all', label: 'all', x: 8, y: 118 },
-      ],
-    }, { title: 'Cone indexes keep debug local' }),
+    state: plot1,
     highlight: { active: ['local'], compare: ['full'], found: ['cut', 'all'] },
-    explanation: 'A cone query should touch the relevant neighborhood, not the entire chip. That is why design databases invest in fanin, fanout, and hierarchy indexes.',
+    explanation: `Comparing ${coneSeries.length} traversal strategies: at depth ${coneMarkers[0].x} the cone query visits only ${coneMarkers[0].y} nodes while a full scan reaches ${coneMarkers[1].y} by depth ${coneMarkers[1].x}. That is why design databases invest in fanin, fanout, and hierarchy indexes.`,
   };
 
+  const debugRows = [
+    { id: 'source', label: 'source' },
+    { id: 'dirty', label: 'dirty' },
+    { id: 'name', label: 'name' },
+    { id: 'hier', label: 'hier' },
+  ];
+  const debugCols = [
+    { id: 'check', label: 'check' },
+    { id: 'risk', label: 'risk' },
+  ];
+  const mat4 = labelMatrix('Debug ledger', debugRows, debugCols, [
+    ['Verilog + LEF/DEF', 'mismatch'],
+    ['changed cell/net', 'stale cache'],
+    ['stable ids', 'report join'],
+    ['module path', 'flattening'],
+  ]);
   yield {
-    state: labelMatrix(
-      'Debug ledger',
-      [
-        { id: 'source', label: 'source' },
-        { id: 'dirty', label: 'dirty' },
-        { id: 'name', label: 'name' },
-        { id: 'hier', label: 'hier' },
-      ],
-      [
-        { id: 'check', label: 'check' },
-        { id: 'risk', label: 'risk' },
-      ],
-      [
-        ['Verilog + LEF/DEF', 'mismatch'],
-        ['changed cell/net', 'stale cache'],
-        ['stable ids', 'report join'],
-        ['module path', 'flattening'],
-      ],
-    ),
+    state: mat4,
     highlight: { active: ['source:check', 'dirty:check'], found: ['name:risk', 'hier:check'] },
-    explanation: 'The useful netlist database is report-friendly: every timing, placement, and routing finding can be joined back to a hierarchical instance path and source object.',
+    explanation: `The useful netlist database tracks ${debugRows.length} concerns (${debugRows.map(r => r.label).join(', ')}), each evaluated for ${debugCols.map(c => c.label).join(' and ')}. Every timing, placement, and routing finding can be joined back to a hierarchical instance path and source object.`,
   };
 }
 
@@ -204,6 +211,13 @@ export const article = {
     { title: 'OpenROAD Flow Overview', url: 'https://openroad.readthedocs.io/en/latest/' },
   ],
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/standard-cell-netlist-hypergraph-primer.gif', alt: 'Animated walkthrough of the standard cell netlist hypergraph primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

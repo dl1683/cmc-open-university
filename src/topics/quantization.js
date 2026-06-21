@@ -76,7 +76,8 @@ const quantizationArticleSections = [
       'The animation walks a weight tensor through four stages. Frame 1 shows the original FP32 weights -- the ground truth. Frame 2 shows the quantized integers at your chosen bit width, with the computed scale factor. Frame 3 shows the dequantized (reconstructed) weights -- what the model actually sees at inference. Frame 4 shows the absolute error at each cell, with darker shading for larger errors.',
       {type: 'callout', text: 'Quantization is useful when the saved memory bandwidth is worth the controlled numeric error.'},
       'The final frame states the compression ratio and mean error side by side. Use the bit-width selector to compare 8-bit, 4-bit, and 2-bit quantization on the same weights. Watch how the outlier value (0.91) forces the scale factor wider, which increases relative error for small values near zero.',
-    ],
+    
+        {type: 'image', src: './assets/gifs/quantization.gif', alt: 'Animated walkthrough of the quantization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
   },
   {
     heading: 'Why this exists',

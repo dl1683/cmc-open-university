@@ -34,30 +34,33 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* clippingAndNoise() {
+  const clipNorm = 1;
+  const examples = [
+    { id: 'a', label: 'example A' },
+    { id: 'b', label: 'example B' },
+    { id: 'c', label: 'example C' },
+    { id: 'outlier', label: 'rare outlier' },
+  ];
+  const rawNorms = [0.7, 1.0, 0.4, 8.2];
   yield {
     state: labelMatrix(
       'Per-example gradients before and after clipping',
-      [
-        { id: 'a', label: 'example A' },
-        { id: 'b', label: 'example B' },
-        { id: 'c', label: 'example C' },
-        { id: 'outlier', label: 'rare outlier' },
-      ],
+      examples,
       [
         { id: 'raw', label: 'raw norm' },
-        { id: 'clipped', label: 'after clip C=1' },
+        { id: 'clipped', label: `after clip C=${clipNorm}` },
         { id: 'effect', label: 'effect' },
       ],
       [
-        ['0.7', '0.7', 'kept'],
-        ['1.0', '1.0', 'kept'],
-        ['0.4', '0.4', 'kept'],
-        ['8.2', '1.0', 'bounded'],
+        [String(rawNorms[0]), String(rawNorms[0]), 'kept'],
+        [String(rawNorms[1]), String(rawNorms[1]), 'kept'],
+        [String(rawNorms[2]), String(rawNorms[2]), 'kept'],
+        [String(rawNorms[3]), String(clipNorm), 'bounded'],
       ],
     ),
     highlight: { active: ['outlier:raw'], found: ['outlier:clipped'], compare: ['a:clipped', 'b:clipped', 'c:clipped'] },
-    explanation: 'Read the rows as individual records before averaging. DP-SGD must compute per-example gradients so the outlier can be clipped; if clipping happens only after averaging, one record has already had too much influence.',
-    invariant: 'The contribution of one example is bounded before averaging.',
+    explanation: `Read the ${examples.length} rows as individual records before averaging. DP-SGD must compute per-example gradients so the outlier (raw norm ${rawNorms[3]}) can be clipped to C=${clipNorm}; if clipping happens only after averaging, one record has already had too much influence.`,
+    invariant: `The contribution of one example is bounded to norm ${clipNorm} before averaging across ${examples.length} examples.`,
   };
 
   yield {
@@ -75,7 +78,7 @@ function* clippingAndNoise() {
       ],
     }),
     highlight: { active: ['clip'], removed: ['rawOut'], found: ['clipOut'] },
-    explanation: 'Clipping changes only gradients whose norm is too large. In high-dimensional neural nets this is not a cosmetic detail: without clipping, a rare or memorized record can dominate the average and make privacy accounting meaningless.',
+    explanation: `Clipping changes only gradients whose norm exceeds C=${clipNorm}. In high-dimensional neural nets this is not a cosmetic detail: without clipping, a rare or memorized record (norm ${rawNorms[3]}) can dominate the average and make privacy accounting meaningless.`,
   };
 
   yield {
@@ -100,19 +103,20 @@ function* clippingAndNoise() {
       ],
     ),
     highlight: { active: ['noise:x', 'noise:y'], found: ['sent:x', 'sent:y'], compare: ['signal:meaning'] },
-    explanation: 'After averaging clipped gradients, DP-SGD adds calibrated noise. The optimizer still moves, but it sees a noisy direction so neighboring datasets are harder to distinguish from the final model.',
+    explanation: `After averaging ${examples.length} clipped gradients (each bounded to norm ${clipNorm}), DP-SGD adds calibrated noise. The optimizer still moves, but it sees a noisy direction so neighboring datasets are harder to distinguish from the final model.`,
   };
 
+  const loopSteps = [
+    { id: 'sample', label: 'sample minibatch' },
+    { id: 'perex', label: 'per-example grads' },
+    { id: 'clip', label: 'clip' },
+    { id: 'noise', label: 'add noise' },
+    { id: 'account', label: 'account' },
+  ];
   yield {
     state: labelMatrix(
       'The DP-SGD training loop',
-      [
-        { id: 'sample', label: 'sample minibatch' },
-        { id: 'perex', label: 'per-example grads' },
-        { id: 'clip', label: 'clip' },
-        { id: 'noise', label: 'add noise' },
-        { id: 'account', label: 'account' },
-      ],
+      loopSteps,
       [
         { id: 'why', label: 'why it exists' },
         { id: 'cost', label: 'cost' },
@@ -126,20 +130,21 @@ function* clippingAndNoise() {
       ],
     ),
     highlight: { found: ['perex:why', 'clip:why', 'noise:why', 'account:why'] },
-    explanation: 'The algorithm is simple enough to fit in one table, but the engineering is not free. Per-example gradients, clipping, noising, and accounting all change the training system and the model-quality budget.',
+    explanation: `The algorithm is simple enough to fit in one table with ${loopSteps.length} steps, but the engineering is not free. ${loopSteps.map(s => s.label).join(', ')} all change the training system and the model-quality budget.`,
   };
 }
 
 function* privacyAccounting() {
+  const neighborRows = [
+    { id: 'd', label: 'dataset D' },
+    { id: 'dprime', label: 'dataset D prime' },
+    { id: 'mechanism', label: 'training run' },
+    { id: 'observer', label: 'observer' },
+  ];
   yield {
     state: labelMatrix(
       'Neighboring datasets should look nearly the same',
-      [
-        { id: 'd', label: 'dataset D' },
-        { id: 'dprime', label: 'dataset D prime' },
-        { id: 'mechanism', label: 'training run' },
-        { id: 'observer', label: 'observer' },
-      ],
+      neighborRows,
       [
         { id: 'contains', label: 'difference' },
         { id: 'sees', label: 'what is visible' },
@@ -152,34 +157,36 @@ function* privacyAccounting() {
       ],
     ),
     highlight: { active: ['d:contains', 'dprime:contains'], found: ['mechanism:sees', 'observer:sees'] },
-    explanation: 'Differential privacy is a statement about two neighboring datasets that differ in one person. A mechanism is private when an observer seeing the output cannot confidently tell which neighboring dataset was used.',
-    invariant: 'Privacy is about distributions over outputs, not hiding a row in a database table.',
+    explanation: `Differential privacy is a statement about ${neighborRows.length} actors (${neighborRows.map(r => r.label).join(', ')}). Two neighboring datasets differ in one person. A mechanism is private when the "${neighborRows[3].label}" seeing the output cannot confidently tell which neighboring dataset was used.`,
+    invariant: `Privacy across ${neighborRows.length} perspectives is about distributions over outputs, not hiding a row in a database table.`,
   };
 
+  const strictEps = 1.0;
+  const strictAcc = 74;
+  const looseEps = 8.0;
+  const looseAcc = 90;
+  const frontierPoints = [{ x: 0.5, y: 68 }, { x: strictEps, y: strictAcc }, { x: 2.0, y: 81 }, { x: 4.0, y: 87 }, { x: looseEps, y: looseAcc }, { x: 12.0, y: 91 }];
   yield {
     state: plotState({
       axes: { x: { label: 'epsilon privacy loss', min: 0, max: 12 }, y: { label: 'validation accuracy', min: 60, max: 95 } },
       series: [
-        { id: 'frontier', label: 'typical privacy-utility frontier', points: [{ x: 0.5, y: 68 }, { x: 1.0, y: 74 }, { x: 2.0, y: 81 }, { x: 4.0, y: 87 }, { x: 8.0, y: 90 }, { x: 12.0, y: 91 }] },
+        { id: 'frontier', label: 'typical privacy-utility frontier', points: frontierPoints },
       ],
       markers: [
-        { id: 'strict', x: 1.0, y: 74, label: 'strict privacy' },
-        { id: 'loose', x: 8.0, y: 90, label: 'looser privacy' },
+        { id: 'strict', x: strictEps, y: strictAcc, label: 'strict privacy' },
+        { id: 'loose', x: looseEps, y: looseAcc, label: 'looser privacy' },
       ],
     }),
     highlight: { active: ['frontier'], compare: ['strict', 'loose'] },
-    explanation: 'Lower epsilon is stronger privacy, but usually requires more noise and hurts utility. Higher epsilon gives the optimizer a cleaner signal but weaker privacy. The right point depends on data sensitivity and product risk.',
+    explanation: `Lower epsilon (e.g. ${strictEps}) is stronger privacy, but usually requires more noise and hurts utility (accuracy ${strictAcc}%). Higher epsilon (e.g. ${looseEps}) gives the optimizer a cleaner signal but weaker privacy (accuracy ${looseAcc}%). The frontier spans ${frontierPoints.length} measured points.`,
   };
 
+  const roundCounts = [1, 10, 100, 1000];
+  const roundRows = roundCounts.map(n => ({ id: `r${n}`, label: `${n} round${n > 1 ? 's' : ''}` }));
   yield {
     state: labelMatrix(
       'Composition consumes privacy budget',
-      [
-        { id: 'r1', label: '1 round' },
-        { id: 'r10', label: '10 rounds' },
-        { id: 'r100', label: '100 rounds' },
-        { id: 'r1000', label: '1000 rounds' },
-      ],
+      roundRows,
       [
         { id: 'gain', label: 'learning gain' },
         { id: 'privacy', label: 'privacy cost' },
@@ -192,18 +199,19 @@ function* privacyAccounting() {
       ],
     ),
     highlight: { active: ['r100:gain'], removed: ['r1000:privacy'], compare: ['r1:privacy'] },
-    explanation: 'Every private training step spends privacy budget. Accountants track how sampling, clipping, noise, and repeated rounds compose. The model may keep improving after the ledger says the release should stop.',
+    explanation: `Every private training step spends privacy budget across ${roundRows.length} scale points from ${roundCounts[0]} to ${roundCounts[roundCounts.length - 1]} rounds. Accountants track how sampling, clipping, noise, and repeated rounds compose. The model may keep improving after the ledger says the release should stop.`,
   };
 
+  const protectionRows = [
+    { id: 'membership', label: 'membership inference' },
+    { id: 'memorization', label: 'memorization' },
+    { id: 'fairness', label: 'group fairness' },
+    { id: 'poisoning', label: 'poisoning' },
+  ];
   yield {
     state: labelMatrix(
       'What DP-SGD protects, and what it does not',
-      [
-        { id: 'membership', label: 'membership inference' },
-        { id: 'memorization', label: 'memorization' },
-        { id: 'fairness', label: 'group fairness' },
-        { id: 'poisoning', label: 'poisoning' },
-      ],
+      protectionRows,
       [
         { id: 'dp', label: 'DP-SGD helps?' },
         { id: 'extra', label: 'still needs' },
@@ -216,7 +224,7 @@ function* privacyAccounting() {
       ],
     ),
     highlight: { found: ['membership:dp', 'memorization:dp'], compare: ['fairness:extra', 'poisoning:extra'] },
-    explanation: 'DP-SGD is a privacy tool, not a full responsible-AI system. It reduces one person influence on the learned model. It does not automatically solve fairness, poisoned data, bad labels, or weak evaluation.',
+    explanation: `DP-SGD is a privacy tool covering ${protectionRows.length} threat categories, not a full responsible-AI system. It helps with ${protectionRows[0].label} and ${protectionRows[1].label}, but does not automatically solve ${protectionRows[2].label} or ${protectionRows[3].label}.`,
   };
 }
 
@@ -229,6 +237,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/differential-privacy-sgd.gif', alt: 'Animated walkthrough of the differential privacy sgd visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why it exists',
       paragraphs: [

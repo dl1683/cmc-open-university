@@ -80,26 +80,29 @@ function lowerGraph(title) {
 }
 
 function* assembleTriples() {
+  const pipelineNodes = ['events', 'rows', 'cols', 'vals', 'triples', 'sort', 'sum', 'canon', 'lower'];
   yield {
     state: cooGraph('COO is the assembly format for sparse updates'),
     highlight: { active: ['events', 'rows', 'cols', 'vals', 'triples', 'e-events-rows', 'e-events-cols', 'e-rows-vals', 'e-cols-vals', 'e-vals-triples'], found: ['canon'] },
-    explanation: 'Coordinate format stores one tuple per nonzero contribution: row index, column index, and value. It is easy to append because no row pointer needs to be known in advance.',
-    invariant: 'COO is simple to build; compressed formats are better to compute with.',
+    explanation: `Coordinate format stores one tuple per nonzero contribution across a ${pipelineNodes.length}-stage pipeline (${pipelineNodes.join(' -> ')}). It is easy to append because no row pointer needs to be known in advance.`,
+    invariant: `COO is simple to build at the "${pipelineNodes[4]}" stage; compressed formats at "${pipelineNodes[8]}" are better to compute with.`,
   };
+  const triples = [
+    { id: 't0', label: 't0' },
+    { id: 't1', label: 't1' },
+    { id: 't2', label: 't2' },
+    { id: 't3', label: 't3' },
+  ];
+  const tripleCols = [
+    { id: 'row', label: 'row' },
+    { id: 'col', label: 'col' },
+    { id: 'val', label: 'val' },
+  ];
   yield {
     state: labelMatrix(
       'Triples',
-      [
-        { id: 't0', label: 't0' },
-        { id: 't1', label: 't1' },
-        { id: 't2', label: 't2' },
-        { id: 't3', label: 't3' },
-      ],
-      [
-        { id: 'row', label: 'row' },
-        { id: 'col', label: 'col' },
-        { id: 'val', label: 'val' },
-      ],
+      triples,
+      tripleCols,
       [
         ['0', '2', '3'],
         ['1', '0', '4'],
@@ -108,17 +111,18 @@ function* assembleTriples() {
       ],
     ),
     highlight: { active: ['t2:row', 't2:col', 't3:row', 't3:col'], compare: ['t2:val', 't3:val'] },
-    explanation: 'Duplicate coordinates are normal during assembly. Finite element assembly, graph aggregation, and sparse feature construction often emit multiple contributions to the same coordinate.',
+    explanation: `${triples.length} triples with ${tripleCols.length} fields each. Duplicate coordinates (t2 and t3 share row 1, col 2) are normal during assembly. Finite element assembly, graph aggregation, and sparse feature construction often emit multiple contributions to the same coordinate.`,
   };
+  const dimensionRows = [
+    { id: 'm2', label: 'matrix' },
+    { id: 'm3', label: 'tensor' },
+    { id: 'batch', label: 'batch' },
+    { id: 'coords', label: 'coords' },
+  ];
   yield {
     state: labelMatrix(
       'N-D COO',
-      [
-        { id: 'm2', label: 'matrix' },
-        { id: 'm3', label: 'tensor' },
-        { id: 'batch', label: 'batch' },
-        { id: 'coords', label: 'coords' },
-      ],
+      dimensionRows,
       [
         { id: 'shape', label: 'shape' },
         { id: 'tuple', label: 'tuple' },
@@ -131,30 +135,33 @@ function* assembleTriples() {
       ],
     ),
     highlight: { active: ['m2:tuple', 'm3:tuple', 'batch:tuple'], found: ['coords:tuple'] },
-    explanation: 'COO generalizes naturally to tensors: each nonzero stores a coordinate tuple and a value. PyTorch represents sparse COO indices as a coordinate matrix plus a values tensor.',
+    explanation: `COO generalizes across ${dimensionRows.length} dimensionality levels (${dimensionRows.map(r => r.label).join(', ')}). Each nonzero stores a coordinate tuple and a value. PyTorch represents sparse COO indices as a coordinate matrix plus a values tensor.`,
   };
   yield {
     state: cooGraph('Canonical COO sorts and coalesces duplicates'),
     highlight: { active: ['triples', 'sort', 'sum', 'canon', 'e-triples-sort', 'e-sort-sum', 'e-sum-canon'], compare: ['lower'] },
-    explanation: 'Canonical COO is sorted by coordinates and has no duplicate entries. Coalescing turns repeated coordinates into a single value, usually by summing duplicate contributions.',
+    explanation: `Canonical COO is sorted by coordinates and has no duplicate entries. Starting from ${triples.length} raw triples, coalescing turns repeated coordinates into a single value, usually by summing duplicate contributions.`,
   };
 }
 
 function* coalesceLower() {
+  const targetFormats = ['csr', 'csc', 'bsr'];
+  const lowerNodes = ['coo', 'csr', 'csc', 'bsr', 'spmv', 'solve', 'gpu', 'audit'];
   yield {
     state: lowerGraph('COO lowers into the format the kernel wants'),
     highlight: { active: ['coo', 'csr', 'csc', 'bsr', 'e-coo-csr', 'e-coo-csc', 'e-coo-bsr'], found: ['gpu'] },
-    explanation: 'COO is a staging layout. Libraries often convert it to CSR for row-wise arithmetic, CSC for column-wise operations and solvers, or BSR when nonzeros occur in dense blocks.',
+    explanation: `COO is a staging layout. Libraries convert it to ${targetFormats.length} compute formats (${targetFormats.map(f => f.toUpperCase()).join(', ')}): CSR for row-wise arithmetic, CSC for column-wise operations, or BSR when nonzeros cluster in dense blocks.`,
   };
+  const formats = [
+    { id: 'coo', label: 'COO' },
+    { id: 'csr', label: 'CSR' },
+    { id: 'csc', label: 'CSC' },
+    { id: 'bsr', label: 'BSR' },
+  ];
   yield {
     state: labelMatrix(
       'Format choice',
-      [
-        { id: 'coo', label: 'COO' },
-        { id: 'csr', label: 'CSR' },
-        { id: 'csc', label: 'CSC' },
-        { id: 'bsr', label: 'BSR' },
-      ],
+      formats,
       [
         { id: 'best', label: 'best' },
         { id: 'weak', label: 'weak' },
@@ -167,23 +174,24 @@ function* coalesceLower() {
       ],
     ),
     highlight: { active: ['coo:best', 'csr:best', 'csc:best', 'bsr:best'], compare: ['coo:weak'] },
-    explanation: 'The common mistake is asking one sparse format to do everything. COO is for construction; CSR, CSC, and BSR are for different compute paths.',
+    explanation: `${formats.length} sparse formats (${formats.map(f => f.label).join(', ')}) each have a strength and a weakness. The common mistake is asking one format to do everything.`,
   };
   yield {
     state: lowerGraph('The lowering path should be visible in performance traces'),
     highlight: { active: ['csr', 'spmv', 'gpu', 'audit', 'e-csr-spmv', 'e-spmv-audit', 'e-gpu-audit'], compare: ['coo'] },
-    explanation: 'If every request builds COO and converts to CSR on the hot path, the conversion is part of latency. Production systems should record nnz, duplicates, format conversion, and kernel choice.',
+    explanation: `If every request builds COO and converts to CSR on the hot path, the conversion across ${lowerNodes.length} pipeline nodes is part of latency. Production systems should record nnz, duplicates, format conversion, and kernel choice.`,
   };
+  const auditMetrics = [
+    { id: 'nnz', label: 'nnz' },
+    { id: 'dups', label: 'dups' },
+    { id: 'zeros', label: 'zeros' },
+    { id: 'fmt', label: 'fmt' },
+    { id: 'time', label: 'time' },
+  ];
   yield {
     state: labelMatrix(
       'Audit row',
-      [
-        { id: 'nnz', label: 'nnz' },
-        { id: 'dups', label: 'dups' },
-        { id: 'zeros', label: 'zeros' },
-        { id: 'fmt', label: 'fmt' },
-        { id: 'time', label: 'time' },
-      ],
+      auditMetrics,
       [
         { id: 'value', label: 'value' },
         { id: 'why', label: 'why' },
@@ -197,7 +205,7 @@ function* coalesceLower() {
       ],
     ),
     highlight: { active: ['nnz:value', 'dups:value', 'fmt:value', 'time:value'], compare: ['zeros:why'] },
-    explanation: 'Sparse workloads need their own observability. Density, duplicate rate, explicit zeros, conversion time, and kernel format often explain more than matrix dimensions do.',
+    explanation: `Sparse workloads need ${auditMetrics.length} observability metrics (${auditMetrics.map(m => m.label).join(', ')}). Density, duplicate rate, explicit zeros, conversion time, and kernel format often explain more than matrix dimensions do.`,
   };
 }
 
@@ -224,7 +232,8 @@ export const article = {
           text: 'Watch the duplicate pair at (1, 2) in the assembly view. Two triples share the same coordinate with values 5 and 7. Coalescing sums them into 12. If you skip this step, SpMV will double-count that cell.',
         },
         'At each frame, ask: what phase of the pipeline am I in -- event collection, canonicalization, or format lowering? The phase determines which invariant is being established.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/coo-sparse-tensor-assembly-primer.gif', alt: 'Animated walkthrough of the coo sparse tensor assembly primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

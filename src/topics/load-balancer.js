@@ -84,7 +84,8 @@ export const article = {
         {type: 'callout', text: 'A load balancer is useful only when its routing signal matches real work, not just request count.'},
         'The key experiment: run the same request durations under round-robin, then switch to least-connections. Round-robin ignores the bars and picks by position in a cycle. Least-connections reads the bars and picks the shortest one. The gap in peak load between the two runs is the cost of ignoring state.',
         'Watch for the moment a long request is still running on a server when round-robin sends it another long request. That pileup is the failure mode the animation surfaces.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/load-balancer.gif', alt: 'Animated walkthrough of the load balancer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

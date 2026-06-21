@@ -48,8 +48,12 @@ function train(lambda, epochs) {
 }
 
 function* weightsExplode() {
-  const free = train(0, 1000);
-  const leashed = train(0.1, 1000);
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const nEmails = DATA.length;
+  const epochs = 1000;
+  const lambda = 0.1;
+  const free = train(0, epochs);
+  const leashed = train(lambda, epochs);
 
   yield {
     state: plotState({
@@ -57,7 +61,7 @@ function* weightsExplode() {
       series: [{ id: 'free', label: 'λ = 0', points: free.path.slice(0, 8) }],
     }),
     highlight: { active: ['free'] },
-    explanation: 'Logistic Regression ended on a warning: on perfectly separable data, the weights "would grow forever." Here is that promise kept — the SAME 10 emails, the same gradient descent, just run longer, plotting the size of the weight vector. It never flattens. Why? Cross-entropy always pays a little for any probability short of 1.0, and bigger weights mean sharper probabilities — so the optimizer keeps inflating them. Nothing in the loss ever says "enough." The boundary stopped moving around epoch 60; everything after is pure confidence inflation.',
+    explanation: `Logistic Regression ended on a warning: on perfectly separable data, the weights "would grow forever." Here is that promise kept — the SAME ${nEmails} emails, the same gradient descent, just run ${epochs} epochs, plotting the size of the weight vector. It never flattens — by epoch ${epochs} the norm has reached ${r2(free.norm)}. Why? Cross-entropy always pays a little for any probability short of 1.0, and bigger weights mean sharper probabilities — so the optimizer keeps inflating them. Nothing in the loss ever says "enough."`,
   };
 
   yield {
@@ -82,20 +86,28 @@ function* weightsExplode() {
       format: (v) => (v > 0.9 && v < 1 ? `${(v * 100).toFixed(2)}%` : v.toFixed(2)),
     }),
     highlight: { removed: ['free:maxp'], found: ['leashed:maxp'] },
-    explanation: 'Same boundary, same 10/10 accuracy — but the unregularized model now claims 99.999% certainty on points it has seen ten of, while the leashed model says a defensible 98.7%. Recall Calibration & Reliability Diagrams: that runaway sharpness IS the overconfidence that temperature scaling later repairs — regularization treats it at the source. And on noisy data the stakes rise from cosmetic to fatal: huge weights let the boundary contort around individual noisy points (overfitting); the rent makes contortions unaffordable. Smoothness is exactly what generalizes.',
+    explanation: `Same boundary, same ${nEmails}/${nEmails} accuracy — but the unregularized model (norm ${r2(free.norm)}) now claims ${(free.maxP * 100).toFixed(2)}% certainty on points it has seen ${nEmails} of, while the leashed model (norm ${r2(leashed.norm)}) says a defensible ${(leashed.maxP * 100).toFixed(2)}%. That runaway sharpness IS the overconfidence that temperature scaling later repairs — regularization treats it at the source. And on noisy data the stakes rise from cosmetic to fatal: huge weights let the boundary contort around individual noisy points (overfitting); the rent at lambda = ${lambda} makes contortions unaffordable. Smoothness is exactly what generalizes.`,
   };
 }
 
 function* l1VersusL2() {
+  const r2 = (v) => Math.round(v * 100) / 100;
   const FEATURES = [
     { id: 'excl', label: 'exclamation marks', w: 2.0 },
     { id: 'caps', label: 'ALL-CAPS words', w: 1.2 },
     { id: 'len', label: 'avg word length', w: 0.4 },
     { id: 'hour', label: 'send hour', w: 0.15 },
   ];
+  const nFeats = FEATURES.length;
+  const maxLambda = 4;
   const LAMBDAS = Array.from({ length: 21 }, (_, i) => i * 0.2);
   const ridge = (w, lam) => w / (1 + lam);
   const lasso = (w, lam) => Math.sign(w) * Math.max(0, Math.abs(w) - lam / 2);
+  // Lambda at which each feature hits zero under L1: lambda = 2*|w|
+  const hourZeroLam = r2(2 * FEATURES[3].w);
+  const lenZeroLam = r2(2 * FEATURES[2].w);
+  const capsZeroLam = r2(2 * FEATURES[1].w);
+  const hourAtMax = r2(ridge(FEATURES[3].w, maxLambda));
 
   yield {
     state: matrixState({
@@ -106,7 +118,7 @@ function* l1VersusL2() {
       format: (v) => v.toFixed(2),
     }),
     highlight: { compare: ['len:w', 'hour:w'] },
-    explanation: 'A richer spam model with four features — but look at the bottom two weights. "Average word length" and "send hour" barely matter (0.40, 0.15); they are mostly noise the model memorized. An unpenalized fit keeps every feature it ever touched. The two classic penalties handle these hangers-on very differently — we will sweep the penalty strength λ from 0 to 4 and trace what each does to all four weights.',
+    explanation: `A richer spam model with ${nFeats} features — but look at the bottom two weights. "${FEATURES[2].label}" and "${FEATURES[3].label}" barely matter (${FEATURES[2].w.toFixed(2)}, ${FEATURES[3].w.toFixed(2)}); they are mostly noise the model memorized. An unpenalized fit keeps every feature it ever touched. The two classic penalties handle these hangers-on very differently — we will sweep the penalty strength lambda from 0 to ${maxLambda} and trace what each does to all ${nFeats} weights.`,
   };
 
   yield {
@@ -115,7 +127,7 @@ function* l1VersusL2() {
       series: FEATURES.map((f) => ({ id: f.id, label: f.label, points: LAMBDAS.map((lam) => ({ x: lam, y: ridge(f.w, lam) })) })),
     }),
     highlight: { active: ['excl', 'caps'], compare: ['len', 'hour'] },
-    explanation: 'The L2 (ridge) path: each weight follows w/(1+λ) — a smooth, proportional shrink. Crank λ to 4 and "send hour" falls from 0.15 to 0.03… but it NEVER reaches zero. L2 is a diplomat: it taxes big weights hardest (the penalty λÂ·w² has a gradient proportional to w itself), making no weight special and no weight dead. Every feature stays in the model forever, just quieter. Great for keeping correlated features balanced; useless for telling you which features matter.',
+    explanation: `The L2 (ridge) path: each weight follows w/(1+lambda) — a smooth, proportional shrink. Crank lambda to ${maxLambda} and "${FEATURES[3].label}" falls from ${FEATURES[3].w.toFixed(2)} to ${hourAtMax}… but it NEVER reaches zero. L2 is a diplomat: it taxes big weights hardest (the penalty lambda*w^2 has a gradient proportional to w itself), making no weight special and no weight dead. All ${nFeats} features stay in the model forever, just quieter. Great for keeping correlated features balanced; useless for telling you which features matter.`,
   };
 
   yield {
@@ -124,7 +136,7 @@ function* l1VersusL2() {
       series: FEATURES.map((f) => ({ id: f.id, label: f.label, points: LAMBDAS.map((lam) => ({ x: lam, y: lasso(f.w, lam) })) })),
     }),
     highlight: { active: ['excl'], removed: ['len', 'hour'] },
-    explanation: 'The L1 (lasso) path: each weight is SOFT-THRESHOLDED — slide toward zero by λ/2 and STOP there: max(0, |w| âˆ’ λ/2). Watch the executions: "send hour" hits exactly zero at λ = 0.3, "word length" at 0.8, and by λ = 2.4 even ALL-CAPS is gone. Not small — ZERO, deleted from the model. The difference is the penalty\'s shape: L1 charges |w|, whose pull is the SAME constant near zero (where L2\'s proportional pull has faded to nothing), so it can push a weight the last millimeter. L1 is feature selection performed by calculus.',
+    explanation: `The L1 (lasso) path: each weight is SOFT-THRESHOLDED — slide toward zero by lambda/2 and STOP there: max(0, |w| - lambda/2). Watch the executions: "${FEATURES[3].label}" hits exactly zero at lambda = ${hourZeroLam}, "${FEATURES[2].label}" at ${lenZeroLam}, and by lambda = ${capsZeroLam} even ${FEATURES[1].label} is gone. Not small — ZERO, deleted from the model. The difference is the penalty’s shape: L1 charges |w|, whose pull is the SAME constant near zero (where L2’s proportional pull has faded to nothing), so it can push a weight the last millimeter. L1 is feature selection performed by calculus.`,
     invariant: 'L1 zeroes a weight exactly when its usefulness falls below the constant penalty pull λ/2.',
   };
 
@@ -137,7 +149,7 @@ function* l1VersusL2() {
       format: (v) => ['', 'all shrink, none die', 'default; correlated features', 'irrelevant ones hit exact 0', 'you want few features, interpretable', 'both penalties mixed', 'many correlated + want sparsity'][v],
     }),
     highlight: { active: ['en:effect'] },
-    explanation: 'The decision table, plus the hybrid: ELASTIC NET mixes both penalties, getting sparsity without lasso\'s habit of arbitrarily keeping one feature from each correlated group. The deeper lesson generalizes past linear models: Dropout regularizes by randomly silencing neurons, early stopping by cutting training short, data augmentation by multiplying experience — every one is the same bet that a model prevented from being too sure, too sharp, or too dependent on any single signal will tell the truth on data it has never seen. Constraint is not the enemy of learning; it is most of it.',
+    explanation: `The decision table, plus the hybrid: ELASTIC NET mixes both penalties, getting sparsity without lasso's habit of arbitrarily keeping one feature from each correlated group. By lambda = ${maxLambda}, L2 still has all ${nFeats} features alive (smallest = ${hourAtMax}), while L1 zeroed ${nFeats - 1} of ${nFeats}. The deeper lesson generalizes past linear models: Dropout regularizes by randomly silencing neurons, early stopping by cutting training short, data augmentation by multiplying experience — every one is the same bet that a model prevented from being too sure, too sharp, or too dependent on any single signal will tell the truth on data it has never seen.`,
   };
 }
 
@@ -238,7 +250,8 @@ export const article = {
         `Regularization buys generalization by making fragile complexity expensive. L2 shrinks, L1 selects, dropout disrupts co-adaptation, early stopping limits training time, and augmentation widens the experience the model must survive.`,
         `For course design, teach this after bias-variance and before model selection. Students should learn that the right penalty is chosen by honest validation, not by aesthetics or a desire for small weights.`,
         `The central question is not "how do I make the model simpler?" It is "which complexity is likely to be spurious for the future data?" That question turns regularization from a formula into an engineering judgment.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/regularization.gif', alt: 'Animated walkthrough of the regularization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Study next`,

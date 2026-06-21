@@ -53,10 +53,14 @@ function gradualGraph(title) {
 }
 
 function* typedUntypedBoundary() {
+  const numNodes = 8;
+  const numEdges = 8;
+  const boundaryChoices = ['static API', 'guarded edge', 'Any edge', 'unknown edge'];
+
   yield {
     state: gradualGraph('Gradual typing is a boundary discipline'),
     highlight: { active: ['typed', 'api', 'guard', 'dyn', 'e-typed-api', 'e-api-guard', 'e-guard-dyn'], compare: ['any'] },
-    explanation: 'Gradual systems let typed and untyped code coexist. The key data structure is the boundary: where values cross, what is checked, and who is blamed if the check fails.',
+    explanation: `Gradual systems let typed and untyped code coexist across ${numNodes} nodes connected by ${numEdges} edges. The key data structure is the boundary: where values cross, what is checked, and who is blamed if the check fails.`,
   };
   yield {
     state: labelMatrix(
@@ -79,21 +83,24 @@ function* typedUntypedBoundary() {
       ],
     ),
     highlight: { active: ['guarded:benefit', 'unknown:risk'], compare: ['any:risk'], found: ['static:benefit'] },
-    explanation: 'Any is convenient because it lets values flow freely. unknown is safer because code must narrow or check before using the value as something specific.',
-    invariant: 'The boundary policy is part of program correctness, not just developer ergonomics.',
+    explanation: `This table presents ${boundaryChoices.length} boundary policies: ${boundaryChoices.join(', ')}. Any is convenient because it lets values flow freely. unknown is safer because code must narrow or check before using the value as something specific.`,
+    invariant: `The boundary policy across ${boundaryChoices.length} choices is part of program correctness, not just developer ergonomics.`,
   };
   yield {
     state: gradualGraph('Blame names the failed side of the contract'),
     highlight: { active: ['guard', 'blame', 'e-dyn-blame'], compare: ['safe'], found: ['api'] },
-    explanation: 'When a guarded boundary fails, blame should identify whether the typed side made an invalid promise or the dynamic side supplied an invalid value.',
+    explanation: `When a guarded boundary fails among the ${numEdges} edges, blame should identify whether the typed side made an invalid promise or the dynamic side supplied an invalid value.`,
   };
 }
 
 function* narrowingAndAny() {
+  const flowSteps = ['x: unknown', 'typeof x', 'then branch', 'else branch'];
+  const numNodes = 8;
+
   yield {
     state: gradualGraph('Narrowing turns runtime checks into static facts'),
     highlight: { active: ['dyn', 'narrow', 'safe', 'e-dyn-narrow', 'e-narrow-safe'], compare: ['any'] },
-    explanation: 'A type guard such as typeof x === "string" or a predicate check can refine a broad type inside the guarded control-flow region.',
+    explanation: `A type guard such as typeof x === "string" or a predicate check can refine a broad type inside the guarded control-flow region, turning dynamic evidence into static facts across ${numNodes} graph nodes.`,
   };
   yield {
     state: labelMatrix(
@@ -116,12 +123,12 @@ function* narrowingAndAny() {
       ],
     ),
     highlight: { active: ['check:fact', 'then:fact', 'then:allowed'], compare: ['start:allowed'], found: ['else:fact'] },
-    explanation: 'TypeScript narrowing and Typed Racket occurrence typing both make runtime predicates inform later static checking. The fact is scoped by control flow.',
+    explanation: `TypeScript narrowing and Typed Racket occurrence typing both make runtime predicates inform later static checking. This table traces ${flowSteps.length} steps: ${flowSteps.join(' -> ')}. The fact is scoped by control flow.`,
   };
   yield {
     state: gradualGraph('Any bypasses the checker and moves risk to runtime'),
     highlight: { active: ['any', 'dyn', 'blame', 'e-any-dyn', 'e-dyn-blame'], compare: ['guard', 'narrow'] },
-    explanation: 'Any is useful during migration, but it erases static obligations. A robust codebase treats Any as technical debt that should be contained behind checked adapters.',
+    explanation: `Any is useful during migration, but it erases static obligations across the ${numNodes}-node type graph. A robust codebase treats Any as technical debt that should be contained behind checked adapters.`,
   };
 }
 
@@ -134,6 +141,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/gradual-typing-boundaries-blame-guards.gif', alt: 'Animated walkthrough of the gradual typing boundaries blame guards visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

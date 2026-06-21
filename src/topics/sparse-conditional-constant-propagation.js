@@ -60,49 +60,57 @@ function sccpGraph(title, notes = {}) {
 }
 
 function* latticeAndEdges() {
+  const latticeNodes = [
+    { id: 'unknown', label: 'unknown', x: 1.6, y: 4.0, note: 'not reached' },
+    { id: 'const', label: 'const k', x: 5.0, y: 2.5, note: 'all live paths' },
+    { id: 'over', label: 'overdef', x: 8.4, y: 4.0, note: 'varies' },
+  ];
+  const latticeEdges = [
+    { id: 'e-unknown-const', from: 'unknown', to: 'const', weight: 'learn k' },
+    { id: 'e-unknown-over', from: 'unknown', to: 'over', weight: 'unknown op' },
+    { id: 'e-const-over', from: 'const', to: 'over', weight: 'conflict' },
+  ];
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'unknown', label: 'unknown', x: 1.6, y: 4.0, note: 'not reached' },
-        { id: 'const', label: 'const k', x: 5.0, y: 2.5, note: 'all live paths' },
-        { id: 'over', label: 'overdef', x: 8.4, y: 4.0, note: 'varies' },
-      ],
-      edges: [
-        { id: 'e-unknown-const', from: 'unknown', to: 'const', weight: 'learn k' },
-        { id: 'e-unknown-over', from: 'unknown', to: 'over', weight: 'unknown op' },
-        { id: 'e-const-over', from: 'const', to: 'over', weight: 'conflict' },
-      ],
-    }, { title: 'SCCP value lattice' }),
+    state: graphState({ nodes: latticeNodes, edges: latticeEdges }, { title: 'SCCP value lattice' }),
     highlight: { active: ['unknown', 'const', 'e-unknown-const'], compare: ['over', 'e-const-over'] },
-    explanation: 'SCCP tracks each SSA value in a small lattice. Unknown means not enough executable evidence yet. Constant means every executable path agrees. Overdefined means the value varies or is not computable as a constant.',
+    explanation: `SCCP tracks each SSA value in a ${latticeNodes.length}-state lattice. ${latticeNodes[0].label} means not enough executable evidence yet. ${latticeNodes[1].label} means every executable path agrees. ${latticeNodes[2].label} means the value varies or is not computable as a constant.`,
   };
 
+  const cfgTitle = 'SCCP also tracks which CFG edges are executable';
+  const cfgState = sccpGraph(cfgTitle);
+  const cfgNodeCount = cfgState.nodes.length;
+  const cfgEdgeCount = cfgState.edges.length;
   yield {
-    state: sccpGraph('SCCP also tracks which CFG edges are executable'),
+    state: cfgState,
     highlight: { active: ['entry', 'branch', 'e-entry-branch', 'vwork', 'ework'], compare: ['then', 'else'] },
-    explanation: 'Ordinary constant propagation usually assumes all CFG paths may execute. SCCP carries a second fact: which edges are executable. That makes branch pruning and value propagation reinforce each other.',
-    invariant: 'A phi only considers incoming values from executable predecessor edges.',
+    explanation: `Ordinary constant propagation usually assumes all CFG paths may execute. SCCP carries a second fact across ${cfgNodeCount} nodes and ${cfgEdgeCount} edges: which edges are executable. That makes branch pruning and value propagation reinforce each other.`,
+    invariant: `A phi only considers incoming values from executable predecessor edges, ignoring the remaining ${cfgEdgeCount - 1} edges when they are dead.`,
   };
 
+  const branchNote = '2<3 true';
+  const thenNote = 'exec';
+  const elseNote = 'dead';
   yield {
-    state: sccpGraph('A constant branch marks only one successor executable', { branch: '2<3 true', then: 'exec', else: 'dead', ework: 'then only' }),
+    state: sccpGraph('A constant branch marks only one successor executable', { branch: branchNote, then: thenNote, else: elseNote, ework: 'then only' }),
     highlight: { active: ['branch', 'then', 'e-branch-then', 'ework', 'e-ework-then'], removed: ['else', 'e-branch-else'] },
-    explanation: 'If the branch condition becomes constant true, SCCP marks the true edge executable and leaves the false edge dead. Instructions reachable only through the dead edge do not pollute phi results.',
+    explanation: `If the branch condition becomes constant (${branchNote}), SCCP marks the true edge ${thenNote} and leaves the false edge ${elseNote}. Instructions reachable only through the dead edge do not pollute phi results.`,
   };
 
+  const worklistRows = [
+    { id: 'value', label: 'value worklist' },
+    { id: 'edge', label: 'edge worklist' },
+    { id: 'phi', label: 'phi visit' },
+    { id: 'branch', label: 'branch visit' },
+  ];
+  const worklistCols = [
+    { id: 'contains', label: 'contains' },
+    { id: 'effect', label: 'effect' },
+  ];
   yield {
     state: labelMatrix(
       'Two worklists, one fixpoint',
-      [
-        { id: 'value', label: 'value worklist' },
-        { id: 'edge', label: 'edge worklist' },
-        { id: 'phi', label: 'phi visit' },
-        { id: 'branch', label: 'branch visit' },
-      ],
-      [
-        { id: 'contains', label: 'contains' },
-        { id: 'effect', label: 'effect' },
-      ],
+      worklistRows,
+      worklistCols,
       [
         ['SSA users of changed values', 'recompute operations'],
         ['new executable CFG edges', 'visit blocks'],
@@ -111,43 +119,53 @@ function* latticeAndEdges() {
       ],
     ),
     highlight: { active: ['value:effect', 'edge:effect'], found: ['phi:effect', 'branch:effect'] },
-    explanation: 'The algorithm is sparse because it follows SSA use-def edges and newly executable CFG edges instead of repeatedly scanning every block until nothing changes.',
+    explanation: `The algorithm is sparse because it uses ${worklistRows.length} worklist categories (${worklistRows[0].label}, ${worklistRows[1].label}, ${worklistRows[2].label}, ${worklistRows[3].label}) to follow SSA use-def edges and newly executable CFG edges instead of repeatedly scanning every block until nothing changes.`,
   };
 }
 
 function* deadBranchCaseStudy() {
+  const entryNote = 'a=2 b=3';
+  const thenConst = 'c1=4';
+  const elseConst = 'c2=5';
   yield {
-    state: sccpGraph('Start from constants a=2 and b=3', { entry: 'a=2 b=3', branch: 'unknown', then: 'c1=4', else: 'c2=5', phi: 'c3=?' }),
+    state: sccpGraph('Start from constants a=2 and b=3', { entry: entryNote, branch: 'unknown', then: thenConst, else: elseConst, phi: 'c3=?' }),
     highlight: { active: ['entry', 'vwork', 'e-entry-branch'], compare: ['then', 'else'] },
-    explanation: 'The program initializes a and b with constants, then branches on a < b. SCCP puts users of a and b on the value worklist and starts from the entry edge.',
+    explanation: `The program initializes ${entryNote} as constants, then branches on a < b. SCCP puts users of a and b on the value worklist and starts from the entry edge, with then computing ${thenConst} and else computing ${elseConst}.`,
   };
 
+  const evalBranch = 'true';
+  const evalThen = 'exec';
+  const evalElse = 'not exec';
   yield {
-    state: sccpGraph('Evaluate the branch under current lattice facts', { branch: 'true', then: 'exec', else: 'not exec', phi: 'c3=?' }),
+    state: sccpGraph('Evaluate the branch under current lattice facts', { branch: evalBranch, then: evalThen, else: evalElse, phi: 'c3=?' }),
     highlight: { active: ['branch', 'e-branch-then', 'then'], removed: ['else', 'e-branch-else'], found: ['ework'] },
-    explanation: 'Because 2 < 3 is true, only the then edge becomes executable. The else block is not visited yet, so c2 = 5 does not contribute to the phi.',
+    explanation: `Because 2 < 3 is ${evalBranch}, only the then edge becomes ${evalThen}. The else block is ${evalElse}, so ${elseConst} does not contribute to the phi.`,
   };
 
+  const phiResult = 'c3=4';
+  const retResult = 'return 4';
   yield {
-    state: sccpGraph('The phi sees only executable incoming values', { then: 'c1=4', else: 'dead c2=5', phi: 'c3=4', ret: 'return 4' }),
+    state: sccpGraph('The phi sees only executable incoming values', { then: thenConst, else: 'dead c2=5', phi: phiResult, ret: retResult }),
     highlight: { active: ['then', 'phi', 'ret', 'e-then-phi', 'e-phi-ret'], removed: ['else', 'e-else-phi'] },
-    explanation: 'The phi has two syntactic inputs, but only the then predecessor is executable. That lets c3 become constant 4 instead of overdefined between 4 and 5.',
-    invariant: 'Dead edges do not make live values less precise.',
+    explanation: `The phi has 2 syntactic inputs, but only the then predecessor (${thenConst}) is executable. That lets ${phiResult} become constant instead of overdefined between 4 and 5.`,
+    invariant: `Dead edges do not make live values less precise — the final result is ${retResult}.`,
   };
 
+  const payoffRows = [
+    { id: 'branch', label: 'branch' },
+    { id: 'else', label: 'else block' },
+    { id: 'phi', label: 'phi c3' },
+    { id: 'return', label: 'return' },
+  ];
+  const payoffCols = [
+    { id: 'before', label: 'before SCCP' },
+    { id: 'after', label: 'after SCCP' },
+  ];
   yield {
     state: labelMatrix(
       'Optimization payoff',
-      [
-        { id: 'branch', label: 'branch' },
-        { id: 'else', label: 'else block' },
-        { id: 'phi', label: 'phi c3' },
-        { id: 'return', label: 'return' },
-      ],
-      [
-        { id: 'before', label: 'before SCCP' },
-        { id: 'after', label: 'after SCCP' },
-      ],
+      payoffRows,
+      payoffCols,
       [
         ['if a<b', 'goto then'],
         ['c2=5', 'unreachable'],
@@ -156,7 +174,7 @@ function* deadBranchCaseStudy() {
       ],
     ),
     highlight: { active: ['branch:after', 'phi:after', 'return:after'], removed: ['else:after'] },
-    explanation: 'SCCP is useful because it simplifies control flow and data flow together. Removing a dead edge can expose constants, and exposing constants can remove more dead edges.',
+    explanation: `SCCP simplifies ${payoffRows.length} constructs (${payoffRows.map(r => r.label).join(', ')}), comparing ${payoffCols[0].label} vs ${payoffCols[1].label}. Removing a dead edge can expose constants, and exposing constants can remove more dead edges.`,
   };
 }
 
@@ -169,6 +187,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/sparse-conditional-constant-propagation.gif', alt: 'Animated walkthrough of the sparse conditional constant propagation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

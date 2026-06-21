@@ -84,53 +84,65 @@ function icGraph(title) {
 }
 
 function* shapeTransitions() {
+  const shapeNodes = ['empty', 'x', 'xy', 'xyz', 'yx', 'desc', 'obj'];
+  const shapeEdges = ['e-empty-x', 'e-x-xy', 'e-xy-xyz', 'e-empty-yx', 'e-xyz-desc', 'e-desc-obj'];
+  const mainChain = ['empty', 'x', 'xy', 'xyz'];
+  const branchNode = 'yx';
+
   yield {
     state: shapeGraph('Adding properties walks a hidden-class transition tree'),
     highlight: { active: ['empty', 'x', 'xy', 'xyz', 'e-empty-x', 'e-x-xy', 'e-xy-xyz'], compare: ['yx'] },
-    explanation: 'V8 calls hidden classes Maps. When objects receive the same named properties in the same order, they share a Map. That Map tells the engine where properties live.',
-    invariant: 'Same shape plus same order enables shared layout metadata.',
+    explanation: `V8 calls hidden classes Maps. The transition tree has ${shapeNodes.length} nodes and ${shapeEdges.length} edges. When objects receive the same named properties in the same order, they share a Map. That Map tells the engine where properties live.`,
+    invariant: `Same shape plus same order enables shared layout metadata across all ${mainChain.length} main-chain transitions.`,
   };
+
+  const descriptorRows = [
+    { id: 'x', label: 'x' },
+    { id: 'y', label: 'y' },
+    { id: 'z', label: 'z' },
+  ];
+  const descriptorCols = [
+    { id: 'slot', label: 'slot' },
+    { id: 'kind', label: 'kind' },
+  ];
+  const ySlot = '1';
 
   yield {
     state: labelMatrix(
       'Descriptor offsets for one shape',
-      [
-        { id: 'x', label: 'x' },
-        { id: 'y', label: 'y' },
-        { id: 'z', label: 'z' },
-      ],
-      [
-        { id: 'slot', label: 'slot' },
-        { id: 'kind', label: 'kind' },
-      ],
+      descriptorRows,
+      descriptorCols,
       [
         ['0', 'in object'],
-        ['1', 'in object'],
+        [ySlot, 'in object'],
         ['2', 'in object'],
       ],
     ),
     highlight: { found: ['x:slot', 'y:slot', 'z:slot'] },
-    explanation: 'The descriptor array is the lookup table behind the fast path. If the object has Map3, the engine can treat property y as slot 1 instead of doing a fresh hash-table lookup.',
+    explanation: `The descriptor array maps ${descriptorRows.length} properties across ${descriptorCols.length} columns. If the object has Map3, the engine can treat property y as slot ${ySlot} instead of doing a fresh hash-table lookup.`,
   };
 
   yield {
     state: shapeGraph('Different construction order creates a different shape'),
     highlight: { active: ['empty', 'yx', 'e-empty-yx'], compare: ['x', 'xy', 'xyz'] },
-    explanation: 'Two objects can have the same visible keys but different Maps if the keys were added in different orders. Hot code likes consistent construction because one property access site can reuse one cached shape.',
+    explanation: `Two objects can have the same visible keys but different Maps if the keys were added in different orders. The ${branchNode} branch diverges from the ${mainChain.length}-node main chain. Hot code likes consistent construction because one property access site can reuse one cached shape.`,
   };
+
+  const layoutCategories = ['stable object', 'late adds', 'deletes', 'dynamic keys'];
+  const layoutCols = ['layout', 'cost'];
 
   yield {
     state: labelMatrix(
       'Fast properties versus dictionary properties',
       [
-        { id: 'stable', label: 'stable object' },
-        { id: 'late', label: 'late adds' },
-        { id: 'delete', label: 'deletes' },
-        { id: 'dynamic', label: 'dynamic keys' },
+        { id: 'stable', label: layoutCategories[0] },
+        { id: 'late', label: layoutCategories[1] },
+        { id: 'delete', label: layoutCategories[2] },
+        { id: 'dynamic', label: layoutCategories[3] },
       ],
       [
-        { id: 'layout', label: 'layout' },
-        { id: 'cost', label: 'cost' },
+        { id: 'layout', label: layoutCols[0] },
+        { id: 'cost', label: layoutCols[1] },
       ],
       [
         ['shared Map', 'offset read'],
@@ -140,42 +152,51 @@ function* shapeTransitions() {
       ],
     ),
     highlight: { active: ['stable:layout', 'stable:cost'], compare: ['delete:layout', 'dynamic:cost'] },
-    explanation: 'Fast properties are optimized layout metadata. Very dynamic objects can fall back toward dictionary-style storage, which is more flexible but loses some offset-read speed.',
+    explanation: `Fast properties cover ${layoutCategories.length} categories compared across ${layoutCols.length} dimensions. Very dynamic objects can fall back toward dictionary-style storage, which is more flexible but loses some offset-read speed.`,
   };
 }
 
 function* inlineCacheStates() {
+  const icNodeCount = 9;
+  const icEdgeCount = 10;
+  const monoNote = '1 map';
+  const polyNote = 'few maps';
+  const megaNote = 'many';
+
   yield {
     state: icGraph('Inline caches remember shapes seen at a property access site'),
     highlight: { active: ['site', 'ic', 'mono', 'offset', 'e-site-ic', 'e-ic-mono', 'e-mono-offset'], found: ['value'] },
-    explanation: 'A monomorphic inline cache has seen one Map at this load site. The fast path checks the Map pointer and reads the property from the cached offset.',
-    invariant: 'The cache is attached to the access site, not globally to the property name.',
+    explanation: `A monomorphic inline cache has seen ${monoNote} at this load site. The IC graph tracks ${icNodeCount} nodes across ${icEdgeCount} edges. The fast path checks the Map pointer and reads the property from the cached offset.`,
+    invariant: `The cache is attached to the access site, not globally to the property name — each of the ${icNodeCount} IC nodes is site-specific.`,
   };
 
   yield {
     state: icGraph('Polymorphic sites keep a few shape-specific fast paths'),
     highlight: { active: ['poly', 'stub', 'e-ic-poly', 'e-poly-stub'], compare: ['mono'] },
-    explanation: 'A polymorphic site has seen a small set of Maps. It can still be fast by checking a short list of shape-specific handlers. The cost rises with shape diversity.',
+    explanation: `A polymorphic site has seen ${polyNote} (a small set of Maps). It can still be fast by checking a short list of shape-specific handlers. The cost rises with shape diversity.`,
   };
 
   yield {
     state: icGraph('Megamorphic sites fall back to generic lookup machinery'),
     highlight: { active: ['mega', 'generic', 'e-ic-mega', 'e-mega-generic'], removed: ['offset'] },
-    explanation: 'When too many shapes reach the same access site, the engine stops specializing that local cache. That is the megamorphic shape: flexible but harder to optimize.',
+    explanation: `When ${megaNote} shapes reach the same access site, the engine stops specializing that local cache. That is the megamorphic state: flexible but harder to optimize.`,
   };
+
+  const elementKinds = ['SMI ints', 'doubles', 'objects', 'holey'];
+  const elementCols = ['trigger', 'effect'];
 
   yield {
     state: labelMatrix(
       'Arrays have shape-like element kinds too',
       [
-        { id: 'smi', label: 'SMI ints' },
-        { id: 'double', label: 'doubles' },
-        { id: 'object', label: 'objects' },
-        { id: 'holey', label: 'holey' },
+        { id: 'smi', label: elementKinds[0] },
+        { id: 'double', label: elementKinds[1] },
+        { id: 'object', label: elementKinds[2] },
+        { id: 'holey', label: elementKinds[3] },
       ],
       [
-        { id: 'trigger', label: 'trigger' },
-        { id: 'effect', label: 'effect' },
+        { id: 'trigger', label: elementCols[0] },
+        { id: 'effect', label: elementCols[1] },
       ],
       [
         ['small ints', 'tight path'],
@@ -185,25 +206,31 @@ function* inlineCacheStates() {
       ],
     ),
     highlight: { active: ['smi:effect'], compare: ['double:trigger', 'holey:effect'] },
-    explanation: 'V8 also tracks elements kinds for arrays. Packed integer arrays can use a specialized path. Adding doubles, objects, or holes forces transitions that make later operations more general.',
+    explanation: `V8 tracks ${elementKinds.length} element kinds for arrays. Packed ${elementKinds[0]} arrays use the tightest path. Adding ${elementKinds[1]}, ${elementKinds[2]}, or ${elementKinds[3]} values forces transitions that make later operations more general.`,
   };
+
+  const monoWork = 10;
+  const polyWork = 35;
+  const megaWork = 72;
+  const maxShapes = 10;
+  const workPoints = [
+    { x: 1, y: monoWork }, { x: 2, y: 18 }, { x: 4, y: polyWork }, { x: 6, y: megaWork }, { x: maxShapes, y: 92 },
+  ];
 
   yield {
     state: plotState({
-      axes: { x: { label: 'shapes at one access site', min: 1, max: 10 }, y: { label: 'relative lookup work', min: 0, max: 100 } },
+      axes: { x: { label: 'shapes at one access site', min: 1, max: maxShapes }, y: { label: 'relative lookup work', min: 0, max: 100 } },
       series: [
-        { id: 'work', label: 'lookup work', points: [
-          { x: 1, y: 10 }, { x: 2, y: 18 }, { x: 4, y: 35 }, { x: 6, y: 72 }, { x: 10, y: 92 },
-        ] },
+        { id: 'work', label: 'lookup work', points: workPoints },
       ],
       markers: [
-        { id: 'mono', x: 1, y: 10, label: 'mono' },
-        { id: 'poly', x: 4, y: 35, label: 'poly' },
-        { id: 'mega', x: 6, y: 72, label: 'mega' },
+        { id: 'mono', x: 1, y: monoWork, label: 'mono' },
+        { id: 'poly', x: 4, y: polyWork, label: 'poly' },
+        { id: 'mega', x: 6, y: megaWork, label: 'mega' },
       ],
     }),
     highlight: { active: ['work', 'mono', 'poly'], compare: ['mega'] },
-    explanation: 'This is the runtime lesson. A property access site that sees stable shapes can become a guarded offset read. A site that sees many unrelated shapes keeps paying for generality.',
+    explanation: `This is the runtime lesson. A monomorphic site costs only ${monoWork}% relative work; a polymorphic site rises to ${polyWork}%. At ${megaWork}% the megamorphic fallback dominates across up to ${maxShapes} shapes. Stable shapes keep access fast; shape diversity keeps paying for generality.`,
   };
 }
 
@@ -226,7 +253,8 @@ export const article = {
         },
         'The inline-cache view shows one property access site (obj.x) and the three IC states it can reach. Monomorphic: the site has seen exactly one Map, so the fast path is a single pointer comparison plus an offset read. Polymorphic: two to four Maps, each with its own handler stub. Megamorphic: too many Maps, so the site falls back to generic dictionary lookup.',
         'Watch which nodes light up. Active nodes are the current execution path. Compared nodes are the slower alternative the optimization avoids.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/v8-hidden-classes-inline-caches.gif', alt: 'Animated walkthrough of the v8 hidden classes inline caches visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

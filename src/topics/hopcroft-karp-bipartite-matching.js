@@ -56,11 +56,20 @@ function matchingGraph(title) {
 }
 
 function* layeredSearch() {
+  const leftCount = 4;
+  const rightCount = 4;
+  const totalVertices = leftCount + rightCount;
+  const freeLeft = 2;
+  const matchedLeft = leftCount - freeLeft;
+  const freeRight = 2;
+  const totalEdges = 10;
+  const candidateEdges = totalEdges - matchedLeft - freeRight;
+
   yield {
     state: matchingGraph('Start from all free vertices on the left'),
     highlight: { active: ['u1', 'u3'], compare: ['u2', 'u4'], found: ['v3', 'v4'] },
-    explanation: 'Hopcroft-Karp keeps a partial matching. Each phase begins with BFS from every free vertex on the left side. The goal is not one path; it is the full layer graph of shortest augmenting paths.',
-    invariant: 'Only shortest augmenting paths are eligible in the current phase.',
+    explanation: `Hopcroft-Karp keeps a partial matching. Each phase begins with BFS from every free vertex on the left side — here ${freeLeft} of ${leftCount} left vertices are free. The goal is not one path; it is the full layer graph of shortest augmenting paths across all ${totalEdges} edges.`,
+    invariant: `Only shortest augmenting paths are eligible in the current phase; ${freeLeft} free left vertices seed the BFS.`,
   };
 
   yield {
@@ -81,13 +90,13 @@ function* layeredSearch() {
       ],
     ),
     highlight: { active: ['l0:vertices', 'l1:edge_rule'], found: ['stop:vertices'] },
-    explanation: 'The BFS direction matters. From U, follow edges not currently in the matching. From V, follow the matched edge back to U. The first time a free V is reachable, the shortest augmenting length is known.',
+    explanation: `The BFS direction matters. From the ${leftCount} U vertices, follow edges not currently in the matching. From the ${rightCount} V vertices, follow the matched edge back to U. The first time a free V is reachable, the shortest augmenting length is known — here ${freeRight} right vertices are free targets.`,
   };
 
   yield {
     state: matchingGraph('Layer graph exposes two shortest augmenting paths'),
     highlight: { active: ['u1', 'v3', 'e-u1-v3', 'u3', 'v4', 'e-u3-v4'], found: ['nil'] },
-    explanation: 'In this toy graph, u1->v3 and u3->v4 are both shortest augmenting paths and they are vertex-disjoint. A one-path-at-a-time algorithm would augment only one. Hopcroft-Karp takes both in the same phase.',
+    explanation: `In this toy graph with ${totalVertices} vertices and ${totalEdges} edges, u1->v3 and u3->v4 are both shortest augmenting paths and they are vertex-disjoint. A one-path-at-a-time algorithm would augment only one; Hopcroft-Karp takes both ${freeLeft} paths in the same phase.`,
   };
 
   yield {
@@ -108,11 +117,20 @@ function* layeredSearch() {
       ],
     ),
     highlight: { found: ['hk:cost'], compare: ['single:cost'] },
-    explanation: 'The data-structure lesson is phase discipline. By refusing longer paths until all shortest ones are exhausted, the algorithm bounds how often path length can increase.',
+    explanation: `The data-structure lesson is phase discipline. By refusing longer paths until all ${freeLeft} shortest ones are exhausted, the algorithm bounds how often path length can increase — total cost is O(${totalEdges} * sqrt(${totalVertices})) for this graph.`,
   };
 }
 
 function* augmentPhase() {
+  const leftCount = 4;
+  const rightCount = 4;
+  const totalVertices = leftCount + rightCount;
+  const matchedEdges = 2;
+  const freeLeft = leftCount - matchedEdges;
+  const freeRight = rightCount - matchedEdges;
+  const augmentedPaths = 2;
+  const finalMatchingSize = matchedEdges + augmentedPaths;
+
   yield {
     state: labelMatrix(
       'DFS only follows the BFS layers',
@@ -131,14 +149,14 @@ function* augmentPhase() {
       ],
     ),
     highlight: { active: ['try1:dfs', 'try3:dfs'], found: ['take1:result', 'take3:result'] },
-    explanation: 'After BFS fixes the shortest distance, DFS searches for vertex-disjoint augmenting paths inside that layered graph. It ignores edges that would leave the layer discipline.',
-    invariant: 'A phase augments a maximal set of vertex-disjoint shortest augmenting paths.',
+    explanation: `After BFS fixes the shortest distance, DFS searches for vertex-disjoint augmenting paths inside that layered graph. It ignores edges that would leave the layer discipline — here ${augmentedPaths} disjoint paths are found from ${freeLeft} free left vertices.`,
+    invariant: `A phase augments a maximal set of vertex-disjoint shortest augmenting paths; this phase finds ${augmentedPaths} paths, raising the matching from ${matchedEdges} to ${finalMatchingSize}.`,
   };
 
   yield {
     state: matchingGraph('Flip unmatched/matched status along each path'),
     highlight: { found: ['e-u1-v3', 'e-u3-v4'], active: ['u1', 'v3', 'u3', 'v4'], compare: ['e-u2-v1', 'e-u4-v2'] },
-    explanation: 'Augmenting means toggling every edge on the path. Unmatched edges become matched; matched edges on longer alternating paths would be removed. The matching size increases by one per augmenting path.',
+    explanation: `Augmenting means toggling every edge on the path. Unmatched edges become matched; matched edges on longer alternating paths would be removed. The matching size increases by one per augmenting path — ${augmentedPaths} paths raise the total from ${matchedEdges} to ${finalMatchingSize}.`,
   };
 
   yield {
@@ -159,7 +177,7 @@ function* augmentPhase() {
       ],
     ),
     highlight: { active: ['edge:meaning'], found: ['matching:constraint'] },
-    explanation: 'The complete use case is assignment under binary eligibility. If every driver-route pair is either allowed or not allowed, maximum bipartite matching finds the largest feasible assignment before cost optimization enters the picture.',
+    explanation: `The complete use case is assignment under binary eligibility. If every driver-route pair is either allowed or not allowed, maximum bipartite matching finds the largest feasible assignment — here ${leftCount} drivers and ${rightCount} routes yield a maximum matching of ${finalMatchingSize} before cost optimization enters the picture.`,
   };
 
   yield {
@@ -180,7 +198,7 @@ function* augmentPhase() {
       ],
     ),
     highlight: { found: ['unweighted:tool', 'flow:tool'], compare: ['weighted:tool'] },
-    explanation: 'Hopcroft-Karp solves a specific matching problem extremely well. If edges have costs, capacities, or non-bipartite structure, the problem has changed and the data structure should change with it.',
+    explanation: `Hopcroft-Karp solves a specific matching problem extremely well — for this ${totalVertices}-vertex bipartite graph it found a perfect matching of size ${finalMatchingSize}. If edges have costs, capacities, or non-bipartite structure, the problem has changed and the data structure should change with it.`,
   };
 }
 
@@ -200,7 +218,8 @@ export const article = {
         {type: `callout`, text: `Hopcroft-Karp is fast because one BFS phase finds the shortest legal layer graph, then DFS spends that layer graph on a whole batch of disjoint augmenting paths.`},
         `In the layered-search view, watch BFS build distance labels outward from every free left vertex, alternating between unmatched edges (left to right) and matched edges (right back to left). The search stops the moment a free right vertex is reached. In the augment-phase view, watch DFS trace vertex-disjoint paths through those layers, then flip matched and unmatched edges along each path.`,
         `After each frame, identify: which vertices gained a distance label, which edges changed status, and why the algorithm chose to stop or continue. The layer graph is the structure; the augmenting paths are the payoff.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/hopcroft-karp-bipartite-matching.gif', alt: 'Animated walkthrough of the hopcroft karp bipartite matching visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

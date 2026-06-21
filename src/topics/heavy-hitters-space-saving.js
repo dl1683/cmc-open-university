@@ -28,6 +28,10 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* spaceSaving() {
+  const k = 3;
+  const trackedKeys = ['login', 'search', 'bot'];
+  const minCount = 7;
+
   yield {
     state: graphState({
       nodes: [
@@ -45,8 +49,8 @@ function* spaceSaving() {
       ],
     }, { title: 'Space-Saving keeps only candidate heavy keys' }),
     highlight: { active: ['hit', 'inc', 'table'], found: ['top'] },
-    explanation: 'A heavy-hitter summary cannot store every distinct key. Space-Saving keeps k candidate counters. Known keys increment; unknown keys replace the current minimum and inherit its count plus one.',
-    invariant: 'The table is a summary of candidates, not an exact histogram.',
+    explanation: `A heavy-hitter summary cannot store every distinct key. Space-Saving keeps ${k} candidate counters (${trackedKeys.join(', ')}). Known keys increment; unknown keys replace the current minimum and inherit its count plus one.`,
+    invariant: `The ${k}-slot table is a summary of candidates, not an exact histogram.`,
   };
 
   yield {
@@ -70,7 +74,7 @@ function* spaceSaving() {
       ],
     ),
     highlight: { active: ['c:count'], found: ['new:count', 'new:error'] },
-    explanation: 'When a new key arrives and the table is full, replace the smallest counter. The new key may not really have count 8; its error field records how much of that count could belong to the evicted key.',
+    explanation: `When a new key arrives and all ${k} slots are full, replace the smallest counter (${trackedKeys[trackedKeys.length - 1]} at count ${minCount}). The new key inherits count ${minCount + 1}; its error field records how much of that count could belong to the evicted key.`,
   };
 
   yield {
@@ -94,7 +98,7 @@ function* spaceSaving() {
       ],
     ),
     highlight: { found: ['elephant:lesson', 'threshold:lesson'], compare: ['many:lesson'] },
-    explanation: 'Small keys churn through the minimum slot. A genuinely frequent key keeps reappearing, increases its counter, and becomes hard to evict. Important decisions should still verify candidates exactly.',
+    explanation: `Small keys churn through the minimum slot among the ${k} tracked candidates. A genuinely frequent key keeps reappearing, increases its counter above ${minCount}, and becomes hard to evict. Important decisions should still verify candidates exactly.`,
   };
 
   yield {
@@ -106,11 +110,14 @@ function* spaceSaving() {
       ],
     }),
     highlight: { active: ['space'], compare: ['cms'] },
-    explanation: 'The shape is illustrative: candidate summaries improve when the stream has strong elephants. Flat, low-skew streams are harder because no key clearly dominates.',
+    explanation: `The shape is illustrative: with ${k} counter slots, candidate summaries improve when the stream has strong elephants. Flat, low-skew streams are harder because no key clearly dominates the ${k}-entry table.`,
   };
 }
 
 function* compareSketches() {
+  const sketchFamilies = ['Count-Min', 'Misra-Gries', 'Space-Saving', 'HyperLogLog'];
+  const pipelineStages = ['events', 'summary', 'exact', 'alert', 'store'];
+
   yield {
     state: labelMatrix(
       'Sketch family roles',
@@ -132,7 +139,7 @@ function* compareSketches() {
       ],
     ),
     highlight: { active: ['mg:answers', 'ss:answers'], compare: ['cms:doesnot', 'hll:doesnot'] },
-    explanation: 'Count-Min can estimate the count of a named key, but it cannot list all keys by itself. Heavy-hitter summaries keep the candidate keys directly.',
+    explanation: `Among these ${sketchFamilies.length} sketch families (${sketchFamilies.join(', ')}), Count-Min can estimate the count of a named key but cannot list all keys by itself. Heavy-hitter summaries keep the candidate keys directly.`,
   };
 
   yield {
@@ -152,7 +159,7 @@ function* compareSketches() {
       ],
     }, { title: 'Production pipelines verify the expensive few exactly' }),
     highlight: { active: ['summary', 'exact'], found: ['alert'] },
-    explanation: 'A common production pattern is approximate first pass, exact second pass. The summary filters the huge stream down to a small candidate list, and exact storage or replay verifies important alerts.',
+    explanation: `A common production pattern is approximate first pass, exact second pass across ${pipelineStages.length} stages (${pipelineStages.join(' → ')}). The summary filters the huge stream down to a small candidate list, and exact storage or replay verifies important alerts.`,
   };
 
   yield {
@@ -176,7 +183,7 @@ function* compareSketches() {
       ],
     ),
     highlight: { found: ['net:action', 'logs:action'], active: ['search:heavy', 'ml:heavy'] },
-    explanation: 'Heavy hitters are the "what is dominating right now?" question. That shows up in networking, search, observability, fraud, recommender telemetry, and feature monitoring.',
+    explanation: `Heavy hitters are the "what is dominating right now?" question. With ${sketchFamilies.length} sketch approaches available, the choice shows up in networking, search, observability, fraud, recommender telemetry, and feature monitoring.`,
   };
 
   yield {
@@ -200,7 +207,7 @@ function* compareSketches() {
       ],
     ),
     highlight: { removed: ['billing:risk'], found: ['billing:response', 'merge:response'] },
-    explanation: 'Do not let an approximate summary become the source of legal, billing, or deletion truth. Use it to find candidates and route attention.',
+    explanation: `Do not let an approximate summary from any of the ${sketchFamilies.length} sketch families become the source of legal, billing, or deletion truth. Use it to find candidates and route attention.`,
   };
 }
 
@@ -228,7 +235,8 @@ export const article = {
           type: 'note',
           text: 'The color states in the animation: active (orange) marks slots being updated, found (green) marks candidates that survived to the output, compare (blue) marks alternative sketches or contrasting behavior, and removed (red) marks evicted or failing entries.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/heavy-hitters-space-saving.gif', alt: 'Animated walkthrough of the heavy hitters space saving visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

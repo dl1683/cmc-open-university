@@ -54,7 +54,7 @@ function* liveIntervals() {
   yield {
     state: intervalGraph('Register allocation starts from virtual registers'),
     highlight: { active: ['ssa', 'live', 'intervals', 'e-ssa-live', 'e-live-intervals'], compare: ['machine'] },
-    explanation: 'Compiler IR can pretend there are many virtual registers. A real CPU has a small physical register file. Register allocation bridges that gap.',
+    explanation: `${topic.title} bridges the gap between compiler IR, which pretends there are many virtual registers, and a real CPU with a small physical register file — a core ${topic.category} problem.`,
   };
   yield {
     state: labelMatrix(
@@ -78,13 +78,13 @@ function* liveIntervals() {
       ],
     ),
     highlight: { active: ['v1:register', 'v2:register'], compare: ['v3:register'], found: ['v4:register'] },
-    explanation: 'Linear scan sorts intervals by start point. As the scan moves forward, expired intervals release registers. New intervals get a free register or trigger a spill decision.',
+    explanation: `${topic.title} sorts ${4} intervals by start point. As the scan moves forward, expired intervals release registers. New intervals get one of ${3} columns tracked per interval or trigger a spill decision.`,
   };
   yield {
     state: intervalGraph('The active set is the allocator state'),
     highlight: { active: ['intervals', 'active', 'free', 'assign', 'e-intervals-active', 'e-active-assign'], found: ['machine'] },
-    explanation: 'The active set contains intervals currently occupying registers, usually ordered by end position. Expiring active intervals is what keeps the scan fast.',
-    invariant: 'At each program point, overlapping live intervals compete for the same finite registers.',
+    explanation: `The active set in ${topic.title} contains intervals currently occupying registers, usually ordered by end position. Expiring active intervals across the ${7}-node pipeline is what keeps the scan fast.`,
+    invariant: `At each program point in ${topic.title}, overlapping live intervals compete for the same finite registers — the central ${topic.category} invariant.`,
   };
 }
 
@@ -110,12 +110,12 @@ function* spillDecisions() {
       ],
     ),
     highlight: { compare: ['current:decision', 'long:decision'], found: ['short:decision'] },
-    explanation: 'When no register is free, a simple heuristic spills the interval with the farthest next use or farthest end. Keeping a short interval can be better because its register returns soon.',
+    explanation: `When no register is free in ${topic.title}, a simple heuristic among ${4} candidates spills the interval with the farthest next use or farthest end. Keeping a short interval can be better because its register returns soon.`,
   };
   yield {
     state: intervalGraph('Spills turn register pressure into memory traffic'),
     highlight: { active: ['assign', 'machine'], removed: ['free'], compare: ['active'] },
-    explanation: 'A spill inserts stores and reloads around uses of a value that cannot stay in registers. This makes the program slower, but it preserves correctness under register pressure.',
+    explanation: `A spill in ${topic.title} inserts stores and reloads around uses of a value that cannot stay in the ${7}-node pipeline's registers. This makes the program slower, but it preserves correctness under register pressure.`,
   };
   yield {
     state: labelMatrix(
@@ -138,7 +138,7 @@ function* spillDecisions() {
       ],
     ),
     highlight: { active: ['linear:strength', 'jit:strength'], compare: ['color:cost'] },
-    explanation: 'Linear scan is popular in JITs and fast compilers because compile time matters. More expensive allocators can produce better code when compile latency is less important.',
+    explanation: `${topic.title} is popular in JITs and fast compilers — a key ${topic.category} tradeoff among ${4} allocator strategies. More expensive allocators can produce better code when compile latency is less important.`,
   };
 }
 
@@ -158,7 +158,8 @@ export const article = {
         'In the "live intervals" view, watch the matrix fill as each virtual register receives an assignment or a spill marker. In the "spill decisions" view, watch how the allocator chooses which interval to evict when register pressure exceeds supply. The graph view shows the pipeline from SSA virtual registers through liveness analysis, active-set management, and final machine-register assignment.',
         'At each frame, ask: which intervals overlap right now, how many registers are free, and why the allocator made the choice it did. If the spill decision seems wrong, check whether a different heuristic (shortest remaining lifetime vs. farthest next use) would have produced fewer total spills.',
         {type: 'callout', text: 'Linear scan treats register allocation as a one-pass interval scheduling problem: expire dead values, assign free registers, and spill only when overlap exceeds capacity.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/linear-scan-register-allocation.gif', alt: 'Animated walkthrough of the linear scan register allocation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

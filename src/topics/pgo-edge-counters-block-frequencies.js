@@ -53,10 +53,17 @@ function pgoGraph(title) {
 }
 
 function* instrumentThenUse() {
+  const pipelineSteps = ['CFG', 'instrument', 'run', 'raw profile', 'merge', 'probabilities', 'frequencies', 'optimize'];
+  const stepCount = pipelineSteps.length;
+  const entryCount = 100000;
+  const thenCount = 98000;
+  const elseCount = 2000;
+  const loopCount = 900000;
+
   yield {
     state: pgoGraph('PGO turns a real run into compiler input'),
     highlight: { active: ['cfg', 'inst', 'run', 'raw', 'e-cfg-inst', 'e-inst-run', 'e-run-raw'], compare: ['opt'] },
-    explanation: 'Instrumentation-based PGO inserts counters, runs representative workloads, writes raw profiles, merges them, and uses the result in a later optimized build.',
+    explanation: `Instrumentation-based PGO follows ${stepCount} pipeline stages (${pipelineSteps.join(' → ')}): insert counters, run representative workloads, write raw profiles, merge them, and use the result in a later optimized build.`,
   };
   yield {
     state: labelMatrix(
@@ -79,21 +86,24 @@ function* instrumentThenUse() {
       ],
     ),
     highlight: { active: ['then:count', 'then:compilerUse', 'loop:compilerUse'], compare: ['else:compilerUse'] },
-    explanation: 'Counters turn dynamic behavior into static hints. The optimizer can bias inlining, block layout, branch direction, and loop decisions toward what actually happened.',
-    invariant: 'Bad training workloads produce bad optimization hints.',
+    explanation: `Counters turn dynamic behavior into static hints. The entry ran ${entryCount.toLocaleString()} times; the then-edge fired ${thenCount.toLocaleString()} times versus only ${elseCount.toLocaleString()} for else, and the loop backedge hit ${loopCount.toLocaleString()} times. The optimizer biases inlining, layout, and loop decisions toward what actually happened.`,
+    invariant: `Bad training workloads produce bad optimization hints — if the ${elseCount.toLocaleString()} else-edge count does not reflect production, cold-path splitting may hurt real performance.`,
   };
   yield {
     state: pgoGraph('Merged profile data feeds the optimizing compiler'),
     highlight: { active: ['merge', 'prob', 'freq', 'opt', 'e-merge-prob', 'e-merge-freq'], visited: ['raw'] },
-    explanation: 'llvm-profdata-style merging converts raw run files into indexed profile data. The compiler consumes probabilities and frequencies, not the original execution trace.',
+    explanation: `llvm-profdata-style merging converts raw run files into indexed profile data. The compiler consumes ${stepCount - 2} downstream artifacts (probabilities, frequencies, and optimization decisions), not the original execution trace.`,
   };
 }
 
 function* branchProbabilities() {
+  const optimizations = ['inlining', 'block layout', 'cold splitting', 'loop choice'];
+  const optCount = optimizations.length;
+
   yield {
     state: pgoGraph('Branch probabilities sit on CFG edges'),
     highlight: { active: ['cfg', 'prob', 'freq'], found: ['opt'], compare: ['inst'] },
-    explanation: 'A block with multiple successors gets probabilities on outgoing edges. Block frequency estimates how often each block runs relative to function entry.',
+    explanation: `A block with multiple successors gets probabilities on outgoing edges. Block frequency estimates how often each block runs relative to function entry, driving ${optCount} key optimization decisions.`,
   };
   yield {
     state: labelMatrix(
@@ -116,12 +126,12 @@ function* branchProbabilities() {
       ],
     ),
     highlight: { active: ['inline:profileSignal', 'layout:profileSignal'], compare: ['split:risk', 'unroll:risk'] },
-    explanation: 'PGO is not magic. It is a set of weighted decisions. The optimizer must still manage code size, stale profiles, and unusual inputs.',
+    explanation: `PGO is not magic. It is ${optCount} weighted decisions (${optimizations.join(', ')}), each with its own profile signal and risk. The optimizer must still manage code size, stale profiles, and unusual inputs.`,
   };
   yield {
     state: pgoGraph('PGO is ahead-of-time feedback-directed tiering'),
     highlight: { active: ['run', 'merge', 'prob', 'opt'], compare: ['inst'], found: ['freq'] },
-    explanation: 'JIT Tiering & Hotness Counters collects feedback inside a running VM. PGO collects feedback in a training run and feeds it into an ahead-of-time compiler.',
+    explanation: `JIT Tiering & Hotness Counters collects feedback inside a running VM. PGO collects feedback in a training run and feeds all ${optCount} optimization categories into an ahead-of-time compiler.`,
   };
 }
 
@@ -134,6 +144,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/pgo-edge-counters-block-frequencies.gif', alt: 'Animated walkthrough of the pgo edge counters block frequencies visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'The problem: source code hides runtime weight',
       paragraphs: [

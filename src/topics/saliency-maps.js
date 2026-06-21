@@ -147,7 +147,8 @@ export const article = {
         {type: 'callout', text: 'A saliency map is only useful when deleting or perturbing the highlighted evidence changes the model verdict.'},
         'Watch the gradient table first. Each row is one input feature; the gradient column shows per-unit sensitivity, and gradient times input shows how much that feature contributed to this specific score. The occlusion table then deletes features one at a time and measures how far the verdict drops. If the two methods agree on which feature matters most, the attribution is more trustworthy.',
         'The heatmap frame scales the same logic to a grid of pixels. Bright cells are high-sensitivity regions. The question to ask at every frame: if I deleted the highlighted feature, would the prediction actually change?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/saliency-maps.gif', alt: 'Animated walkthrough of the saliency maps visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

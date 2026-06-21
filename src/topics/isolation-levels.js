@@ -26,6 +26,12 @@ const timeline = (title, rows, table, format) =>
   });
 
 function* anomalies() {
+  const anomalyCount = 3;
+  const timeSteps = 5;
+  const txnColumns = 3;
+  let anomalyNum = 0;
+
+  anomalyNum++;
   yield {
     state: timeline(
       'Anomaly 1 — DIRTY READ: acting on money that never existed',
@@ -33,10 +39,11 @@ function* anomalies() {
       ['', 'BEGIN', 'balance = $100', 'UPDATE balance = $50 (uncommitted)', 'reads balance â†’ sees $50 âš ', 'ROLLBACK — never happened', 'approves a loan using $50…'],
     ),
     highlight: { removed: ['t3:b', 't5:b'], compare: ['t4:a'] },
-    explanation: 'Isolation exists because concurrent transactions are allowed to overlap, but the application still wants facts it can trust. The first timeline shows the weakest promise. A writes balance = $50 but has not committed; B reads that uncommitted value and acts on it; then A rolls back. The $50 was never durable truth. Dirty reads are dangerous because they let one transaction base a decision on data that may be erased before anyone else can observe it.',
-    invariant: 'A dirty read sees data that can still be rolled back — a fact that may retroactively never have been true.',
+    explanation: `Isolation exists because ${txnColumns - 1} concurrent transactions are allowed to overlap, but the application still wants facts it can trust. The first of ${anomalyCount} anomaly timelines shows the weakest promise. A writes balance = $50 but has not committed; B reads that uncommitted value and acts on it; then A rolls back. The $50 was never durable truth. Dirty reads are dangerous because they let one transaction base a decision on data that may be erased before anyone else can observe it.`,
+    invariant: `Anomaly ${anomalyNum} of ${anomalyCount}: a dirty read sees data that can still be rolled back — a fact that may retroactively never have been true.`,
   };
 
+  anomalyNum++;
   yield {
     state: timeline(
       'Anomaly 2 — NON-REPEATABLE READ: the same question, two answers',
@@ -44,9 +51,10 @@ function* anomalies() {
       ['', 'BEGIN — generating a report', 'balance = $100', 'page 1: reads balance â†’ $100', 'UPDATE to $50; COMMIT', 'balance = $50', 'page 2: re-reads balance â†’ $50 âš ', 'report disagrees with itself'],
     ),
     highlight: { compare: ['t2:a', 't4:a'], active: ['t3:b'] },
-    explanation: 'This one needs no rollback. A starts a report and reads $100. B commits a perfectly valid update to $50. A reads again inside the same transaction and gets a different answer. The write was real, but A needed a stable view while it was working. Non-repeatable reads are why reports, audits, and multi-step decisions often need more than "only committed data"; they need the same committed world for the whole transaction.',
+    explanation: `Anomaly ${anomalyNum} of ${anomalyCount} needs no rollback. A starts a report and reads $100. B commits a perfectly valid update to $50. A reads again inside the same transaction and gets a different answer. The write was real, but A needed a stable view while it was working. Non-repeatable reads are why reports, audits, and multi-step decisions often need more than "only committed data"; they need the same committed world for the whole ${timeSteps}-step transaction.`,
   };
 
+  anomalyNum++;
   yield {
     state: timeline(
       'Anomaly 3 — PHANTOM READ: new rows haunt a repeated query',
@@ -54,12 +62,17 @@ function* anomalies() {
       ['', 'BEGIN — audit large payments', 'payments > $100: 2 rows', 'COUNT(payments > $100) â†’ 2', 'INSERT payment $150; COMMIT', 'payments > $100: 3 rows', 'repeat COUNT â†’ 3 âš ', 'a row APPEARED mid-audit'],
     ),
     highlight: { compare: ['t2:a', 't4:a'], removed: ['t3:b'] },
-    explanation: 'The third timeline moves from rows to predicates. A counts payments over $100 and sees 2. B inserts a new qualifying payment and commits. A repeats the same query and sees 3. No row A read changed; the set matched by the query changed. That is the hard part about phantoms: row locks protect existing rows, but a range query needs protection against future rows too. Predicate or gap locking is the expensive part of the promise.',
-    invariant: 'Row locks guard rows that exist; phantoms require locking a predicate — rows that might yet be inserted.',
+    explanation: `The ${anomalyNum}rd of ${anomalyCount} timelines moves from rows to predicates. A counts payments over $100 and sees 2. B inserts a new qualifying payment and commits. A repeats the same query and sees 3. No row A read changed; the set matched by the query changed. That is the hard part about phantoms: row locks protect existing rows, but a range query needs protection against future rows too. Predicate or gap locking is the expensive part of the promise.`,
+    invariant: `Anomaly ${anomalyNum} of ${anomalyCount}: row locks guard rows that exist; phantoms require locking a predicate — rows that might yet be inserted.`,
   };
 }
 
 function* ladder() {
+  const levels = 4;
+  const anomalyTypes = 3;
+  const mvccVersions = 2;
+  const engines = 4;
+
   yield {
     state: matrixState({
       title: 'The SQL isolation ladder: what each level still permits',
@@ -74,7 +87,7 @@ function* ladder() {
       format: (v) => ['blocked âœ“', 'POSSIBLE', 'depends*'][v],
     }),
     highlight: { removed: ['ru:dirty', 'rc:nonrep'], found: ['ser:dirty', 'ser:nonrep', 'ser:phantom'] },
-    explanation: 'Read the ladder as a set of promises, not a vocabulary quiz. READ COMMITTED stops dirty reads but lets each statement see a newer committed snapshot. REPEATABLE READ gives the transaction a stable snapshot, and some engines also block phantoms there. SERIALIZABLE is the strong claim: the result must match some one-at-a-time ordering. Higher rungs buy simpler reasoning, but the engine pays with locks, conflict checks, old versions, and sometimes aborts.',
+    explanation: `Read the ${levels}-level ladder as a set of promises, not a vocabulary quiz. READ COMMITTED stops dirty reads but lets each statement see a newer committed snapshot. REPEATABLE READ gives the transaction a stable snapshot, and some engines also block phantoms there. SERIALIZABLE is the strong claim: the result must match some one-at-a-time ordering. Higher rungs buy simpler reasoning across all ${anomalyTypes} anomaly types, but the engine pays with locks, conflict checks, old versions, and sometimes aborts.`,
   };
 
   yield {
@@ -84,8 +97,8 @@ function* ladder() {
       ['', 'on-call check: count â‰¥ 2? yes (sees 2)', 'hospital rule: â‰¥1 doctor on call', 'I\'ll sign off â†’ on_call = false', 'on-call check: count â‰¥ 2? yes (sees 2)', 'COMMIT', 'I\'ll sign off too â†’ on_call = false', 'COMMIT', 'on-call doctors: ZERO âš âš '],
     ),
     highlight: { compare: ['t1:a', 't1:b'], removed: ['t4:db'] },
-    explanation: 'Write skew is the bug that makes isolation matter in real schema design. Both doctors read the same valid snapshot: two people are on call. Each updates only its own row, so there is no direct write conflict. Together they break the rule and leave nobody on call. Snapshot isolation can let this pass because each transaction was locally consistent. Serializable isolation rejects it because no serial ordering could have produced both successful checks.',
-    invariant: 'Write skew: disjoint writes, overlapping reads — each transaction is consistent alone, their combination is not.',
+    explanation: `Write skew is the bug that makes isolation matter in real schema design. Both doctors read the same valid snapshot: ${mvccVersions} people are on call. Each updates only its own row, so there is no direct write conflict. Together they break the rule and leave nobody on call. Snapshot isolation — below SERIALIZABLE on the ${levels}-level ladder — can let this pass because each transaction was locally consistent. Serializable isolation rejects it because no serial ordering could have produced both successful checks.`,
+    invariant: `Write skew: disjoint writes, overlapping reads — each of the ${mvccVersions} transactions is consistent alone, their combination is not.`,
   };
 
   yield {
@@ -102,7 +115,7 @@ function* ladder() {
       format: (v) => ['', '$100 — valid t0…t8', '$50 — valid t8…now', 'still sees version 1: $100', 'created version 2; blocked nobody'][v],
     }),
     highlight: { active: ['reader:state'], found: ['writer:state'] },
-    explanation: 'MVCC is how modern databases make the middle rungs practical. An update appends a new row version instead of overwriting the old one. A reader whose transaction started earlier simply ignores newer versions, so it gets a coherent snapshot while writers keep moving. The cost is cleanup: old versions stay on disk until no active snapshot can see them. This is why isolation levels and VACUUM are two sides of the same design.',
+    explanation: `MVCC is how modern databases make the middle rungs of the ${levels}-level ladder practical. An update appends a new row version instead of overwriting the old one — the table above shows ${mvccVersions} such versions. A reader whose transaction started earlier simply ignores newer versions, so it gets a coherent snapshot while writers keep moving. The cost is cleanup: old versions stay on disk until no active snapshot can see them. This is why isolation levels and VACUUM are two sides of the same design.`,
   };
 
   yield {
@@ -119,7 +132,7 @@ function* ladder() {
       format: (v) => ['', 'READ COMMITTED', 'true SSI (aborts on conflict)', 'REPEATABLE READ', 'locking reads (gap locks)', 'actually snapshot isolation!', 'SERIALIZABLE (file lock)'][v],
     }),
     highlight: { compare: ['pg:def', 'mysql:def'], removed: ['oracle:ser'] },
-    explanation: 'Do not design from the SQL names alone. Defaults differ, and engines attach different machinery to the same label. The practical rule is simple: use the default for ordinary single-row work, but upgrade any transaction that reads a shared invariant before writing. Seat inventory, overdraft prevention, on-call coverage, and allocation systems need either true serializable isolation, explicit locks, or a deliberately modeled alternative. If the engine aborts conflicts, the retry loop is part of the transaction.',
+    explanation: `Do not design from the SQL names alone. Defaults differ across all ${engines} engines shown, and they attach different machinery to the same label. The practical rule is simple: use the default for ordinary single-row work, but upgrade any transaction that reads a shared invariant before writing. Seat inventory, overdraft prevention, on-call coverage, and allocation systems need either true serializable isolation, explicit locks, or a deliberately modeled alternative. If the engine aborts conflicts, the retry loop is part of the transaction.`,
   };
 }
 
@@ -139,7 +152,8 @@ export const article = {
         {type: 'callout', text: 'Isolation levels are promises about which concurrent histories the database will refuse to expose.'},
         'Warning markers flag the dangerous moment: a transaction acting on data it should not trust. Compare markers highlight the two reads or checks that disagree. The gap between what a transaction sees and what is actually committed is the anomaly.',
         'Switch between "the classic anomalies" view (dirty read, non-repeatable read, phantom read) and "the isolation ladder & MVCC" view (the four SQL levels, write skew, version mechanics, and engine defaults). Each frame is one clock tick in a concurrent schedule.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/isolation-levels.gif', alt: 'Animated walkthrough of the isolation levels visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

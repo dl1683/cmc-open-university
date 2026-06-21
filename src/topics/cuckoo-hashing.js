@@ -65,81 +65,90 @@ function candidateIds(key) {
 }
 
 function* evictionWalk() {
+  const numSlots = ROWS.length;
+  const numTables = COLUMNS.length;
   const table1 = ['', 'ant', 'cat', '', 'bee'];
   const table2 = ['fox', '', 'dog', '', ''];
+  const occupiedT1 = table1.filter(k => k).length;
+  const occupiedT2 = table2.filter(k => k).length;
+  const totalKeys = occupiedT1 + occupiedT2;
 
   yield {
     state: tableState(table1, table2, 'Each key has exactly two candidate homes'),
     highlight: { active: candidateIds('eel'), compare: candidateIds('ant') },
-    explanation: 'Cuckoo Hashing gives every key two hash functions, h1 and h2. Lookup is brutally simple: check the h1 slot and the h2 slot. If the key is not in either place, it is absent. This is the point of the structure: worst-case lookup is two memory probes, not a walk through a collision chain.',
-    invariant: 'A stored key must live in one of its two candidate cells.',
+    explanation: `Cuckoo Hashing gives every key ${numTables} hash functions, h1 and h2. Lookup is brutally simple: check the h1 slot and the h2 slot. If the key is not in either place, it is absent. This is the point of the structure: worst-case lookup is ${numTables} memory probes, not a walk through a collision chain.`,
+    invariant: `A stored key must live in one of its ${numTables} candidate cells across ${numSlots} slots per table.`,
   };
 
   yield {
     state: tableState(table1, table2, 'Insert eel: first home is occupied by cat'),
     highlight: { active: ['slot2:t1'], collision: ['slot2:t1'], compare: ['slot4:t2'] },
-    explanation: 'Insert "eel". Its h1 slot is table h1, slot 2, but "cat" already lives there. Unlike separate chaining, cuckoo hashing does not append to a bucket. The new key kicks the old key out, then the old key tries its alternate home.',
+    explanation: `Insert "eel". Its h1 slot is table h1, slot ${homes('eel')[0]}, but "${table1[homes('eel')[0]]}" already lives there. Unlike separate chaining, cuckoo hashing does not append to a bucket. The new key kicks the old key out, then the old key tries its alternate home.`,
   };
 
   table1[2] = 'eel';
   yield {
     state: tableState(table1, table2, 'eel evicts cat'),
     highlight: { found: ['slot2:t1'], active: ['slot1:t2'] },
-    explanation: '"eel" takes its first home. The evicted key, "cat", has candidate homes h1(cat)=slot 2 and h2(cat)=slot 1. Since it was just evicted from h1, it tries h2. That second home is empty, so the insertion walk can stop.',
+    explanation: `"eel" takes its first home. The evicted key, "cat", has candidate homes h1(cat)=slot ${homes('cat')[0]} and h2(cat)=slot ${homes('cat')[1]}. Since it was just evicted from h1, it tries h2. That second home is empty, so the insertion walk can stop.`,
   };
 
   table2[1] = 'cat';
   yield {
     state: tableState(table1, table2, 'All keys are back in legal homes'),
     highlight: { found: ['slot2:t1', 'slot1:t2'], compare: candidateIds('cat') },
-    explanation: 'The final table still satisfies the invariant: every stored key is in one of its two homes. Lookup for "cat" checks slot2 in table h1 and slot1 in table h2, then stops. The insertion was messier than linear probing, but reads stay predictably tiny.',
+    explanation: `The final table still satisfies the invariant: every stored key is in one of its ${numTables} homes. Lookup for "cat" checks slot ${homes('cat')[0]} in table h1 and slot ${homes('cat')[1]} in table h2, then stops. The insertion was messier than linear probing, but reads stay predictably tiny.`,
   };
 
   yield {
     state: tableState(table1, table2, 'Lookup reads two cells, regardless of table history'),
     highlight: { active: candidateIds('dog'), found: ['slot2:t2'] },
-    explanation: 'Lookup for "dog" probes h1(dog)=slot 0 in table h1 and h2(dog)=slot 2 in table h2. It finds the key in the second probe. This is the trade: Cuckoo Hashing makes insertion pay for collision resolution so lookup can remain constant and cache-friendly.',
+    explanation: `Lookup for "dog" probes h1(dog)=slot ${homes('dog')[0]} in table h1 and h2(dog)=slot ${homes('dog')[1]} in table h2. It finds the key in the second probe. This is the trade: Cuckoo Hashing makes insertion pay for collision resolution so lookup can remain constant and cache-friendly with just ${numTables} probes.`,
   };
 }
 
 function* cycleAndRehash() {
+  const numSlots = ROWS.length;
+  const numTables = COLUMNS.length;
   let table1 = ['', 'ant', 'eel', '', 'bee'];
   let table2 = ['fox', 'cat', 'dog', '', ''];
+  const initialKeys = table1.filter(k => k).length + table2.filter(k => k).length;
 
   yield {
     state: tableState(table1, table2, 'Insert gnu: both homes are occupied'),
     highlight: { active: candidateIds('gnu'), collision: ['slot4:t1', 'slot2:t2'] },
-    explanation: 'Now insert "gnu". Its two homes are h1(gnu)=slot 4 and h2(gnu)=slot 2. Both are occupied. Cuckoo insertion can still try an eviction walk, but a long walk is a warning: the current hash functions may have created a cycle.',
+    explanation: `Now insert "gnu". Its ${numTables} homes are h1(gnu)=slot ${homes('gnu')[0]} and h2(gnu)=slot ${homes('gnu')[1]}. Both are occupied. Cuckoo insertion can still try an eviction walk, but a long walk is a warning: the current hash functions may have created a cycle.`,
   };
 
   table1[4] = 'gnu';
   yield {
     state: tableState(table1, table2, 'gnu evicts bee'),
     highlight: { found: ['slot4:t1'], active: ['slot0:t2'] },
-    explanation: '"gnu" kicks out "bee". The evicted key moves to its alternate home, h2(bee)=slot 0. But that slot contains "fox", so the walk continues. The table is not broken yet; it is searching for an empty alternate position.',
+    explanation: `"gnu" kicks out "bee". The evicted key moves to its alternate home, h2(bee)=slot ${homes('bee')[1]}. But that slot contains "${table2[homes('bee')[1]]}", so the walk continues. The table is not broken yet; it is searching for an empty alternate position.`,
   };
 
   table2[0] = 'bee';
   yield {
     state: tableState(table1, table2, 'bee evicts fox'),
     highlight: { found: ['slot0:t2'], active: ['slot1:t1'] },
-    explanation: '"bee" kicks out "fox". Now "fox" tries h1(fox)=slot 1, which contains "ant". The chain is getting longer. Production implementations cap the number of evictions so one unlucky insert cannot stall the table indefinitely.',
+    explanation: `"bee" kicks out "fox". Now "fox" tries h1(fox)=slot ${homes('fox')[0]}, which contains "${table1[homes('fox')[0]]}". The chain is getting longer. Production implementations cap the number of evictions so one unlucky insert cannot stall the table indefinitely.`,
   };
 
   table1[1] = 'fox';
   yield {
     state: tableState(table1, table2, 'fox evicts ant: cycle risk'),
     highlight: { found: ['slot1:t1'], active: ['slot3:t2'], compare: ['slot4:t1', 'slot0:t2', 'slot1:t1'] },
-    explanation: 'When the insertion walk grows too long, the table probably entered a dependency cycle under the current hash functions. The usual repair is to rehash with new hash seeds, or to grow the table and reinsert all keys. Stashes and bucketized cuckoo variants reduce how often this happens.',
-    invariant: 'Lookup remains two probes only if insertion keeps every key in one legal home.',
+    explanation: `When the insertion walk grows too long, the table probably entered a dependency cycle under the current hash functions. The usual repair is to rehash with new hash seeds, or to grow the table and reinsert all ${initialKeys + 1} keys. Stashes and bucketized cuckoo variants reduce how often this happens.`,
+    invariant: `Lookup remains ${numTables} probes only if insertion keeps every key in one of its ${numTables} legal homes.`,
   };
 
   table1 = ['', 'fox', '', 'ant', 'gnu'];
   table2 = ['bee', 'cat', 'dog', '', 'eel'];
+  const rehashTotal = table1.filter(k => k).length + table2.filter(k => k).length;
   yield {
     state: tableState(table1, table2, 'After rehash: same keys, new layout'),
     highlight: { found: ['slot4:t1', 'slot0:t2', 'slot1:t1', 'slot3:t1', 'slot4:t2'] },
-    explanation: 'A rehash changes the hash functions, so the conflict graph changes. That sounds expensive, but it is rare when the load factor is kept under control. The table buys very fast reads by occasionally paying a rebuild cost on writes.',
+    explanation: `A rehash changes the hash functions, so the conflict graph changes. That sounds expensive, but it is rare when the load factor is kept under control. All ${rehashTotal} keys land in new slots across ${numSlots} positions per table, buying very fast reads by occasionally paying a rebuild cost on writes.`,
   };
 }
 
@@ -159,7 +168,8 @@ export const article = {
         'In the eviction-walk view, watch the chain reaction. A new key lands in its h1 slot and kicks out the resident. The evicted key moves to its alternate slot in the other table. The chain stops when an eviction lands in an empty cell. Found highlights mark keys that have settled into a legal home.',
         'In the cycle-and-rehash view, the chain keeps going. Every eviction displaces another resident, and the walk never finds an empty slot. When the chain exceeds a threshold, the table declares the current hash functions unworkable and rehashes all keys with new seeds. The final frame shows the same keys in a conflict-free layout.',
         'The invariant to check at every frame: every stored key sits in one of its two candidate cells. Lookup correctness depends entirely on this property surviving every insertion.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/cuckoo-hashing.gif', alt: 'Animated walkthrough of the cuckoo hashing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

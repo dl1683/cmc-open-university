@@ -54,10 +54,13 @@ function tierGraph(title) {
 }
 
 function* tierLadder() {
+  const tierCount = 4;  // Ignition, Sparkplug, Maglev, TurboFan
+  const signalTypes = 2;  // counter and feedback
+
   yield {
     state: tierGraph('Tiering spends compiler effort only after evidence arrives'),
     highlight: { active: ['bc', 'ignition', 'counter', 'feedback', 'e-bc-ignition', 'e-ignition-counter'], compare: ['turbofan'] },
-    explanation: 'A JIT engine starts cheap. It interprets bytecode, records hotness and feedback, and delays expensive compilation until the code has proved it runs often enough.',
+    explanation: `A JIT engine starts cheap. It interprets bytecode, records ${signalTypes} signal types (hotness and feedback), and delays expensive compilation until the code has proved it runs often enough.`,
   };
   yield {
     state: labelMatrix(
@@ -80,17 +83,19 @@ function* tierLadder() {
       ],
     ),
     highlight: { active: ['ignition:cost', 'sparkplug:cost'], found: ['maglev:quality', 'turbofan:quality'] },
-    explanation: 'The tier ladder is an economics table. Cold code should start quickly. Hot code deserves more compiler budget because that cost is amortized over many future executions.',
-    invariant: 'Promotion should be based on observed execution, not hope.',
+    explanation: `The tier ladder is an economics table with ${tierCount} tiers. Cold code should start quickly. Hot code deserves more compiler budget because that cost is amortized over many future executions.`,
+    invariant: `Promotion across ${tierCount} tiers should be based on observed execution, not hope.`,
   };
   yield {
     state: tierGraph('Hot code climbs; unstable code may stop early'),
     highlight: { active: ['counter', 'sparkplug', 'maglev', 'e-counter-sparkplug', 'e-sparkplug-maglev'], compare: ['turbofan'], visited: ['feedback'] },
-    explanation: 'A function with high call counts and stable feedback can climb toward optimizing tiers. A function with unstable feedback may stay in a safer, more generic tier.',
+    explanation: `A function with high call counts and stable feedback can climb toward the top of ${tierCount} tiers. A function with unstable ${signalTypes === 2 ? 'counter or feedback' : 'signal'} data may stay in a safer, more generic tier.`,
   };
 }
 
 function* promotionPolicy() {
+  const signals = 4;  // call count, loop ticks, type feedback, deopt history
+
   yield {
     state: labelMatrix(
       'Promotion signals',
@@ -112,17 +117,17 @@ function* promotionPolicy() {
       ],
     ),
     highlight: { active: ['calls:action', 'loops:action', 'types:action'], compare: ['deopt:action'] },
-    explanation: 'Promotion policy is a small scheduler. It balances startup latency, compile CPU, memory, and future execution speed.',
+    explanation: `Promotion policy reads ${signals} signals to act as a small scheduler. It balances startup latency, compile CPU, memory, and future execution speed.`,
   };
   yield {
     state: tierGraph('Counters are runtime data structures'),
     highlight: { active: ['counter', 'feedback', 'sparkplug'], found: ['code'], compare: ['ignition'] },
-    explanation: 'A counter or feedback vector is not documentation. It is mutable runtime state that compiler tiers read to decide what to generate.',
+    explanation: `A counter or feedback vector is not documentation. It is mutable runtime state that ${signals} signal categories feed into compiler tiers to decide what to generate.`,
   };
   yield {
     state: tierGraph('Tiering needs a deoptimization escape hatch'),
     highlight: { active: ['maglev', 'turbofan', 'code'], compare: ['feedback'], removed: ['ignition'] },
-    explanation: 'Optimized code is allowed to assume facts only because Deoptimization Stack Maps & Safepoints can reconstruct a lower-tier frame when an assumption breaks.',
+    explanation: `Optimized code is allowed to assume facts drawn from ${signals} signal types only because Deoptimization Stack Maps & Safepoints can reconstruct a lower-tier frame when an assumption breaks.`,
   };
 }
 
@@ -135,6 +140,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/jit-tiering-hotness-counters.gif', alt: 'Animated walkthrough of the jit tiering hotness counters visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

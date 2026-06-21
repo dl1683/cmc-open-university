@@ -92,11 +92,15 @@ function rankPlot(title) {
 }
 
 function* compactionLevels() {
+  const bufferSize = 6;  // items in the compaction buffer
+  const survivorCount = 3;  // half kept after compaction
+  const levels = 3;  // L0, L1, L2
+
   yield {
     state: levelGraph('KLL keeps compactors at increasing weights'),
     highlight: { active: ['stream', 'l0', 'e-stream-l0'], compare: ['l1', 'l2'] },
-    explanation: 'KLL starts like a tiny reservoir at level 0. Incoming values fill a small buffer. When the buffer overflows, it sorts and compacts the buffer instead of growing forever.',
-    invariant: 'Higher levels represent more original stream items per retained value.',
+    explanation: `KLL starts like a tiny reservoir at level 0. Incoming values fill a small buffer of ${bufferSize} items. When the buffer overflows, it sorts and compacts the buffer instead of growing forever.`,
+    invariant: `Higher levels represent more original stream items per retained value across ${levels} compaction levels.`,
   };
 
   yield {
@@ -125,27 +129,30 @@ function* compactionLevels() {
       ],
     ),
     highlight: { active: ['b:keep', 'd:keep', 'f:keep'], removed: ['a:keep', 'c:keep', 'e:keep'] },
-    explanation: 'A compaction sorts the buffer, randomly chooses odd or even positions, discards the other half, and promotes the kept half with doubled weight. The random offset prevents systematic rank bias.',
+    explanation: `A compaction sorts the ${bufferSize}-item buffer, randomly chooses odd or even positions, discards ${bufferSize - survivorCount} items, and promotes the kept ${survivorCount} with doubled weight. The random offset prevents systematic rank bias.`,
   };
 
   yield {
     state: levelGraph('Promoted survivors move to the next level'),
     highlight: { active: ['sort', 'compact', 'l1', 'e-sort-compact', 'e-compact-l1'], found: ['l2'] },
-    explanation: 'The kept values now each stand for two original values. If level 1 overflows, the same idea repeats and survivors move to level 2 with weight four.',
+    explanation: `The kept ${survivorCount} values now each stand for two original values. If level 1 overflows, the same idea repeats and survivors move to level 2 with weight ${2 ** 2}.`,
   };
 
   yield {
     state: rankPlot('Quantile queries read weighted retained items'),
     highlight: { active: ['cdf', 'p50', 'p90'], compare: ['eps'] },
-    explanation: 'To query a quantile, sort retained items by value and walk cumulative weights. The guarantee is about rank error: the returned value has a rank close to the requested rank.',
+    explanation: `To query a quantile, sort retained items by value and walk cumulative weights across all ${levels} levels. The guarantee is about rank error: the returned value has a rank close to the requested rank.`,
   };
 }
 
 function* mergeRollup() {
+  const hostCount = 3;  // hosts A, B, C
+  const sketchTypes = 4;  // GK, KLL, t-dig, DDS
+
   yield {
     state: mergeGraph('Local KLL sketches merge by combining levels'),
     highlight: { active: ['hostA', 'hostB', 'hostC', 'concat', 'e-a-concat', 'e-b-concat', 'e-c-concat'], compare: ['recompact'] },
-    explanation: 'Each host can build a local sketch. A coordinator concatenates same-weight levels and recompacts any level that becomes too full. Raw values do not have to cross the network.',
+    explanation: `Each of ${hostCount} hosts can build a local sketch. A coordinator concatenates same-weight levels and recompacts any level that becomes too full. Raw values do not have to cross the network.`,
   };
 
   yield {
@@ -170,13 +177,13 @@ function* mergeRollup() {
       ],
     ),
     highlight: { active: ['a:kept', 'b:kept', 'c:kept'], found: ['g:query'] },
-    explanation: 'The global sketch is much smaller than the raw traffic. Its size is governed by accuracy parameters and compaction levels, not by the total event count.',
+    explanation: `The global sketch merging ${hostCount} shards is much smaller than the raw traffic. Its size is governed by accuracy parameters and compaction levels, not by the total event count.`,
   };
 
   yield {
     state: mergeGraph('Recompaction restores the size budget'),
     highlight: { active: ['concat', 'recompact', 'e-concat-recompact'], found: ['global', 'e-recompact-global'] },
-    explanation: 'Mergeability is the production feature. Distributed databases and telemetry systems can roll sketches up per machine, partition, time bucket, and region.',
+    explanation: `Mergeability is the production feature. Distributed databases and telemetry systems can roll sketches from ${hostCount} hosts up per machine, partition, time bucket, and region.`,
   };
 
   yield {
@@ -200,7 +207,7 @@ function* mergeRollup() {
       ],
     ),
     highlight: { active: ['kll:error', 'kll:fit'], found: ['dds:fit'], compare: ['gk:fit'] },
-    explanation: 'KLL is a strong default when you need compact mergeable rank-error quantiles. DDSketch is stronger when the product promise is relative error in the returned value.',
+    explanation: `KLL is a strong default among ${sketchTypes} common sketch types when you need compact mergeable rank-error quantiles. DDSketch is stronger when the product promise is relative error in the returned value.`,
   };
 }
 
@@ -220,7 +227,8 @@ export const article = {
         { type: 'callout', text: 'KLL keeps rank information by randomly compacting sorted pairs, so every promoted item represents more stream mass without storing the raw stream.' },
         'The merge-rollup view shows the distributed story. Three hosts hold independent KLL sketches. The coordinator concatenates matching levels, recompacts any level that exceeds its capacity, and answers quantile queries from the merged weighted items. Watch the highlighted edges to see which shard contributes to each merge step.',
         'In both views, the matrix tables show the concrete values, weights, and keep/drop decisions at each compaction. Read the weight column to verify that every promotion doubles the weight. If a level-1 buffer overflows, the same compaction rule fires again, producing level-2 items at weight 4.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/kll-quantile-sketch.gif', alt: 'Animated walkthrough of the kll quantile sketch visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

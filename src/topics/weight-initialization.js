@@ -117,8 +117,7 @@ export function* run(input) {
     state: plotState({ axes: AXES, series: [sLarge] }),
     highlight: { active: ['large'] },
     explanation:
-      'With std = 1.0, each neuron sums ' + width + ' weighted inputs. The pre-activation variance grows by a factor of ~' + width +
-      ' per layer. Activations explode: gradients overflow, weights diverge, and training fails immediately.',
+      `With std = 1.0, each neuron sums ${width} weighted inputs. The pre-activation variance grows by a factor of ~${width} per layer. Activations explode: gradients overflow, weights diverge, and training fails immediately.`,
   };
 
   // Step 3: Too-small init (std = 0.01).
@@ -128,9 +127,7 @@ export function* run(input) {
     state: plotState({ axes: AXES, series: [sLarge, sSmall] }),
     highlight: { active: ['small'], visited: ['large'] },
     explanation:
-      'With std = 0.01, each layer multiplies variance by ~' + width + ' * 0.01² = ' +
-      (width * 0.0001).toFixed(4) + '. Activations collapse toward zero within a few layers. ' +
-      'Gradients vanish and early layers receive no useful learning signal.',
+      `With std = 0.01, each layer multiplies variance by ~${width} * 0.01² = ${(width * 0.0001).toFixed(4)}. Activations collapse toward zero within a few layers. Gradients vanish and early layers receive no useful learning signal.`,
   };
 
   // Step 4: Xavier init (std = sqrt(2 / (fan_in + fan_out))).
@@ -164,10 +161,8 @@ export function* run(input) {
     state: plotState({ axes: AXES, series: [sLarge, sSmall, sXavier, sKaiming] }),
     highlight: {},
     explanation:
-      'All four strategies side by side. The two extremes (std = 1.0 and std = 0.01) diverge rapidly. ' +
-      'Xavier and Kaiming stay flat because they set Var(w) so that Var(output) ≈ Var(input) at each layer. ' +
-      'The only difference is the correction factor: Xavier assumes a symmetric activation, Kaiming corrects for ReLU\'s dead half.',
-    invariant: 'A good initialization keeps the variance curve flat: neither growing nor shrinking across layers.',
+      `All four strategies side by side for a ${layers}-layer, ${width}-wide ${activation} network. The two extremes (std = 1.0 and std = 0.01) diverge rapidly. Xavier (std ${xavierStd.toFixed(4)}) and Kaiming (std ${kaimingStd.toFixed(4)}) stay flat because they set Var(w) so that Var(output) ≈ Var(input) at each layer.`,
+    invariant: `A good initialization keeps the variance curve flat across all ${layers} layers: neither growing nor shrinking.`,
   };
 }
 
@@ -182,7 +177,8 @@ export const article = {
         'The plot shows layer number on the horizontal axis and the log₁₀ of activation variance on the vertical axis. Each line is one initialization strategy. A flat line near zero means variance stays close to 1 at every layer — the signal propagates cleanly.',
         'A line that climbs steeply means activations are exploding: variance multiplies at each layer until numbers overflow. A line that drops steeply means activations are vanishing: the signal decays toward zero and the network goes silent. The invariant across all frames is that a good initialization keeps the line flat.',
         'Watch the contrast between the first two strategies (too large, too small) and the last two (Xavier, Kaiming). The gap between those pairs is the entire difference between a network that trains and one that does not.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/weight-initialization.gif', alt: 'Animated walkthrough of the weight initialization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

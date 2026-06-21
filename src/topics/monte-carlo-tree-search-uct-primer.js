@@ -85,39 +85,74 @@ function visitPlot() {
 }
 
 function* selectExpandRolloutBackprop() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+
+  const loop = loopGraph('MCTS repeats four operations');
+  const phaseNodes = ['select', 'expand', 'simulate', 'backprop'];
+  const phaseCount = phaseNodes.length;
+
   yield {
-    state: loopGraph('MCTS repeats four operations'),
-    highlight: { active: ['select', 'expand', 'simulate', 'backprop'], found: ['stats'] },
-    explanation: 'Monte Carlo Tree Search grows a tree gradually. Each iteration selects a promising path, expands one new child, simulates an outcome, and backpropagates the result into visit and value statistics.',
-    invariant: 'The tree stores statistics, not guaranteed truth.',
+    state: loop,
+    highlight: { active: phaseNodes, found: ['stats'] },
+    explanation: `Monte Carlo Tree Search grows a tree gradually. Each iteration repeats ${phaseCount} phases (${phaseNodes.join(', ')}): select a promising path, expand one new child, simulate an outcome, and backpropagate the result into visit and value statistics.`,
+    invariant: `The tree stores statistics (${phaseCount} phases per iteration), not guaranteed truth.`,
   };
+
+  const selectNotes = { root: 'N=30', a: '8/12', b: '9/10', c: '2/8' };
+  const rootN = 30;
+  const aW = 8, aN = 12, bW = 9, bN = 10, cW = 2, cN = 8;
 
   yield {
     state: mctsGraph('Select a child with UCT'),
     highlight: { active: ['root', 'b', 'e-root-b'], compare: ['a', 'c'] },
-    explanation: 'UCT chooses a child by combining average value with an exploration bonus. A child that looks good gets visits; a child that is underexplored also gets visits so it is not ignored too early.',
+    explanation: `UCT chooses among the root's children (N=${rootN}). A=${aW}/${aN} (Q=${r2(aW / aN)}), B=${bW}/${bN} (Q=${r2(bW / bN)}), C=${cW}/${cN} (Q=${r2(cW / cN)}). A child that looks good gets visits; a child that is underexplored also gets visits so it is not ignored too early.`,
   };
+
+  const nodesPerIteration = 1;
 
   yield {
     state: mctsGraph('Expand one new leaf under the selected path'),
     highlight: { active: ['b', 'b2', 'e-b-b2'], found: ['rollout'] },
-    explanation: 'The tree does not expand every possible move immediately. It adds one child when the selected path reaches a node that still has untried actions.',
+    explanation: `The tree grows by exactly ${nodesPerIteration} node per iteration. It adds one child when the selected path reaches a node that still has untried actions, rather than expanding every possible move immediately.`,
   };
+
+  const rolloutWin = +1;
+  const rolloutLoss = -1;
 
   yield {
     state: mctsGraph('Roll out from the new leaf'),
     highlight: { active: ['b2', 'rollout', 'value', 'e-b2-rollout', 'e-rollout-value'], compare: ['b1'] },
-    explanation: 'A rollout estimates the value of the new state. In games this can be a random playout, a policy-guided playout, or a neural value estimate. In LLM planning it might be a simulator, test run, or verifier score.',
+    explanation: `A rollout estimates the value of the new state and produces a result of ${rolloutWin} (win) or ${rolloutLoss} (loss). In games this can be a random playout, a policy-guided playout, or a neural value estimate. In LLM planning it might be a simulator, test run, or verifier score.`,
   };
 
+  const bpNotes = { root: 'N=31', b: '10/11', b2: '1/1', value: '+1' };
+  const newRootN = 31;
+  const newBW = 10, newBN = 11, newB2W = 1, newB2N = 1;
+
   yield {
-    state: mctsGraph('Backpropagate the result to ancestors', { root: 'N=31', b: '10/11', b2: '1/1', value: '+1' }),
+    state: mctsGraph('Backpropagate the result to ancestors', bpNotes),
     highlight: { active: ['value', 'b2', 'b', 'root', 'e-rollout-value', 'e-b-b2', 'e-root-b'], found: ['b'] },
-    explanation: 'Backpropagation updates every node on the selected path: visits increase, total value changes, and the average value Q changes. The next selection step will see those new statistics.',
+    explanation: `Backpropagation updates every node on the selected path: root N rose from ${rootN} to ${newRootN}, B went from ${bW}/${bN} to ${newBW}/${newBN}, and the new leaf B2 is now ${newB2W}/${newB2N}. The next selection step will see those updated statistics.`,
   };
 }
 
 function* uctExploration() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+
+  const parentN = 30;
+  const c = Math.sqrt(2);
+  const qA = 0.67, nA = 12;
+  const qB = 0.90, nB = 10;
+  const qC = 0.25, nC = 8;
+  const bonusA = r2(c * Math.sqrt(Math.log(parentN) / nA));
+  const bonusB = r2(c * Math.sqrt(Math.log(parentN) / nB));
+  const bonusC = r2(c * Math.sqrt(Math.log(parentN) / nC));
+  const scoreA = r2(qA + bonusA);
+  const scoreB = r2(qB + bonusB);
+  const scoreC = r2(qC + bonusC);
+  const winner = scoreB >= scoreA && scoreB >= scoreC ? 'B' : scoreA >= scoreC ? 'A' : 'C';
+  const winnerScore = scoreB >= scoreA && scoreB >= scoreC ? scoreB : scoreA >= scoreC ? scoreA : scoreC;
+
   yield {
     state: labelMatrix(
       'UCT score',
@@ -139,29 +174,38 @@ function* uctExploration() {
       ],
     ),
     highlight: { found: ['b:score'], active: ['b:q', 'b:bonus'], compare: ['c:bonus'] },
-    explanation: 'UCT has the shape Q + c * sqrt(log(parent visits) / child visits). Q exploits known value. The bonus explores children with fewer visits. The constant c sets how curious the search is.',
+    explanation: `UCT = Q + c·sqrt(ln(N)/n) with c=${r2(c)}, parent N=${parentN}. A: Q=${qA}, N=${nA}, bonus=${bonusA}, score=${scoreA}. B: Q=${qB}, N=${nB}, bonus=${bonusB}, score=${scoreB}. C: Q=${qC}, N=${nC}, bonus=${bonusC}, score=${scoreC}. ${winner} wins selection with score ${winnerScore}.`,
   };
 
+  const plot = visitPlot();
+  const shiftX = plot.markers[0].x;
+  const seriesCount = plot.series.length;
+
   yield {
-    state: visitPlot(),
+    state: plot,
     highlight: { active: ['b', 'shift'], compare: ['c'] },
-    explanation: 'Early iterations spread visits across actions. As evidence arrives, visits concentrate on the action with stronger value, while the exploration term still occasionally checks alternatives.',
+    explanation: `Early iterations spread visits across all ${seriesCount} series. Around iteration ${shiftX} evidence concentrates visits on the stronger action, while the exploration term still occasionally checks alternatives.`,
   };
+
+  const ingredientRows = [
+    { id: 'state', label: 'state' },
+    { id: 'action', label: 'action' },
+    { id: 'policy', label: 'policy' },
+    { id: 'value', label: 'value' },
+    { id: 'budget', label: 'budget' },
+  ];
+  const ingredientCols = [
+    { id: 'game', label: 'game' },
+    { id: 'agent', label: 'agent' },
+  ];
+  const ingredientCount = ingredientRows.length;
+  const domainCount = ingredientCols.length;
 
   yield {
     state: labelMatrix(
       'Search ingredients',
-      [
-        { id: 'state', label: 'state' },
-        { id: 'action', label: 'action' },
-        { id: 'policy', label: 'policy' },
-        { id: 'value', label: 'value' },
-        { id: 'budget', label: 'budget' },
-      ],
-      [
-        { id: 'game', label: 'game' },
-        { id: 'agent', label: 'agent' },
-      ],
+      ingredientRows,
+      ingredientCols,
       [
         ['board', 'workspace'],
         ['move', 'tool call'],
@@ -171,19 +215,26 @@ function* uctExploration() {
       ],
     ),
     highlight: { active: ['policy:agent', 'value:agent', 'budget:agent'], compare: ['state:game'] },
-    explanation: 'MCTS transfers cleanly only when these ingredients exist. For coding agents, state may be the repository snapshot, actions are edits or commands, and value comes from tests or verifiers.',
+    explanation: `MCTS transfers cleanly only when ${ingredientCount} ingredients (${ingredientRows.map(r => r.label).join(', ')}) exist across ${domainCount} domains (${ingredientCols.map(c => c.label).join(', ')}). For coding agents, state may be the repository snapshot, actions are edits or commands, and value comes from tests or verifiers.`,
   };
 
+  const badGraph = mctsGraph('Bad value estimates can mislead the tree');
+  const nodeCount = badGraph.nodes.length;
+
   yield {
-    state: mctsGraph('Bad value estimates can mislead the tree'),
+    state: badGraph,
     highlight: { active: ['a', 'b', 'c'], compare: ['rollout', 'value'] },
-    explanation: 'MCTS is not magic. If rollouts are noisy, value estimates are biased, or the simulator misses important constraints, search spends budget optimizing the wrong signal.',
+    explanation: `MCTS is not magic. The tree has ${nodeCount} nodes, and if rollouts are noisy, value estimates are biased, or the simulator misses important constraints, search spends budget optimizing the wrong signal.`,
   };
 
+  const modernLoop = loopGraph('Classical MCTS connects to modern verifier search');
+  const statsNode = modernLoop.nodes.find(n => n.id === 'stats');
+  const trackedStats = statsNode.note;
+
   yield {
-    state: loopGraph('Classical MCTS connects to modern verifier search'),
+    state: modernLoop,
     highlight: { active: ['select', 'simulate', 'backprop', 'stats'], found: ['move'] },
-    explanation: 'Tree of Thoughts evaluates thought states; PRM search scores reasoning steps; AlphaZero-style systems use policy and value networks inside MCTS. The reusable data structure is the same: a tree with visit counts, value estimates, and budgeted exploration.',
+    explanation: `Tree of Thoughts evaluates thought states; PRM search scores reasoning steps; AlphaZero-style systems use policy and value networks inside MCTS. The reusable data structure is the same: a tree tracking ${trackedStats} per node, with visit counts, value estimates, and budgeted exploration.`,
   };
 }
 
@@ -204,7 +255,8 @@ export const article = {
         'The animation shows a game tree growing one node at a time. Each node carries two numbers: wins and visits (e.g., 9/10 means 9 wins out of 10 simulations). Active highlights trace the path the algorithm is currently walking. Found markers show nodes whose statistics just changed.',
         'In the select-expand-rollout-backprop view, follow the four phases in sequence. The first frame shows the full loop. Subsequent frames highlight one phase each: selection walks from root to a frontier node by UCB1 scores, expansion adds one child, rollout simulates to a terminal state, and backpropagation updates win/visit counts on every ancestor.',
         'In the UCT exploration view, the score table breaks UCB1 into parts: Q (win rate), N (visit count), exploration bonus, and total score. The visit plot shows how iterations concentrate on stronger moves over time. Read the table left to right, then watch the plot confirm the pattern.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/monte-carlo-tree-search-uct-primer.gif', alt: 'Animated walkthrough of the monte carlo tree search uct primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

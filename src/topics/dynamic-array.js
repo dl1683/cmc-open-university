@@ -125,7 +125,8 @@ export const article = {
         {type: 'callout', text: 'A dynamic array makes rare copies pay for many future O(1) appends by buying spare capacity geometrically.'},
         'When an append fits in the existing capacity, the new value appears in the next empty slot and the size increments by one. This is a single O(1) write.',
         'When the array is full (size equals capacity), a resize fires. The animation highlights all existing elements, allocates a new array with double the capacity, copies every element into it, and then writes the new value. Watch the capacity jump: 2 to 4, 4 to 8, 8 to 16. Each resize is expensive, but notice how the gaps between resizes keep growing — that is the source of the amortized cost.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/dynamic-array.gif', alt: 'Animated walkthrough of the dynamic array visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

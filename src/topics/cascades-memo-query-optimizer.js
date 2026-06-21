@@ -52,22 +52,25 @@ function memoGraph(title) {
 }
 
 function* memoGroups() {
+  const groupNodes = ['g0', 'g1', 'g2'];
+  const groupEdges = ['e-g0-g1', 'e-g0-g2'];
   yield {
     state: memoGraph('The memo groups equivalent expressions'),
-    highlight: { active: ['g0', 'g1', 'g2', 'e-g0-g1', 'e-g0-g2'], found: ['best'] },
-    explanation: 'A Cascades optimizer stores equivalent logical expressions in memo groups. One group means one logical result, even if many expression trees can produce it.',
-    invariant: 'A memo group represents equivalence of result, not one specific physical algorithm.',
+    highlight: { active: [...groupNodes, ...groupEdges], found: ['best'] },
+    explanation: `A Cascades optimizer stores equivalent logical expressions in memo groups. ${groupNodes.length} groups are shown here. One group means one logical result, even if many expression trees can produce it.`,
+    invariant: `A memo group (like ${groupNodes[0]}) represents equivalence of result, not one specific physical algorithm.`,
   };
 
+  const memoRows = [
+    { id: 'g0', label: 'G0' },
+    { id: 'g1', label: 'G1' },
+    { id: 'g2', label: 'G2' },
+    { id: 'gA', label: 'GA' },
+  ];
   yield {
     state: labelMatrix(
       'Memo contents',
-      [
-        { id: 'g0', label: 'G0' },
-        { id: 'g1', label: 'G1' },
-        { id: 'g2', label: 'G2' },
-        { id: 'gA', label: 'GA' },
-      ],
+      memoRows,
       [
         { id: 'logical', label: 'logical exprs' },
         { id: 'physical', label: 'physical exprs' },
@@ -81,15 +84,18 @@ function* memoGroups() {
       ],
     ),
     highlight: { active: ['g0:logical', 'g0:physical', 'g0:best'], found: ['gA:physical'] },
-    explanation: 'The memo avoids duplicating common subexpressions. It also stores best-known physical implementations for different optimization goals.',
+    explanation: `The memo avoids duplicating common subexpressions across ${memoRows.length} groups. It also stores best-known physical implementations for different optimization goals.`,
   };
 
+  const searchActive = ['g0', 'impl', 'best', 'e-g0-impl', 'e-impl-best'];
+  const childGroups = ['g1', 'g2'];
   yield {
     state: memoGraph('Optimization is goal-directed search through the memo'),
-    highlight: { active: ['g0', 'impl', 'best', 'e-g0-impl', 'e-impl-best'], compare: ['g1', 'g2'] },
-    explanation: 'A request such as "produce G0 sorted by date" becomes an optimization goal. The optimizer explores expressions in G0, asks child groups for required properties, and caches the best result.',
+    highlight: { active: searchActive, compare: childGroups },
+    explanation: `A request such as "produce ${searchActive[0].toUpperCase()} sorted by date" becomes an optimization goal. The optimizer explores expressions in ${searchActive[0].toUpperCase()}, asks ${childGroups.length} child groups for required properties, and caches the best result.`,
   };
 
+  const benefitHighlights = ['reuse:benefit', 'rules:benefit', 'goals:benefit'];
   yield {
     state: labelMatrix(
       'Why memo beats raw tree enumeration',
@@ -110,27 +116,30 @@ function* memoGroups() {
         ['bounds', 'estimate risk'],
       ],
     ),
-    highlight: { active: ['reuse:benefit', 'rules:benefit', 'goals:benefit'], compare: ['prune:cost'] },
-    explanation: 'Cascades is useful when the optimizer has many rewrite rules and physical implementations. The memo turns that search into a structured, cached exploration.',
+    highlight: { active: benefitHighlights, compare: ['prune:cost'] },
+    explanation: `Cascades is useful when the optimizer has many rewrite rules and physical implementations. The memo turns that search into a structured, cached exploration with ${benefitHighlights.length} key benefits.`,
   };
 
+  const scanGroups = ['scanA', 'scanB', 'scanC'];
   yield {
     state: memoGraph('Complete case: ORCA-style extensible optimizer'),
-    highlight: { active: ['g0', 'g1', 'g2', 'impl', 'best'], found: ['scanA', 'scanB', 'scanC'] },
-    explanation: 'An extensible optimizer can add a new physical operator or rewrite rule without hard-coding a new enumerator for every query shape. The memo is the shared search space.',
+    highlight: { active: ['g0', 'g1', 'g2', 'impl', 'best'], found: scanGroups },
+    explanation: `An extensible optimizer can add a new physical operator or rewrite rule without hard-coding a new enumerator for every query shape. The memo is the shared search space across ${scanGroups.length} scan groups.`,
   };
 }
 
 function* rulesAndEnforcers() {
+  const ruleRows = [
+    { id: 'assoc', label: 'join assoc' },
+    { id: 'commute', label: 'join commute' },
+    { id: 'push', label: 'filter pushdown' },
+    { id: 'impl', label: 'implementation' },
+  ];
+  const activeOutputs = ['assoc:output', 'push:output', 'impl:output'];
   yield {
     state: labelMatrix(
       'Rule types',
-      [
-        { id: 'assoc', label: 'join assoc' },
-        { id: 'commute', label: 'join commute' },
-        { id: 'push', label: 'filter pushdown' },
-        { id: 'impl', label: 'implementation' },
-      ],
+      ruleRows,
       [
         { id: 'input', label: 'input' },
         { id: 'output', label: 'output' },
@@ -142,26 +151,29 @@ function* rulesAndEnforcers() {
         ['logical join', 'hash/merge/loop join'],
       ],
     ),
-    highlight: { active: ['assoc:output', 'push:output', 'impl:output'], compare: ['commute:output'] },
-    explanation: 'Transformation rules create logically equivalent expressions. Implementation rules turn logical expressions into physical operators. Both enter the memo.',
-    invariant: 'Rules must preserve semantics; costing decides whether their results are useful.',
+    highlight: { active: activeOutputs, compare: ['commute:output'] },
+    explanation: `Transformation rules create logically equivalent expressions across ${ruleRows.length} rule types. Implementation rules turn logical expressions into physical operators. Both enter the memo.`,
+    invariant: `Rules must preserve semantics; costing decides whether their ${activeOutputs.length} highlighted results are useful.`,
   };
 
+  const enforcerFound = ['g0'];
+  const enforcerCompare = ['scanA', 'scanB'];
   yield {
     state: memoGraph('Enforcers provide required physical properties'),
-    highlight: { active: ['impl', 'best'], found: ['g0'], compare: ['scanA', 'scanB'] },
-    explanation: 'If a parent needs sorted output and the cheapest child is unordered, the optimizer can add an enforcer such as Sort. Enforcers satisfy properties at a cost.',
+    highlight: { active: ['impl', 'best'], found: enforcerFound, compare: enforcerCompare },
+    explanation: `If a parent needs sorted output and the cheapest child is unordered, the optimizer can add an enforcer such as Sort. Enforcers satisfy properties at a cost, bridging ${enforcerCompare.length} scan alternatives to group ${enforcerFound[0].toUpperCase()}.`,
   };
 
+  const goalRows = [
+    { id: 'unordered', label: 'any order' },
+    { id: 'sorted', label: 'sorted by key' },
+    { id: 'partitioned', label: 'partitioned' },
+    { id: 'limited', label: 'first N rows' },
+  ];
   yield {
     state: labelMatrix(
       'Optimization goals',
-      [
-        { id: 'unordered', label: 'any order' },
-        { id: 'sorted', label: 'sorted by key' },
-        { id: 'partitioned', label: 'partitioned' },
-        { id: 'limited', label: 'first N rows' },
-      ],
+      goalRows,
       [
         { id: 'candidate', label: 'candidate' },
         { id: 'enforcer', label: 'enforcer?' },
@@ -174,18 +186,19 @@ function* rulesAndEnforcers() {
       ],
     ),
     highlight: { active: ['sorted:candidate', 'sorted:enforcer'], found: ['partitioned:enforcer'] },
-    explanation: 'Physical properties turn "same rows" into multiple possible delivered forms. Cascades tracks those forms explicitly instead of hiding them in ad hoc planner code.',
+    explanation: `Physical properties turn "same rows" into ${goalRows.length} possible delivered forms. Cascades tracks those forms explicitly instead of hiding them in ad hoc planner code.`,
   };
 
+  const failureRows = [
+    { id: 'rules', label: 'too many rules' },
+    { id: 'cycle', label: 'rewrite cycle' },
+    { id: 'cost', label: 'bad cost' },
+    { id: 'timeout', label: 'timeout' },
+  ];
   yield {
     state: labelMatrix(
       'Search failure modes',
-      [
-        { id: 'rules', label: 'too many rules' },
-        { id: 'cycle', label: 'rewrite cycle' },
-        { id: 'cost', label: 'bad cost' },
-        { id: 'timeout', label: 'timeout' },
-      ],
+      failureRows,
       [
         { id: 'symptom', label: 'symptom' },
         { id: 'guardrail', label: 'guardrail' },
@@ -198,13 +211,15 @@ function* rulesAndEnforcers() {
       ],
     ),
     highlight: { active: ['rules:guardrail', 'cycle:guardrail'], compare: ['cost:symptom'], found: ['timeout:guardrail'] },
-    explanation: 'A memo optimizer is powerful but needs engineering guardrails: rule promises, duplicate detection, cost bounds, timeouts, and explainability.',
+    explanation: `A memo optimizer is powerful but needs engineering guardrails against ${failureRows.length} failure modes: rule promises, duplicate detection, cost bounds, timeouts, and explainability.`,
   };
 
+  const newRuleFound = ['g0'];
+  const competingGroups = ['g1', 'g2'];
   yield {
     state: memoGraph('Complete case: add a new vectorized hash join'),
-    highlight: { active: ['impl', 'best'], found: ['g0'], compare: ['g1', 'g2'] },
-    explanation: 'A new vectorized hash join can be added as an implementation rule for logical joins. The memo lets it compete with merge and nested-loop joins under the same goals and cost model.',
+    highlight: { active: ['impl', 'best'], found: newRuleFound, compare: competingGroups },
+    explanation: `A new vectorized hash join can be added as an implementation rule for logical joins. The memo lets it compete with merge and nested-loop joins under the same goals and cost model, affecting ${competingGroups.length} child groups below ${newRuleFound[0].toUpperCase()}.`,
   };
 }
 
@@ -232,7 +247,8 @@ export const article = {
           ],
         },
         'At each frame: identify which group is being explored, what rule just fired, and whether the result is a new logical equivalent or a new physical implementation. The "impl" and "best" nodes in the graph represent the transition from logical search to physical costing -- the moment equivalence becomes a concrete algorithm with a cost.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/cascades-memo-query-optimizer.gif', alt: 'Animated walkthrough of the cascades memo query optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

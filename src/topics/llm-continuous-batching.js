@@ -69,7 +69,7 @@ function* staticVsContinuous() {
       [2, 2, 0, 0, 0],
     ], { 0: '', 1: 'decode', 2: 'idle' }),
     highlight: { active: ['t3:a', 't4:a', 't5:a', 't5:b'], compare: ['t3:c', 't4:d', 't5:e'] },
-    explanation: 'Static batching groups requests and keeps the group fixed until the batch finishes. Request A ends early, but its lane stays idle while C, D, and E wait outside the batch. Variable output length becomes wasted GPU capacity.',
+    explanation: `Static batching groups ${columns.length} requests and keeps the group fixed until the batch finishes. Request ${columns[0].label} ends early, but its lane stays idle while ${columns[2].label}, ${columns[3].label}, and ${columns[4].label} wait outside the batch. Variable output length becomes wasted GPU capacity.`,
   };
 
   yield {
@@ -81,8 +81,8 @@ function* staticVsContinuous() {
       [0, 0, 0, 1, 1],
     ], { 0: '', 1: 'decode' }),
     highlight: { found: ['t2:c', 't3:d', 't4:e'], active: ['t3:b', 't4:d', 't5:e'] },
-    explanation: 'Continuous batching schedules at token-iteration granularity. When a request finishes, a waiting request can join on the next decode step. The unit of fairness is no longer the whole request; it is the next model iteration.',
-    invariant: 'The batch is a live set, not a fixed list.',
+    explanation: `Continuous batching schedules at token-iteration granularity across ${rows.length} iterations. When a request finishes, a waiting request can join on the next decode step. The unit of fairness is no longer the whole request; it is the next model iteration.`,
+    invariant: `The batch is a live set across ${columns.length} lanes, not a fixed list.`,
   };
 
   yield {
@@ -106,7 +106,7 @@ function* staticVsContinuous() {
       ],
     ),
     highlight: { active: ['reuse:batching', 'variance:batching'], found: ['memory:batching'] },
-    explanation: 'Decode is attractive to batch because many users can share a weight read. It is also hard to batch because each sequence has a different length and cache footprint. Continuous batching is the scheduler answer to that mismatch.',
+    explanation: `Decode is attractive to batch because many users can share a weight read. It is also hard to batch because each sequence has a different length and cache footprint. ${topic.title} is the scheduler answer to that mismatch.`,
   };
 
   yield {
@@ -130,7 +130,7 @@ function* staticVsContinuous() {
       ],
     ),
     highlight: { active: ['admit:decision', 'prefill:decision', 'fair:failure'], found: ['evict:decision'] },
-    explanation: 'Continuous batching is not just a throughput trick. It is a control loop over admission, prefill/decode interference, cache memory, and p99 latency.',
+    explanation: `${topic.title} is not just a throughput trick. It is a control loop over admission, prefill/decode interference, cache memory, and p99 latency.`,
   };
 }
 
@@ -156,7 +156,7 @@ function* selectiveBatching() {
       ],
     ),
     highlight: { active: ['attn:batchable', 'mlp:batchable'], compare: ['sample:batchable', 'cache:batchable'] },
-    explanation: 'Selective batching groups compatible operations, not blindly every piece of every request. Dense model operations want big batches, while sampling logic and cache metadata often remain request-specific.',
+    explanation: `Selective batching groups compatible operations, not blindly every piece of every request. Dense model operations want big batches across ${columns.length} lanes, while sampling logic and cache metadata often remain request-specific.`,
   };
 
   yield {
@@ -180,7 +180,7 @@ function* selectiveBatching() {
       ],
     ),
     highlight: { active: ['long_prompt:risk', 'chat_decode:risk'], found: ['chunk:wants', 'policy:wants'] },
-    explanation: 'A server must decide how prompt prefill and token decode share the GPU. Chunked prefill and decode reservation are common ways to keep first-token work from ruining streaming latency.',
+    explanation: `A server must decide how prompt prefill and token decode share the GPU across ${rows.length} iterations. Chunked prefill and decode reservation are common ways to keep first-token work from ruining streaming latency.`,
   };
 
   yield {
@@ -192,7 +192,7 @@ function* selectiveBatching() {
       [0, 0, 1, 1, 1],
     ], { 0: '', 1: 'decode', 3: 'prefill' }),
     highlight: { active: ['t1:a', 't2:a', 't3:a', 't4:b'], found: ['t1:c', 't3:e', 't5:e'] },
-    explanation: 'The scheduler can interleave chunked prefill with decode iterations. Prompt work uses the GPU efficiently, but decode lanes remain present so already-streaming users do not freeze.',
+    explanation: `The scheduler can interleave chunked prefill with decode across ${rows.length} iterations and ${columns.length} lanes. Prompt work uses the GPU efficiently, but decode lanes remain present so already-streaming users do not freeze.`,
   };
 
   yield {
@@ -216,7 +216,7 @@ function* selectiveBatching() {
       ],
     ),
     highlight: { found: ['metric:example', 'memory:example', 'routing:example'], active: ['rollback:need'] },
-    explanation: 'The real system is a queueing system wrapped around model kernels. Metrics, memory, routing, and fallback policy matter as much as the batching loop.',
+    explanation: `The real ${topic.title} system is a queueing system wrapped around model kernels. Metrics, memory, routing, and fallback policy matter as much as the batching loop.`,
   };
 }
 
@@ -237,7 +237,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/llm-continuous-batching.gif', alt: 'Animated walkthrough of the llm continuous batching visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why it exists',

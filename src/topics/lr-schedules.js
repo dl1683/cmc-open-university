@@ -16,7 +16,7 @@ export const topic = {
 };
 
 // The honest test bench: loss = w²/2, gradient = w, start at w = 10.
-// One GD step multiplies w by (1 âˆ’ lr): the whole story is in that factor.
+// One GD step multiplies w by (1 âˆ' lr): the whole story is in that factor.
 function descend(lrAt, steps) {
   let w = 10;
   const path = [{ x: 0, y: Math.abs(w) }];
@@ -28,84 +28,120 @@ function descend(lrAt, steps) {
 }
 
 function* constantFails() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const lrBold = 1.9;
+  const lrTimid = 0.05;
+  const steps = 30;
+  const w0 = 10;
+  const boldFactor = r2(Math.abs(1 - lrBold));
+  const timidFactor = r2(Math.abs(1 - lrTimid));
+  const boldPath = descend(() => lrBold, steps);
+  const timidPath = descend(() => lrTimid, steps);
+  const boldFinal = r2(boldPath[steps].y);
+  const timidFinal = r2(timidPath[steps].y);
+
   yield {
     state: plotState({
       axes: { x: { label: 'step' }, y: { label: '|w| — distance from optimum' } },
       series: [
-        { id: 'big', label: 'lr = 1.9 (bold)', points: descend(() => 1.9, 30) },
-        { id: 'small', label: 'lr = 0.05 (timid)', points: descend(() => 0.05, 30) },
+        { id: 'big', label: `lr = ${lrBold} (bold)`, points: boldPath },
+        { id: 'small', label: `lr = ${lrTimid} (timid)`, points: timidPath },
       ],
     }),
     highlight: { compare: ['big', 'small'] },
-    explanation: 'The test bench: a clean bowl, loss = w²/2, start at w = 10; each gradient-descent step multiplies the distance by |1 âˆ’ lr|, so everything about convergence lives in one number. Run the two constant temperaments: BOLD (lr = 1.9) overshoots the minimum every single step — it lands on the other wall, shrinking by only Ã—0.9 per step while ricocheting; TIMID (lr = 0.05) never overshoots and never hurries, Ã—0.95 per step. Thirty steps later neither has truly arrived. On real, noisy, non-convex terrain (Loss Landscapes), the bold one also cannot SETTLE — it bounces around the basin floor forever at a "noise floor" set by its own step size.',
-    invariant: 'On the bowl, each step scales the error by |1 âˆ’ lr|: too big ricochets, too small crawls.',
+    explanation: `The test bench: a clean bowl, loss = w²/2, start at w = ${w0}; each gradient-descent step multiplies the distance by |1 − lr|, so everything about convergence lives in one number. Run the two constant temperaments: BOLD (lr = ${lrBold}) overshoots the minimum every single step — it lands on the other wall, shrinking by only ×${boldFactor} per step while ricocheting; TIMID (lr = ${lrTimid}) never overshoots and never hurries, ×${timidFactor} per step. ${steps} steps later neither has truly arrived (bold |w| ≈ ${boldFinal}, timid |w| ≈ ${timidFinal}). On real, noisy, non-convex terrain (Loss Landscapes), the bold one also cannot SETTLE — it bounces around the basin floor forever at a "noise floor" set by its own step size.`,
+    invariant: `On the bowl, each step scales the error by |1 − lr|: too big ricochets, too small crawls.`,
   };
+
+  const schedLrStart = 1.5;
+  const schedLrEnd = 0.05;
+  const schedDecay = 0.85;
+  const schedPath = descend((t) => Math.max(schedLrStart * schedDecay ** t, schedLrEnd), steps);
+  const schedAt10 = r2(schedPath[10].y);
 
   yield {
     state: plotState({
       axes: { x: { label: 'step' }, y: { label: '|w| — distance from optimum' } },
       series: [
-        { id: 'big', label: 'lr = 1.9', points: descend(() => 1.9, 30) },
-        { id: 'small', label: 'lr = 0.05', points: descend(() => 0.05, 30) },
-        { id: 'sched', label: 'scheduled: 1.5 â†’ 0.05', points: descend((t) => Math.max(1.5 * 0.85 ** t, 0.05), 30) },
+        { id: 'big', label: `lr = ${lrBold}`, points: boldPath },
+        { id: 'small', label: `lr = ${lrTimid}`, points: timidPath },
+        { id: 'sched', label: `scheduled: ${schedLrStart} → ${schedLrEnd}`, points: schedPath },
       ],
     }),
     highlight: { visited: ['big', 'small'], found: ['sched'] },
-    explanation: 'Now refuse the dilemma: START bold, FINISH timid. The scheduled run opens at lr = 1.5 — early steps slash the distance by half each time — and decays toward 0.05 as it nears the floor, where small careful steps finish the job. It reaches in ten steps what neither constant achieves in thirty, because the right learning rate is not a NUMBER, it is a PHASE: far from the optimum you want speed and (on real terrain) basin-hopping noise; near it you want to stop rattling and sink. A schedule is just that sentence, written as a function of the step count.',
+    explanation: `Now refuse the dilemma: START bold, FINISH timid. The scheduled run opens at lr = ${schedLrStart} — early steps slash the distance by half each time — and decays (×${schedDecay}/step) toward ${schedLrEnd} as it nears the floor, where small careful steps finish the job. By step 10 it reaches |w| ≈ ${schedAt10}, which neither constant achieves in ${steps}, because the right learning rate is not a NUMBER, it is a PHASE: far from the optimum you want speed and (on real terrain) basin-hopping noise; near it you want to stop rattling and sink. A schedule is just that sentence, written as a function of the step count.`,
   };
+
+  const numPhases = 2;
 
   yield {
     state: matrixState({
-      title: 'The two phases of every training run',
+      title: `The ${numPhases} phases of every training run`,
       rows: [{ id: 'early', label: 'early training' }, { id: 'late', label: 'late training' }],
       columns: [{ id: 'where', label: 'where you are' }, { id: 'want', label: 'what you want' }, { id: 'lr', label: 'so lr should be' }],
       values: [[1, 2, 3], [4, 5, 6]],
       format: (v) => ['', 'far from any minimum', 'speed + exploration noise', 'LARGE', 'inside a good basin', 'settle deep, stop rattling', 'small'][v],
     }),
     highlight: { compare: ['early:lr', 'late:lr'] },
-    explanation: 'The phase table — and a connection worth keeping: the large-lr phase is not merely fast, it is SELECTIVE. Big noisy steps cannot rest in the narrow, sharp minima that generalize poorly (the flatness filter from Loss Landscapes); they bounce out and keep moving until a basin is wide enough to hold them. Decay the rate too early and you rob training of that filtering; too late and you never consolidate. Which is why the SHAPE of the decay became its own little zoology — the other view tours the zoo.',
+    explanation: `The phase table shows ${numPhases} distinct regimes — and a connection worth keeping: the large-lr phase is not merely fast, it is SELECTIVE. Big noisy steps cannot rest in the narrow, sharp minima that generalize poorly (the flatness filter from Loss Landscapes); they bounce out and keep moving until a basin is wide enough to hold them. Decay the rate too early and you rob training of that filtering; too late and you never consolidate. Which is why the SHAPE of the decay became its own little zoology — the other view tours the zoo.`,
   };
 }
 
 function* zoo() {
+  const r2 = (v) => Math.round(v * 100) / 100;
   const T = 100;
   const warm = 10;
   const cosine = (t) => 0.5 * (1 + Math.cos((Math.PI * t) / T));
+  const numSchedules = 3;
+  const stepMilestone1 = 40;
+  const stepMilestone2 = 70;
+  const stepDecayFactor = r2(1 / 0.316);
+  const cosineAtQuarter = r2(cosine(T * 0.25));
+
   yield {
     state: plotState({
-      axes: { x: { label: 'training step' }, y: { label: 'learning rate (Ã— peak)' } },
+      axes: { x: { label: 'training step' }, y: { label: `learning rate (x peak)` } },
       series: [
-        { id: 'step', label: 'step decay', points: Array.from({ length: T + 1 }, (_, t) => ({ x: t, y: t < 40 ? 1 : t < 70 ? 0.316 : 0.1 })) },
+        { id: 'step', label: 'step decay', points: Array.from({ length: T + 1 }, (_, t) => ({ x: t, y: t < stepMilestone1 ? 1 : t < stepMilestone2 ? 0.316 : 0.1 })) },
         { id: 'cos', label: 'cosine annealing', points: Array.from({ length: T + 1 }, (_, t) => ({ x: t, y: cosine(t) })) },
         { id: 'warmcos', label: 'warmup + cosine', points: Array.from({ length: T + 1 }, (_, t) => ({ x: t, y: t < warm ? t / warm : cosine(((t - warm) / (T - warm)) * T) })) },
       ],
     }),
     highlight: { active: ['warmcos'], visited: ['step', 'cos'] },
-    explanation: 'The zoo\'s three headliners, drawn as lr-versus-time. STEP DECAY: hold, then cut by ~3Ã— at milestones — the classic that trained a decade of vision models; brutally effective, knees chosen by hand. COSINE ANNEALING: one smooth half-cosine from peak to zero — no milestones to tune, gentle start, gentle landing; the modern default. And the third curve adds the ramp at the front — WARMUP — which has the most interesting justification of the three, because it exists to protect a specific piece of machinery you have already studied.',
+    explanation: `The zoo's ${numSchedules} headliners, drawn as lr-versus-time over ${T} steps. STEP DECAY: hold, then cut by ~${stepDecayFactor}x at milestones ${stepMilestone1} and ${stepMilestone2} — the classic that trained a decade of vision models; brutally effective, knees chosen by hand. COSINE ANNEALING: one smooth half-cosine from peak to zero (at 25% of training, lr is still ${cosineAtQuarter}x peak) — no milestones to tune, gentle start, gentle landing; the modern default. And the third curve adds a ${warm}-step ramp at the front — WARMUP — which has the most interesting justification of the three, because it exists to protect a specific piece of machinery you have already studied.`,
   };
+
+  const samplesAtStep1 = 1;
+  const samplesAtStep100 = 100;
+  const warmupRows = 3;
 
   yield {
     state: matrixState({
-      title: 'Why warmup: Adam\'s first steps are built on rumors',
+      title: `Why warmup: Adam's first steps are built on rumors`,
       rows: [
         { id: 't1', label: 'step 1' },
         { id: 't5', label: 'step 5' },
-        { id: 't100', label: 'step 100' },
+        { id: 't100', label: `step ${samplesAtStep100}` },
       ],
-      columns: [{ id: 'samples', label: 'gradients seen' }, { id: 'trust', label: 'v (variance estimate) is…' }, { id: 'risk', label: 'full-size step would…' }],
+      columns: [{ id: 'samples', label: 'gradients seen' }, { id: 'trust', label: 'v (variance estimate) is...' }, { id: 'risk', label: 'full-size step would...' }],
       values: [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
       format: (v) => ['', '1', 'one sample — a rumor', 'amplify a fluke hugely', '5', 'still mostly noise', 'wobble dangerously', '~100', 'a real statistic', 'be safe at full size'][v],
     }),
     highlight: { removed: ['t1:risk'], found: ['t100:risk'] },
-    explanation: 'Recall Adam\'s second moment v — the per-weight EMA of squared gradients that DIVIDES every step. Bias correction fixes its average, but at step 1 that average is computed from ONE sample: a coordinate that happened to draw a tiny first gradient gets a tiny âˆšvÌ‚ and therefore an enormous step — a fluke, amplified. A few such steps can throw a fresh network into a bad region it spends the whole run recovering from (the loss spikes that haunt LLM training logs). WARMUP is the fix-by-humility: ramp lr from 0 to peak over the first few hundred steps, keeping strides short until v has seen enough gradients to be a statistic instead of a rumor. Essentially every transformer you have used was trained with linear warmup â†’ cosine decay.',
-    invariant: 'Adaptive denominators need samples to be trustworthy; warmup keeps steps small until they are.',
+    explanation: `Recall Adam's second moment v — the per-weight EMA of squared gradients that DIVIDES every step. Bias correction fixes its average, but at step ${samplesAtStep1} that average is computed from ONE sample: a coordinate that happened to draw a tiny first gradient gets a tiny sqrt(v) and therefore an enormous step — a fluke, amplified. A few such steps can throw a fresh network into a bad region it spends the whole run recovering from (the loss spikes that haunt LLM training logs). WARMUP is the fix-by-humility: ramp lr from 0 to peak over the first ${warm} steps, keeping strides short until v has seen enough gradients (by step ~${samplesAtStep100}, ${warmupRows} rows tell the story) to be a statistic instead of a rumor. Essentially every transformer you have used was trained with linear warmup -> cosine decay.`,
+    invariant: `Adaptive denominators need samples to be trustworthy; warmup keeps steps small until they are.`,
   };
 
-  const rangeTest = Array.from({ length: 41 }, (_, i) => {
+  const sweepSteps = 41;
+  const rangeTest = Array.from({ length: sweepSteps }, (_, i) => {
     const lr = 10 ** (-4 + i * 0.1);
     const loss = lr < 0.003 ? 2.3 - 2 * (Math.log10(lr) + 4) * 0.06 : lr < 0.3 ? 1.9 - 0.55 * (Math.log10(lr) + 2.5) : 0.92 + (Math.log10(lr) + 0.5) ** 2 * 6;
     return { x: Math.log10(lr) + 4, y: loss };
   });
+  const sweetSpotLr = r2(10 ** (-4 + 32 * 0.1));
+  const sweetSpotLoss = r2(rangeTest[32].y);
+  const boomLr = r2(10 ** (-4 + 39 * 0.1));
+
   yield {
     state: plotState({
       axes: { x: { label: 'learning rate, swept upward (log scale)' }, y: { label: 'training loss during the sweep' } },
@@ -117,8 +153,11 @@ function* zoo() {
       ],
     }),
     highlight: { found: ['sweet'], removed: ['boom'], visited: ['flat'] },
-    explanation: 'And how do you pick the PEAK the schedule decays from? Stop guessing: run the LR RANGE TEST (Leslie Smith) — one short training run while the learning rate sweeps exponentially upward, plotting loss as it goes. The curve tells the whole story: flat on the left (too small to learn anything), a steep productive slope in the middle, then the explosion. Pick the peak just below where the loss bottoms out — here around lr â‰ˆ 0.05 — and hand it to your cosine schedule. Five minutes of compute replaces a folk ritual; it is the closest thing hyperparameter choice has to a free lunch (and it composes with Hyperparameter Search for everything else).',
+    explanation: `And how do you pick the PEAK the schedule decays from? Stop guessing: run the LR RANGE TEST (Leslie Smith) — one short training run of ${sweepSteps} points while the learning rate sweeps exponentially upward, plotting loss as it goes. The curve tells the whole story: flat on the left (too small to learn anything), a steep productive slope in the middle (loss hits ${sweetSpotLoss} near lr ~ ${sweetSpotLr}), then the explosion past lr ~ ${boomLr}. Pick the peak just below where the loss bottoms out and hand it to your cosine schedule. Five minutes of compute replaces a folk ritual; it is the closest thing hyperparameter choice has to a free lunch (and it composes with Hyperparameter Search for everything else).`,
   };
+
+  const numOptions = 4;
+  const schedNames = ['warmup + cosine', 'step decay', 'reduce-on-plateau', 'one-cycle'];
 
   yield {
     state: matrixState({
@@ -134,7 +173,7 @@ function* zoo() {
       format: (v) => ['', 'transformers / LLMs', 'protects Adam early, lands softly', 'classic CNN recipes', 'simple, battle-tested milestones', 'the lazy-but-sound default', 'reacts to the validation curve itself', 'fast single runs', 'up-then-down squeezes max from few epochs'][v],
     }),
     highlight: { active: ['warmcos:home'], compare: ['plateau:why'] },
-    explanation: 'The field guide. Note the third row\'s philosophy difference: reduce-on-plateau doesn\'t pre-plan anything — it watches validation loss (the honest signal, per Cross-Validation) and cuts the rate 10Ã— whenever progress stalls; slower than a tuned cosine but nearly impossible to misconfigure. The unifying picture to leave with: the optimizer chooses the step DIRECTION, the schedule chooses the step AMBITION, and ambition should track certainty — low while estimates are rumors (warmup), high while exploring, low again while settling. The same explore-then-commit arc as Thompson Sampling, played against a loss landscape instead of slot machines.',
+    explanation: `The field guide: ${numOptions} schedules (${schedNames.join(', ')}). Note the third row's philosophy difference: reduce-on-plateau doesn't pre-plan anything — it watches validation loss (the honest signal, per Cross-Validation) and cuts the rate 10x whenever progress stalls; slower than a tuned cosine but nearly impossible to misconfigure. The unifying picture to leave with: the optimizer chooses the step DIRECTION, the schedule chooses the step AMBITION, and ambition should track certainty — low while estimates are rumors (warmup), high while exploring, low again while settling. The same explore-then-commit arc as Thompson Sampling, played against a loss landscape instead of slot machines.`,
   };
 }
 
@@ -154,7 +193,8 @@ export const article = {
         {type: 'callout', text: 'A schedule is step-size policy: high ambition while searching, low ambition while settling, and warmup while statistics are still thin.'},
         'The second view ("the schedule zoo") plots learning rate as a fraction of peak over training steps. Three shapes overlay: step decay (flat plateaus with sharp drops), cosine annealing (a smooth half-cosine), and warmup + cosine (a linear ramp followed by the cosine). The warmup table shows why full-size early steps are dangerous when Adam\'s variance denominator is built from a single gradient sample. The LR range test sweeps the rate upward and plots loss, showing how to find the peak rate from data instead of guessing.',
         'At each frame, ask: which training phase is this step in, and what would break if the rate were frozen at its current value for the rest of the run?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/lr-schedules.gif', alt: 'Animated walkthrough of the lr schedules visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

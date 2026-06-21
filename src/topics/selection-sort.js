@@ -75,7 +75,8 @@ export const article = {
         'Each round, a scan sweeps the unsorted zone from left to right. The highlighted element is the current minimum candidate. When the scan finds something smaller, the candidate marker jumps. After the scan finishes, one swap moves the winner to the boundary, and the boundary advances one position.',
         'Watch three things: the scan always visits every unsorted element (no early exit), each round produces at most one swap, and no element left of the boundary ever moves again.',
         {type: 'callout', text: 'Selection sort trades adaptability for a hard write bound: every round proves one final slot with one scan and at most one swap.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/selection-sort.gif', alt: 'Animated walkthrough of the selection sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

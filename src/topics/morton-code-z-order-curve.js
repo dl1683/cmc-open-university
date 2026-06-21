@@ -85,19 +85,23 @@ function pipelineGraph(title) {
 }
 
 function* interleaveBits() {
+  const cellCount = 8;
   yield {
     state: zPathGraph('Sorted Morton keys walk cells in Z order'),
     highlight: { active: ['c0', 'c1', 'c2', 'c3', 'e0-1', 'e1-2', 'e2-3'], found: ['c4', 'c5', 'c6', 'c7'] },
-    explanation: 'A Morton code interleaves coordinate bits, then sorts cells by the resulting key. The visible result is a Z-shaped recursive walk where nearby keys usually land in nearby cells.',
-    invariant: 'The key is one-dimensional, but its prefix is a spatial cell.',
+    explanation: `A Morton code interleaves coordinate bits, then sorts ${cellCount} cells by the resulting key. The visible result is a Z-shaped recursive walk where nearby keys usually land in nearby cells.`,
+    invariant: `The key is one-dimensional, but its prefix is a spatial cell among ${cellCount} grid positions.`,
   };
 
+  const x = 3;
+  const y = 5;
+  const dims = 2;
   yield {
     state: labelMatrix(
       'Bit interleaving creates a Morton key',
       [
-        { id: 'x', label: 'x = 3' },
-        { id: 'y', label: 'y = 5' },
+        { id: 'x', label: `x = ${x}` },
+        { id: 'y', label: `y = ${y}` },
         { id: 'z', label: 'Morton' },
       ],
       [
@@ -111,9 +115,10 @@ function* interleaveBits() {
       ],
     ),
     highlight: { active: ['x:bits', 'y:bits'], found: ['z:bits', 'z:role'] },
-    explanation: 'For 2D, take one bit from y, one from x, and repeat from high to low. Grouping each pair as a base-4 digit gives the same child choices a quadtree path uses.',
+    explanation: `For ${dims}D, take one bit from y (${y} = 101), one from x (${x} = 011), and repeat from high to low. Grouping each pair as a base-4 digit gives the same child choices a quadtree path uses.`,
   };
 
+  const prefixLevels = 4;
   yield {
     state: labelMatrix(
       'Prefix meaning',
@@ -135,24 +140,26 @@ function* interleaveBits() {
       ],
     ),
     highlight: { active: ['one:region', 'two:use'], found: ['three:use'], compare: ['empty:region'] },
-    explanation: 'The prefix property is why quadkeys, geohash-like strings, and Morton-sorted primitives are practical. A prefix names a region, and longer prefixes name smaller regions inside it.',
+    explanation: `Across ${prefixLevels} prefix depths, the prefix property is why quadkeys, geohash-like strings, and Morton-sorted primitives are practical. A prefix names a region, and longer prefixes name smaller regions inside it.`,
   };
 
   yield {
     state: zPathGraph('Z-order preserves locality, but not perfectly'),
     highlight: { active: ['query', 'scan', 'e-query-scan'], compare: ['c3', 'c4'], removed: ['c0'] },
-    explanation: 'Morton order is cheap and prefix-friendly, but it makes jumps at block boundaries. Range queries often scan several key intervals and then run an exact spatial filter on the candidates.',
+    explanation: `Morton order is cheap and prefix-friendly, but it makes jumps at block boundaries across the ${cellCount}-cell grid. Range queries often scan several key intervals and then run an exact spatial filter on the candidates.`,
   };
 }
 
 function* spatialSortCaseStudy() {
+  const pipelineSteps = 7;
   yield {
     state: pipelineGraph('Spatial data becomes a sortable one-dimensional key'),
     highlight: { active: ['points', 'scale', 'morton', 'e-points-scale', 'e-scale-morton'], found: ['sort', 'index'] },
-    explanation: 'The pipeline quantizes coordinates to integers, interleaves their bits, and stores the result in a normal sorted structure. That is the trick: multidimensional locality becomes a one-dimensional key.',
-    invariant: 'Morton sorting is a filter and layout strategy, not an exact geometry test.',
+    explanation: `The ${pipelineSteps}-stage pipeline quantizes coordinates to integers, interleaves their bits, and stores the result in a normal sorted structure. That is the trick: multidimensional locality becomes a one-dimensional key.`,
+    invariant: `Morton sorting is a filter and layout strategy, not an exact geometry test.`,
   };
 
+  const applicationCount = 4;
   yield {
     state: labelMatrix(
       'Where Morton keys show up',
@@ -174,15 +181,16 @@ function* spatialSortCaseStudy() {
       ],
     ),
     highlight: { active: ['tiles:key', 'lbvh:key'], found: ['lake:benefit'], compare: ['voxels:benefit'] },
-    explanation: 'The same bit trick appears under different names. Quadkeys encode map-tile paths. Z-order clustering improves data skipping. Linear BVH builders sort primitive centroids by Morton code before creating hierarchy.',
+    explanation: `Across ${applicationCount} domains, the same bit trick appears under different names. Quadkeys encode map-tile paths. Z-order clustering improves data skipping. Linear BVH builders sort primitive centroids by Morton code before creating hierarchy.`,
   };
 
   yield {
     state: pipelineGraph('Range queries still need candidate repair'),
     highlight: { active: ['index', 'candidates', 'exact', 'e-index-candidates', 'e-candidates-exact'], compare: ['sort'], removed: ['points'] },
-    explanation: 'A rectangle or radius query maps to one or more Morton intervals. The scan returns near-ish candidates in key order, then exact geometry checks remove cells that are close in the curve but outside the query.',
+    explanation: `A rectangle or radius query maps to one or more Morton intervals. The scan returns near-ish candidates in key order, then exact geometry checks remove cells that are close in the curve but outside the query.`,
   };
 
+  const curveCount = 4;
   yield {
     state: labelMatrix(
       'Morton versus Hilbert',
@@ -204,7 +212,7 @@ function* spatialSortCaseStudy() {
       ],
     ),
     highlight: { active: ['morton:strength', 'quadkey:strength'], compare: ['hilbert:cost'], found: ['geohash:strength'] },
-    explanation: 'Morton order wins when speed, simplicity, and prefix hierarchy matter. Hilbert curves can preserve locality better, but their encoding is more complex and less convenient for some low-level builders.',
+    explanation: `Comparing ${curveCount} space-filling schemes, Morton order wins when speed, simplicity, and prefix hierarchy matter. Hilbert curves can preserve locality better, but their encoding is more complex and less convenient for some low-level builders.`,
   };
 }
 
@@ -217,6 +225,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/morton-code-z-order-curve.gif', alt: 'Animated walkthrough of the morton code z order curve visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

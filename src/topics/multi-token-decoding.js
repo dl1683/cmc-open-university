@@ -80,6 +80,7 @@ function lookaheadGraph(title) {
 }
 
 function* medusaHeads() {
+  const tokenCount = 4;
   yield {
     state: labelMatrix(
       'Autoregressive decoding pays one big pass per token',
@@ -101,20 +102,21 @@ function* medusaHeads() {
       ],
     ),
     highlight: { active: ['t1:bigpass', 't2:bigpass', 't3:bigpass', 't4:bigpass'] },
-    explanation: 'Plain LLM decoding is sequential. Each next token depends on the previous token, so the system reads model weights and KV cache again and again. Speculative Decoding uses a draft model. Multi-token decoding asks whether the main model can help predict several future positions itself.',
+    explanation: `Plain LLM decoding is sequential. Each of ${tokenCount} tokens depends on the previous token, so the system reads model weights and KV cache again and again. Speculative Decoding uses a draft model. Multi-token decoding asks whether the main model can help predict several future positions itself.`,
   };
 
+  const headCount = 3;
   yield {
     state: medusaGraph('Medusa attaches extra decoding heads to the backbone'),
     highlight: { active: ['h1', 'h2', 'h3', 'e-b-h1', 'e-b-h2', 'e-b-h3'], compare: ['backbone'] },
-    explanation: 'Medusa adds lightweight heads on top of the model hidden state. Each head predicts tokens at a future offset. The backbone can be frozen for a lossless acceleration path, or tuned with the heads for larger speedups at higher training complexity.',
+    explanation: `Medusa adds ${headCount} lightweight heads on top of the model hidden state. Each head predicts tokens at a future offset. The backbone can be frozen for a lossless acceleration path, or tuned with the heads for larger speedups at higher training complexity.`,
   };
 
   yield {
     state: medusaGraph('Candidate continuations are verified with tree attention'),
     highlight: { active: ['tree', 'verify', 'e-tree-verify'], found: ['emit'], compare: ['h1', 'h2', 'h3'] },
-    explanation: 'The heads produce a small tree of candidate continuations. Tree attention lets the model verify many branches in one pass. The runtime accepts the longest prefix that matches the model distribution under the acceptance rule.',
-    invariant: 'The acceleration target is fewer decode iterations, not a different answer.',
+    explanation: `The ${headCount} heads produce a small tree of candidate continuations. Tree attention lets the model verify many branches in one pass. The runtime accepts the longest prefix that matches the model distribution under the acceptance rule.`,
+    invariant: `The acceleration target is fewer decode iterations, not a different answer — all ${headCount} heads are proposals, not commitments.`,
   };
 
   yield {
@@ -138,15 +140,16 @@ function* medusaHeads() {
       ],
     ),
     highlight: { found: ['medusa1:tradeoff'], compare: ['spec:tradeoff', 'medusa2:tradeoff'] },
-    explanation: 'Medusa is attractive because it removes the need to maintain a separate draft model. The cost shifts into head training, tree candidate management, and verification kernels.',
+    explanation: `Medusa is attractive because it removes the need to maintain a separate draft model. With ${headCount} heads attached to the backbone, the cost shifts into head training, tree candidate management, and verification kernels.`,
   };
 }
 
 function* lookaheadDecoding() {
+  const laneCount = 3;
   yield {
     state: lookaheadGraph('Lookahead generates candidate n-grams in parallel'),
     highlight: { active: ['ngram1', 'ngram2', 'ngram3', 'e-s-a', 'e-s-b', 'e-s-c'], compare: ['verify'] },
-    explanation: 'Lookahead decoding attacks the same sequential bottleneck without a draft model or extra Medusa heads. It uses parallel candidate n-gram generation, then checks which prefix agrees with standard autoregressive decoding.',
+    explanation: `Lookahead decoding attacks the same sequential bottleneck without a draft model or extra Medusa heads. It uses ${laneCount} parallel candidate n-gram lanes, then checks which prefix agrees with standard autoregressive decoding.`,
   };
 
   yield {
@@ -170,16 +173,17 @@ function* lookaheadDecoding() {
       ],
     ),
     highlight: { active: ['laneA:proposal', 'laneB:proposal', 'laneC:proposal'], found: ['verify:status'] },
-    explanation: 'The proposals are useful only when they agree with what the model would have produced token by token. Verification protects exactness. Bad lanes cost compute but do not change the output.',
-    invariant: 'Accepted tokens must be consistent with ordinary autoregressive decoding.',
+    explanation: `The ${laneCount} proposals are useful only when they agree with what the model would have produced token by token. Verification protects exactness. Bad lanes cost compute but do not change the output.`,
+    invariant: `Accepted tokens must be consistent with ordinary autoregressive decoding across all ${laneCount} lanes.`,
   };
 
   yield {
     state: lookaheadGraph('Verification collapses many guesses into one advance'),
     highlight: { active: ['verify', 'e-a-v', 'e-b-v', 'e-c-v'], found: ['accept', 'e-v-accept'] },
-    explanation: 'The win comes from trading more parallel work inside a step for fewer total decode steps. That fits modern accelerators when autoregressive generation is memory-bandwidth bound and underuses parallel compute.',
+    explanation: `The win comes from verifying all ${laneCount} lanes in one pass, trading more parallel work inside a step for fewer total decode steps. That fits modern accelerators when autoregressive generation is memory-bandwidth bound and underuses parallel compute.`,
   };
 
+  const strategyCount = 4;
   yield {
     state: labelMatrix(
       'Choosing a multi-token decoding strategy',
@@ -201,7 +205,7 @@ function* lookaheadDecoding() {
       ],
     ),
     highlight: { found: ['draft:bestwhen', 'medusa:bestwhen', 'lookahead:bestwhen'], compare: ['none:pain'] },
-    explanation: 'All of these methods are serving optimizations around the same bottleneck. The right choice depends on model family, latency target, memory headroom, traffic shape, and how much training or kernel work the team can support.',
+    explanation: `All ${strategyCount} methods are serving optimizations around the same bottleneck. The right choice depends on model family, latency target, memory headroom, traffic shape, and how much training or kernel work the team can support.`,
   };
 }
 
@@ -226,7 +230,8 @@ export const article = {
         },
         'At each frame, ask: how many tokens did this step propose, how many survived verification, and what determined the acceptance boundary?',
         {type: 'callout', text: 'Multi-token decoding is exact only when speculation stays provisional until the target model verifies the prefix.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/multi-token-decoding.gif', alt: 'Animated walkthrough of the multi token decoding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

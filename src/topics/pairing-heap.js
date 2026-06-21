@@ -59,17 +59,21 @@ function heapGraph(title) {
 }
 
 function* meldInsert() {
+  const rootKey = 3;
+  const childKeys = [7, 12, 18];
+  const insertKey = 5;
+
   yield {
     state: heapGraph('A pairing heap is a heap-ordered multiway tree'),
     highlight: { active: ['h3', 'h7', 'h12', 'h18'], compare: ['new'] },
-    explanation: 'A pairing heap stores one heap-ordered tree. The minimum is at the root. Children are unordered sibling subtrees, which keeps the implementation simple.',
-    invariant: 'Every parent key is no larger than its children; siblings have no sorted order requirement.',
+    explanation: `A pairing heap stores one heap-ordered tree. The minimum is at the root (here ${rootKey}). Its ${childKeys.length} children (${childKeys.join(', ')}) are unordered sibling subtrees, which keeps the implementation simple.`,
+    invariant: `Every parent key is no larger than its children; root ${rootKey} ≤ each of {${childKeys.join(', ')}}. Siblings have no sorted order requirement.`,
   };
 
   yield {
     state: heapGraph('Insert is just meld with a singleton heap'),
     highlight: { active: ['new', 'h3', 'e-new-result', 'e-root-result'], found: ['result'] },
-    explanation: 'To insert key 5, create a one-node heap and meld it with the existing root. Since 3 is smaller, 5 becomes another child of 3.',
+    explanation: `To insert key ${insertKey}, create a one-node heap and meld it with the existing root. Since ${rootKey} < ${insertKey}, key ${insertKey} becomes another child of ${rootKey}.`,
   };
 
   yield {
@@ -93,7 +97,7 @@ function* meldInsert() {
       ],
     ),
     highlight: { found: ['compare:effect', 'link:effect'], active: ['rootA:rule'] },
-    explanation: 'Pairing heaps are appealing because the primitive link operation is tiny. Most restructuring is postponed until delete-min.',
+    explanation: `Meld compares roots ${rootKey} vs ${insertKey} — the smaller (${rootKey}) wins and the larger becomes its child. Pairing heaps are appealing because this link operation is tiny; most restructuring is postponed until delete-min.`,
   };
 
   yield {
@@ -117,15 +121,19 @@ function* meldInsert() {
       ],
     ),
     highlight: { active: ['pairing:strength', 'pairing:tradeoff'], compare: ['fibo:tradeoff'] },
-    explanation: 'The pairing heap is the pragmatic cousin of the Fibonacci heap: simple enough to implement, fast in practice, but analytically subtle.',
+    explanation: `Comparing ${['Binary', 'Fibonacci', 'Pairing', 'Radix'].length} heap families: the pairing heap is the pragmatic cousin of the Fibonacci heap — simple enough to implement, fast in practice, but analytically subtle.`,
   };
 }
 
 function* deleteMin() {
+  const rootKey = 3;
+  const childKeys = [7, 12, 18];
+  const numPasses = 2;
+
   yield {
     state: heapGraph('delete-min removes the root and exposes child subheaps'),
     highlight: { active: ['h3'], found: ['h7', 'h12', 'h18'], compare: ['h10', 'h15'] },
-    explanation: 'Deleting the minimum removes the root. Its children become a list of independent heap roots that must be melded back into one heap.',
+    explanation: `Deleting the minimum removes root ${rootKey}, exposing its ${childKeys.length} children (${childKeys.join(', ')}) as independent heap roots that must be melded back into one heap.`,
   };
 
   yield {
@@ -149,14 +157,14 @@ function* deleteMin() {
       ],
     ),
     highlight: { found: ['pass1a:move', 'pass2:why'], active: ['root:why'] },
-    explanation: 'The standard delete-min uses two passes: pair siblings left-to-right, then meld the resulting heaps right-to-left. This is where the self-adjusting behavior lives.',
-    invariant: 'Every link preserves heap order by making the larger root a child of the smaller root.',
+    explanation: `The standard delete-min uses ${numPasses} passes over the ${childKeys.length} exposed children: pair siblings left-to-right, then meld the resulting heaps right-to-left. This is where the self-adjusting behavior lives.`,
+    invariant: `Every link preserves heap order by making the larger root a child of the smaller root across both ${numPasses} passes.`,
   };
 
   yield {
     state: heapGraph('decrease-key cuts and melds the decreased node'),
     highlight: { active: ['h15', 'h12', 'h3'], compare: ['h7'], found: ['result'] },
-    explanation: 'A decrease-key can cut the decreased node from its parent and meld it back with the root. This is simple mechanically, but the exact amortized bound is famously difficult.',
+    explanation: `A decrease-key cuts the decreased node (e.g. node 15 under parent 12) and melds it back with root ${rootKey}. This is simple mechanically, but the exact amortized bound is famously difficult.`,
   };
 
   yield {
@@ -180,7 +188,7 @@ function* deleteMin() {
       ],
     ),
     highlight: { found: ['insert:lesson', 'meld:lesson', 'pop:lesson'], compare: ['reprioritize:lesson'] },
-    explanation: 'A pairing heap fits systems that need a meldable priority queue but do not want Fibonacci-heap implementation complexity.',
+    explanation: `All ${['insert', 'meld', 'pop', 'reprioritize'].length} scheduling operations map naturally onto pairing-heap primitives — a meldable priority queue without Fibonacci-heap implementation complexity.`,
   };
 }
 
@@ -193,6 +201,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/pairing-heap.gif', alt: 'Animated walkthrough of the pairing heap visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

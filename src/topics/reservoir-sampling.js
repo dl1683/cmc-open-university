@@ -93,7 +93,8 @@ export const article = {
         'The animation shows a reservoir array of k = 3 slots and a stream of 10 items flowing past one at a time. Empty slots display a dot. An active highlight marks the item currently being decided on. A swap highlight means the item was accepted and replaced an existing slot. A range highlight across all slots means the item was rejected and the reservoir stayed unchanged. A found highlight at the end marks the final sample.',
         {type: 'callout', text: 'Reservoir sampling is fair because late admission and old-item eviction are tuned to leave every seen item with the same final chance.'},
         'The invariant line below each step is the real proof target: after processing item i, every item seen so far sits in the reservoir with probability exactly k/i. Watch how that fraction shrinks as i grows, but shrinks for every item equally. The specific letters that end up in the reservoir depend on the frozen random draws. The probability structure does not.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/reservoir-sampling.gif', alt: 'Animated walkthrough of the reservoir sampling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

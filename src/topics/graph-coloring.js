@@ -156,7 +156,8 @@ export const article = {
         'Active highlight marks the vertex currently being colored. Compare highlights show its neighbors and the edges being checked for color conflicts. Visited highlights mark vertices that already have a color. Found highlights appear when a vertex receives its final color assignment.',
         'The algorithm processes vertices in the chosen order. For each vertex, it checks which colors its already-colored neighbors use, then picks the smallest color index not in that blocked set. Watch how high-degree vertices processed early force later neighbors into new colors, and how low-degree vertices often reuse an existing color.',
         {type: 'callout', text: 'Graph coloring turns conflict into adjacency: once conflicts are edges, a color is any reusable resource that no neighbor can share.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/graph-coloring.gif', alt: 'Animated walkthrough of the graph coloring visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

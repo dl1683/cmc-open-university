@@ -48,37 +48,46 @@ function nttGraph(title) {
 }
 
 function* butterflySchedule() {
+  const pipelineNodes = ['coeff', 'twid', 'butter', 'freq', 'point', 'inv'];
+  const pipelineEdges = ['e-coeff-butter', 'e-twid-butter', 'e-butter-freq', 'e-freq-point', 'e-point-inv'];
+
   yield {
     state: nttGraph('NTT reuses the FFT dataflow shape'),
     highlight: { active: ['coeff', 'twid', 'butter', 'e-coeff-butter', 'e-twid-butter'], found: ['freq'] },
-    explanation: 'The number theoretic transform is the modular-arithmetic cousin of the FFT. It evaluates polynomial coefficients at powers of a root of unity inside a finite ring.',
-    invariant: 'All arithmetic is modulo q; the root schedule must match the ring and transform length.',
+    explanation: `The number theoretic transform is the modular-arithmetic cousin of the FFT. Its ${pipelineNodes.length}-node pipeline evaluates polynomial coefficients at powers of a root of unity inside a finite ring.`,
+    invariant: `All arithmetic is modulo q; the root schedule must match the ring across all ${pipelineEdges.length} edges of the transform path.`,
   };
+
+  const stageRows = [
+    { id: 's0', label: 's0' },
+    { id: 's1', label: 's1' },
+    { id: 's2', label: 's2' },
+    { id: 's3', label: 's3' },
+  ];
+  const stageData = [
+    ['2', 'z1', 'pairs'],
+    ['4', 'z2', 'quads'],
+    ['8', 'z4', 'blocks'],
+    ['16', 'z8', 'blocks'],
+  ];
 
   yield {
     state: labelMatrix(
       'Butterfly stages',
-      [
-        { id: 's0', label: 's0' },
-        { id: 's1', label: 's1' },
-        { id: 's2', label: 's2' },
-        { id: 's3', label: 's3' },
-      ],
+      stageRows,
       [
         { id: 'span', label: 'span' },
         { id: 'twid', label: 'twid' },
         { id: 'work', label: 'work' },
       ],
-      [
-        ['2', 'z1', 'pairs'],
-        ['4', 'z2', 'quads'],
-        ['8', 'z4', 'blocks'],
-        ['16', 'z8', 'blocks'],
-      ],
+      stageData,
     ),
     highlight: { active: ['s0:work', 's1:work'], found: ['s2:twid', 's3:twid'] },
-    explanation: 'A butterfly schedule is a compact data structure: stage, span, twiddle index, source positions, and modular reduction rule. Implementations often run it in-place.',
+    explanation: `A butterfly schedule across ${stageRows.length} stages is a compact data structure: stage, span, twiddle index, source positions, and modular reduction rule. Implementations often run it in-place with spans doubling from ${stageData[0][0]} to ${stageData[stageRows.length - 1][0]}.`,
   };
+
+  const kyberMarker = { id: 'kyber', label: '256', x: 256, y: 20 };
+  const bigMarker = { id: 'big', label: 'large', x: 1024, y: 42 };
 
   yield {
     state: plotState({
@@ -87,70 +96,84 @@ function* butterflySchedule() {
         { id: 'school', label: 'n2', points: [{ x: 64, y: 4 }, { x: 128, y: 12 }, { x: 256, y: 30 }, { x: 512, y: 65 }, { x: 1024, y: 100 }] },
         { id: 'ntt', label: 'nlogn', points: [{ x: 64, y: 8 }, { x: 128, y: 13 }, { x: 256, y: 20 }, { x: 512, y: 30 }, { x: 1024, y: 42 }] },
       ],
-      markers: [
-        { id: 'kyber', label: '256', x: 256, y: 20 },
-        { id: 'big', label: 'large', x: 1024, y: 42 },
-      ],
+      markers: [kyberMarker, bigMarker],
     }, { title: 'NTT changes the multiplication curve' }),
     highlight: { active: ['ntt'], compare: ['school'], found: ['kyber'] },
-    explanation: 'For small toy inputs, schoolbook multiplication is easier. For lattice schemes with repeated polynomial products, NTT-shaped multiplication is the throughput engine.',
+    explanation: `For small toy inputs, schoolbook multiplication is easier. At degree ${kyberMarker.x} (Kyber's operating point), NTT-shaped multiplication becomes the throughput engine for lattice schemes with repeated polynomial products.`,
   };
+
+  const ledgerRows = [
+    { id: 'mod', label: 'mod q' },
+    { id: 'root', label: 'root' },
+    { id: 'order', label: 'order' },
+    { id: 'time', label: 'time' },
+  ];
+  const ledgerData = [
+    ['3329', 'overflow'],
+    ['zetas', 'wrong root'],
+    ['bitrev', 'mismatch'],
+    ['ct path', 'leak'],
+  ];
 
   yield {
     state: labelMatrix(
       'Implementation ledger',
-      [
-        { id: 'mod', label: 'mod q' },
-        { id: 'root', label: 'root' },
-        { id: 'order', label: 'order' },
-        { id: 'time', label: 'time' },
-      ],
+      ledgerRows,
       [
         { id: 'stores', label: 'stores' },
         { id: 'risk', label: 'risk' },
       ],
-      [
-        ['3329', 'overflow'],
-        ['zetas', 'wrong root'],
-        ['bitrev', 'mismatch'],
-        ['ct path', 'leak'],
-      ],
+      ledgerData,
     ),
     highlight: { active: ['mod:stores', 'root:stores'], found: ['time:risk'] },
-    explanation: 'The cryptographic implementation ledger matters as much as the asymptotic idea: reductions, table layout, memory access, and branch behavior can become security facts.',
+    explanation: `The cryptographic implementation ledger tracks ${ledgerRows.length} concerns (${ledgerRows.map(r => r.label).join(', ')}): reductions, table layout, memory access, and branch behavior can become security facts.`,
   };
 }
 
 function* ringMultiply() {
+  const pathRows = [
+    { id: 'a', label: 'a' },
+    { id: 'b', label: 'b' },
+    { id: 'fa', label: 'A' },
+    { id: 'fb', label: 'B' },
+  ];
+  const pathData = [
+    ['coeffs', 'NTT'],
+    ['coeffs', 'NTT'],
+    ['evals', 'mul'],
+    ['evals', 'mul'],
+  ];
+  const inputPolys = pathRows.filter(r => r.id === 'a' || r.id === 'b');
+
   yield {
     state: labelMatrix(
       'Polynomial product path',
-      [
-        { id: 'a', label: 'a' },
-        { id: 'b', label: 'b' },
-        { id: 'fa', label: 'A' },
-        { id: 'fb', label: 'B' },
-      ],
+      pathRows,
       [
         { id: 'state', label: 'state' },
         { id: 'next', label: 'next' },
       ],
-      [
-        ['coeffs', 'NTT'],
-        ['coeffs', 'NTT'],
-        ['evals', 'mul'],
-        ['evals', 'mul'],
-      ],
+      pathData,
     ),
     highlight: { active: ['a:next', 'b:next'], found: ['fa:state', 'fb:state'] },
-    explanation: 'Polynomial multiplication can move into the transform domain: transform both polynomials, multiply matching coordinates, then invert back to coefficients.',
+    explanation: `Polynomial multiplication tracks ${pathRows.length} rows: ${inputPolys.length} input polynomials and their transforms. Transform both, multiply matching coordinates in the ${pathData[2][0]} domain, then invert back to ${pathData[0][0]}.`,
   };
+
+  const midNodes = ['freq', 'point', 'inv'];
+  const midEdges = ['e-freq-point', 'e-point-inv'];
 
   yield {
     state: nttGraph('Pointwise product is the middle state'),
-    highlight: { active: ['freq', 'point', 'inv', 'e-freq-point', 'e-point-inv'], compare: ['coeff'] },
-    explanation: 'The transform is valuable because convolution in coefficient space becomes coordinate-wise multiplication in the NTT domain.',
+    highlight: { active: [...midNodes, ...midEdges], compare: ['coeff'] },
+    explanation: `The transform is valuable because convolution in coefficient space becomes coordinate-wise multiplication across the ${midNodes.length} middle nodes (${midNodes.join(', ')}) of the NTT domain.`,
   };
+
+  const ringData = [
+    ['Zq[X]/f', 'wrap'],
+    ['256', 'fixed'],
+    ['q', 'reduce'],
+    ['small', 'security'],
+  ];
 
   yield {
     state: labelMatrix(
@@ -165,39 +188,37 @@ function* ringMultiply() {
         { id: 'fact', label: 'fact' },
         { id: 'why', label: 'why' },
       ],
-      [
-        ['Zq[X]/f', 'wrap'],
-        ['256', 'fixed'],
-        ['q', 'reduce'],
-        ['small', 'security'],
-      ],
+      ringData,
     ),
     highlight: { active: ['ring:fact', 'mod:fact'], found: ['noise:why'] },
-    explanation: 'Lattice KEMs and signatures are not doing arbitrary polynomial math. They operate in carefully chosen rings with fixed dimensions, moduli, compression, and noise distributions.',
+    explanation: `Lattice KEMs and signatures are not doing arbitrary polynomial math. They operate in ${ringData[0][0]} with degree ${ringData[1][0]}, carefully choosing fixed dimensions, moduli, compression, and noise distributions.`,
   };
+
+  const studyRows = [
+    { id: 'ntt', label: 'NTT' },
+    { id: 'kem', label: 'ML-KEM' },
+    { id: 'sig', label: 'ML-DSA' },
+    { id: 'hash', label: 'SLH' },
+  ];
+  const studyData = [
+    ['poly mul', 'lattice'],
+    ['key', 'TLS'],
+    ['sign', 'auth'],
+    ['hash tree', 'backup'],
+  ];
 
   yield {
     state: labelMatrix(
       'Study map',
-      [
-        { id: 'ntt', label: 'NTT' },
-        { id: 'kem', label: 'ML-KEM' },
-        { id: 'sig', label: 'ML-DSA' },
-        { id: 'hash', label: 'SLH' },
-      ],
+      studyRows,
       [
         { id: 'role', label: 'role' },
         { id: 'next', label: 'next' },
       ],
-      [
-        ['poly mul', 'lattice'],
-        ['key', 'TLS'],
-        ['sign', 'auth'],
-        ['hash tree', 'backup'],
-      ],
+      studyData,
     ),
     highlight: { active: ['ntt:role', 'kem:next', 'sig:next'], compare: ['hash:role'] },
-    explanation: 'NTT is the performance bridge into module-lattice systems. Hash-based signatures use a different family: Merkle-style trees and many one-time signatures.',
+    explanation: `NTT is the performance bridge into ${studyRows.length} post-quantum topics (${studyRows.map(r => r.label).join(', ')}). Hash-based signatures use a different family: Merkle-style trees and many one-time signatures.`,
   };
 }
 
@@ -210,6 +231,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/ntt-polynomial-multiplication-primer.gif', alt: 'Animated walkthrough of the ntt polynomial multiplication primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -149,7 +149,8 @@ export const article = {
           type: 'note',
           text: 'Every number in both views is computed live from the two-proportion power formula, not hard-coded. Change the baseline or the lift in the code and every cell updates.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/power-analysis.gif', alt: 'Animated walkthrough of the power analysis visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

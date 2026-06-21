@@ -77,11 +77,17 @@ function sparseGraph(title) {
 }
 
 function* rectangleSum() {
+  const nodeCount = 6;
+  const edgeCount = 6;
+  const prefixQueriesPerRect = 4;
+  const inclusionExclusionPieces = 4;
+  const complexity = 'O(log n * log m)';
+
   yield {
     state: bit2dGraph('A 2D BIT nests the Fenwick walk'),
     highlight: { active: ['point', 'x1', 'x2', 'ybit', 'e-point-x1', 'e-point-x2', 'e-x1-ybit'], found: ['prefix'] },
-    explanation: 'A 2D Fenwick tree performs the usual lowbit walk over x. At each visited x bucket, it performs another Fenwick walk over y.',
-    invariant: 'Each cell update contributes to O(log n * log m) stored rectangle summaries.',
+    explanation: `A 2D Fenwick tree with ${nodeCount} nodes performs the usual lowbit walk over x. At each visited x bucket, it performs another Fenwick walk over y, connected by ${edgeCount} edges.`,
+    invariant: `Each cell update contributes to ${complexity} stored rectangle summaries across ${nodeCount} pipeline stages.`,
   };
 
   yield {
@@ -105,7 +111,7 @@ function* rectangleSum() {
       ],
     ),
     highlight: { active: ['outer:walk', 'inner:walk'], found: ['point:meaning', 'prefix:walk'] },
-    explanation: 'The loops are just the 1D Fenwick update and query loops nested inside each other. That simplicity is why 2D BITs are common in rectangle counting tasks.',
+    explanation: `The loops are just the 1D Fenwick update and query loops nested inside each other. Each costs ${complexity}, and that simplicity is why 2D BITs are common in rectangle counting tasks.`,
   };
 
   yield {
@@ -129,22 +135,28 @@ function* rectangleSum() {
       ],
     ),
     highlight: { active: ['a:piece'], compare: ['b:why', 'c:why'], found: ['d:why'] },
-    explanation: 'A 2D BIT returns prefix rectangles. Any query rectangle is four prefix queries combined by inclusion-exclusion.',
+    explanation: `A 2D BIT returns prefix rectangles. Any query rectangle is ${prefixQueriesPerRect} prefix queries combined by inclusion-exclusion over ${inclusionExclusionPieces} pieces.`,
   };
 
   yield {
     state: bit2dGraph('Rectangle sum is four prefix queries'),
     highlight: { active: ['prefix', 'rect', 'e-prefix-rect'], compare: ['ybit'], found: ['point'] },
-    explanation: 'Point update and rectangle sum both cost O(log n * log m). For dense moderate grids, the implementation is compact and predictable.',
+    explanation: `Point update and rectangle sum both cost ${complexity}. Each rectangle query invokes ${prefixQueriesPerRect} prefix queries, and for dense moderate grids the implementation is compact and predictable.`,
   };
 }
 
 function* compressedSparseBit() {
+  const sparseNodeCount = 6;
+  const sparseEdgeCount = 6;
+  const offlineSteps = 4;
+  const memoryCost = 'O(K log n)';
+  const operationCost = 'O(log n * log K)';
+
   yield {
     state: sparseGraph('Sparse 2D BITs compress y coordinates per x bucket'),
     highlight: { active: ['events', 'xwalk', 'collect', 'e-events-xwalk', 'e-xwalk-collect'], found: ['compress', 'small'] },
-    explanation: 'A full n by m 2D array is impossible when coordinates are large and sparse. Offline compression collects only y coordinates that will ever appear in each x bucket.',
-    invariant: 'Compression preserves coordinate order for prefix queries.',
+    explanation: `A full n by m 2D array is impossible when coordinates are large and sparse. The ${sparseNodeCount}-node compression pipeline collects only y coordinates that will ever appear in each x bucket.`,
+    invariant: `Compression preserves coordinate order for prefix queries, reducing memory to ${memoryCost} across ${sparseNodeCount} processing stages.`,
   };
 
   yield {
@@ -168,13 +180,13 @@ function* compressedSparseBit() {
       ],
     ),
     highlight: { active: ['xwalk:work', 'ys:work'], found: ['build:result'], compare: ['updates:result'] },
-    explanation: 'The compressed structure is still a Fenwick tree of Fenwick trees. The difference is that each inner tree stores only the y positions it can actually need.',
+    explanation: `The ${offlineSteps}-step offline plan builds a compressed Fenwick tree of Fenwick trees. Each inner tree stores only the y positions it can actually need, cutting memory to ${memoryCost}.`,
   };
 
   yield {
     state: sparseGraph('Queries binary-search compressed y lists'),
     highlight: { active: ['small', 'query', 'e-small-query'], compare: ['compress'], found: ['events'] },
-    explanation: 'During query or update, the outer x walk is unchanged. Inside each x bucket, binary search maps the requested y to an index in that bucket\'s compressed Fenwick array.',
+    explanation: `During query or update, the outer x walk is unchanged. Inside each x bucket, binary search maps the requested y to a compressed index, keeping each operation at ${operationCost}.`,
   };
 
   yield {
@@ -198,7 +210,7 @@ function* compressedSparseBit() {
       ],
     ),
     highlight: { active: ['sparse:fit', 'sparse:reason'], compare: ['online:reason'], found: ['range:fit'] },
-    explanation: 'Compressed 2D BITs are strongest when updates are known offline and the coordinate space is huge but touched points are few.',
+    explanation: `Compressed 2D BITs are strongest when updates are known offline and the coordinate space is huge but touched points are few — the ${sparseEdgeCount}-edge pipeline keeps total memory at ${memoryCost}.`,
   };
 }
 
@@ -218,7 +230,8 @@ export const article = {
         {type: 'callout', text: 'A 2D Fenwick tree is a prefix-sum table made dynamic: update only the rectangles that contain the changed point, then rebuild any query from disjoint stored rectangles.'},
         'Active (highlighted) nodes are the current step in the walk. Found nodes are stored summaries the algorithm has accumulated. Compare nodes mark the inclusion-exclusion pieces being subtracted or added back.',
         'Watch the direction of the walk. During an update, both x and y move upward (adding lowbit) because every larger bucket that contains the point must be repaired. During a prefix query, both move downward (subtracting lowbit) because the query decomposes its rectangle into stored, disjoint buckets.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/two-dimensional-fenwick-tree.gif', alt: 'Animated walkthrough of the two dimensional fenwick tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

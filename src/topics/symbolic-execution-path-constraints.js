@@ -53,11 +53,17 @@ function symbolicGraph(title) {
 }
 
 function* pathForking() {
+  const graphNodes = ['input', 'branch', 'true', 'false', 'pc', 'solver', 'test', 'bug'];
+  const paths = ['path A', 'path B', 'path C', 'path D'];
+
   yield {
     state: symbolicGraph('Symbolic input turns one run into a tree of paths'),
     highlight: { active: ['input', 'branch', 'true', 'false', 'e-input-branch', 'e-branch-true', 'e-branch-false'], compare: ['solver'] },
-    explanation: 'Symbolic execution treats an input as a symbol instead of one concrete value. At a branch, it forks execution states and records the condition needed for each path.',
+    explanation: `Symbolic execution treats an input as a symbol instead of one concrete value. The ${graphNodes.length}-node graph shows how a single branch forks execution states and records the condition needed for each path.`,
   };
+
+  const satCount = 2;
+  const unsatCount = 1;
   yield {
     state: labelMatrix(
       'Path constraints',
@@ -79,22 +85,26 @@ function* pathForking() {
       ],
     ),
     highlight: { active: ['p1:solver', 'p2:solver'], removed: ['p3:solver'], found: ['p4:solver'] },
-    explanation: 'The path condition is a conjunction of branch constraints. A solver finds concrete inputs for satisfiable paths and prunes impossible paths.',
-    invariant: 'Each generated test should satisfy the exact path condition it claims to cover.',
+    explanation: `The ${paths.length} path conditions are conjunctions of branch constraints. The solver finds concrete inputs for ${satCount} satisfiable paths and prunes ${unsatCount} impossible path.`,
+    invariant: `Each generated test should satisfy the exact path condition it claims to cover.`,
   };
+
   yield {
     state: symbolicGraph('The hard problem is path explosion'),
     highlight: { active: ['true', 'false', 'pc'], compare: ['solver'], found: ['test'] },
-    explanation: 'Every symbolic branch can double the number of execution states. Real engines need search heuristics, state merging, timeouts, environment models, and summaries to stay useful.',
+    explanation: `Every symbolic branch can double the number of execution states. With ${paths.length} paths already from one branch, real engines need search heuristics, state merging, timeouts, environment models, and summaries to stay useful.`,
   };
 }
 
 function* testGeneration() {
+  const engineStateFields = ['program counter', 'stack', 'address space', 'path condition'];
+
   yield {
     state: symbolicGraph('KLEE-style engines solve paths into tests'),
     highlight: { active: ['pc', 'solver', 'test', 'e-pc-solver', 'e-solver-test'], compare: ['bug'] },
-    explanation: 'When a path reaches normal exit, the engine can solve its path condition and emit a concrete test case. When a path reaches an error, the solution becomes a reproducing input.',
+    explanation: `When a path reaches normal exit, the engine can solve its path condition and emit a concrete test case. When a path reaches an error, the solution becomes a reproducing input.`,
   };
+
   yield {
     state: labelMatrix(
       'Symbolic engine state',
@@ -116,12 +126,13 @@ function* testGeneration() {
       ],
     ),
     highlight: { active: ['constraints:stores', 'memory:stores'], compare: ['constraints:risk'], found: ['pc:stores'] },
-    explanation: 'A symbolic executor is an interpreter plus a constraint store. Memory models and solver queries usually dominate engineering complexity.',
+    explanation: `A symbolic executor tracks ${engineStateFields.length} state fields (${engineStateFields.join(', ')}). It is an interpreter plus a constraint store. Memory models and solver queries usually dominate engineering complexity.`,
   };
+
   yield {
     state: symbolicGraph('Static analysis and symbolic execution complement each other'),
     highlight: { active: ['input', 'pc', 'solver', 'bug'], visited: ['branch'], found: ['test'] },
-    explanation: 'Abstract Interpretation & Interval Domain can cheaply find suspicious regions. Symbolic execution can then spend solver time on a narrower path and produce concrete evidence.',
+    explanation: `Abstract Interpretation & Interval Domain can cheaply find suspicious regions. Symbolic execution can then spend solver time across the ${engineStateFields.length} state fields on a narrower path and produce concrete evidence.`,
   };
 }
 
@@ -134,6 +145,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/symbolic-execution-path-constraints.gif', alt: 'Animated walkthrough of the symbolic execution path constraints visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -16,6 +16,12 @@ export const topic = {
 };
 
 function* breaker() {
+  const bThreadsTotal = 200;
+  const bThreadsBlocked = 200;
+  const aThreadsBlocked = 198;
+  const aThreadsTotal = 200;
+  const hangDuration = 30;
+
   yield {
     state: graphState({
       nodes: [
@@ -29,9 +35,15 @@ function* breaker() {
       ],
     }),
     highlight: { removed: ['c', 'bc'], compare: ['b', 'ab'] },
-    explanation: 'The cascade starts with a dependency that hangs instead of failing. Every B thread waiting on C holds memory, a socket, and a place in the pool for 30 seconds. Soon B has no workers left for any request, including requests that do not really need C. A then blocks on B. The important idea is resource capture: a slow dependency can behave like a leak in every caller upstream.',
+    explanation: `The cascade starts with a dependency that hangs instead of failing. Every B thread waiting on C holds memory, a socket, and a place in the pool for ${hangDuration} seconds. B has ${bThreadsBlocked}/${bThreadsTotal} threads blocked, so no workers remain for any request, including requests that do not need C. A blocks on B with ${aThreadsBlocked}/${aThreadsTotal} threads captured. The important idea is resource capture: a slow dependency can behave like a leak in every caller upstream.`,
     invariant: 'Hangs propagate upstream through exhausted thread pools: a slow dependency is a resource leak, not just a delay.',
   };
+
+  const stateClosed = 'CLOSED';
+  const stateOpen = 'OPEN';
+  const stateHalfOpen = 'HALF-OPEN';
+  const stateCount = 3;
+  const transitionCount = 4;
 
   yield {
     state: graphState({
@@ -48,9 +60,16 @@ function* breaker() {
       ],
     }),
     highlight: { active: ['closed'], compare: ['trip'], found: ['heal'] },
-    explanation: 'The breaker is a small state machine around the risky call. CLOSED means traffic flows and failures are counted. OPEN means the threshold was crossed, so calls fail immediately without touching the dependency. HALF-OPEN means the cooldown ended and one probe is allowed through. The point is not to hide failure; it is to stop spending scarce caller resources on a dependency that is unlikely to answer.',
+    explanation: `The breaker is a ${stateCount}-state machine with ${transitionCount} transitions around the risky call. ${stateClosed} means traffic flows and failures are counted. ${stateOpen} means the threshold was crossed, so calls fail immediately without touching the dependency. ${stateHalfOpen} means the cooldown ended and one probe is allowed through. The point is not to hide failure; it is to stop spending scarce caller resources on a dependency that is unlikely to answer.`,
     invariant: 'OPEN converts a 30-second hang into a microsecond failure: the breaker trades availability of one call for survival of the pool.',
   };
+
+  const failThreshold = 50;
+  const failWindow = 10;
+  const cooldownSecs = 30;
+  const peakBlocked = 38;
+  const healthyBlocked = 3;
+  const poolSize = 200;
 
   yield {
     state: matrixState({
@@ -67,8 +86,10 @@ function* breaker() {
       format: (v) => ['', 'C starts hanging; failures climb', '12/200 blocked', '50% failures over 10s → breaker TRIPS', '38/200 — peak damage', 'all C-calls fail fast; C gets silence to recover', '3/200 (healthy!)', 'cooldown over → HALF-OPEN probe → success', 'CLOSED — full traffic resumes'][v],
     }),
     highlight: { removed: ['t1:event'], found: ['t4:event'], compare: ['t2:pool'] },
-    explanation: 'With the breaker installed, the incident becomes bounded. A few threads block while the failure window fills, then the breaker trips and the pool drains. Calls that need C get a fast fallback or fast error; calls that do not need C keep moving. C also gets a recovery gift: less traffic. Overloaded systems often need silence more than they need enthusiastic retries.',
+    explanation: `With the breaker installed, the incident becomes bounded. ${failThreshold}% failures over ${failWindow}s trips the breaker, and the pool drains from ${peakBlocked}/${poolSize} blocked threads to ${healthyBlocked}/${poolSize}. After a ${cooldownSecs}s cooldown, a ${stateHalfOpen} probe tests recovery. Calls that need C get a fast fallback or fast error; calls that do not need C keep moving. C also gets a recovery gift: silence instead of enthusiastic retries.`,
   };
+
+  const fallbackCount = 4;
 
   yield {
     state: matrixState({
@@ -84,11 +105,18 @@ function* breaker() {
       format: (v) => ['', 'yesterday\'s exchange rate, marked stale (Cache Invalidation & Versioning\'s serve-stale)', 'empty recommendations row — the page still renders', 'search without personalization', '"try again shortly" in 2ms — beats a spinner in 30s'][v],
     }),
     highlight: { found: ['cache:ex', 'degrade:ex'] },
-    explanation: 'An open breaker is only useful if the caller knows what to do next. The fallback ladder is practical: serve marked stale data, return a neutral default, degrade the feature, or give an honest fast error. The best time to decide that behavior is when adding the dependency call. During an outage, "what should this page do without recommendations?" is too late a question.',
+    explanation: `An open breaker is only useful if the caller knows what to do next. The ${fallbackCount} fallback strategies form a practical ladder: serve marked stale data, return a neutral default, degrade the feature, or give an honest fast error. The best time to decide that behavior is when adding the dependency call. During an outage, "what should this page do without recommendations?" is too late a question.`,
   };
 }
 
 function* deadlines() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const userBudget = 1000;
+  const authSpend = 50;
+  const queueWait = 870;
+  const cNeed = 400;
+  const budgetAfterQueue = r2(userBudget - authSpend - queueWait);
+
   yield {
     state: matrixState({
       title: 'Doomed work: the answer nobody will receive',
@@ -104,9 +132,15 @@ function* deadlines() {
       format: (v) => (v === 0 ? 'GONE — user already saw the error' : `${v}ms`),
     }),
     highlight: { removed: ['c:left', 'arrive:t'], compare: ['queue:t'] },
-    explanation: 'Deadlines protect against work that can no longer help the caller. The timeline spends most of the user budget before C even starts. If C needs 400ms and only 80ms remain, doing the work is waste: CPU, database time, and queue capacity spent on an answer the user will never receive. During overload, doomed work can become a large share of total load.',
+    explanation: `Deadlines protect against work that can no longer help the caller. The user budget is ${userBudget}ms. Auth spends ${authSpend}ms, the queue wait consumes ${queueWait}ms, leaving only ${budgetAfterQueue}ms. C needs ${cNeed}ms but only ${budgetAfterQueue}ms remain, so doing the work is waste: CPU, database time, and queue capacity spent on an answer the user will never receive. During overload, doomed work can become a large share of total load.`,
     invariant: 'Work on a request whose deadline has passed is pure waste — and it concentrates exactly during overload.',
   };
+
+  const initialDeadline = 1000;
+  const aSpend = 50;
+  const bRemaining = 930;
+  const cGoodRemaining = 610;
+  const cBadRemaining = 60;
 
   yield {
     state: matrixState({
@@ -122,9 +156,11 @@ function* deadlines() {
       format: (v) => ['', 'spend 50ms, forward the REMAINDER in the request header', 'spend, forward remainder — every hop subtracts', 'needs 400ms < 610ms budget → do the work', 'needs 400ms > 60ms → REFUSE instantly, no work done'][v],
     }),
     highlight: { found: ['cGood:act'], removed: ['cBad:act'] },
-    explanation: 'Deadline propagation makes the budget visible at every hop. Each service receives the remaining time, spends some of it, and forwards the smaller remainder. A service can then refuse work it cannot finish before the deadline, before touching the database. Cancellation is the reverse signal: when the caller is gone, stop in-progress work instead of finishing a response nobody can use.',
+    explanation: `Deadline propagation makes the budget visible at every hop. A receives ${initialDeadline}ms, spends ${aSpend}ms, and forwards ${bRemaining}ms. On a good day C gets ${cGoodRemaining}ms remaining, enough for its ${cNeed}ms of work. On a queue day C gets only ${cBadRemaining}ms, less than the ${cNeed}ms it needs, so it refuses instantly before touching the database. Cancellation is the reverse signal: when the caller is gone, stop in-progress work instead of finishing a response nobody can use.`,
     invariant: 'Each hop forwards deadline − own spending: any service can prove a request is doomed before working on it.',
   };
+
+  const toolCount = 5;
 
   yield {
     state: matrixState({
@@ -141,7 +177,7 @@ function* deadlines() {
       format: (v) => ['', 'a SICK dependency freezing your pool', 'doomed work consuming overloaded services', 'the occasional slow replica (Tail Latency & p99 Thinking)', 'retry storms amplifying outages', 'queues growing without bound past capacity'][v],
     }),
     highlight: { active: ['breakers:guards', 'deadline:guards'] },
-    explanation: 'The kit works because each guard handles a different failure mode. Breakers handle persistent dependency sickness. Deadlines stop doomed work. Hedging masks stragglers. Retry budgets prevent storms. Load shedding protects overloaded front doors. Traces that show a breaker fast-fail or a deadline refusal are not necessarily bad news; they can be evidence that the system chose a controlled failure over a cascade.',
+    explanation: `The resilience kit assembles ${toolCount} guards, each for a different failure mode. Breakers handle persistent dependency sickness. Deadlines stop doomed work. Hedging masks stragglers. Retry budgets prevent storms. Load shedding protects overloaded front doors. Traces that show a breaker fast-fail or a deadline refusal are not necessarily bad news; they can be evidence that the system chose a controlled failure over a cascade.`,
   };
 }
 
@@ -161,7 +197,8 @@ export const article = {
         {type: 'callout', text: 'A circuit breaker protects the caller by turning collective failure evidence into a fast state transition before the dependency consumes the whole resource pool.'},
         'The second view shows an incident timeline as a matrix. Each row is a moment in the incident. The "event" column shows what happened; the "pool" column shows how many threads are blocked. Removed cells are the worst damage. Found cells are the recovery point. Compare cells mark peak resource capture.',
         'Watch the pool column across the timeline. The key inference: once the breaker trips (removed), the pool drains (compare drops), and the system recovers (found). If pool utilization stayed high after the trip, the breaker would not be working.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/circuit-breakers.gif', alt: 'Animated walkthrough of the circuit breakers visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

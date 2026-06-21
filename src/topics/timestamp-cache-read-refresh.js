@@ -57,11 +57,17 @@ function cacheGraph(title) {
 }
 
 function* timestampCache() {
+  const readTs = 50;
+  const writeTs = 40;
+  const rangeReadTs = 80;
+  const txnCount = 2;
+  const entryTypes = ['point', 'range', 'low water', 'eviction'];
+
   yield {
     state: cacheGraph('A read leaves a high-water mark in the timestamp cache'),
     highlight: { active: ['reader', 'span', 'cache', 'e-reader-span', 'e-span-cache'], compare: ['writer'] },
-    explanation: 'When a transaction reads a key or span, the leaseholder records the read timestamp in a timestamp cache. Later writers touching that span must be ordered after that read.',
-    invariant: 'A read is not only a returned value; it is a constraint on future writes.',
+    explanation: `When a transaction reads a key or span at timestamp ${readTs}, the leaseholder records that timestamp in a cache. Later writers touching that span must be ordered after ts ${readTs}.`,
+    invariant: `A read at ts ${readTs} is not only a returned value; it is a constraint on every future write to that span.`,
   };
 
   yield {
@@ -85,14 +91,14 @@ function* timestampCache() {
       ],
     ),
     highlight: { found: ['point:effect', 'range:effect'], compare: ['evict:effect'] },
-    explanation: 'The cache does not need to remember every read forever. It keeps enough high-water information to push writes that would otherwise appear before reads that already happened.',
+    explanation: `The cache tracks ${entryTypes.length} entry types. A point read at ts ${readTs} pushes writers below ${readTs}; a range read at ts ${rangeReadTs} pushes range writes below ${rangeReadTs}. Old entries are evicted to keep the cache bounded.`,
   };
 
   yield {
     state: cacheGraph('A writer below the read high-water mark is pushed forward'),
     highlight: { active: ['writer', 'cache', 'push', 'e-writer-span', 'e-cache-push'], found: ['commit'] },
-    explanation: 'If a writer wants to write at timestamp 40 but the cache says that span was read at 50, the writer cannot commit at 40. It is pushed to a timestamp after the read, preserving a serial order.',
-    invariant: 'Read-before-write becomes timestamp-before-timestamp.',
+    explanation: `If a writer wants to write at timestamp ${writeTs} but the cache says that span was read at ${readTs}, the writer cannot commit at ${writeTs}. It is pushed to a timestamp after ${readTs}, preserving serial order.`,
+    invariant: `Read at ts ${readTs} before write at ts ${writeTs} becomes: write timestamp must exceed ${readTs}.`,
   };
 
   yield {
@@ -116,16 +122,22 @@ function* timestampCache() {
       ],
     ),
     highlight: { active: ['w1:result', 'w2:result'], found: ['t1:cache', 't2:cache'] },
-    explanation: 'Serializable isolation needs read-write conflict tracking. A timestamp cache turns reads into remembered constraints so a later write cannot sneak into the past and make both transactions look valid.',
+    explanation: `Serializable isolation needs read-write conflict tracking across ${txnCount} concurrent transactions. The timestamp cache turns reads into remembered constraints so a later write cannot sneak into the past and make both T1 and T2 look valid.`,
   };
 }
 
 function* readRefresh() {
+  const originalTs = 50;
+  const commitTs = 90;
+  const interveningWriteTs = 70;
+  const refreshInterval = `${originalTs}..${commitTs}`;
+  const components = ['HLC', 'MVCC', 'timestamp cache', 'read refresh'];
+
   yield {
     state: cacheGraph('A pushed transaction can sometimes refresh instead of restarting'),
     highlight: { active: ['push', 'refresh', 'commit', 'e-cache-refresh', 'e-refresh-commit'], compare: ['writer'] },
-    explanation: 'If a transaction has to commit at a later timestamp than it originally read at, the system can re-check the read spans. If nothing changed in the interval, the transaction can still commit.',
-    invariant: 'Refresh asks: are the reads from old timestamp still valid at the new timestamp?',
+    explanation: `If a transaction read at ts ${originalTs} but must commit at ts ${commitTs}, the system re-checks the read spans over the interval ${refreshInterval}. If nothing changed, the transaction can still commit.`,
+    invariant: `Refresh asks: are the reads from ts ${originalTs} still valid at ts ${commitTs}?`,
   };
 
   yield {
@@ -149,7 +161,7 @@ function* readRefresh() {
       ],
     ),
     highlight: { found: ['clean:decision'], removed: ['dirty:decision'], active: ['push:decision'] },
-    explanation: 'Read refresh is optimistic. It avoids needless full restarts when a timestamp push did not actually invalidate the data the transaction read.',
+    explanation: `Read refresh is optimistic. It scans the interval ${refreshInterval} for conflicting writes. If no writes landed in that ${commitTs - originalTs}-timestamp window, the transaction commits at ts ${commitTs} without a full restart.`,
   };
 
   yield {
@@ -173,7 +185,7 @@ function* readRefresh() {
       ],
     ),
     highlight: { active: ['other:effect', 'refresh:effect'], removed: ['push:effect'] },
-    explanation: 'The transaction cannot place the order based on the old stock read once it is committing after a stock change. Refresh catches that the earlier read is stale and forces a retry.',
+    explanation: `T1 read stock at ts ${originalTs}, but T2 updated stock at ts ${interveningWriteTs}. When T1 tries to commit at ts ${commitTs}, refresh finds the ts ${interveningWriteTs} write in the interval ${refreshInterval} and forces a retry.`,
   };
 
   yield {
@@ -197,7 +209,7 @@ function* readRefresh() {
       ],
     ),
     highlight: { found: ['cache:role', 'refresh:role'], compare: ['hlc:failureMode'] },
-    explanation: 'The pieces are separate. HLC creates timestamps, MVCC stores versions, timestamp cache preserves read-write ordering, and read refresh decides whether a pushed transaction can safely commit.',
+    explanation: `The serializability stack has ${components.length} components: ${components.join(', ')}. Each solves one part — HLC creates timestamps, MVCC stores versions, the cache preserves read-write ordering, and refresh validates pushed transactions.`,
   };
 }
 
@@ -210,6 +222,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/timestamp-cache-read-refresh.gif', alt: 'Animated walkthrough of the timestamp cache read refresh visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

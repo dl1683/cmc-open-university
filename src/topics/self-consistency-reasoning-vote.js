@@ -75,141 +75,172 @@ function confidencePlot() {
 }
 
 function* samplePaths() {
-  yield {
-    state: voteGraph('Self-consistency replaces one path with a committee'),
-    highlight: { active: ['prompt', 'sample', 'p1', 'p2', 'p3', 'p4'], found: ['vote'] },
-    explanation: 'A single chain-of-thought decode can make an early arithmetic or commonsense mistake. Self-consistency samples several reasoning paths, then asks which final answer appears most consistently.',
-    invariant: 'The unit being voted on is the final answer, not the exact wording of the trace.',
-  };
+  {
+    const hl = { active: ['prompt', 'sample', 'p1', 'p2', 'p3', 'p4'], found: ['vote'] };
+    const pathCount = hl.active.filter(id => id.startsWith('p')).length;
+    yield {
+      state: voteGraph('Self-consistency replaces one path with a committee'),
+      highlight: hl,
+      explanation: `A single chain-of-thought decode can make an early arithmetic or commonsense mistake. Self-consistency samples ${pathCount} reasoning paths through ${hl.active.length} active nodes, then asks which final answer appears most consistently.`,
+      invariant: 'The unit being voted on is the final answer, not the exact wording of the trace.',
+    };
+  }
 
-  yield {
-    state: labelMatrix(
-      'Sampled paths',
-      [
-        { id: 'p1', label: 'p1' },
-        { id: 'p2', label: 'p2' },
-        { id: 'p3', label: 'p3' },
-        { id: 'p4', label: 'p4' },
-        { id: 'p5', label: 'p5' },
-      ],
-      [
-        { id: 'route', label: 'route' },
-        { id: 'ans', label: 'ans' },
-      ],
-      [
+  {
+    const rows = [
+      { id: 'p1', label: 'p1' },
+      { id: 'p2', label: 'p2' },
+      { id: 'p3', label: 'p3' },
+      { id: 'p4', label: 'p4' },
+      { id: 'p5', label: 'p5' },
+    ];
+    const cols = [
+      { id: 'route', label: 'route' },
+      { id: 'ans', label: 'ans' },
+    ];
+    const hl = { active: ['p1:ans', 'p2:ans', 'p4:ans'], compare: ['p3:ans', 'p5:ans'] };
+    const agreeing = hl.active.map(c => c.split(':')[0]);
+    yield {
+      state: labelMatrix('Sampled paths', rows, cols, [
         ['5+6', '11'],
         ['2*3+5', '11'],
         ['bad sub', '14'],
         ['cans first', '11'],
         ['miss can', '8'],
-      ],
-    ),
-    highlight: { active: ['p1:ans', 'p2:ans', 'p4:ans'], compare: ['p3:ans', 'p5:ans'] },
-    explanation: 'Different paths can use different wording and intermediate arithmetic while landing on the same answer. The vote groups paths p1, p2, and p4 under answer 11.',
-  };
+      ]),
+      highlight: hl,
+      explanation: `Different paths can use different wording and intermediate arithmetic while landing on the same answer. The vote groups ${hl.active.length} paths (${agreeing.join(', ')}) under answer 11 across a ${rows.length}×${cols.length} matrix, while ${hl.compare.length} paths disagree.`,
+    };
+  }
 
-  yield {
-    state: voteGraph('Bucket by answer before choosing'),
-    highlight: { active: ['bucket', 'vote', 'answer', 'e-bucket-vote', 'e-vote-answer'], found: ['p1', 'p2', 'p4'], compare: ['p3'] },
-    explanation: 'The algorithm marginalizes over reasoning paths: sum support for each final answer, then choose the answer with the strongest support. It is a decoding-time trick, not model retraining.',
-  };
+  {
+    const hl = { active: ['bucket', 'vote', 'answer', 'e-bucket-vote', 'e-vote-answer'], found: ['p1', 'p2', 'p4'], compare: ['p3'] };
+    const winningPaths = hl.found.join(', ');
+    yield {
+      state: voteGraph('Bucket by answer before choosing'),
+      highlight: hl,
+      explanation: `The algorithm marginalizes over reasoning paths: sum support for each final answer, then choose the answer with the strongest support. Paths ${winningPaths} (${hl.found.length} of ${hl.found.length + hl.compare.length}) win the bucket while ${hl.compare.length} path disagrees. It is a decoding-time trick, not model retraining.`,
+    };
+  }
 
-  yield {
-    state: confidencePlot(),
-    highlight: { active: ['clear', 'stable'], compare: ['ambig', 'weak'] },
-    explanation: 'More samples can stabilize the majority on clear problems. If the vote remains split, the system has learned something useful too: this is a candidate for verifier search, retrieval, tool use, or human review.',
-  };
+  {
+    const hl = { active: ['clear', 'stable'], compare: ['ambig', 'weak'] };
+    const stableSeries = hl.active.join(', ');
+    const weakSeries = hl.compare.join(', ');
+    yield {
+      state: confidencePlot(),
+      highlight: hl,
+      explanation: `More samples can stabilize the majority on clear problems (series ${stableSeries}, ${hl.active.length} highlighted). If the vote remains split (series ${weakSeries}), the system has learned something useful too: this is a candidate for verifier search, retrieval, tool use, or human review.`,
+    };
+  }
 
-  yield {
-    state: voteGraph('Correlated errors can still win the vote', { p1: 'wrong', p2: 'wrong', p3: 'right', p4: 'wrong', bucket: 'biased', answer: 'wrong' }),
-    highlight: { active: ['p1', 'p2', 'p4', 'vote', 'answer'], removed: ['p3'], compare: ['bucket'] },
-    explanation: 'Self-consistency helps when errors are diverse. It fails when samples share the same misconception, prompt bias, or missing fact. Agreement is evidence, not a correctness guarantee.',
-  };
+  {
+    const hl = { active: ['p1', 'p2', 'p4', 'vote', 'answer'], removed: ['p3'], compare: ['bucket'] };
+    const wrongPaths = hl.active.filter(id => id.startsWith('p'));
+    const removedPaths = hl.removed;
+    yield {
+      state: voteGraph('Correlated errors can still win the vote', { p1: 'wrong', p2: 'wrong', p3: 'right', p4: 'wrong', bucket: 'biased', answer: 'wrong' }),
+      highlight: hl,
+      explanation: `Self-consistency helps when errors are diverse. It fails when ${wrongPaths.length} paths (${wrongPaths.join(', ')}) share the same misconception while ${removedPaths.length} correct path (${removedPaths.join(', ')}) is outvoted. Agreement is evidence, not a correctness guarantee.`,
+    };
+  }
 }
 
 function* answerMarginalization() {
-  yield {
-    state: labelMatrix(
-      'Marginalize answers',
-      [
-        { id: 'a11', label: '11' },
-        { id: 'a14', label: '14' },
-        { id: 'a8', label: '8' },
-      ],
-      [
-        { id: 'count', label: 'count' },
-        { id: 'share', label: 'share' },
-      ],
-      [
+  {
+    const rows = [
+      { id: 'a11', label: '11' },
+      { id: 'a14', label: '14' },
+      { id: 'a8', label: '8' },
+    ];
+    const cols = [
+      { id: 'count', label: 'count' },
+      { id: 'share', label: 'share' },
+    ];
+    const hl = { found: ['a11:count', 'a11:share'], compare: ['a14:share', 'a8:share'] };
+    const winnerLabel = rows[0].label;
+    yield {
+      state: labelMatrix('Marginalize answers', rows, cols, [
         ['3', '60%'],
         ['1', '20%'],
         ['1', '20%'],
-      ],
-    ),
-    highlight: { found: ['a11:count', 'a11:share'], compare: ['a14:share', 'a8:share'] },
-    explanation: 'After sampling five paths, answer 11 gets three votes. The model did not prove 11; it gave 11 more independent support under this sampling distribution.',
-  };
+      ]),
+      highlight: hl,
+      explanation: `After sampling five paths, answer ${winnerLabel} gets three votes across a ${rows.length}×${cols.length} matrix with ${hl.found.length} winning cells highlighted. The model did not prove ${winnerLabel}; it gave ${winnerLabel} more independent support while ${hl.compare.length} cells show minority answers.`,
+    };
+  }
 
-  yield {
-    state: voteGraph('Self-consistency is a cheap uncertainty wrapper', { sample: 'N paths', bucket: 'counts', vote: 'margin', answer: 'route?' }),
-    highlight: { active: ['sample', 'bucket', 'vote'], found: ['answer'] },
-    explanation: 'The vote margin becomes an operational signal. A 9 of 10 majority can go through a cheap path. A 4-3-3 split should trigger a verifier, a retrieval pass, or a larger budget.',
-    invariant: 'Use disagreement to route work, not just to pick an answer.',
-  };
+  {
+    const hl = { active: ['sample', 'bucket', 'vote'], found: ['answer'] };
+    const pipelineNodes = hl.active.join(' -> ');
+    yield {
+      state: voteGraph('Self-consistency is a cheap uncertainty wrapper', { sample: 'N paths', bucket: 'counts', vote: 'margin', answer: 'route?' }),
+      highlight: hl,
+      explanation: `The vote margin becomes an operational signal across the ${hl.active.length}-node pipeline (${pipelineNodes}) leading to ${hl.found.length} output node (${hl.found.join(', ')}). A 9 of 10 majority can go through a cheap path. A 4-3-3 split should trigger a verifier, a retrieval pass, or a larger budget.`,
+      invariant: 'Use disagreement to route work, not just to pick an answer.',
+    };
+  }
 
-  yield {
-    state: labelMatrix(
-      'Routing policy',
-      [
-        { id: 'strong', label: 'strong' },
-        { id: 'split', label: 'split' },
-        { id: 'unsafe', label: 'unsafe' },
-        { id: 'costly', label: 'costly' },
-      ],
-      [
-        { id: 'signal', label: 'signal' },
-        { id: 'next', label: 'next' },
-      ],
-      [
+  {
+    const rows = [
+      { id: 'strong', label: 'strong' },
+      { id: 'split', label: 'split' },
+      { id: 'unsafe', label: 'unsafe' },
+      { id: 'costly', label: 'costly' },
+    ];
+    const cols = [
+      { id: 'signal', label: 'signal' },
+      { id: 'next', label: 'next' },
+    ];
+    const hl = { active: ['split:next', 'unsafe:next'], found: ['strong:next'] };
+    const escalationRows = hl.active.map(c => c.split(':')[0]);
+    yield {
+      state: labelMatrix('Routing policy', rows, cols, [
         ['high margin', 'ship'],
         ['low margin', 'verify'],
         ['high stakes', 'escalate'],
         ['budget cap', 'stop'],
-      ],
-    ),
-    highlight: { active: ['split:next', 'unsafe:next'], found: ['strong:next'] },
-    explanation: 'A production system should not blindly increase samples. It should route by confidence, stakes, cost, and the availability of stronger checks such as tests, calculators, or domain validators.',
-  };
+      ]),
+      highlight: hl,
+      explanation: `A production system with ${rows.length} routing tiers and ${cols.length} columns should not blindly increase samples. The ${escalationRows.join(', ')} cases (${hl.active.length} cells) need escalation, while ${hl.found.length} cell (${hl.found.join(', ')}) marks the ship path.`,
+    };
+  }
 
-  yield {
-    state: labelMatrix(
-      'Compared with other search',
-      [
-        { id: 'greedy', label: 'greedy' },
-        { id: 'beam', label: 'beam' },
-        { id: 'self', label: 'self-con' },
-        { id: 'tot', label: 'ToT' },
-      ],
-      [
-        { id: 'keeps', label: 'keeps' },
-        { id: 'selects', label: 'selects' },
-      ],
-      [
+  {
+    const rows = [
+      { id: 'greedy', label: 'greedy' },
+      { id: 'beam', label: 'beam' },
+      { id: 'self', label: 'self-con' },
+      { id: 'tot', label: 'ToT' },
+    ];
+    const cols = [
+      { id: 'keeps', label: 'keeps' },
+      { id: 'selects', label: 'selects' },
+    ];
+    const hl = { active: ['self:keeps', 'self:selects'], compare: ['greedy:keeps', 'tot:keeps'] };
+    const selfLabel = rows.find(r => r.id === 'self').label;
+    const comparedMethods = hl.compare.map(c => c.split(':')[0]);
+    yield {
+      state: labelMatrix('Compared with other search', rows, cols, [
         ['1 path', 'top prob'],
         ['k prefix', 'score'],
         ['N paths', 'vote'],
         ['tree', 'value'],
-      ],
-    ),
-    highlight: { active: ['self:keeps', 'self:selects'], compare: ['greedy:keeps', 'tot:keeps'] },
-    explanation: 'Self-consistency does not guide generation step by step. It samples full paths independently, then votes. Tree of Thoughts goes further by evaluating intermediate states and deciding where to branch next.',
-  };
+      ]),
+      highlight: hl,
+      explanation: `${selfLabel} does not guide generation step by step across ${rows.length} methods. It samples full paths independently, then votes (${hl.active.length} cells highlighted). Compare with ${comparedMethods.join(' and ')} (${hl.compare.length} cells): Tree of Thoughts goes further by evaluating intermediate states and deciding where to branch next.`,
+    };
+  }
 
-  yield {
-    state: voteGraph('The data structure is simple: map answer -> support'),
-    highlight: { active: ['bucket', 'vote'], found: ['answer'] },
-    explanation: 'The implementation can be a hash map from normalized answer to count or weighted score. The hard parts are answer normalization, sample diversity, and deciding when agreement is strong enough.',
-  };
+  {
+    const hl = { active: ['bucket', 'vote'], found: ['answer'] };
+    const coreNodes = hl.active.join(', ');
+    yield {
+      state: voteGraph('The data structure is simple: map answer -> support'),
+      highlight: hl,
+      explanation: `The implementation can be a hash map from normalized answer to count or weighted score, driven by ${hl.active.length} core nodes (${coreNodes}) producing ${hl.found.length} output (${hl.found.join(', ')}). The hard parts are answer normalization, sample diversity, and deciding when agreement is strong enough.`,
+    };
+  }
 }
 
 export function* run(input) {
@@ -221,6 +252,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/self-consistency-reasoning-vote.gif', alt: 'Animated walkthrough of the self consistency reasoning vote visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

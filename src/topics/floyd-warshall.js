@@ -136,7 +136,8 @@ export const article = {
         'Each round introduces one intermediate vertex k. The algorithm highlights row k and column k because those are the two legs of any detour through k: the cost to reach k (column k) and the cost to leave k (row k). For every other cell (i,j), the algorithm checks whether dist[i][k] + dist[k][j] is cheaper than the current dist[i][j].',
         {type: 'callout', text: 'Floyd-Warshall turns one allowed intermediate vertex into a global matrix update: every cell asks whether routing through k makes its current path cheaper.'},
         'Green cells are improvements: a cheaper path was found by routing through k. After all V rounds, every vertex has been tried as an intermediate, and no cell can improve further. The diagonal stays zero unless the graph contains a negative-weight cycle, in which case the affected diagonal entry drops below zero.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/floyd-warshall.gif', alt: 'Animated walkthrough of the floyd warshall visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

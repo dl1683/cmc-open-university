@@ -150,7 +150,8 @@ export const article = {
         'The pass number appears at the top of each scan. After V−1 passes, a final check pass runs. If any edge still reduces a distance on that extra pass, a negative cycle exists and the affected shortest paths are undefined.',
         'Pay special attention to edge B→C with weight −2. This negative edge is why the algorithm exists. Watch how it reduces C\'s distance below the direct A→C path of cost 4, producing a final distance of −1 for C. Dijkstra would finalize C at 4 and never reconsider it.',
         {type: 'callout', text: 'Bellman-Ford replaces greedy finalization with repeated relaxation so negative edges can revise earlier distance beliefs.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/bellman-ford.gif', alt: 'Animated walkthrough of the bellman ford visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

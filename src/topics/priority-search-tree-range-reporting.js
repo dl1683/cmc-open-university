@@ -3,6 +3,8 @@
 
 import { graphState, matrixState, InputError } from '../core/state.js';
 
+const r2 = (v) => Math.round(v * 100) / 100;
+
 export const topic = {
   id: 'priority-search-tree-range-reporting',
   title: 'Priority Search Tree Range Reporting',
@@ -53,26 +55,31 @@ function pstGraph(title) {
 }
 
 function* xOrderYHeap() {
+  const g1 = pstGraph('Priority search tree: BST by x, heap by y');
+  const h1 = { active: ['p6', 'p3', 'p8'], found: ['p6'] };
   yield {
-    state: pstGraph('Priority search tree: BST by x, heap by y'),
-    highlight: { active: ['p6', 'p3', 'p8'], found: ['p6'] },
-    explanation: 'A priority search tree stores 2D points in one tree with two invariants: x-order supports binary-search splitting, while y-heap order puts the smallest y in each subtree near the top.',
+    state: g1,
+    highlight: h1,
+    explanation: `A priority search tree stores ${g1.nodes.length} points in one tree with ${h1.active.length} active nodes highlighted and ${h1.found.length} found root: x-order supports binary-search splitting, while y-heap order puts the smallest y in each subtree near the top.`,
     invariant: 'In-order traversal is sorted by x, and every subtree root has the minimum y point in that subtree.',
   };
 
+  const matRows1 = [
+    { id: 'xorder', label: 'x order' },
+    { id: 'yheap', label: 'y heap' },
+    { id: 'space', label: 'space' },
+    { id: 'query', label: 'query' },
+  ];
+  const matCols1 = [
+    { id: 'job', label: 'job' },
+    { id: 'payoff', label: 'payoff' },
+  ];
+  const h2 = { active: ['xorder:payoff', 'yheap:payoff'], found: ['query:payoff'] };
   yield {
     state: labelMatrix(
       'Two invariants in one tree',
-      [
-        { id: 'xorder', label: 'x order' },
-        { id: 'yheap', label: 'y heap' },
-        { id: 'space', label: 'space' },
-        { id: 'query', label: 'query' },
-      ],
-      [
-        { id: 'job', label: 'job' },
-        { id: 'payoff', label: 'payoff' },
-      ],
+      matRows1,
+      matCols1,
       [
         ['split by x interval', 'search-tree path'],
         ['prune by y bound', 'priority queue test'],
@@ -80,29 +87,34 @@ function* xOrderYHeap() {
         ['three-sided box', 'O(log n + k)'],
       ],
     ),
-    highlight: { active: ['xorder:payoff', 'yheap:payoff'], found: ['query:payoff'] },
-    explanation: 'The structure is a deliberate hybrid. A Range Tree stores associated catalogs; a priority search tree folds one priority dimension directly into the tree.',
+    highlight: h2,
+    explanation: `The ${matRows1.length}×${matCols1.length} matrix shows the structure is a deliberate hybrid with ${h2.active.length} active payoff cells. A Range Tree stores associated catalogs; a priority search tree folds one priority dimension directly into the tree.`,
   };
 
+  const g3 = pstGraph('The root is the best y candidate of the whole set');
+  const h3 = { found: ['p6'], compare: ['p1', 'p4', 'p7', 'p9'], active: ['p3', 'p8'] };
   yield {
-    state: pstGraph('The root is the best y candidate of the whole set'),
-    highlight: { found: ['p6'], compare: ['p1', 'p4', 'p7', 'p9'], active: ['p3', 'p8'] },
-    explanation: 'If a subtree root has y above the query bound, then every point below it has y above the bound too. That heap invariant is the pruning lever.',
+    state: g3,
+    highlight: h3,
+    explanation: `If a subtree root has y above the query bound, then every point below it has y above the bound too. With ${h3.compare.length} leaf nodes compared and ${h3.active.length} active children, the heap invariant is the pruning lever across all ${g3.edges.length} edges.`,
   };
 
+  const matRows2 = [
+    { id: 'range', label: 'Range Tree' },
+    { id: 'pst', label: 'Priority ST' },
+    { id: 'kdtree', label: 'k-d Tree' },
+    { id: 'heap', label: 'Binary Heap' },
+  ];
+  const matCols2 = [
+    { id: 'strength', label: 'strength' },
+    { id: 'limit', label: 'limit' },
+  ];
+  const h4 = { found: ['pst:strength', 'pst:limit'], compare: ['range:limit', 'heap:limit'] };
   yield {
     state: labelMatrix(
       'Compared with neighbors',
-      [
-        { id: 'range', label: 'Range Tree' },
-        { id: 'pst', label: 'Priority ST' },
-        { id: 'kdtree', label: 'k-d Tree' },
-        { id: 'heap', label: 'Binary Heap' },
-      ],
-      [
-        { id: 'strength', label: 'strength' },
-        { id: 'limit', label: 'limit' },
-      ],
+      matRows2,
+      matCols2,
       [
         ['full rectangles', 'more space'],
         ['3-sided queries', 'special shape'],
@@ -110,33 +122,38 @@ function* xOrderYHeap() {
         ['global minimum', 'no x range'],
       ],
     ),
-    highlight: { found: ['pst:strength', 'pst:limit'], compare: ['range:limit', 'heap:limit'] },
-    explanation: 'Priority search trees are not general replacements for range trees. They are excellent when the query is three-sided, such as x in [a,b] and y at most c.',
+    highlight: h4,
+    explanation: `Across ${matRows2.length} competing structures with ${h4.found.length} cells found for Priority ST, priority search trees are not general replacements for range trees. They are excellent when the query is three-sided, such as x in [a,b] and y at most c.`,
   };
 }
 
 function* threeSidedQuery() {
+  const g1 = pstGraph('Query x[2,8], y <= 4');
+  const h1 = { active: ['query', 'p6', 'p3', 'p8'], found: ['p6', 'p3', 'p8', 'p7'], compare: ['p1', 'p4', 'p9'] };
   yield {
-    state: pstGraph('Query x[2,8], y <= 4'),
-    highlight: { active: ['query', 'p6', 'p3', 'p8'], found: ['p6', 'p3', 'p8', 'p7'], compare: ['p1', 'p4', 'p9'] },
-    explanation: 'The example query asks for points whose x is between 2 and 8 and whose y is at most 4. The answer is p3, p6, p7, and p8. Points p1, p4, and p9 fail either x or y.',
+    state: g1,
+    highlight: h1,
+    explanation: `The example query asks for points whose x is between 2 and 8 and whose y is at most 4. The answer has ${h1.found.length} points: p3, p6, p7, and p8. The ${h1.compare.length} compared points (p1, p4, p9) fail either x or y.`,
     invariant: 'Reporting cost is output-sensitive: after the search path, every reported point contributes one unit of work.',
   };
 
+  const procRows = [
+    { id: 'split', label: 'split by x' },
+    { id: 'left', label: 'left path' },
+    { id: 'right', label: 'right path' },
+    { id: 'heap', label: 'heap prune' },
+    { id: 'emit', label: 'emit' },
+  ];
+  const procCols = [
+    { id: 'test', label: 'test' },
+    { id: 'effect', label: 'effect' },
+  ];
+  const h2 = { active: ['split:effect', 'heap:effect'], found: ['emit:effect'] };
   yield {
     state: labelMatrix(
       'Three-sided query procedure',
-      [
-        { id: 'split', label: 'split by x' },
-        { id: 'left', label: 'left path' },
-        { id: 'right', label: 'right path' },
-        { id: 'heap', label: 'heap prune' },
-        { id: 'emit', label: 'emit' },
-      ],
-      [
-        { id: 'test', label: 'test' },
-        { id: 'effect', label: 'effect' },
-      ],
+      procRows,
+      procCols,
       [
         ['x interval', 'find boundary paths'],
         ['canonical right subtrees', 'inside x range'],
@@ -145,29 +162,34 @@ function* threeSidedQuery() {
         ['point in bounds', 'report k'],
       ],
     ),
-    highlight: { active: ['split:effect', 'heap:effect'], found: ['emit:effect'] },
-    explanation: 'Like a range tree, the x dimension creates canonical subtrees. Unlike a range tree, the y condition is handled by heap pruning instead of searching associated y-lists.',
+    highlight: h2,
+    explanation: `The ${procRows.length}-step procedure with ${h2.active.length} active phases works like a range tree on the x dimension to create canonical subtrees. Unlike a range tree, the y condition is handled by heap pruning instead of searching associated y-lists.`,
   };
 
+  const g3 = pstGraph('A y-bound prunes entire subtrees');
+  const h3 = { active: ['p4', 'p9'], removed: ['p4', 'p9'], found: ['p7', 'p8'] };
   yield {
-    state: pstGraph('A y-bound prunes entire subtrees'),
-    highlight: { active: ['p4', 'p9'], removed: ['p4', 'p9'], found: ['p7', 'p8'] },
-    explanation: 'Because p4 has y=5 and p9 has y=7, subtrees rooted at those nodes cannot contain any point with y<=4 under min-y heap order. They are cut off immediately.',
+    state: g3,
+    highlight: h3,
+    explanation: `Because ${h3.removed.length} nodes are pruned (p4 with y=5, p9 with y=7), subtrees rooted at those nodes cannot contain any point with y<=4 under min-y heap order. Meanwhile ${h3.found.length} points pass and are reported.`,
   };
 
+  const perfRows = [
+    { id: 'build', label: 'build' },
+    { id: 'space', label: 'space' },
+    { id: 'query', label: 'query' },
+    { id: 'dynamic', label: 'dynamic' },
+  ];
+  const perfCols = [
+    { id: 'bound', label: 'bound' },
+    { id: 'note', label: 'note' },
+  ];
+  const h4 = { found: ['space:bound', 'query:bound'], compare: ['dynamic:note'] };
   yield {
     state: labelMatrix(
       'Performance shape',
-      [
-        { id: 'build', label: 'build' },
-        { id: 'space', label: 'space' },
-        { id: 'query', label: 'query' },
-        { id: 'dynamic', label: 'dynamic' },
-      ],
-      [
-        { id: 'bound', label: 'bound' },
-        { id: 'note', label: 'note' },
-      ],
+      perfRows,
+      perfCols,
       [
         ['O(n log n)', 'sort/select points'],
         ['O(n)', 'one node per point'],
@@ -175,25 +197,28 @@ function* threeSidedQuery() {
         ['possible', 'more machinery'],
       ],
     ),
-    highlight: { found: ['space:bound', 'query:bound'], compare: ['dynamic:note'] },
-    explanation: 'The linear-space bound is the selling point. Full 2D range trees give more general rectangles but spend more memory on associated structures.',
+    highlight: h4,
+    explanation: `The ${perfRows.length} performance metrics show ${h4.found.length} highlighted bounds: linear space is the selling point. Full 2D range trees give more general rectangles but spend more memory on associated structures.`,
   };
 }
 
 function* intervalCaseStudy() {
+  const intRows = [
+    { id: 'i1', label: '[1,6]' },
+    { id: 'i2', label: '[3,5]' },
+    { id: 'i3', label: '[7,9]' },
+    { id: 'q', label: 'query [4,8]' },
+  ];
+  const intCols = [
+    { id: 'point', label: '(start,end)' },
+    { id: 'condition', label: 'intersects?' },
+  ];
+  const h1 = { active: ['q:condition'], found: ['i1:condition', 'i2:condition', 'i3:condition'] };
   yield {
     state: labelMatrix(
       'Interval intersection as points',
-      [
-        { id: 'i1', label: '[1,6]' },
-        { id: 'i2', label: '[3,5]' },
-        { id: 'i3', label: '[7,9]' },
-        { id: 'q', label: 'query [4,8]' },
-      ],
-      [
-        { id: 'point', label: '(start,end)' },
-        { id: 'condition', label: 'intersects?' },
-      ],
+      intRows,
+      intCols,
       [
         ['(1,6)', 'start<=8 and end>=4'],
         ['(3,5)', 'start<=8 and end>=4'],
@@ -201,29 +226,34 @@ function* intervalCaseStudy() {
         ['-', 'three-sided after transform'],
       ],
     ),
-    highlight: { active: ['q:condition'], found: ['i1:condition', 'i2:condition', 'i3:condition'] },
-    explanation: 'An interval [l,r] can be represented as a point (l,r). Intersecting a query interval [a,b] means l <= b and r >= a. With a coordinate flip, that becomes a three-sided range query.',
+    highlight: h1,
+    explanation: `Each of the ${intRows.length - 1} intervals maps to a point (l,r). With ${h1.found.length} intersections found, the query condition l <= b and r >= a becomes a three-sided range query after a coordinate flip.`,
   };
 
+  const g2 = pstGraph('Priority search tree as an interval-intersection engine');
+  const h2 = { active: ['query', 'p6', 'p8'], found: ['p3', 'p6', 'p7', 'p8'] };
   yield {
-    state: pstGraph('Priority search tree as an interval-intersection engine'),
-    highlight: { active: ['query', 'p6', 'p8'], found: ['p3', 'p6', 'p7', 'p8'] },
-    explanation: 'This is why priority search trees appear in computational geometry and interval-query literature. They turn an interval query into x filtering plus one heap-style priority threshold.',
+    state: g2,
+    highlight: h2,
+    explanation: `With ${h2.active.length} active traversal nodes and ${h2.found.length} results reported from ${g2.nodes.length} total nodes, this is why priority search trees appear in computational geometry. They turn an interval query into x filtering plus one heap-style priority threshold.`,
   };
 
+  const decRows = [
+    { id: 'calendar', label: 'calendar' },
+    { id: 'geometry', label: 'geometry' },
+    { id: 'database', label: 'database' },
+    { id: 'visual', label: 'viewport' },
+  ];
+  const decCols = [
+    { id: 'need', label: 'need' },
+    { id: 'fit', label: 'fit' },
+  ];
+  const h3 = { found: ['geometry:fit', 'visual:fit'], compare: ['calendar:fit', 'database:fit'] };
   yield {
     state: labelMatrix(
       'Case-study decision',
-      [
-        { id: 'calendar', label: 'calendar' },
-        { id: 'geometry', label: 'geometry' },
-        { id: 'database', label: 'database' },
-        { id: 'visual', label: 'viewport' },
-      ],
-      [
-        { id: 'need', label: 'need' },
-        { id: 'fit', label: 'fit' },
-      ],
+      decRows,
+      decCols,
       [
         ['overlap one axis', 'Interval Tree'],
         ['3-sided report', 'Priority ST'],
@@ -231,8 +261,8 @@ function* intervalCaseStudy() {
         ['static points', 'Range Tree/PST'],
       ],
     ),
-    highlight: { found: ['geometry:fit', 'visual:fit'], compare: ['calendar:fit', 'database:fit'] },
-    explanation: 'Priority search trees are best read as a specialized exact tool. They complement Interval Tree, Range Tree, R-Tree, and k-d Tree rather than replacing them.',
+    highlight: h3,
+    explanation: `Across ${decRows.length} use cases with ${h3.found.length} strong fits and ${h3.compare.length} alternatives compared, priority search trees are best read as a specialized exact tool complementing Interval Tree, Range Tree, R-Tree, and k-d Tree.`,
   };
 }
 
@@ -246,6 +276,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/priority-search-tree-range-reporting.gif', alt: 'Animated walkthrough of the priority search tree range reporting visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

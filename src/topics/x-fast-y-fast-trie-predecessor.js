@@ -77,11 +77,18 @@ function yFastGraph(title) {
 }
 
 function* xFastLevelSearch() {
+  const queryKey = '1010';
+  const w = queryKey.length;
+  const levels = w + 1;
+  const predKey = '1001';
+  const succKey = '1100';
+  const prefixes = ['""', '"1"', '"10"', '"101"', '"1010"'];
+
   yield {
     state: xFastGraph('X-fast stores every trie level in hash tables'),
     highlight: { active: ['q', 'l1', 'l2'], found: ['pred', 'succ'] },
-    explanation: 'An X-fast trie is a binary trie over fixed-width integer keys, but every level has a hash table of prefixes. A query binary-searches the levels to find the deepest prefix that exists.',
-    invariant: 'Every real leaf has all of its prefixes registered in the level-search structure.',
+    explanation: `An X-fast trie is a binary trie over fixed-width integer keys, but every level (${levels} levels for ${w}-bit keys) has a hash table of prefixes. A query binary-searches the levels to find the deepest prefix that exists.`,
+    invariant: `Every real leaf has all ${levels} of its prefixes registered in the level-search structure.`,
   };
 
   yield {
@@ -107,13 +114,13 @@ function* xFastLevelSearch() {
       ],
     ),
     highlight: { active: ['p2:hash', 'p3:hash'], found: ['p2:meaning'], compare: ['p4:meaning'] },
-    explanation: 'The level search is the trick. Instead of walking all w bits, it probes prefix lengths by binary search. That gives O(log w), which is O(log log U) when U is the integer universe.',
+    explanation: `The level search is the trick. Instead of walking all ${w} bits of query ${queryKey}, it probes ${levels} prefix lengths (${prefixes.join(', ')}) by binary search. That gives O(log ${w}), which is O(log log U) when U = 2^${w}.`,
   };
 
   yield {
     state: xFastGraph('Descendant pointers turn the boundary into an answer'),
     highlight: { active: ['l2', 'miss', 'e-l3-miss'], found: ['pred', 'succ', 'leaves'] },
-    explanation: 'Once the lowest existing ancestor is known, the missing side tells where the query would have gone. Descendant pointers and the leaf linked list recover predecessor or successor in constant additional time.',
+    explanation: `Once the lowest existing ancestor is known, the missing side tells where query ${queryKey} would have gone. Descendant pointers and the leaf linked list recover predecessor ${predKey} or successor ${succKey} in constant additional time.`,
   };
 
   yield {
@@ -137,16 +144,23 @@ function* xFastLevelSearch() {
       ],
     ),
     highlight: { found: ['query:bound', 'lesson:why'], compare: ['space:bound', 'update:bound'] },
-    explanation: 'X-fast tries show how integer keys beat comparison trees, but the space bill is high because every key contributes many prefixes. Y-fast tries keep the query idea and fix the space.',
+    explanation: `X-fast tries show how ${w}-bit integer keys beat comparison trees, but the space bill is high because every key contributes ${w} prefixes. Y-fast tries keep the O(log log U) query idea and fix the space to O(n).`,
   };
 }
 
 function* yFastIndirection() {
+  const queryVal = 53;
+  const reps = [16, 48, 80];
+  const chosenRep = reps[1];
+  const answerKey = 56;
+  const numReps = reps.length;
+  const bucketTarget = 'O(log U)';
+
   yield {
     state: yFastGraph('Y-fast adds indirection: representatives above, buckets below'),
     highlight: { active: ['query', 'top', 'rep48'], found: ['b1', 'bst'] },
-    explanation: 'A Y-fast trie samples representatives into an X-fast trie. The actual keys live in small balanced buckets of consecutive values. This is indirection: a sparse top index points to dense local structures.',
-    invariant: 'Each bucket is kept around O(log U) keys, so searching inside a bucket costs O(log log U).',
+    explanation: `A Y-fast trie samples ${numReps} representatives (${reps.join(', ')}) into an X-fast trie. The actual keys live in small balanced buckets of consecutive values. This is indirection: a sparse top index points to dense local structures.`,
+    invariant: `Each bucket is kept around ${bucketTarget} keys, so searching inside a bucket costs O(log log U).`,
   };
 
   yield {
@@ -170,7 +184,7 @@ function* yFastIndirection() {
       ],
     ),
     highlight: { active: ['rep:cost', 'bucket:cost'], found: ['answer:work'] },
-    explanation: 'The representative found by the top index is enough to identify one or two candidate buckets. Because buckets are small, ordinary balanced-tree search inside them preserves the log-log bound.',
+    explanation: `The representative found by the top index (rep ${chosenRep} for query ${queryVal}) is enough to identify one or two candidate buckets. Because buckets hold at most ${bucketTarget} keys, ordinary balanced-tree search inside them preserves the log-log bound.`,
   };
 
   yield {
@@ -194,7 +208,7 @@ function* yFastIndirection() {
       ],
     ),
     highlight: { found: ['large:repair', 'small:repair'], active: ['insert:event', 'delete:event'] },
-    explanation: 'Y-fast tries pay update work only when buckets drift too far from their target size. The top X-fast index has only one representative per bucket, so total space becomes linear.',
+    explanation: `Y-fast tries pay update work only when buckets drift too far from their target size of ${bucketTarget}. The top X-fast index has only ${numReps} representatives (one per bucket), so total space becomes O(n).`,
   };
 
   yield {
@@ -218,11 +232,19 @@ function* yFastIndirection() {
       ],
     ),
     highlight: { found: ['yfast:query', 'veb:query'], compare: ['bst:query', 'skip:query'] },
-    explanation: 'The important comparison is not only speed. X-fast/Y-fast tries require bounded integer keys and careful hashing. Balanced trees and skip lists work for arbitrary comparable keys.',
+    explanation: `The important comparison is not only speed. X-fast/Y-fast tries require bounded integer keys and careful hashing. Balanced trees and skip lists (both O(log n)) work for arbitrary comparable keys without a universe bound.`,
   };
 }
 
 function* predecessorCaseStudy() {
+  const queryVal = 53;
+  const reps = [16, 48, 80];
+  const chosenRep = reps[1];
+  const answerKey = 56;
+  const numOps = 4;
+  const numChecklist = 4;
+  const numPatterns = 4;
+
   yield {
     state: labelMatrix(
       'Case study: timestamp predecessor index',
@@ -244,13 +266,13 @@ function* predecessorCaseStudy() {
       ],
     ),
     highlight: { active: ['pred:need', 'pred:structure'], found: ['range:structure'] },
-    explanation: 'Imagine an in-memory event index keyed by integer microsecond timestamps. Queries often ask for the last event before t, then scan forward. That is a predecessor problem first and an iteration problem second.',
+    explanation: `Imagine an in-memory event index keyed by integer microsecond timestamps. ${numOps} operations are needed: append, point lookup, predecessor, and range scan. Queries often ask for the last event before t (floor(t) via Y-fast), then scan forward. That is a predecessor problem first and an iteration problem second.`,
   };
 
   yield {
     state: yFastGraph('The top index narrows to one timestamp bucket'),
     highlight: { active: ['query', 'top', 'rep48', 'b1'], found: ['bst', 'ans'] },
-    explanation: 'The top X-fast index does not store every timestamp prefix. It stores bucket representatives. A predecessor query finds the right bucket, then the small local tree gives the exact timestamp boundary.',
+    explanation: `The top X-fast index does not store every timestamp prefix. It stores ${reps.length} bucket representatives (${reps.join(', ')}). A predecessor query for ${queryVal} finds rep ${chosenRep}, narrows to its bucket, then the small local tree gives the exact answer ${answerKey}.`,
   };
 
   yield {
@@ -274,7 +296,7 @@ function* predecessorCaseStudy() {
       ],
     ),
     highlight: { found: ['universe:question', 'fallback:risk'], compare: ['locality:risk'] },
-    explanation: 'This is a theory-powerful structure, not a default map. Use it when integer predecessor latency dominates and the universe bound is real enough to exploit.',
+    explanation: `${numChecklist} engineering checks before choosing this structure: universe bound, hash stability, cache locality, and whether a simpler BST/skip list suffices. Use it when integer predecessor latency dominates and the universe bound is real enough to exploit.`,
   };
 
   yield {
@@ -298,7 +320,7 @@ function* predecessorCaseStudy() {
       ],
     ),
     highlight: { active: ['xfast:move', 'yfast:move'], found: ['yfast:payoff'] },
-    explanation: 'The reusable idea is indirection. Store a smaller guide structure over representatives, then finish locally. That pattern appears in Y-fast tries, B-trees, skip-list towers, and storage indexes.',
+    explanation: `The reusable idea across all ${numPatterns} rows is indirection. Store a smaller guide structure over representatives, then finish locally. X-fast hashes all prefixes; Y-fast samples ${reps.length} reps plus buckets for linear space. That same pattern appears in B-trees, skip-list towers, and storage indexes.`,
   };
 }
 
@@ -312,6 +334,13 @@ export function* run(input) {
 
 const legacyArticle = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/x-fast-y-fast-trie-predecessor.gif', alt: 'Animated walkthrough of the x fast y fast trie predecessor visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

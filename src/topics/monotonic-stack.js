@@ -55,9 +55,11 @@ function stackGraph(title) {
 }
 
 function* nextGreater() {
+  const arr = [2, 1, 5, 3, 4];
+  const n = arr.length;
   yield {
     state: labelMatrix(
-      'Array [2, 1, 5, 3, 4]',
+      `Array [${arr}]`,
       [
         { id: 'i0', label: '0:2' },
         { id: 'i1', label: '1:1' },
@@ -78,16 +80,17 @@ function* nextGreater() {
       ],
     ),
     highlight: { active: ['i2:stack', 'i2:answer'], found: ['i4:answer'], compare: ['i3:stack'] },
-    explanation: 'For next greater element, keep a decreasing stack of unresolved indexes. A larger incoming value is the first greater value for every smaller entry it pops.',
-    invariant: 'The unresolved stack is monotone decreasing by value from bottom to top.',
+    explanation: `For ${n} elements, keep a decreasing stack of unresolved indexes. A larger incoming value is the first greater value for every smaller entry it pops.`,
+    invariant: `The unresolved stack is monotone decreasing by value from bottom to top across all ${n} positions.`,
   };
 
   yield {
     state: stackGraph('Current value resolves a run of smaller stack entries'),
     highlight: { active: ['cur', 'top', 'pop', 'answer', 'e-cur-top', 'e-top-pop', 'e-pop-answer'], compare: ['older'] },
-    explanation: 'The current value is new information from the right. If it beats the stack top, that top has found the nearest greater value to its right and can leave forever.',
+    explanation: `The current value is new information from the right. If it beats the stack top, that top has found the nearest greater value to its right and can leave forever.`,
   };
 
+  const accountingRows = 4;
   yield {
     state: labelMatrix(
       'Amortized accounting',
@@ -109,9 +112,10 @@ function* nextGreater() {
       ],
     ),
     highlight: { found: ['total:count', 'total:reason'], active: ['push:count', 'pop:count'] },
-    explanation: 'The while loop can pop many items at one position, but each item is popped only once. That is the same amortized shape as Monotonic Queue and Stack-backed parsing.',
+    explanation: `The while loop can pop many items at one position, but each of the ${n} items is popped only once. That is the same amortized shape as Monotonic Queue and Stack-backed parsing.`,
   };
 
+  const variantCount = 4;
   yield {
     state: labelMatrix(
       'Pattern variants',
@@ -133,14 +137,16 @@ function* nextGreater() {
       ],
     ),
     highlight: { active: ['greater:stackOrder', 'smaller:stackOrder'], compare: ['circular:scan'] },
-    explanation: 'The same template solves many nearest-neighbor problems. The choices are scan direction, comparison operator, duplicate handling, and whether answers are written when popping or before pushing.',
+    explanation: `The same template solves ${variantCount} nearest-neighbor variants. The choices are scan direction, comparison operator, duplicate handling, and whether answers are written when popping or before pushing.`,
   };
 }
 
 function* histogramArea() {
+  const histogram = [2, 1, 5, 6, 2, 3];
+  const barCount = histogram.length;
   yield {
     state: labelMatrix(
-      'Histogram [2, 1, 5, 6, 2, 3]',
+      `Histogram [${histogram}]`,
       [
         { id: 'b0', label: '0:2' },
         { id: 'b1', label: '1:1' },
@@ -163,16 +169,19 @@ function* histogramArea() {
       ],
     ),
     highlight: { active: ['b4:role', 'b4:area'], found: ['b3:area', 'b2:area'] },
-    explanation: 'Largest rectangle in a histogram uses an increasing stack. A shorter bar proves taller bars on the stack cannot extend farther right, so their maximal rectangles can be scored now.',
+    explanation: `Largest rectangle across ${barCount} bars uses an increasing stack. A shorter bar proves taller bars on the stack cannot extend farther right, so their maximal rectangles can be scored now.`,
   };
 
+  const shortHeight = 2;
+  const tallHeights = [5, 6];
   yield {
     state: stackGraph('A shorter bar closes rectangles for taller bars'),
     highlight: { active: ['cur', 'top', 'pop', 'answer', 'e-top-pop'], found: ['older'], compare: ['push'] },
-    explanation: 'When height 2 arrives after 5 and 6, it becomes the right boundary for both taller bars. The new stack top after popping gives the left boundary.',
-    invariant: 'The stack is increasing by height; indexes between stack entries have already been resolved.',
+    explanation: `When height ${shortHeight} arrives after ${tallHeights[0]} and ${tallHeights[1]}, it becomes the right boundary for both taller bars. The new stack top after popping gives the left boundary.`,
+    invariant: `The stack is increasing by height; indexes between stack entries have already been resolved.`,
   };
 
+  const maxArea = 10;
   yield {
     state: labelMatrix(
       'Rectangle width after pop',
@@ -194,9 +203,10 @@ function* histogramArea() {
       ],
     ),
     highlight: { found: ['pop5:area', 'max:area'], compare: ['pop6:area'] },
-    explanation: 'The width is currentIndex - previousSmallerIndex - 1. A sentinel height 0 at the end flushes all remaining bars so every candidate rectangle is scored.',
+    explanation: `The width is currentIndex - previousSmallerIndex - 1. The maximum rectangle has area ${maxArea}. A sentinel height 0 at the end flushes all remaining bars so every candidate rectangle is scored.`,
   };
 
+  const caseCount = 4;
   yield {
     state: labelMatrix(
       'Case-study uses',
@@ -218,7 +228,7 @@ function* histogramArea() {
       ],
     ),
     highlight: { found: ['histogram:whyStack', 'temperatures:whyStack'], compare: ['parser:question'] },
-    explanation: 'The complete pattern is one-pass boundary discovery: keep only candidates that have not yet met the first value capable of resolving them.',
+    explanation: `Across ${caseCount} use cases, the complete pattern is one-pass boundary discovery: keep only candidates that have not yet met the first value capable of resolving them.`,
   };
 }
 
@@ -326,7 +336,8 @@ export const article = {
       paragraphs: [
         'A monotonic stack is a proof device. The invariant says which unresolved candidates are still possible. The pop operation says the first valid boundary has arrived. The amortized O(n) cost follows because each candidate can enter and leave the unresolved set only once.',
         'For teaching, emphasize the delete-forever argument before code templates. Students often memorize while-pop-push without knowing why information is not lost. The method is safe only when a popped candidate has been permanently resolved or permanently dominated for the question being asked.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/monotonic-stack.gif', alt: 'Animated walkthrough of the monotonic stack visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Study next',

@@ -18,6 +18,8 @@ export const topic = {
 export function* run(input) {
   if (String(input.view) !== 'one checkout request') throw new InputError('Pick the walkthrough.');
 
+  const serviceCount = 6;
+  const traceId = 'abc123';
   const frames = new Map();
   const open = (id, parentId, name) => frames.set(id, { id, parentId, name, args: '…', status: 'active', result: null });
   const wait = (id) => { frames.get(id).status = 'waiting'; };
@@ -32,14 +34,14 @@ export function* run(input) {
   yield {
     state: callTreeState([]),
     highlight: {},
-    explanation: 'A user reports: "checkout is slow." Six microservices touch every checkout, each with its OWN logs on its OWN machines — six islands of evidence with no shared story. Distributed tracing stitches them: the gateway mints one TRACE ID, every service passes it along in a request header (the W3C traceparent), and each unit of work records a SPAN — who am I, who called me, how long did I take. The spans assemble into a tree. Watch one request build it.',
+    explanation: `A user reports: "checkout is slow." ${serviceCount} microservices touch every checkout, each with its OWN logs on its OWN machines — ${serviceCount} islands of evidence with no shared story. Distributed tracing stitches them: the gateway mints one TRACE ID, every service passes it along in a request header (the W3C traceparent), and each unit of work records a SPAN. The spans assemble into a tree. Watch one request build it.`,
   };
 
   open('g', null, 'gateway');
   yield {
     state: snapshot(),
     highlight: { active: ['g'] },
-    explanation: 'POST /checkout hits the gateway — span opens, trace ID abc123 is born. Everything that happens downstream, in any service on any machine, will carry this ID.',
+    explanation: `POST /checkout hits the gateway — span opens, trace ID ${traceId} is born. Everything that happens downstream across ${serviceCount} services on any machine will carry this ID.`,
   };
 
   wait('g');
@@ -47,25 +49,27 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { active: ['a'] },
-    explanation: 'The gateway calls auth to validate the session token. A child span opens under the gateway — parentId is how the tree structure survives being scattered across machines.',
+    explanation: `The gateway calls auth to validate the session token. A child span opens under the gateway — parentId is how the tree structure survives being scattered across ${serviceCount} machines.`,
   };
 
-  close('a', 15);
+  const authMs = 15;
+  close('a', authMs);
   open('o', 'g', 'orders');
   yield {
     state: snapshot(),
     highlight: { returning: ['a'], active: ['o'] },
-    explanation: 'Auth returns in 15ms — its span closes and ships off to the tracing backend. The gateway proceeds to the orders service, which owns the checkout logic… and fans out further.',
+    explanation: `Auth returns in ${authMs}ms — its span closes and ships off to the tracing backend. The gateway proceeds to the orders service, which owns the checkout logic and fans out further.`,
   };
 
   wait('o');
+  const inventoryMs = 20;
   open('i', 'o', 'inventory');
-  close('i', 20);
+  close('i', inventoryMs);
   open('p', 'o', 'payments');
   yield {
     state: snapshot(),
     highlight: { returning: ['i'], active: ['p'] },
-    explanation: 'Orders checks inventory (20ms, fine) and then calls payments. So far every hop looks innocent — which is exactly why per-service dashboards never caught this: each service IS fast, except…',
+    explanation: `Orders checks inventory (${inventoryMs}ms, fine) and then calls payments. So far every hop looks innocent — which is exactly why per-service dashboards never caught this: each service IS fast, except…`,
   };
 
   wait('p');
@@ -73,32 +77,39 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { active: ['f'] },
-    explanation: '…payments quietly calls a fraud-check service that nobody remembered was in the path. Its span opens — and stays open. And open. The tree doesn\'t lie: everything else is done; this one box is still burning.',
+    explanation: `…payments quietly calls a fraud-check service that nobody remembered was in the path. Its span opens — and stays open. The tree across ${frames.size} spans doesn\'t lie: everything else is done; this one box is still burning.`,
   };
 
-  close('f', 55);
-  close('p', 70);
-  close('o', 95);
+  const fraudMs = 55;
+  const paymentsMs = 70;
+  const ordersMs = 95;
+  const notifyMs = 2;
+  const totalMs = 120;
+  close('f', fraudMs);
+  close('p', paymentsMs);
+  close('o', ordersMs);
   open('n', 'g', 'notify');
-  close('n', 2);
-  close('g', 120);
+  close('n', notifyMs);
+  close('g', totalMs);
+  const fraudPct = Math.round((fraudMs / totalMs) * 100);
   yield {
     state: snapshot(),
     highlight: { returning: ['g'] },
-    explanation: 'The request completes: fraud-check 55ms → payments 70ms total → orders 95ms → gateway 120ms (notify fires an event onto a Message Queue in 2ms and doesn\'t wait — async work drops off the critical path). Every span carries the same trace ID, so the backend reassembles this exact tree from six services\'s worth of fragments.',
-    invariant: 'A span\'s duration includes all of its children — the tree IS the timing breakdown.',
+    explanation: `The request completes: fraud-check ${fraudMs}ms, payments ${paymentsMs}ms total, orders ${ordersMs}ms, gateway ${totalMs}ms (notify fires an event onto a Message Queue in ${notifyMs}ms and doesn\'t wait — async work drops off the critical path). Every span carries trace ID ${traceId}, so the backend reassembles this exact tree from ${serviceCount} services.`,
+    invariant: `A span\'s duration includes all of its children — the ${frames.size}-span tree IS the timing breakdown.`,
   };
 
+  const criticalPath = ['g', 'o', 'p', 'f'];
   yield {
     state: snapshot(),
-    highlight: { found: ['g', 'o', 'p', 'f'] },
-    explanation: 'The verdict, readable at a glance: the CRITICAL PATH is gateway → orders → payments → fraud-check, and fraud-check alone is 55 of the 120ms — 46% of the user\'s wait, hiding two layers deep where no single service\'s logs would ever show it. This is the entire value proposition: the tree turns "checkout is slow" into "fraud-check needs a cache." (Recognize the shape? It is the Recursion call tree, distributed across machines.)',
+    highlight: { found: criticalPath },
+    explanation: `The verdict, readable at a glance: the CRITICAL PATH is ${criticalPath.length} spans deep (gateway, orders, payments, fraud-check), and fraud-check alone is ${fraudMs} of the ${totalMs}ms — ${fraudPct}% of the user\'s wait, hiding two layers deep where no single service\'s logs would ever show it. The tree turns "checkout is slow" into "fraud-check needs a cache."`,
   };
 
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: 'In production: OpenTelemetry is the instrumentation standard; Jaeger and Zipkin the open-source backends; Datadog and Honeycomb the hosted ones. Tracing every request would drown you — so systems SAMPLE (often keeping all slow/error traces and a fair fraction of normal ones — see Reservoir Sampling). Traces complete the observability trio: METRICS say something is slow, LOGS say what one service saw, TRACES say where the time went. The debugging tool for the microservices world the Saga Pattern and Message Queues built.',
+    explanation: `In production: OpenTelemetry is the instrumentation standard; Jaeger and Zipkin the open-source backends; Datadog and Honeycomb the hosted ones. Tracing every request would drown you — so systems SAMPLE. Traces complete the observability trio: METRICS say something is slow, LOGS say what one service saw, TRACES across ${serviceCount} services say where the ${totalMs}ms went.`,
   };
 }
 
@@ -112,7 +123,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/distributed-tracing.gif', alt: 'Animated walkthrough of the distributed tracing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

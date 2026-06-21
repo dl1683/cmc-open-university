@@ -111,37 +111,48 @@ function covarianceTable(title) {
 }
 
 function* adaptationLoop() {
+  const loopNodes = 8;
+  const loopEdges = 10;
+  const populationSize = 8;
+  const covParams = 5;
+
   yield {
     state: loopGraph('CMA-ES learns a sampling distribution'),
     highlight: { active: ['mean', 'sample', 'eval', 'rank', 'e-mean-sample', 'e-sample-eval', 'e-eval-rank'], found: ['cov'] },
-    explanation: 'CMA-ES does not mutate one candidate by a fixed rule. It maintains a Gaussian search distribution, samples a population, ranks samples by fitness, and uses the winners to change the distribution.',
-    invariant: 'The population teaches the optimizer where future samples should be more likely.',
+    explanation: `CMA-ES does not mutate one candidate by a fixed rule. Across ${loopNodes} loop stages linked by ${loopEdges} edges, it maintains a Gaussian search distribution, samples a population, ranks samples by fitness, and uses the winners to change the distribution.`,
+    invariant: `The population of ${populationSize} samples teaches the optimizer where future samples should be more likely.`,
   };
 
   yield {
     state: samplePlot('Early samples explore a broad region'),
     highlight: { active: ['early', 'mean', 'step'], found: ['best'] },
-    explanation: 'At the start, the sampling cloud is broad. The mean moves toward selected samples, but the covariance is still generic enough to explore several directions.',
+    explanation: `At the start, the sampling cloud is broad across ${populationSize} candidates. The mean moves toward selected samples, but the covariance is still generic enough to explore several directions.`,
   };
 
   yield {
     state: covarianceTable('Selected steps reshape the covariance matrix'),
     highlight: { active: ['var1:after', 'cov12:after', 'var2:after', 'path:after'], compare: ['var1:before', 'cov12:before'] },
-    explanation: 'Covariance is the memory of useful directions. If selected samples repeatedly move along a diagonal valley, the covariance matrix rotates and stretches the sampling cloud along that valley.',
+    explanation: `Covariance is the memory of useful directions. Tracking ${covParams} parameters (variance, covariance, sigma, and paths), if selected samples repeatedly move along a diagonal valley, the covariance matrix rotates and stretches the sampling cloud along that valley.`,
   };
 
   yield {
     state: samplePlot('Later samples align with the valley', true),
     highlight: { active: ['shaped', 'axis', 'best'], compare: ['mean'] },
-    explanation: 'After adaptation, the distribution is no longer isotropic. It samples more aggressively along directions that previously produced progress and less in directions that wasted evaluations.',
+    explanation: `After adaptation, the distribution is no longer isotropic. With ${populationSize} shaped samples, it samples more aggressively along directions that previously produced progress and less in directions that wasted evaluations.`,
   };
 }
 
 function* covarianceMemory() {
+  const stateVars = 5;
+  const maxGen = 20;
+  const fixedFinal = 4.2;
+  const cmaFinal = 0.7;
+  const usageCriteria = 4;
+
   yield {
     state: loopGraph('Evolution paths stabilize adaptation'),
     highlight: { active: ['rank', 'path', 'cov', 'sigma', 'e-rank-path', 'e-path-cov', 'e-path-sigma'], compare: ['sample'] },
-    explanation: 'CMA-ES uses evolution paths so one lucky step does not dominate. Paths summarize consecutive successful movement and help decide whether to stretch covariance or change global step size.',
+    explanation: `CMA-ES uses evolution paths so one lucky step does not dominate. Across ${stateVars} state variables, paths summarize consecutive successful movement and help decide whether to stretch covariance or change global step size.`,
   };
 
   yield {
@@ -167,22 +178,22 @@ function* covarianceMemory() {
       ],
     ),
     highlight: { active: ['C:stores', 'sig:stores', 'pc:why', 'ps:why'], found: ['m:stores'] },
-    explanation: 'The important data structure is the optimizer state. Mean, covariance, step size, and evolution paths together describe the next search distribution.',
+    explanation: `The important data structure is the optimizer state. All ${stateVars} variables — mean, covariance, step size, and evolution paths — together describe the next search distribution.`,
   };
 
   yield {
     state: plotState({
-      axes: { x: { label: 'generation', min: 0, max: 20 }, y: { label: 'relative error', min: 0, max: 10 } },
+      axes: { x: { label: 'generation', min: 0, max: maxGen }, y: { label: 'relative error', min: 0, max: 10 } },
       series: [
-        { id: 'fixed', label: 'fixed', points: [{ x: 0, y: 9 }, { x: 5, y: 6.8 }, { x: 10, y: 5.5 }, { x: 15, y: 4.7 }, { x: 20, y: 4.2 }] },
-        { id: 'cma', label: 'CMA', points: [{ x: 0, y: 9 }, { x: 5, y: 5.3 }, { x: 10, y: 2.6 }, { x: 15, y: 1.2 }, { x: 20, y: 0.7 }] },
+        { id: 'fixed', label: 'fixed', points: [{ x: 0, y: 9 }, { x: 5, y: 6.8 }, { x: 10, y: 5.5 }, { x: 15, y: 4.7 }, { x: maxGen, y: fixedFinal }] },
+        { id: 'cma', label: 'CMA', points: [{ x: 0, y: 9 }, { x: 5, y: 5.3 }, { x: 10, y: 2.6 }, { x: 15, y: 1.2 }, { x: maxGen, y: cmaFinal }] },
       ],
       markers: [
         { id: 'shape', x: 10, y: 2.6, label: 'shape' },
       ],
     }),
     highlight: { active: ['cma', 'shape'], compare: ['fixed'] },
-    explanation: 'On ill-conditioned continuous problems, adapting the search coordinate system can matter more than trying random mutations with one fixed isotropic scale.',
+    explanation: `On ill-conditioned continuous problems, adapting the search coordinate system matters: after ${maxGen} generations CMA-ES reaches error ${cmaFinal} while fixed isotropic mutation stalls at ${fixedFinal}.`,
   };
 
   yield {
@@ -206,7 +217,7 @@ function* covarianceMemory() {
       ],
     ),
     highlight: { active: ['good:rule', 'cost:example', 'audit:rule'], compare: ['bad:rule'] },
-    explanation: 'CMA-ES is strong for continuous black-box optimization with moderate dimension and enough evaluation budget. It is not a replacement for gradients when gradients are cheap and trustworthy.',
+    explanation: `CMA-ES is strong for continuous black-box optimization — ${usageCriteria} criteria (continuity, eval budget, parallelism, and audit discipline) determine whether it fits. It is not a replacement for gradients when gradients are cheap and trustworthy.`,
   };
 }
 
@@ -219,6 +230,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/cma-es-covariance-adaptation-primer.gif', alt: 'Animated walkthrough of the cma es covariance adaptation primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why CMA-ES exists',
       paragraphs: [

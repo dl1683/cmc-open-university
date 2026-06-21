@@ -56,11 +56,15 @@ function pieceGraph(title) {
 }
 
 function* insertPieces() {
+  const original = 'hello world';
+  const insertion = 'brave ';
+  const splitPos = 6;
+
   yield {
     state: pieceGraph('A piece table references immutable buffers'),
     highlight: { active: ['orig', 'add', 'p1', 'p2', 'p3'], compare: ['tree'] },
-    explanation: 'A piece table keeps the original file unchanged and appends inserted text to a separate add buffer. The document is an ordered list of piece descriptors pointing into those buffers.',
-    invariant: 'Pieces reference source buffers by start and length; editing changes descriptors, not old bytes.',
+    explanation: `A piece table keeps the original file ("${original}", ${original.length} chars) unchanged and appends inserted text to a separate add buffer. The document is an ordered list of piece descriptors pointing into those buffers.`,
+    invariant: `Pieces reference source buffers by start and length; editing changes descriptors, not the ${original.length} original bytes.`,
   };
 
   yield {
@@ -84,13 +88,13 @@ function* insertPieces() {
       ],
     ),
     highlight: { active: ['split:pieces', 'append:pieces'], found: ['after:visible'] },
-    explanation: 'Insertions split the piece that contains the edit point, append inserted bytes to the add buffer, and splice a new descriptor into the piece list.',
+    explanation: `Inserting "${insertion}" at position ${splitPos} splits the original piece at that offset. The ${insertion.length}-char insertion is appended to the add buffer, producing "${original.slice(0, splitPos)}${insertion}${original.slice(splitPos)}".`,
   };
 
   yield {
     state: pieceGraph('A piece tree indexes the descriptor list'),
     highlight: { active: ['p1', 'p2', 'p3', 'tree', 'e-p1-tree', 'e-p2-tree', 'e-p3-tree'], found: ['render'] },
-    explanation: 'A plain piece table can become a long list. A piece tree stores descriptors in a balanced tree with line counts and lengths, enabling fast line and offset lookup.',
+    explanation: `A plain piece table can become a long list. After this single insertion the table already has 3 pieces; a piece tree stores descriptors in a balanced tree with line counts and lengths, enabling fast line and offset lookup.`,
   };
 
   yield {
@@ -114,11 +118,14 @@ function* insertPieces() {
       ],
     ),
     highlight: { found: ['insert:bufferMove', 'delete:descriptorMove', 'save:descriptorMove'], compare: ['replace:bufferMove'] },
-    explanation: 'The old content and inserted content remain available. Edits are descriptor changes, which is why piece tables are friendly to undo and redo.',
+    explanation: `The old content ("${original}") and inserted content ("${insertion}") remain available. Edits are descriptor changes, which is why piece tables are friendly to undo and redo.`,
   };
 }
 
 function* undoAndIndexing() {
+  const bufferTypes = ['gap buffer', 'rope', 'piece table', 'flat string'];
+  const bufferCount = bufferTypes.length;
+
   yield {
     state: labelMatrix(
       'Undo story',
@@ -140,14 +147,14 @@ function* undoAndIndexing() {
       ],
     ),
     highlight: { active: ['record:operation', 'undo:operation', 'redo:operation'], found: ['insert:data'] },
-    explanation: 'Undo can restore old descriptors because neither the original buffer nor add buffer has to be overwritten. The history is mostly structural.',
+    explanation: `Undo can restore old descriptors because neither the original buffer nor the add buffer has to be overwritten. Both buffers are immutable once written, so the history is purely structural.`,
   };
 
   yield {
     state: pieceGraph('Line metadata makes editor navigation fast'),
     highlight: { active: ['tree', 'render'], found: ['p1', 'p2', 'p3'], compare: ['orig', 'add'] },
-    explanation: 'Editors need line lookup, cursor movement, decorations, and viewport rendering. A piece tree augments each node with character and line counts so offsets and lines map quickly.',
-    invariant: 'Rendered order is descriptor order, independent of source-buffer order.',
+    explanation: `Editors need line lookup, cursor movement, decorations, and viewport rendering. A piece tree augments each node with character and line counts so offsets and lines map quickly across all ${bufferCount} buffer types.`,
+    invariant: `Rendered order is descriptor order, independent of source-buffer order — the same ${bufferCount} buffer strategies (${bufferTypes.join(', ')}) each solve this differently.`,
   };
 
   yield {
@@ -171,7 +178,7 @@ function* undoAndIndexing() {
       ],
     ),
     highlight: { found: ['piece:best', 'rope:best'], compare: ['flat:risk'] },
-    explanation: 'The piece table is especially compelling for editors because it preserves the original file and all inserted text while making undo and incremental saves tractable.',
+    explanation: `Among ${bufferCount} common buffer strategies (${bufferTypes.join(', ')}), the piece table is especially compelling for editors because it preserves the original file and all inserted text while making undo and incremental saves tractable.`,
   };
 
   yield {
@@ -195,7 +202,7 @@ function* undoAndIndexing() {
       ],
     ),
     highlight: { found: ['open:lesson', 'type:lesson', 'render:lesson'], compare: ['delete:lesson'] },
-    explanation: 'The production story is VS Code style: a piece table/tree keeps startup memory low, edits local, line lookup indexed, and undo cheap.',
+    explanation: `The production story is VS Code style: a piece table/tree keeps startup memory low, edits local, line lookup indexed, and undo cheap — outperforming the other ${bufferCount - 1} buffer strategies for this workload.`,
   };
 }
 
@@ -216,7 +223,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/piece-table-text-buffer.gif', alt: 'Animated walkthrough of the piece table text buffer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -79,7 +79,8 @@ export const article = {
         {type: 'callout', text: 'The sliding-window proof is pointer accounting: each element enters once and leaves at most once.'},
         'The animation shows the expand-contract variant: grow the right boundary, then shrink the left boundary until the sum invariant holds. The same structural discipline — two pointers that only move forward — powers every sliding window algorithm, including the monotonic-deque maximum described below.',
         'Watch the left pointer: it never retreats. That forward-only movement is both the reason the algorithm is O(n) and the visual proof that no element is processed more than twice.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/sliding-window.gif', alt: 'Animated walkthrough of the sliding window visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

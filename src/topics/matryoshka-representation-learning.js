@@ -55,7 +55,7 @@ function* nestedEmbeddings() {
       ],
     ),
     highlight: { active: ['d64:semantic detail', 'd128:semantic detail'], found: ['d768:semantic detail'] },
-    explanation: 'Matryoshka Representation Learning trains embeddings so their prefixes are useful. The first dimensions carry coarse information; later dimensions add finer detail. You can truncate the vector without training a separate small model.',
+    explanation: `${topic.title} trains embeddings so their prefixes are useful. The first dimensions carry coarse information; later dimensions add finer detail. You can truncate the vector without training a separate small model.`,
   };
 
   yield {
@@ -71,8 +71,8 @@ function* nestedEmbeddings() {
       ],
     }),
     highlight: { active: ['mrl'], compare: ['plain'] },
-    explanation: 'Plain embeddings often spread information across dimensions, so arbitrary truncation hurts. MRL trains several prefix losses at once, encouraging useful coarse-to-fine structure.',
-    invariant: 'Every prefix must be good enough to stand on its own.',
+    explanation: `Plain embeddings often spread information across dimensions, so arbitrary truncation hurts. ${topic.title.split(' ').map(w => w[0]).join('')} trains several prefix losses at once, encouraging useful coarse-to-fine structure.`,
+    invariant: `Every prefix must be good enough to stand on its own — that is ${topic.title}'s core contract.`,
   };
 
   yield {
@@ -94,7 +94,7 @@ function* nestedEmbeddings() {
       ],
     }, { title: 'MRL adds losses at nested dimensions' }),
     highlight: { active: ['prefix64', 'prefix128', 'prefix256', 'full'], found: ['encoder'] },
-    explanation: 'The training change is minimal: attach losses to several prefix lengths of the same representation. At inference, there is no second model and no extra forward pass.',
+    explanation: `The ${topic.title} training change is minimal: attach losses to several prefix lengths of the same representation. At inference, there is no second model and no extra forward pass.`,
   };
 
   yield {
@@ -118,7 +118,7 @@ function* nestedEmbeddings() {
       ],
     ),
     highlight: { found: ['storage:MRL move', 'search:MRL move', 'edge:MRL move'] },
-    explanation: 'The paper reports smaller embeddings and retrieval speedups at similar accuracy in several settings. The broader idea is elastic representation capacity: choose vector length to match the task and budget.',
+    explanation: `The ${topic.title} paper reports smaller embeddings and retrieval speedups at similar accuracy in several settings. The broader idea is elastic representation capacity: choose vector length to match the task and budget.`,
   };
 }
 
@@ -140,7 +140,7 @@ function* retrievalCascade() {
       ],
     }, { title: 'Use a short prefix to search, then a longer prefix to rerank' }),
     highlight: { active: ['prefix', 'hnsw'], found: ['rerank'] },
-    explanation: 'Matryoshka embeddings are natural for retrieval cascades. Search a huge corpus with a short prefix, then rerank a smaller candidate set with more dimensions.',
+    explanation: `${topic.title.split(' ')[0]} embeddings are natural for retrieval cascades. Search a huge corpus with a short prefix, then rerank a smaller candidate set with more dimensions.`,
   };
 
   yield {
@@ -163,8 +163,8 @@ function* retrievalCascade() {
       ],
     ),
     highlight: { active: ['stage1:dims', 'stage1:items'], found: ['stage3:goal'] },
-    explanation: 'The cascade works because cost scales with both vector dimension and candidate count. Spend tiny vectors on the whole corpus and full vectors only where the candidate set is already small.',
-    invariant: 'Cost is roughly items searched times dimensions compared.',
+    explanation: `The cascade works because cost scales with both vector dimension and candidate count. Spend tiny vectors on the whole corpus and full vectors only where the candidate set is already small — ${topic.title} makes this a runtime choice.`,
+    invariant: `Cost is roughly items searched times dimensions compared.`,
   };
 
   yield {
@@ -180,7 +180,7 @@ function* retrievalCascade() {
       ],
     }),
     highlight: { active: ['cost', 'qualityLoss'] },
-    explanation: 'Choosing a prefix is a trade between cost and quality. MRL makes that trade a runtime choice instead of a retraining project.',
+    explanation: `Choosing a prefix is a trade between cost and quality. ${topic.title} makes that trade a runtime choice instead of a retraining project.`,
   };
 
   yield {
@@ -204,7 +204,7 @@ function* retrievalCascade() {
       ],
     ),
     highlight: { found: ['index:question', 'dims:question', 'eval:question'] },
-    explanation: 'Matryoshka embeddings are only useful if the retrieval system exposes the prefix choice deliberately. Measure recall and latency at every stage, not only final accuracy.',
+    explanation: `${topic.title.split(' ')[0]} embeddings are only useful if the retrieval system exposes the prefix choice deliberately. Measure recall and latency at every stage, not only final accuracy.`,
   };
 }
 
@@ -217,6 +217,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/matryoshka-representation-learning.gif', alt: 'Animated walkthrough of the matryoshka representation learning visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

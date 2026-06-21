@@ -54,10 +54,13 @@ function hmGraph(title) {
 }
 
 function* algorithmW() {
+  const hmStages = ['AST', 'env', 'fresh', 'rules', 'unify', 'scheme', 'inst', 'type'];
+  const coreRules = ['variable', 'lambda', 'apply', 'let'];
+
   yield {
     state: hmGraph('Algorithm W walks the expression tree once'),
     highlight: { active: ['ast', 'env', 'fresh', 'rules', 'e-ast-env', 'e-ast-fresh'], compare: ['type'] },
-    explanation: 'Algorithm W traverses the AST, looks up variables in a type environment, creates fresh type variables, and sends usage constraints to unification.',
+    explanation: `Algorithm W traverses the AST through ${hmStages.length} stages (${hmStages.join(' → ')}), looks up variables in a type environment, creates fresh type variables, and sends usage constraints to unification.`,
   };
   yield {
     state: labelMatrix(
@@ -80,22 +83,26 @@ function* algorithmW() {
       ],
     ),
     highlight: { active: ['app:data', 'app:result'], found: ['let:result'], compare: ['var:result'] },
-    explanation: 'The application rule is where constraints appear: if f is applied to x, then f must have a function type from x to a fresh result variable.',
-    invariant: 'Every use of a polymorphic scheme gets fresh variables, not the original variables.',
+    explanation: `Among the ${coreRules.length} core HM rules (${coreRules.join(', ')}), the application rule is where constraints appear: if f is applied to x, then f must have a function type from x to a fresh result variable.`,
+    invariant: `Every use of a polymorphic scheme gets fresh variables across the ${hmStages.length}-stage pipeline, not the original variables.`,
   };
   yield {
     state: hmGraph('The final type is principal when inference succeeds'),
     highlight: { active: ['unify', 'type', 'e-unify-type'], found: ['scheme'], visited: ['rules'] },
-    explanation: 'The principal type is the most general type that explains the expression. More specific valid types can be obtained by instantiating it.',
+    explanation: `After unification through the ${hmStages.length}-stage pipeline, the principal type is the most general type that explains the expression. More specific valid types can be obtained by instantiating it via the ${coreRules.length} core rules.`,
   };
 }
 
 function* letPolymorphism() {
+  const idScheme = 'forall a. a -> a';
+  const uses = ['id 1', 'id true'];
+  const instantiatedTypes = ['int -> int', 'bool -> bool'];
+
   yield {
     state: hmGraph('Let-binding generalizes values into schemes'),
     highlight: { active: ['unify', 'scheme', 'e-unify-scheme'], found: ['env'], compare: ['fresh'] },
-    explanation: 'For let id = fun x -> x, the inferred type a -> a is generalized into forall a. a -> a before id is stored in the environment.',
-    invariant: 'Generalize variables that are free in the inferred type but not free in the surrounding environment.',
+    explanation: `For let id = fun x -> x, the inferred type a -> a is generalized into ${idScheme} before id is stored in the environment for ${uses.length} later uses.`,
+    invariant: `Generalize variables that are free in the inferred type but not free in the surrounding environment — producing ${idScheme}.`,
   };
   yield {
     state: labelMatrix(
@@ -118,12 +125,12 @@ function* letPolymorphism() {
       ],
     ),
     highlight: { active: ['use1:type', 'use2:type'], found: ['pair:type'], compare: ['def:step'] },
-    explanation: 'The same let-bound identity function can be used at int and bool because each lookup instantiates the scheme with fresh variables.',
+    explanation: `The same let-bound identity function (${idScheme}) can be used at ${uses.length} different types (${instantiatedTypes.join(' and ')}) because each lookup instantiates the scheme with fresh variables.`,
   };
   yield {
     state: hmGraph('Mutation and effects complicate generalization'),
     highlight: { active: ['scheme', 'env'], compare: ['inst'], removed: ['type'] },
-    explanation: 'Real ML-family languages restrict generalization around mutable references and effects. Without a value restriction, one polymorphic cell could be used at incompatible types.',
+    explanation: `Real ML-family languages restrict generalization around mutable references and effects. Without a value restriction, one polymorphic cell with scheme ${idScheme} could be used at ${uses.length} incompatible types like ${instantiatedTypes.join(' and ')}.`,
   };
 }
 
@@ -136,6 +143,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/hindley-milner-algorithm-w-let-polymorphism.gif', alt: 'Animated walkthrough of the hindley milner algorithm w let polymorphism visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

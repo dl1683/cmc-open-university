@@ -46,21 +46,26 @@ function coderGraph(title, notes = {}) {
 }
 
 function* intervalCoder() {
+  const coderStages = ['model', 'symbol', 'state'];
+  const outputStages = ['bits', 'decode'];
   yield {
     state: coderGraph('Arithmetic coding separates model from bit writer'),
-    highlight: { active: ['model', 'symbol', 'state'], found: ['bits', 'decode'] },
-    explanation: 'Huffman assigns each symbol a whole number of bits. Arithmetic coding encodes the whole message as a number inside a final probability interval, so common symbols can average fractional bits.',
-    invariant: 'The decoder must use the same probability model and the same interval splits.',
+    highlight: { active: coderStages, found: outputStages },
+    explanation: `Huffman assigns each symbol a whole number of bits. Arithmetic coding passes through ${coderStages.length} stages (${coderStages.join(', ')}) encoding the whole message as a number inside a final probability interval, so common symbols can average fractional bits.`,
+    invariant: `The ${outputStages[1]}r must use the same probability ${coderStages[0]} and the same interval splits.`,
   };
 
+  const pA = 0.75;
+  const pB = 1 - pA;
+  const message = ['B', 'A', 'A'];
   yield {
     state: labelMatrix(
-      'Encode BAA with P(A)=0.75 and P(B)=0.25',
+      `Encode ${message.join('')} with P(A)=${pA} and P(B)=${pB}`,
       [
         { id: 's0', label: 'start' },
-        { id: 's1', label: 'B' },
-        { id: 's2', label: 'BA' },
-        { id: 's3', label: 'BAA' },
+        { id: 's1', label: message[0] },
+        { id: 's2', label: message.slice(0, 2).join('') },
+        { id: 's3', label: message.join('') },
       ],
       [
         { id: 'low', label: 'low' },
@@ -76,18 +81,19 @@ function* intervalCoder() {
       ],
     ),
     highlight: { active: ['s1:low', 's2:high', 's3:width'], found: ['s3:bits'] },
-    explanation: 'Each symbol narrows the current interval. B selects the upper quarter. A then selects the lower 75 percent of that subrange, twice. Any binary fraction inside the final interval identifies the whole message.',
+    explanation: `Each of the ${message.length} symbols narrows the current interval. ${message[0]} selects the upper ${pB * 100} percent. ${message[1]} then selects the lower ${pA * 100} percent of that subrange, twice. Any binary fraction inside the final interval identifies the whole message.`,
   };
 
+  const coderTypes = [
+    { id: 'huff', label: 'Huffman' },
+    { id: 'arith', label: 'arith' },
+    { id: 'model', label: 'model' },
+    { id: 'stream', label: 'stream' },
+  ];
   yield {
     state: labelMatrix(
       'Why this can beat whole-bit codes',
-      [
-        { id: 'huff', label: 'Huffman' },
-        { id: 'arith', label: 'arith' },
-        { id: 'model', label: 'model' },
-        { id: 'stream', label: 'stream' },
-      ],
+      coderTypes,
       [
         { id: 'unit', label: 'unit' },
         { id: 'effect', label: 'effect' },
@@ -100,33 +106,37 @@ function* intervalCoder() {
       ],
     ),
     highlight: { active: ['arith:unit', 'arith:effect'], compare: ['huff:effect'], found: ['model:effect'] },
-    explanation: 'Arithmetic coding keeps the model separate from the channel code. Improve the probability model and the same interval coder spends fewer bits without inventing a new prefix tree.',
+    explanation: `${coderTypes[1].label[0].toUpperCase() + coderTypes[1].label.slice(1)}metic coding keeps the ${coderTypes[2].label} separate from the channel code. Improve the probability ${coderTypes[2].label} and the same interval coder spends fewer bits without inventing a new ${coderTypes[0].label} prefix tree.`,
   };
 
+  const rangeNotes = { state: 'low+range', bits: 'shift out', decode: 'invert' };
   yield {
-    state: coderGraph('Range coders implement the same idea with integers', { state: 'low+range', bits: 'shift out', decode: 'invert' }),
+    state: coderGraph('Range coders implement the same idea with integers', rangeNotes),
     highlight: { active: ['state', 'bits', 'decode'], compare: ['model'] },
-    explanation: 'Production arithmetic and range coders avoid infinite real numbers. They keep integer low/range state, emit stable leading bits, and refill state during decode.',
+    explanation: `Production arithmetic and range coders avoid infinite real numbers. They keep integer ${rangeNotes.state} state, ${rangeNotes.bits} stable leading bits, and ${rangeNotes.decode} the process during decode.`,
   };
 }
 
 function* ansStateMachine() {
+  const ansNotes = { model: 'freq table', symbol: 'encode', state: 'x integer', bits: 'low bits', decode: 'pop sym' };
   yield {
-    state: coderGraph('ANS replaces the interval with one integer state', { model: 'freq table', symbol: 'encode', state: 'x integer', bits: 'low bits', decode: 'pop sym' }),
+    state: coderGraph('ANS replaces the interval with one integer state', ansNotes),
     highlight: { active: ['model', 'state'], found: ['bits', 'decode'] },
-    explanation: 'Asymmetric Numeral Systems keeps a single integer state. Encoding a symbol moves the state to a new integer; renormalization emits low bits when the state gets too large. Decoding reverses those moves.',
-    invariant: 'The state carries both payload and enough alignment to recover symbols in reverse order.',
+    explanation: `Asymmetric Numeral Systems keeps a single ${ansNotes.state}. Encoding a symbol moves the state to a new integer; renormalization emits ${ansNotes.bits} when the state gets too large. Decoding reverses those moves via ${ansNotes.decode}.`,
+    invariant: `The ${ansNotes.state} carries both payload and enough alignment to recover symbols in reverse order.`,
   };
 
+  const stateRows = [
+    { id: 'x12', label: 'x=12' },
+    { id: 'x13', label: 'x=13' },
+    { id: 'x14', label: 'x=14' },
+    { id: 'x15', label: 'x=15' },
+  ];
+  const startState = 12;
   yield {
     state: labelMatrix(
       'Toy rANS-style transition view',
-      [
-        { id: 'x12', label: 'x=12' },
-        { id: 'x13', label: 'x=13' },
-        { id: 'x14', label: 'x=14' },
-        { id: 'x15', label: 'x=15' },
-      ],
+      stateRows,
       [
         { id: 'sym', label: 'sym' },
         { id: 'next', label: 'next x' },
@@ -140,16 +150,19 @@ function* ansStateMachine() {
       ],
     ),
     highlight: { active: ['x14:sym', 'x14:next', 'x14:emit'], found: ['x12:sym', 'x13:sym'] },
-    explanation: 'The exact transition table depends on the frequency table, but the shape is the lesson: common symbols occupy more states; rare symbols push the state further and tend to emit more bits.',
+    explanation: `The exact transition table depends on the frequency table, but across ${stateRows.length} states (x=${startState}..${startState + stateRows.length - 1}) the shape is the lesson: common symbols occupy more states; rare symbols push the state further and tend to emit more bits.`,
   };
 
+  const coderFamilies = [
+    { id: 'huff', label: 'Huffman' },
+    { id: 'arith', label: 'arith' },
+    { id: 'ans', label: 'ANS' },
+  ];
   yield {
     state: labelMatrix(
       'Coder comparison',
       [
-        { id: 'huff', label: 'Huffman' },
-        { id: 'arith', label: 'arith' },
-        { id: 'ans', label: 'ANS' },
+        ...coderFamilies,
         { id: 'model', label: 'model' },
       ],
       [
@@ -164,13 +177,14 @@ function* ansStateMachine() {
       ],
     ),
     highlight: { active: ['ans:shape', 'arith:trade'], compare: ['huff:trade'], found: ['model:trade'] },
-    explanation: 'Modern compressors often choose between these families. Huffman is simple and fast, arithmetic/range coding is close to entropy, and ANS aims for arithmetic-like rate with table-friendly speed.',
+    explanation: `Modern compressors often choose between ${coderFamilies.length} families. ${coderFamilies[0].label} is simple and fast, ${coderFamilies[1].label}metic/range coding is close to entropy, and ${coderFamilies[2].label} aims for arithmetic-like rate with table-friendly speed.`,
   };
 
+  const systemNotes = { model: 'tokens/freqs', symbol: 'events', state: 'coder', bits: 'compressed', decode: 'events' };
   yield {
-    state: coderGraph('Entropy coders sit after a model or transform', { model: 'tokens/freqs', symbol: 'events', state: 'coder', bits: 'compressed', decode: 'events' }),
+    state: coderGraph('Entropy coders sit after a model or transform', systemNotes),
     highlight: { active: ['model', 'symbol', 'state'], found: ['bits'] },
-    explanation: 'The coder is only half the compressor. LZ77, BPE, image transforms, or context models create the events and probabilities; the entropy coder turns those events into bits.',
+    explanation: `The ${systemNotes.state} is only half the compressor. LZ77, BPE, image transforms, or context models create the ${systemNotes.symbol} and probabilities from ${systemNotes.model}; the entropy coder turns those ${systemNotes.symbol} into ${systemNotes.bits} output.`,
   };
 }
 
@@ -183,6 +197,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/arithmetic-ans-entropy-coding.gif', alt: 'Animated walkthrough of the arithmetic ans entropy coding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

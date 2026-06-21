@@ -55,11 +55,20 @@ function dpGraph(title) {
 }
 
 function* subsetDpTable() {
+  const relations = ['A', 'B', 'C'];
+  const relationCount = relations.length;
+  const totalSubsets = 6;
+  const fullSet = relations.join('');
+  const bestCost = 230;
+  const costs = [12, 80, 30, 140, 190, bestCost];
+  const rowEstimates = ['1k', '50k', '3k', '4k', '9k', '600'];
+  const decompositionCount = 3;
+
   yield {
     state: dpGraph('Dynamic programming keeps best plans by relation subset'),
     highlight: { active: ['A', 'B', 'C', 'AB', 'BC', 'e-A-AB', 'e-B-AB', 'e-B-BC', 'e-C-BC'], compare: ['AC'] },
-    explanation: 'Selinger-style join ordering decomposes the search by relation subset. First choose best single-table access paths, then best two-table joins, then larger joins built from smaller winners.',
-    invariant: 'For a cost model with optimal substructure, a best plan for a set is built from best plans for smaller sets.',
+    explanation: `Selinger-style join ordering decomposes the search by relation subset. First choose best single-table access paths for each of the ${relationCount} base relations (${relations.join(', ')}), then best two-table joins, then larger joins built from smaller winners.`,
+    invariant: `For a cost model with optimal substructure, a best plan for a set like ${fullSet} is built from best plans for its ${relationCount - 1}-relation subsets.`,
   };
 
   yield {
@@ -88,13 +97,13 @@ function* subsetDpTable() {
       ],
     ),
     highlight: { active: ['AB:best', 'BC:best', 'ABC:best'], found: ['ABC:cost'] },
-    explanation: 'The table stores the cheapest known plan for each subset and its estimated output size. Larger candidates reuse smaller table entries instead of rediscovering their internal join orders.',
+    explanation: `The table stores the cheapest known plan for each of the ${totalSubsets} subsets and its estimated output size. The final subset ${fullSet} has cost ${bestCost} — larger candidates reuse smaller table entries instead of rediscovering their internal join orders.`,
   };
 
   yield {
     state: dpGraph('Competing decompositions produce candidates for the full set'),
     highlight: { active: ['AB', 'BC', 'ABC', 'e-AB-ABC', 'e-BC-ABC'], found: ['cost', 'plan'], compare: ['AC'] },
-    explanation: 'For ABC, the optimizer can try AB joined with C, AC joined with B, and BC joined with A. Each candidate has a cost from its child plans plus join cost and output estimate.',
+    explanation: `For ${fullSet}, the optimizer tries ${decompositionCount} competing decompositions: AB joined with C, AC joined with B, and BC joined with A. Each candidate's cost comes from its child plans (already stored in the ${totalSubsets}-entry DP table) plus join cost and output estimate.`,
   };
 
   yield {
@@ -118,17 +127,25 @@ function* subsetDpTable() {
       ],
     ),
     highlight: { active: ['leftdeep:helps', 'prune:helps'], compare: ['bushy:risk'], found: ['stats:risk'] },
-    explanation: 'The optimizer is managing combinatorial explosion. It may restrict plan shapes, prune dominated plans, and rely on statistics that can still be wrong.',
+    explanation: `The optimizer is managing combinatorial explosion across ${totalSubsets} subsets of ${relationCount} relations. It may restrict plan shapes, prune dominated plans, and rely on statistics — row estimates like ${rowEstimates[0]} or ${rowEstimates[1]} that can still be wrong.`,
   };
 
   yield {
     state: dpGraph('Complete case: star-schema dashboard query'),
     highlight: { active: ['A', 'B', 'C', 'AB', 'ABC', 'cost', 'plan'], compare: ['BC'] },
-    explanation: 'A dashboard query joining fact, customer, and date tables becomes a subset DP problem. The best first join is usually the one that shrinks the fact table most before later joins and aggregation.',
+    explanation: `A dashboard query joining fact, customer, and date tables becomes a subset DP problem over ${relationCount} relations. The best first join — costing as little as ${costs[0]} — is usually the one that shrinks the fact table most before later joins and aggregation.`,
   };
 }
 
 function* interestingOrders() {
+  const dpKeyComponents = ['subset', 'physical property'];
+  const physicalProperties = ['sort order', 'partitioning', 'location', 'materialized?'];
+  const propertyCount = physicalProperties.length;
+  const keyDescription = dpKeyComponents.join(' + ');
+  const joinMethods = ['hash join', 'merge join', 'nested loop'];
+  const debugChecks = ['row estimate', 'lost order', 'join method', 'spill risk'];
+  const debugCheckCount = debugChecks.length;
+
   yield {
     state: labelMatrix(
       'Interesting orders',
@@ -151,14 +168,14 @@ function* interestingOrders() {
       ],
     ),
     highlight: { active: ['ABdate:future', 'ABC:future'], compare: ['ABnone:future'] },
-    explanation: 'System R kept more than one plan per subset when a plan produced an interesting order that could make later joins, grouping, or ORDER BY cheaper.',
-    invariant: 'A locally more expensive plan can be globally cheaper if it preserves a useful property.',
+    explanation: `System R kept more than one plan per subset when a plan produced an interesting order — such as ${physicalProperties[0]} — that could make later ${joinMethods[1]}s, grouping, or ORDER BY cheaper.`,
+    invariant: `A locally more expensive plan can be globally cheaper if it preserves a useful property like ${physicalProperties[0]} — the DP key becomes (${keyDescription}).`,
   };
 
   yield {
     state: dpGraph('The DP key is subset plus physical property'),
     highlight: { active: ['AB', 'ABC', 'cost', 'plan'], found: ['B', 'C'], compare: ['BC'] },
-    explanation: 'The DP table is not only keyed by the set of relations. Practical optimizers also track physical properties such as sort order, partitioning, distribution, and required output format.',
+    explanation: `The DP table is not only keyed by the set of relations. Practical optimizers track ${propertyCount} categories of physical properties — ${physicalProperties.slice(0, 3).join(', ')}, and more — making the key (${keyDescription}).`,
   };
 
   yield {
@@ -182,7 +199,7 @@ function* interestingOrders() {
       ],
     ),
     highlight: { active: ['order:saves', 'partition:saves'], found: ['material:saves'] },
-    explanation: 'This is the bridge from simple DP to Cascades-style memo optimization: equivalent logical results can have many physical implementations and properties.',
+    explanation: `This is the bridge from simple DP to Cascades-style memo optimization: equivalent logical results can have many physical implementations across ${propertyCount} property dimensions (${physicalProperties.join(', ')}).`,
   };
 
   yield {
@@ -206,7 +223,7 @@ function* interestingOrders() {
       ],
     ),
     highlight: { active: ['estimate:evidence', 'order:evidence'], found: ['spill:evidence'] },
-    explanation: 'Join ordering is only visible indirectly through the chosen plan. The practical read is: which relation subsets got joined early, what row estimates justified that, and what physical properties were preserved or destroyed?',
+    explanation: `Join ordering is only visible indirectly through the chosen plan. Check all ${debugCheckCount} dimensions (${debugChecks.join(', ')}): which relation subsets got joined early, what row estimates justified that, and which of the ${propertyCount} physical properties were preserved or destroyed?`,
   };
 }
 
@@ -234,7 +251,8 @@ export const article = {
           text: 'Watch the cost column in the DP table. When a larger subset is built, its cost is never recomputed from scratch -- it adds one join cost on top of already-memoized child costs. That reuse is the entire point of the dynamic program.',
         },
         {type: 'callout', text: 'Selinger DP wins by making join order a subset problem: solve each relation set once, then reuse it in larger plans.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/selinger-dp-join-order-optimizer.gif', alt: 'Animated walkthrough of the selinger dp join order optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

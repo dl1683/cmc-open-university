@@ -127,7 +127,8 @@ export const article = {
       paragraphs: [
         `The visual uses a travel booking because it makes the trade visible. Booking a flight, reserving a hotel, renting a car, and charging a card are separate service actions. A highlighted forward step means that action has really committed in its own system.`,
         `The failure path is the important part. When the car rental fails, the already completed steps are not tentative votes waiting for a coordinator. They are finished facts. The workflow can only walk backward through compensations: cancel the hotel, refund the flight, and leave a durable record of how the final outcome was produced.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/saga-pattern.gif', alt: 'Animated walkthrough of the saga pattern visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `How it works`,

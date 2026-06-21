@@ -98,7 +98,8 @@ export const article = {
         'Watch the arrow directions. Left of the minimum the slope is negative, so the update moves right. Right of the minimum the slope is positive, so the update moves left. The arrow always points opposite the gradient. Near the bottom the curve flattens, so the gradient shrinks, the arrow shortens, and the steps slow down automatically.',
         {type: 'callout', text: 'Gradient descent is a local rule with a global goal: measure the slope here, then step in the direction that lowers loss fastest.'},
         'Try the "1.05 (too big!)" learning rate. The arrows overshoot the valley on every step, each landing higher than the last. Same formula, same curve, but the step size exceeds what the local curvature can tolerate. The update rule is correct and the training still diverges. That is the visual proof that learning rate is not a detail.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/gradient-descent.gif', alt: 'Animated walkthrough of the gradient descent visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

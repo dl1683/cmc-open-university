@@ -28,8 +28,8 @@ function* lieGuaranteed() {
       format: (v) => `${v.toFixed(1)}%`,
     }),
     highlight: { compare: ['k1:p'], removed: ['k20:p', 'k100:p'] },
-    explanation: 'A/B Testing & p-values set the contract: at α = 0.05, a single test cries wolf 5% of the time when nothing is there. Now run the arithmetic this module just computed for MANY tests, all on pure noise: five tests â†’ 22.6% chance of at least one fake significant result; twenty â†’ 64.2%; a hundred â†’ 99.4%, a guarantee. Each test kept its individual promise; the FAMILY of tests broke it together. This compounding is the FAMILY-WISE ERROR RATE, and it is the same merciless formula as Tail Latency & p99 Thinking\'s fan-out — 1 âˆ’ (1 âˆ’ p)áµ — pointed at your statistics instead of your servers.',
-    invariant: 'FWER = 1 âˆ’ (1 âˆ’ α)áµ: per-test honesty compounds into family-level deceit.',
+    explanation: `A/B Testing & p-values set the contract: at α = 0.05, a single test cries wolf 5% of the time when nothing is there. Now run the arithmetic this module just computed for ${KS.length} test counts, all on pure noise: five tests â†’ ${(fwer(5) * 100).toFixed(1)}% chance of at least one fake significant result; twenty â†’ ${(fwer(20) * 100).toFixed(1)}%; a hundred â†’ ${(fwer(100) * 100).toFixed(1)}%, a guarantee. Each test kept its individual promise; the FAMILY of tests broke it together. This compounding is the FAMILY-WISE ERROR RATE, and it is the same merciless formula as Tail Latency & p99 Thinking\'s fan-out — 1 âˆ’ (1 âˆ’ p)áµ — pointed at your statistics instead of your servers.`,
+    invariant: `FWER = 1 âˆ’ (1 âˆ’ α)áµ: per-test honesty compounds into family-level deceit. With ${KS[KS.length - 1]} tests the rate is ${(fwer(KS[KS.length - 1]) * 100).toFixed(1)}%.`,
   };
 
   yield {
@@ -46,8 +46,8 @@ function* lieGuaranteed() {
       format: (v) => (v === 1 ? 'not significant' : v === 2 ? '"SIGNIFICANT WIN!" âš ' : v.toFixed(2)),
     }),
     highlight: { removed: ['m12:call'], visited: ['m3:call', 'm7:call', 'm17:call'] },
-    explanation: 'How the trap springs in practice: ship a button-color change with NO real effect, and watch a dashboard tracking twenty metrics. Sixteen come back quiet… but "signups from the Tuesday cohort" flashes p = 0.04, and the team celebrates a discovery that is pure sampling noise wearing a costume. The subtler version is the GARDEN OF FORKING PATHS: you didn\'t plan to check Tuesday cohorts — the data suggested it, you tested it, it "worked." Subgroups, time windows, metric variants: each fork is another silent test, and nobody is counting them. (xkcd\'s green-jellybean comic is this slide, funnier.)',
-    invariant: 'Every metric, subgroup, and peek is a test — counted or not, it compounds the family-wise error.',
+    explanation: `How the trap springs in practice: ship a button-color change with NO real effect, and watch a dashboard tracking ${KS[2]} metrics. Sixteen come back quiet… but "signups from the Tuesday cohort" flashes p = 0.04, and the team celebrates a discovery that is pure sampling noise wearing a costume. The subtler version is the GARDEN OF FORKING PATHS: you didn\'t plan to check Tuesday cohorts — the data suggested it, you tested it, it "worked." Subgroups, time windows, metric variants: each fork is another silent test, and nobody is counting them. (xkcd\'s green-jellybean comic is this slide, funnier.)`,
+    invariant: `Every metric, subgroup, and peek is a test — counted or not, it compounds the family-wise error — at ${KS[2]} tests the FWER is already ${(fwer(KS[2]) * 100).toFixed(0)}%.`,
   };
 
   yield {
@@ -64,11 +64,12 @@ function* lieGuaranteed() {
       ],
     }),
     highlight: { found: ['one'], removed: ['twenty'], active: ['curve'] },
-    explanation: 'The curve, plotted live: the 5% promise at k = 1 decays toward certainty with breathtaking speed — half-broken by seven tests, two-thirds broken by twenty. And modern practice does not run twenty tests; it runs thousands: a genomics study tests 20,000 genes, a feature store screens hundreds of signals (Data Leakage & Contamination\'s cousin — the test set "wears out" one peek at a time), an experimentation platform runs hundreds of A/B tests a quarter. Without a correction, the question is not WHETHER the dashboard lies, only WHICH cell is lying today.',
+    explanation: `The curve, plotted live: the 5% promise at k = 1 decays toward certainty with breathtaking speed — half-broken by seven tests (${(fwer(7) * 100).toFixed(0)}%), two-thirds broken by ${KS[2]} (${(fwer(KS[2]) * 100).toFixed(1)}%). And modern practice does not run twenty tests; it runs thousands: a genomics study tests 20,000 genes, a feature store screens hundreds of signals (Data Leakage & Contamination\'s cousin — the test set "wears out" one peek at a time), an experimentation platform runs hundreds of A/B tests a quarter. Without a correction, the question is not WHETHER the dashboard lies, only WHICH cell is lying today.`,
   };
 }
 
 function* corrections() {
+  const bonferroniK = 20;
   yield {
     state: matrixState({
       title: 'Bonferroni: divide the α among the family',
@@ -83,8 +84,8 @@ function* corrections() {
       format: (v) => ['', 'test each at α/k instead of α', 'each test must clear p < 0.0025', 'FWER â‰¤ 5%, no assumptions, ever', 'brutal power loss — real effects need ~2Ã— the n to clear the higher bar'][v],
     }),
     highlight: { found: ['guarantee:what'], removed: ['price:what'] },
-    explanation: 'Cure 1 — BONFERRONI, the bluntest honest instrument: divide the error budget among the family. Twenty tests share the 5%, so each must clear p < 0.0025. The guarantee is ironclad and assumption-free; the price is paid in POWER — Statistical Power & Sample Size showed that a stricter α pushes required sample sizes up steeply, so at fixed n, Bonferroni silently converts true discoveries into "not significant." (Holm\'s step-down refinement — test the smallest p against α/k, the next against α/(kâˆ’1), and so on — keeps the identical guarantee while rescuing a little power; there is no reason to ever prefer plain Bonferroni over Holm.)',
-    invariant: 'Bonferroni: per-test bar α/k caps the family-wise error at α — bought entirely with power.',
+    explanation: `Cure 1 — BONFERRONI, the bluntest honest instrument: divide the error budget among the family. ${bonferroniK} tests share the 5%, so each must clear p < ${(0.05 / bonferroniK).toFixed(4)}. The guarantee is ironclad and assumption-free; the price is paid in POWER — Statistical Power & Sample Size showed that a stricter α pushes required sample sizes up steeply, so at fixed n, Bonferroni silently converts true discoveries into "not significant." (Holm\'s step-down refinement — test the smallest p against α/k, the next against α/(kâˆ’1), and so on — keeps the identical guarantee while rescuing a little power; there is no reason to ever prefer plain Bonferroni over Holm.)`,
+    invariant: `Bonferroni: per-test bar α/${bonferroniK} = ${(0.05 / bonferroniK).toFixed(4)} caps the family-wise error at α — bought entirely with power.`,
   };
 
   const PS = [0.001, 0.004, 0.011, 0.02, 0.03, 0.04, 0.28, 0.41, 0.6, 0.9];
@@ -98,8 +99,8 @@ function* corrections() {
       markers: [{ id: 'cut', x: 4, y: 0.02, label: 'last point under the line' }],
     }),
     highlight: { active: ['bhline'], found: ['cut'], compare: ['pvals'] },
-    explanation: 'Cure 2 — BENJAMINI–HOCHBERG, the modern workhorse, applied live to ten p-values: sort them, draw the rising line (i/k)Â·q for target q = 5%, and find the LAST p-value under the line — rank 4 here (p = 0.02 â‰¤ 0.020) — then declare ranks 1 through 4 discoveries. Compare: Bonferroni\'s flat bar at 0.005 accepts only two. The philosophical shift is the whole point: BH stops promising "probably zero false positives" and instead controls the FALSE DISCOVERY RATE — among your accepted discoveries, at most ~5% are expected to be fakes. Four discoveries with a small, known impurity, instead of two pristine ones.',
-    invariant: 'BH: accept up to the largest i with pâ‚áµ¢â‚Ž â‰¤ (i/k)Â·q — the expected fraction of fake discoveries stays â‰¤ q.',
+    explanation: `Cure 2 — BENJAMINI–HOCHBERG, the modern workhorse, applied live to ${PS.length} p-values: sort them, draw the rising line (i/k)Â·q for target q = 5%, and find the LAST p-value under the line — rank 4 here (p = ${PS[3]} â‰¤ 0.020) — then declare ranks 1 through 4 discoveries. Compare: Bonferroni\'s flat bar at 0.005 accepts only two. The philosophical shift is the whole point: BH stops promising "probably zero false positives" and instead controls the FALSE DISCOVERY RATE — among your accepted discoveries, at most ~5% are expected to be fakes. Four discoveries with a small, known impurity, instead of two pristine ones.`,
+    invariant: `BH: accept up to the largest i with pâ‚áµ¢â‚Ž â‰¤ (i/k)Â·q — the expected fraction of fake discoveries stays â‰¤ q. Here k = ${PS.length}.`,
   };
 
   yield {
@@ -115,7 +116,7 @@ function* corrections() {
       format: (v) => ['', 'ANY false positive is expensive; few tests', 'drug approval, ship/no-ship calls', 'discovery volume matters; thousands of tests', 'genomics screens, feature mining, log anomaly hunts', 'you can decide what matters BEFORE looking', 'every well-run A/B test (one primary, rest exploratory)'][v],
     }),
     highlight: { found: ['prereg:when', 'prereg:home'] },
-    explanation: 'The decision card — and the bottom row is the quiet champion: PRE-REGISTRATION. Declare ONE primary metric before the experiment starts; judge ship/no-ship on it alone at full α; mark everything else exploratory (hypothesis FUEL for the next test, never evidence in this one). No correction needed, full power preserved, forking paths fenced off — the same discipline as Statistical Power & Sample Size\'s pre-committed n and Cross-Validation & Honest Evaluation\'s sealed test set, applied to the question itself. The unifying law of all three pages: decide how you will judge BEFORE you look, because after you look, every choice you make is secretly another test.',
+    explanation: `The decision card — and the bottom row is the quiet champion: PRE-REGISTRATION. Declare ONE primary metric (unlike the ${PS.length} p-values just corrected) before the experiment starts; judge ship/no-ship on it alone at full α; mark everything else exploratory (hypothesis FUEL for the next test, never evidence in this one). No correction needed, full power preserved, forking paths fenced off — the same discipline as Statistical Power & Sample Size\'s pre-committed n and Cross-Validation & Honest Evaluation\'s sealed test set, applied to the question itself. The unifying law of all three pages: decide how you will judge BEFORE you look, because after you look, every choice you make is secretly another test.`,
   };
 }
 
@@ -135,7 +136,8 @@ export const article = {
         'The second view applies Bonferroni and Benjamini-Hochberg to a concrete set of p-values. The BH threshold line rises with rank. Found markers (green) are discoveries that survive the correction. Removed markers (red) are results that a naive analysis would celebrate but the correction rejects. At each frame, ask: which error guarantee is this threshold enforcing, and what power is it costing?',
         'The dashboard frame between them shows a realistic experiment with twenty metrics and one false "win." That frame is the motivation for everything that follows.',
         {type: 'callout', text: 'Multiplicity spends error budget every time the data gets another chance to produce a lucky-looking result.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/multiple-testing.gif', alt: 'Animated walkthrough of the multiple testing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

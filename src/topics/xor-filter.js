@@ -63,10 +63,15 @@ function hypergraph(title) {
 }
 
 function* peelingBuild() {
+  const numKeys = 3;
+  const slotsPerKey = 3;
+  const totalSlots = 5;
+  const filterFamilies = 4;
+
   yield {
     state: hypergraph('Each key touches three candidate slots'),
     highlight: { active: ['kA', 'e-A-0', 'e-A-2', 'e-A-4'], compare: ['kB', 'kC'] },
-    explanation: 'An xor filter maps every key to three table positions plus a small fingerprint. Construction views this as a hypergraph: keys are edges connected to three slot vertices.',
+    explanation: `An xor filter maps every key to ${slotsPerKey} table positions plus a small fingerprint. Construction views this as a hypergraph: ${numKeys} keys are edges connected to ${slotsPerKey} slot vertices.`,
   };
 
   yield {
@@ -91,14 +96,14 @@ function* peelingBuild() {
       ],
     ),
     highlight: { active: ['round1:find', 'round1:push', 'round2:find'], compare: ['fail:find'] },
-    explanation: 'The build succeeds when the hypergraph can be peeled down to nothing. If a cyclic core remains, the implementation retries with a new hash seed or larger table.',
-    invariant: 'Xor filters buy very compact queries by doing a one-time static construction.',
+    explanation: `The build succeeds when the hypergraph of ${numKeys} keys over ${totalSlots} slots can be peeled down to nothing. If a cyclic core remains, the implementation retries with a new hash seed or larger table.`,
+    invariant: `Xor filters buy very compact queries by doing a one-time static construction over ${numKeys} keys mapped to ${totalSlots} slots.`,
   };
 
   yield {
     state: hypergraph('Reverse assignment makes each key equation true'),
     highlight: { active: ['stack', 'table', 'e-stack-table'], found: ['s0', 's2', 's4'] },
-    explanation: 'After peeling, process keys in reverse order. For each key, two of its slots are already fixed, so choose the remaining slot value that makes slot[h1] xor slot[h2] xor slot[h3] equal the key fingerprint.',
+    explanation: `After peeling, process ${numKeys} keys in reverse order. For each key, ${slotsPerKey - 1} of its slots are already fixed, so choose the remaining slot value that makes slot[h1] xor slot[h2] xor slot[h3] equal the key fingerprint.`,
   };
 
   yield {
@@ -123,11 +128,15 @@ function* peelingBuild() {
       ],
     ),
     highlight: { found: ['xor:query', 'xor:space'], compare: ['bloom:updates', 'cuckoo:updates'] },
-    explanation: 'Xor filters are not a drop-in replacement for every Bloom filter. They are best when the set is built once, queried many times, and rebuilt rather than updated incrementally.',
+    explanation: `Across ${filterFamilies} filter families, xor filters are not a drop-in replacement for every Bloom filter. They are best when the set is built once, queried many times, and rebuilt rather than updated incrementally.`,
   };
 }
 
 function* membershipQuery() {
+  const reads = 3;
+  const hashPositions = 3;
+  const errorTypes = 4;
+
   yield {
     state: labelMatrix(
       'Query one key',
@@ -149,13 +158,13 @@ function* membershipQuery() {
       ],
     ),
     highlight: { active: ['load:example', 'xor:example', 'compare:example'], found: ['compare:meaning'] },
-    explanation: 'A query performs three table reads and one xor chain. If the reconstructed fingerprint matches the key fingerprint, answer maybe present; otherwise answer definitely absent.',
+    explanation: `A query performs ${reads} table reads and one xor chain across ${hashPositions} hash positions. If the reconstructed fingerprint matches the key fingerprint, answer maybe present; otherwise answer definitely absent.`,
   };
 
   yield {
     state: hypergraph('Present key reconstructs its fingerprint'),
     highlight: { active: ['kA', 's0', 's2', 's4', 'e-A-0', 'e-A-2', 'e-A-4'], found: ['table'] },
-    explanation: 'For a stored key, construction guaranteed the xor equation. That is why xor filters have no false negatives for the immutable set used to build the table.',
+    explanation: `For a stored key, construction guaranteed the xor equation across all ${hashPositions} positions. That is why xor filters have no false negatives for the immutable set used to build the table.`,
   };
 
   yield {
@@ -179,7 +188,7 @@ function* membershipQuery() {
       ],
     ),
     highlight: { active: ['present:correctness', 'absentfp:correctness'], compare: ['mutate:correctness'] },
-    explanation: 'The guarantee matches Bloom Filter semantics: false positives are possible; false negatives for the built set are not. Updates change the set, so the filter must be rebuilt or replaced.',
+    explanation: `The guarantee matches Bloom Filter semantics across ${errorTypes} error categories: false positives are possible; false negatives for the built set are not. Updates change the set, so the filter must be rebuilt or replaced.`,
   };
 
   yield {
@@ -203,7 +212,7 @@ function* membershipQuery() {
       ],
     ),
     highlight: { found: ['sstable:fit', 'object:fit'], compare: ['stream:fit'] },
-    explanation: 'Xor filters are a natural companion to immutable storage files and manifests. They are a weaker fit for constantly changing membership sets.',
+    explanation: `Xor filters are a natural companion to immutable storage files and manifests, needing only ${reads} reads per query. They are a weaker fit for constantly changing membership sets.`,
   };
 }
 
@@ -223,7 +232,8 @@ export const article = {
         {type: 'callout', text: 'An xor filter moves work from query time into construction: solve the equations once, then answer with three reads.'},
         'The membership-query view shows the lookup path: three positions, three table reads, one XOR chain, one fingerprint comparison. The error-semantics table shows the contract -- true positives, true negatives, and the false-positive case where an absent key collides by fingerprint chance.',
         'In both views, the compare color marks elements that are being contrasted against the active path -- the cyclic-core failure case in the build view, the streaming-set mismatch in the placement view. Watch for the transition from peeling (removing keys) to assignment (filling values in reverse order). That reversal is the core of the algorithm.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/xor-filter.gif', alt: 'Animated walkthrough of the xor filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -80,10 +80,16 @@ function indexGraph(title) {
 }
 
 function* maxSimScoring() {
+  const pipelineNodes = 7;
+  const pipelineEdges = 6;
+  const queryTokens = 3;
+  const candidateDocs = 2;
+  const retrieverTiers = 3;
+
   yield {
     state: lateGraph('ColBERT keeps token-level document vectors'),
     highlight: { active: ['query', 'qmat', 'doc', 'dmat', 'e-query-qmat', 'e-doc-dmat'], compare: ['maxsim'] },
-    explanation: 'Read the matrix as the index unit. ColBERT does not store one passage vector; it stores many contextual token vectors so matching can stay fine-grained at query time.',
+    explanation: `Read the matrix as the index unit. Across ${pipelineNodes} pipeline stages, ColBERT does not store one passage vector; it stores many contextual token vectors so matching can stay fine-grained at query time.`,
   };
 
   yield {
@@ -106,8 +112,8 @@ function* maxSimScoring() {
       ],
     ),
     highlight: { active: ['refund:doc A', 'policy:doc A', 'cancel:doc B'], found: ['refund:best', 'policy:best', 'cancel:best'] },
-    explanation: 'MaxSim is the visual key: each query token gets to find its best document-token partner, and the passage score is the sum of those local wins.',
-    invariant: 'Late interaction preserves fine-grained token matching without running a cross-encoder over every query-document pair.',
+    explanation: `MaxSim is the visual key: each of the ${queryTokens} query tokens finds its best partner across ${candidateDocs} candidate documents, and the passage score is the sum of those local wins.`,
+    invariant: `Late interaction preserves fine-grained matching across ${queryTokens} query tokens without running a cross-encoder over every query-document pair.`,
   };
 
   yield {
@@ -130,27 +136,31 @@ function* maxSimScoring() {
       ],
     ),
     highlight: { active: ['colbert:stores', 'colbert:query cost', 'colbert:quality'], compare: ['bi:quality', 'cross:query cost'] },
-    explanation: 'ColBERT sits between fast pooled bi-encoders and slow cross-encoders. It precomputes document token embeddings offline, but still lets query tokens interact with document tokens at scoring time.',
+    explanation: `ColBERT sits between ${retrieverTiers} retriever tiers: fast pooled bi-encoders and slow cross-encoders. It precomputes document token embeddings offline, but still lets query tokens interact with document tokens at scoring time.`,
   };
 
   yield {
     state: lateGraph('RAG uses ColBERT as a high-precision retrieval layer'),
     highlight: { active: ['maxsim', 'score', 'topk', 'e-maxsim-score', 'e-score-topk'], found: ['qmat', 'dmat'] },
-    explanation: 'In a RAG stack, ColBERT can retrieve or rerank passages after BM25/vector fanout. The final context gets passages whose exact tokens match the query intent more precisely than a single pooled vector might show.',
+    explanation: `In a RAG stack, ColBERT can retrieve or rerank passages after BM25/vector fanout. Through ${pipelineEdges} dataflow edges, the final context gets passages whose exact tokens match the query intent more precisely than a single pooled vector might show.`,
   };
 }
 
 function* indexAndCompression() {
+  const indexNodes = 7;
+  const indexEdges = 8;
+  const designChoices = 4;
+
   yield {
     state: indexGraph('Offline indexing stores many vectors per passage'),
     highlight: { active: ['passages', 'encoder', 'tokens', 'e-passages-encoder', 'e-encoder-tokens'], compare: ['compress'] },
-    explanation: 'The storage frame shows the tradeoff plainly. Late interaction buys token-level matching by storing many vectors per passage, so compression and pruning are not optional at scale.',
+    explanation: `The storage frame shows the tradeoff plainly. Across ${indexNodes} index stages linked by ${indexEdges} edges, late interaction buys token-level matching by storing many vectors per passage, so compression and pruning are not optional at scale.`,
   };
 
   yield {
     state: indexGraph('ColBERTv2 compresses token vectors aggressively'),
     highlight: { active: ['tokens', 'compress', 'index', 'e-tokens-compress', 'e-compress-index'], found: ['encoder'] },
-    explanation: 'ColBERTv2 reduces late-interaction storage with residual compression and better supervision. The goal is to keep token-level matching quality while making the index practical at production scale.',
+    explanation: `ColBERTv2 reduces late-interaction storage with residual compression and better supervision. The ${indexEdges}-edge pipeline keeps token-level matching quality while making the index practical at production scale.`,
   };
 
   yield {
@@ -174,13 +184,13 @@ function* indexAndCompression() {
       ],
     ),
     highlight: { active: ['dim:helps', 'codec:helps', 'prune:helps'], compare: ['tokens:cost if wrong'] },
-    explanation: 'Late interaction makes retrieval quality a storage-layout problem. Dimensions, token retention, compression, and pruning decide whether the model is fast enough to serve.',
+    explanation: `Late interaction makes retrieval quality a storage-layout problem. All ${designChoices} design knobs — dimensions, token retention, compression, and pruning — decide whether the model is fast enough to serve.`,
   };
 
   yield {
     state: indexGraph('PLAID prunes candidates before exact MaxSim'),
     highlight: { active: ['index', 'prune', 'rerank', 'e-index-prune', 'e-prune-rerank'], compare: ['tokens'] },
-    explanation: 'PLAID accelerates late interaction by using centroid-style approximations to remove low-scoring passages before exact MaxSim reranking. The data-structure idea is familiar: spend cheap bounds before expensive scoring.',
+    explanation: `PLAID accelerates late interaction by using centroid-style approximations across ${indexNodes} pipeline stages to remove low-scoring passages before exact MaxSim reranking. The data-structure idea is familiar: spend cheap bounds before expensive scoring.`,
   };
 }
 
@@ -193,6 +203,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/colbert-late-interaction-retrieval.gif', alt: 'Animated walkthrough of the colbert late interaction retrieval visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

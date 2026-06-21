@@ -51,11 +51,15 @@ function sweepGraph(title) {
 }
 
 function* eventSweep() {
+  const eventTypes = ['left endpoint', 'intersection', 'right endpoint'];
+  const dataStructures = ['event queue', 'status tree', 'reported set', 'orientation'];
+  const activeSegments = ['s1', 's2', 's3'];
+
   yield {
     state: sweepGraph('Sweep through sorted events from left to right'),
     highlight: { active: ['events', 'sweep', 'e-events-sweep'], compare: ['status'] },
-    explanation: 'The Bentley-Ottmann idea is to simulate a moving vertical line using a priority queue of future events. Endpoints are known at the start; intersections are discovered when neighboring active segments can cross.',
-    invariant: 'Between events, the vertical order of active segments cannot change.',
+    explanation: `The Bentley-Ottmann idea is to simulate a moving vertical line using a priority queue of future events. With ${eventTypes.length} event types (${eventTypes.join(', ')}), endpoints are known at the start and intersections are discovered when neighboring active segments can cross.`,
+    invariant: `Between events, the vertical order of active segments cannot change.`,
   };
 
   yield {
@@ -77,13 +81,13 @@ function* eventSweep() {
       ],
     ),
     highlight: { active: ['left:action', 'cross:status'], found: ['right:status'] },
-    explanation: 'The event queue is ordered by x coordinate. The active status is ordered by where each segment intersects the current sweep line.',
+    explanation: `The event queue holds ${eventTypes.length} types of event, ordered by x coordinate. The active status is ordered by where each segment intersects the current sweep line.`,
   };
 
   yield {
     state: sweepGraph('Only adjacent active segments can create the next crossing'),
     highlight: { active: ['s1', 's2', 'status', 'e-s1-status', 'e-s2-status'], found: ['hit'], compare: ['s3'] },
-    explanation: 'A segment can cross many others over the full plane, but the next crossing must be between neighbors in the current vertical order. That localizes the search from all pairs to adjacent status pairs.',
+    explanation: `A segment can cross many others over the full plane, but among the ${activeSegments.length} active segments the next crossing must be between neighbors in the current vertical order. That localizes the search from all pairs to adjacent status pairs.`,
   };
 
   yield {
@@ -107,17 +111,19 @@ function* eventSweep() {
       ],
     ),
     highlight: { active: ['heap:operation', 'bst:operation'], found: ['pred:stores'] },
-    explanation: 'This is a clean composition: Binary Heap schedules time, Red-Black Tree stores sweep order, and orientation/intersection predicates do the geometry.',
+    explanation: `This is a clean composition of ${dataStructures.length} structures: Binary Heap schedules time, Red-Black Tree stores sweep order, and orientation/intersection predicates do the geometry.`,
   };
 
   yield {
     state: sweepGraph('Complete case: endpoint, neighbor check, crossing, swap'),
     highlight: { active: ['events', 'sweep', 'status'], found: ['hit'], compare: ['s1', 's2'] },
-    explanation: 'The complete loop repeatedly pops the next event, updates the active set, reports or schedules crossings, and relies on the invariant that only neighbor relationships change at event points.',
+    explanation: `The complete loop repeatedly pops the next event from the queue of ${eventTypes.length} event types, updates the active set, reports or schedules crossings, and relies on the invariant that only neighbor relationships change at event points.`,
   };
 }
 
 function* robustCases() {
+  const degeneracies = ['same x event', 'vertical segment', 'shared endpoint', 'many cross'];
+
   yield {
     state: labelMatrix(
       'Degenerate geometry cases',
@@ -139,15 +145,16 @@ function* robustCases() {
       ],
     ),
     highlight: { active: ['sameX:policy', 'vertical:policy'], found: ['multi:policy'] },
-    explanation: 'Textbook sweep descriptions often assume general position. Real geometry needs explicit policies for equal coordinates, vertical segments, shared endpoints, overlapping collinear segments, and multiple segments crossing at one point.',
+    explanation: `Textbook sweep descriptions often assume general position. Real geometry needs explicit policies for all ${degeneracies.length} degeneracies: ${degeneracies.join(', ')}, plus overlapping collinear segments.`,
   };
 
   yield {
     state: sweepGraph('Robust implementations batch events at the same point'),
     highlight: { active: ['events', 'sweep', 'status'], found: ['hit'], compare: ['s1', 's2', 's3'] },
-    explanation: 'If several segments meet at one point, process them as one event rather than as an arbitrary sequence that can corrupt the status order.',
+    explanation: `If several segments meet at one point, process them as one event rather than as an arbitrary sequence that can corrupt the status order. Batching avoids ${degeneracies.length} classes of degeneracy.`,
   };
 
+  const costRows = ['all pairs', 'sweep line', 'many crossings', 'robustness'];
   yield {
     state: labelMatrix(
       'Cost model',
@@ -169,9 +176,10 @@ function* robustCases() {
       ],
     ),
     highlight: { active: ['sweep:time', 'sweep:lesson'], compare: ['dense:time'] },
-    explanation: 'The algorithm is output-sensitive: k is the number of crossings. If nearly every segment crosses every other segment, the output itself is quadratic.',
+    explanation: `The ${costRows.length}-row cost model shows the algorithm is output-sensitive: k is the number of crossings. If nearly every segment crosses every other segment, the output itself is quadratic.`,
   };
 
+  const overlayLayers = ['road lines', 'parcel edges', 'events', 'output'];
   yield {
     state: labelMatrix(
       'Case study: map overlay',
@@ -193,7 +201,7 @@ function* robustCases() {
       ],
     ),
     highlight: { active: ['events:role', 'output:role'], found: ['parcels:risk'] },
-    explanation: 'GIS overlays are where elegant sweep-line ideas meet messy input. The data structures are straightforward; correctness depends on precise degeneracy and numeric policies.',
+    explanation: `GIS overlays combine ${overlayLayers.length} layers (${overlayLayers.join(', ')}) — where elegant sweep-line ideas meet messy input. The data structures are straightforward; correctness depends on precise degeneracy and numeric policies.`,
   };
 }
 
@@ -216,7 +224,8 @@ export const article = {
           type: 'note',
           text: 'The status tree orders segments by where they cross the sweep line, not by any fixed property. That ordering changes at every event. When two segments swap in the tree, it means their vertical positions have crossed at the current sweep x.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/sweep-line-segment-intersection.gif', alt: 'Animated walkthrough of the sweep line segment intersection visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

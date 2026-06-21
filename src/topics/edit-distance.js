@@ -120,7 +120,8 @@ export const article = {
         },
         'Active cells (highlighted) are the row currently being filled. Visited cells (dimmer) mark the three neighbors the active cell depends on: the cell above (a deletion), the cell to the left (an insertion), and the diagonal cell (a match or substitution). When a row finishes, every cell in it is final -- its value will never change.',
         'At the end, the found marker lands on the bottom-right corner: the answer for the full strings. The traceback path then lights up, walking backward from that corner to the origin. Each diagonal step with no cost increase is a character match. Each diagonal step with a cost increase is a substitution. A vertical step is a deletion; a horizontal step is an insertion. The path is the edit script.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/edit-distance.gif', alt: 'Animated walkthrough of the edit distance visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

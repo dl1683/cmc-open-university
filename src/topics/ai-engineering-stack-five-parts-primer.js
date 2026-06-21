@@ -82,11 +82,18 @@ function triageGraph(title) {
 }
 
 function* fivePartMap() {
+  const stackParts = ['data', 'model', 'compute', 'eval', 'serving'];
+  const partCount = stackParts.length;
+  const stackNodeCount = 6; // includes feedback
+  const stackEdgeCount = 6;
+  const artifactRows = ['data card', 'run log', 'model card', 'eval report', 'deploy log'];
+  const diagnosticSymptoms = ['loss flat', 'OOM', 'p99 high', 'online drop', 'stale truth'];
+
   yield {
     state: stackGraph('AI systems have five moving parts'),
     highlight: { active: ['data', 'model', 'compute', 'eval', 'serving'], found: ['feedback'] },
-    explanation: 'The local learning notes frame AI as an engineering stack: data, model, compute, evaluation, and serving. The model is only one part. Most production failures happen at the boundaries.',
-    invariant: 'Ask which part changed before asking which algorithm is fashionable.',
+    explanation: `The local learning notes frame AI as an engineering stack with ${partCount} parts: ${stackParts.join(', ')}. The model is only one of ${stackNodeCount} nodes (the sixth, ${'feedback'}, closes the loop). Most production failures happen at the ${stackEdgeCount} boundaries.`,
+    invariant: `Ask which of the ${partCount} parts changed before asking which algorithm is fashionable.`,
   };
 
   yield {
@@ -112,7 +119,7 @@ function* fivePartMap() {
       ],
     ),
     highlight: { active: ['data:failure', 'eval:failure', 'serving:failure'], found: ['compute:failure'] },
-    explanation: 'A useful mental model starts with artifacts. Data has datasets and labels. Models have weights and configs. Compute has jobs and memory. Evals have scores and cases. Serving has APIs, latency, and cost.',
+    explanation: `A useful mental model starts with artifacts across ${partCount} rows. ${'Data'} has datasets and labels. ${'Models'} have weights and configs. ${'Compute'} has jobs and memory. ${'Evals'} have scores and cases. ${'Serving'} has APIs, latency, and cost.`,
   };
 
   yield {
@@ -138,13 +145,13 @@ function* fivePartMap() {
       ],
     ),
     highlight: { found: ['data:records', 'run:records', 'eval:records', 'deploy:records'] },
-    explanation: 'This is where MLOps becomes concrete. You cannot debug what you did not record: source windows, run configs, model hashes, eval slices, deployment routes, and p99 behavior.',
+    explanation: `This is where MLOps becomes concrete across ${artifactRows.length} artifact types (${artifactRows.join(', ')}). You cannot debug what you did not record: source windows, run configs, model hashes, eval slices, deployment routes, and p99 behavior.`,
   };
 
   yield {
     state: stackGraph('Serving feeds the next data distribution'),
     highlight: { active: ['serving', 'feedback', 'data', 'e-serving-feedback', 'e-feedback-data'], compare: ['model', 'eval'] },
-    explanation: 'Serving is not the end of the system. Product changes, routing, UI, cache behavior, and model outputs change what users do next, which changes the future training distribution.',
+    explanation: `${'Serving'} is not the end of the ${stackNodeCount}-node system. Product changes, routing, UI, cache behavior, and model outputs change what users do next, feeding ${'feedback'} back to ${'data'} via ${stackEdgeCount} connecting edges.`,
   };
 
   yield {
@@ -170,11 +177,21 @@ function* fivePartMap() {
       ],
     ),
     highlight: { active: ['online:suspect', 'p99:suspect', 'oom:suspect'], found: ['online:read'] },
-    explanation: 'The five-part map is a routing table for debugging. A plateau, memory fault, p99 regression, online/offline gap, or label delay points to a different next investigation.',
+    explanation: `The ${partCount}-part map is a routing table for debugging across ${diagnosticSymptoms.length} symptoms. A ${diagnosticSymptoms[0]}, ${diagnosticSymptoms[1]}, ${diagnosticSymptoms[2]} regression, ${diagnosticSymptoms[3]}, or ${diagnosticSymptoms[4]} each points to a different next investigation.`,
   };
 }
 
 function* constraintTriage() {
+  const seriesLabels = ['bigger model', 'better data', 'serving fix'];
+  const seriesCount = seriesLabels.length;
+  const pointsPerSeries = 4;
+  const triageNodeCount = 8;
+  const triageEdgeCount = 10;
+  const roles = ['manager', 'MLE', 'researcher'];
+  const roleCount = roles.length;
+  const complexityTypes = ['new data', 'new feature', 'new model', 'new infra'];
+  const triageParts = ['data', 'model', 'compute', 'eval', 'serving'];
+
   yield {
     state: plotState({
       axes: { x: { label: 'relative cost', min: 0, max: 100 }, y: { label: 'task quality', min: 0, max: 100 } },
@@ -188,7 +205,7 @@ function* constraintTriage() {
       ],
     }),
     highlight: { active: ['betterdata', 'knee'], compare: ['bigger'], found: ['serving'] },
-    explanation: 'Constraints are the curriculum. More model can be the wrong move if data quality, eval proxy, p99 latency, or serving cost is the real bottleneck.',
+    explanation: `Constraints are the curriculum. The plot compares ${seriesCount} strategies (${seriesLabels.join(', ')}) across ${pointsPerSeries} cost points. More model can be the wrong move if data quality, eval proxy, p99 latency, or serving cost is the real bottleneck — the ${'good trade'} marker at quality ${82} shows where ${'better data'} wins.`,
   };
 
   yield {
@@ -214,13 +231,13 @@ function* constraintTriage() {
       ],
     ),
     highlight: { active: ['data:small move', 'eval:small move', 'serving:small move'], compare: ['model:question'] },
-    explanation: 'The best next move is often small: audit slices, build a baseline, profile memory, inspect eval failures, or canary serving behavior. These moves improve judgment before adding complexity.',
+    explanation: `The best next move is often small across ${triageParts.length} rows: audit slices for ${'data'}, build a baseline for ${'model'}, profile memory for ${'compute'}, inspect failures for ${'eval'}, or canary for ${'serving'}. These moves improve judgment before adding complexity.`,
   };
 
   yield {
     state: triageGraph('Triage starts from the observed symptom'),
     highlight: { active: ['symptom', 'data', 'model', 'compute', 'eval', 'serving'], found: ['fix', 'measure'] },
-    explanation: 'Treat a bad result as a systems incident. Split the symptom across the five parts, choose the smallest reversible intervention, and rerun the same measurement.',
+    explanation: `Treat a bad result as a systems incident routed through ${triageNodeCount} nodes and ${triageEdgeCount} edges. Split the ${'symptom'} across the ${triageParts.length} parts, choose the smallest reversible ${'fix'}, and rerun the same ${'measure'}.`,
   };
 
   yield {
@@ -242,7 +259,7 @@ function* constraintTriage() {
       ],
     ),
     highlight: { found: ['manager:question', 'mle:question', 'researcher:question'] },
-    explanation: 'The same map helps different roles. Product leaders need risk and ROI. Engineers need tradeoffs and reproducibility. Researchers need proof that a method improves the real bottleneck.',
+    explanation: `The same map helps ${roleCount} roles (${roles.join(', ')}). Product leaders need risk and ROI. Engineers need tradeoffs and reproducibility. Researchers need proof that a method improves the real bottleneck.`,
   };
 
   yield {
@@ -266,7 +283,7 @@ function* constraintTriage() {
       ],
     ),
     highlight: { active: ['data:good sign', 'model:good sign', 'infra:good sign'], compare: ['feature:bad sign'] },
-    explanation: 'Complexity should buy a known thing: missing coverage, a real signal, slice wins, lower p99, lower cost, or better rollback. Otherwise it becomes hidden technical debt.',
+    explanation: `Complexity should buy a known thing across ${complexityTypes.length} dimensions (${complexityTypes.join(', ')}): missing coverage, a real signal, slice wins, lower p99, lower cost, or better rollback. Otherwise it becomes hidden technical debt.`,
   };
 }
 
@@ -279,6 +296,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/ai-engineering-stack-five-parts-primer.gif', alt: 'Animated walkthrough of the ai engineering stack five parts primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

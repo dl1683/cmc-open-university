@@ -59,38 +59,44 @@ function swimCluster(title) {
 }
 
 function* probeProtocol() {
+  const hl1 = { active: ['a', 'd', 'e-a-d'], compare: ['b', 'c'] };
   yield {
     state: swimCluster('Each period probes one target'),
-    highlight: { active: ['a', 'd', 'e-a-d'], compare: ['b', 'c'] },
-    explanation: 'SWIM avoids all-to-all heartbeats. In each protocol period, a node probes one peer from its membership list. If the peer answers, the detector learned enough for this period.',
+    highlight: hl1,
+    explanation: `SWIM avoids all-to-all heartbeats. In each protocol period, a node probes one peer from its membership list. Here ${hl1.active.filter(id => !id.startsWith('e-')).length} nodes are active (${hl1.active.filter(id => !id.startsWith('e-')).join(', ')}) with ${hl1.compare.length} helpers (${hl1.compare.join(', ')}) standing by. If the peer answers, the detector learned enough for this period.`,
     invariant: 'Per-node message load stays roughly constant as the cluster grows.',
   };
 
+  const hl2 = { active: ['a', 'b', 'c', 'd', 'e-a-b', 'e-a-c', 'e-b-d', 'e-c-d'], compare: ['e-a-d'] };
   yield {
     state: swimCluster('No direct ACK: ask helpers to probe indirectly'),
-    highlight: { active: ['a', 'b', 'c', 'd', 'e-a-b', 'e-a-c', 'e-b-d', 'e-c-d'], compare: ['e-a-d'] },
-    explanation: 'A missed direct ping might be a bad network path from A to D, not a failed D. SWIM asks a few helpers to ping D. That outsourced heartbeat reduces false failure detection caused by one bad link.',
+    highlight: hl2,
+    explanation: `A missed direct ping might be a bad network path from A to D, not a failed D. SWIM asks ${hl2.active.filter(id => !id.startsWith('e-')).length} participating nodes (${hl2.active.filter(id => !id.startsWith('e-')).join(', ')}) to relay indirect probes across ${hl2.active.filter(id => id.startsWith('e-')).length} edges. The ${hl2.compare.length} failed direct edge (${hl2.compare.join(', ')}) is bypassed, reducing false failure detection caused by one bad link.`,
   };
 
+  const hl3 = { active: ['d', 'b', 'c', 'e-d-b', 'e-d-c'], found: ['a'], compare: ['view'] };
   yield {
     state: swimCluster('Indirect ACK clears the suspicion'),
-    highlight: { active: ['d', 'b', 'c', 'e-d-b', 'e-d-c'], found: ['a'], compare: ['view'] },
-    explanation: 'If D answers one helper, A can treat D as alive. The key idea is not majority voting; it is probabilistic path diversity with tiny message cost.',
+    highlight: hl3,
+    explanation: `If D answers one helper, ${hl3.found.join(', ')} can treat D as alive. ${hl3.active.filter(id => !id.startsWith('e-')).length} nodes (${hl3.active.filter(id => !id.startsWith('e-')).join(', ')}) relay the ACK across ${hl3.active.filter(id => id.startsWith('e-')).length} edges. The key idea is not majority voting; it is probabilistic path diversity with tiny message cost.`,
   };
 
+  const rows4 = [
+    { id: 'alive', label: 'alive' },
+    { id: 'miss', label: 'missed ping' },
+    { id: 'suspect', label: 'suspect' },
+    { id: 'failed', label: 'failed' },
+  ];
+  const cols4 = [
+    { id: 'meaning', label: 'meaning' },
+    { id: 'next', label: 'next action' },
+  ];
+  const hl4 = { active: ['miss:next', 'suspect:next'], found: ['failed:meaning'] };
   yield {
     state: labelMatrix(
       'Failure detector states',
-      [
-        { id: 'alive', label: 'alive' },
-        { id: 'miss', label: 'missed ping' },
-        { id: 'suspect', label: 'suspect' },
-        { id: 'failed', label: 'failed' },
-      ],
-      [
-        { id: 'meaning', label: 'meaning' },
-        { id: 'next', label: 'next action' },
-      ],
+      rows4,
+      cols4,
       [
         ['recent ACK', 'continue probing'],
         ['no direct ACK', 'ask helpers'],
@@ -98,31 +104,35 @@ function* probeProtocol() {
         ['timeout elapsed', 'gossip failure'],
       ],
     ),
-    highlight: { active: ['miss:next', 'suspect:next'], found: ['failed:meaning'] },
-    explanation: 'Many implementations use a suspect state before final failure. That grace period lets a slow node refute suspicion with a newer alive message, reducing false positives.',
+    highlight: hl4,
+    explanation: `The ${rows4.length} detector states (${rows4.map(r => r.label).join(', ')}) map across ${cols4.length} columns (${cols4.map(c => c.label).join(', ')}). Many implementations use a suspect state before final failure. That grace period lets a slow node refute suspicion with a newer alive message, reducing false positives. Here ${hl4.active.length} action cells are highlighted: ${hl4.active.join(', ')}.`,
   };
 
+  const hl5 = { active: ['e', 'f', 'view', 'e-e-view', 'e-f-view'], found: ['a', 'b', 'c'] };
   yield {
     state: swimCluster('Membership changes ride on probe traffic'),
-    highlight: { active: ['e', 'f', 'view', 'e-e-view', 'e-f-view'], found: ['a', 'b', 'c'] },
-    explanation: 'SWIM separates failure detection from dissemination, then composes them: probe messages can piggyback membership updates. The cluster converges without a coordinator or a full broadcast tree.',
+    highlight: hl5,
+    explanation: `SWIM separates failure detection from dissemination, then composes them: ${hl5.active.filter(id => !id.startsWith('e-')).length} active nodes (${hl5.active.filter(id => !id.startsWith('e-')).join(', ')}) push updates while ${hl5.found.length} nodes (${hl5.found.join(', ')}) receive piggybacked membership changes. The cluster converges without a coordinator or a full broadcast tree.`,
   };
 }
 
 function* suspicionGossip() {
+  const sRows1 = [
+    { id: 'old', label: 'D alive@7' },
+    { id: 'sus', label: 'D suspect@7' },
+    { id: 'refute', label: 'D alive@8' },
+    { id: 'fail', label: 'D failed@7' },
+  ];
+  const sCols1 = [
+    { id: 'wins', label: 'wins over' },
+    { id: 'reason', label: 'reason' },
+  ];
+  const sHl1 = { active: ['sus:wins', 'refute:wins'], found: ['refute:reason'] };
   yield {
     state: labelMatrix(
       'Membership records need incarnation numbers',
-      [
-        { id: 'old', label: 'D alive@7' },
-        { id: 'sus', label: 'D suspect@7' },
-        { id: 'refute', label: 'D alive@8' },
-        { id: 'fail', label: 'D failed@7' },
-      ],
-      [
-        { id: 'wins', label: 'wins over' },
-        { id: 'reason', label: 'reason' },
-      ],
+      sRows1,
+      sCols1,
       [
         ['older records', 'same node, same status'],
         ['alive@7', 'stronger suspicion'],
@@ -130,48 +140,54 @@ function* suspicionGossip() {
         ['suspect@7 after timeout', 'no refutation'],
       ],
     ),
-    highlight: { active: ['sus:wins', 'refute:wins'], found: ['refute:reason'] },
-    explanation: 'A node can refute a suspicion by advertising a newer incarnation of itself. This turns membership state into an ordered record instead of a shouting match between stale gossip messages.',
+    highlight: sHl1,
+    explanation: `A node can refute a suspicion by advertising a newer incarnation of itself. ${sRows1.length} record types (${sRows1.map(r => r.label).join(', ')}) are compared across ${sCols1.length} columns. ${sHl1.active.length} active cells (${sHl1.active.join(', ')}) show which records win, turning membership state into an ordered record instead of a shouting match between stale gossip messages.`,
   };
 
+  const sHl2 = { active: ['a', 'd', 'view', 'e-e-view', 'e-f-view'], compare: ['b', 'c'] };
   yield {
     state: swimCluster('A suspects D and gossips the suspicion'),
-    highlight: { active: ['a', 'd', 'view', 'e-e-view', 'e-f-view'], compare: ['b', 'c'] },
-    explanation: 'Suspicion is intentionally weaker than failure. It spreads the warning so other nodes can help observe D, but it gives D time to prove it is alive.',
+    highlight: sHl2,
+    explanation: `Suspicion is intentionally weaker than failure. ${sHl2.active.filter(id => !id.startsWith('e-')).length} nodes (${sHl2.active.filter(id => !id.startsWith('e-')).join(', ')}) are active in spreading the warning, while ${sHl2.compare.length} observers (${sHl2.compare.join(', ')}) can help verify D. It gives D time to prove it is alive.`,
   };
 
+  const sHl3 = { active: ['d', 'view', 'e-d-a', 'e-d-b', 'e-d-c'], found: ['a', 'b', 'c'] };
   yield {
     state: swimCluster('D refutes by publishing alive with a newer incarnation'),
-    highlight: { active: ['d', 'view', 'e-d-a', 'e-d-b', 'e-d-c'], found: ['a', 'b', 'c'] },
-    explanation: 'If D is merely slow, it can send an alive update with a higher incarnation. Receivers keep the newer record and drop the stale suspicion.',
+    highlight: sHl3,
+    explanation: `If D is merely slow, it can send an alive update with a higher incarnation across ${sHl3.active.filter(id => id.startsWith('e-')).length} edges (${sHl3.active.filter(id => id.startsWith('e-')).join(', ')}). ${sHl3.found.length} receivers (${sHl3.found.join(', ')}) keep the newer record and drop the stale suspicion.`,
   };
 
+  const sRows4 = [
+    { id: 'central', label: 'central monitor' },
+    { id: 'all', label: 'all-to-all' },
+    { id: 'swim', label: 'SWIM' },
+  ];
+  const sCols4 = [
+    { id: 'load', label: 'per-node load' },
+    { id: 'weakness', label: 'weakness' },
+  ];
+  const sHl4 = { active: ['swim:load'], compare: ['central:weakness', 'all:load'] };
   yield {
     state: labelMatrix(
       'Why SWIM scales better than naive heartbeats',
-      [
-        { id: 'central', label: 'central monitor' },
-        { id: 'all', label: 'all-to-all' },
-        { id: 'swim', label: 'SWIM' },
-      ],
-      [
-        { id: 'load', label: 'per-node load' },
-        { id: 'weakness', label: 'weakness' },
-      ],
+      sRows4,
+      sCols4,
       [
         ['monitor hot spot', 'single authority fails'],
         ['grows with cluster', 'message storm'],
         ['constant-ish probes', 'probabilistic delay'],
       ],
     ),
-    highlight: { active: ['swim:load'], compare: ['central:weakness', 'all:load'] },
-    explanation: 'SWIM trades immediate global certainty for stable local work. That is the correct trade when membership is large, changing, and already probabilistic under packet loss.',
+    highlight: sHl4,
+    explanation: `Comparing ${sRows4.length} approaches (${sRows4.map(r => r.label).join(', ')}) across ${sCols4.length} dimensions (${sCols4.map(c => c.label).join(', ')}). ${sHl4.active.length} SWIM strength (${sHl4.active.join(', ')}) is highlighted against ${sHl4.compare.length} weaknesses of alternatives (${sHl4.compare.join(', ')}). SWIM trades immediate global certainty for stable local work.`,
   };
 
+  const sHl5 = { active: ['a', 'd', 'view'], found: ['b', 'c', 'e', 'f'] };
   yield {
     state: swimCluster('Complete case: probe, suspect, refute or fail, disseminate'),
-    highlight: { active: ['a', 'd', 'view'], found: ['b', 'c', 'e', 'f'] },
-    explanation: 'The complete loop is small: randomly probe, use indirect probes on timeout, mark suspect rather than instantly failed, use incarnation numbers to refute stale suspicion, and gossip the final membership view.',
+    highlight: sHl5,
+    explanation: `The complete loop is small: ${sHl5.active.length} core participants (${sHl5.active.join(', ')}) drive the probe-suspect-resolve cycle while ${sHl5.found.length} members (${sHl5.found.join(', ')}) receive the gossiped outcome. Randomly probe, use indirect probes on timeout, mark suspect rather than instantly failed, use incarnation numbers to refute stale suspicion, and gossip the final membership view.`,
   };
 }
 
@@ -184,6 +200,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/swim-failure-detector-membership.gif', alt: 'Animated walkthrough of the swim failure detector membership visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

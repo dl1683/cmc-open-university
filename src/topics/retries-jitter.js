@@ -189,7 +189,8 @@ const legacyArticle = {
       paragraphs: [
         `In the outage view, keep your eye on offered load versus the capacity line. The outage is identical in all three plots; only client timing changes. Immediate retries stack failed cohorts on top of new demand, deterministic backoff creates synchronized waves, and jitter plus a budget turns retries into bounded noise. The invariant is that retries change load, not just success probability.`,
         `In the discipline view, the checklist separates correctness from pacing. Idempotency makes duplicates safe; backoff and jitter spread them out; the budget caps amplification; the breaker says when to stop. The layer table is the warning for outsiders: three harmless-looking retry loops can multiply into one user's click becoming dozens of downstream attempts.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/retries-jitter.gif', alt: 'Animated walkthrough of the retries jitter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `How it works`,

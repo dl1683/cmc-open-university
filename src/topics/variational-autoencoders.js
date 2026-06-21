@@ -75,18 +75,29 @@ function latentCloud(title, regularized) {
 }
 
 function* reparameterization() {
+  const nodeIds = ['x', 'enc', 'mu', 'sigma', 'eps', 'z', 'dec', 'xhat'];
+  const edgeIds = ['e-x-enc', 'e-enc-mu', 'e-enc-sigma', 'e-mu-z', 'e-sigma-z', 'e-eps-z', 'e-z-dec', 'e-dec-xhat'];
+  const nodeCount = nodeIds.length;
+  const edgeCount = edgeIds.length;
+
   yield {
     state: vaeGraph('A VAE encodes x into a distribution over z'),
     highlight: { active: ['x', 'enc', 'mu', 'sigma', 'e-x-enc', 'e-enc-mu', 'e-enc-sigma'], compare: ['dec'] },
-    explanation: 'A normal autoencoder maps x to a single code. A variational autoencoder maps x to a distribution over latent codes: mean mu and scale sigma. The decoder learns to reconstruct from samples drawn from that distribution.',
+    explanation: `A normal autoencoder maps x to a single code. A variational autoencoder uses ${nodeCount} nodes and ${edgeCount} edges to map x to a distribution over latent codes: mean mu and scale sigma. The decoder learns to reconstruct from samples drawn from that distribution.`,
   };
+
+  const formula = 'mu + sigma * epsilon';
+  const reparamParts = ['mu', 'sigma', 'epsilon'];
 
   yield {
     state: vaeGraph('Reparameterization moves randomness outside the network'),
     highlight: { active: ['eps', 'mu', 'sigma', 'z', 'e-eps-z', 'e-mu-z', 'e-sigma-z'], found: ['dec', 'xhat'] },
-    explanation: 'The reparameterization trick writes z = mu + sigma * epsilon, where epsilon is random noise independent of the encoder. Gradients can flow through mu and sigma because the sampling operation has been separated from the learned parameters.',
-    invariant: 'Randomness stays; the gradient path becomes usable.',
+    explanation: `The reparameterization trick writes z = ${formula}, where ${reparamParts[2]} is random noise independent of the encoder. Gradients can flow through ${reparamParts[0]} and ${reparamParts[1]} because the sampling operation has been separated from the learned parameters.`,
+    invariant: `Randomness stays across all ${reparamParts.length} components; the gradient path becomes usable.`,
   };
+
+  const elboRows = ['recon', 'kl', 'sample', 'collapse'];
+  const elboCols = ['pressure', 'failure'];
 
   yield {
     state: labelMatrix(
@@ -109,8 +120,10 @@ function* reparameterization() {
       ],
     ),
     highlight: { found: ['recon:pressure', 'kl:pressure'], compare: ['collapse:failure'] },
-    explanation: 'The VAE objective balances reconstruction with a KL penalty that pulls the encoder distribution toward a simple prior. That makes the latent space sampleable instead of a scattered lookup table.',
+    explanation: `The VAE objective balances ${elboRows.length} concerns across ${elboCols.length} columns: reconstruction versus a KL penalty that pulls the encoder distribution toward a simple prior. That makes the latent space sampleable instead of a scattered lookup table.`,
   };
+
+  const models = ['VAE', 'GAN', 'normalizing flow', 'diffusion'];
 
   yield {
     state: labelMatrix(
@@ -133,23 +146,32 @@ function* reparameterization() {
       ],
     ),
     highlight: { active: ['vae:strength'], compare: ['gan:tradeoff', 'flow:tradeoff', 'diff:tradeoff'] },
-    explanation: 'VAEs are the cleanest bridge between representation learning and generation. They are not always the sharpest sampler, but their latent structure is useful for interpolation, compression, anomaly detection, and latent diffusion.',
+    explanation: `Among ${models.length} generative families (${models.join(', ')}), VAEs are the cleanest bridge between representation learning and generation. They are not always the sharpest sampler, but their latent structure is useful for interpolation, compression, anomaly detection, and latent diffusion.`,
   };
 }
 
 function* latentSpace() {
+  const pointCount = 7;
+  const axisMin = -3;
+  const axisMax = 5;
+  const unregShift = 2.4;
+
   yield {
     state: latentCloud('Without a prior penalty, codes can form isolated islands', false),
     highlight: { active: ['a0', 'a1', 'a2'], compare: ['b0', 'b1', 'b2'], removed: ['prior'] },
-    explanation: 'A plain autoencoder can learn separated code islands. Reconstruction is fine for known examples, but random latent samples may land in empty space the decoder never learned to handle.',
+    explanation: `A plain autoencoder can learn separated code islands. With ${pointCount} points spread across axes ranging ${axisMin} to ${axisMax}, reconstruction is fine for known examples, but random latent samples may land in empty space the decoder never learned to handle.`,
   };
+
+  const regShift = 0;
 
   yield {
     state: latentCloud('The KL term pulls codes toward a sampleable prior', true),
     highlight: { found: ['a0', 'a1', 'a2', 'b0', 'b1', 'b2', 'prior'] },
-    explanation: 'The KL term encourages the encoder distributions to live near a simple prior such as a unit Gaussian. That makes interpolation and sampling meaningful: nearby z values decode to nearby outputs.',
-    invariant: 'A generative latent space needs coverage, not only reconstruction.',
+    explanation: `The KL term encourages the encoder distributions to live near a simple prior such as a unit Gaussian. With regularization the shift drops from ${unregShift} to ${regShift}, making interpolation and sampling meaningful: nearby z values decode to nearby outputs.`,
+    invariant: `A generative latent space with ${pointCount} codes needs coverage, not only reconstruction.`,
   };
+
+  const ops = ['interpolation', 'random sample', 'anomaly score', 'latent diffusion'];
 
   yield {
     state: labelMatrix(
@@ -172,8 +194,10 @@ function* latentSpace() {
       ],
     ),
     highlight: { found: ['interp:operation', 'sample:operation', 'latentdiff:operation'] },
-    explanation: 'VAEs make latent variables operational. The same geometry is why latent diffusion can generate in a compressed representation before decoding back to pixels.',
+    explanation: `VAEs make latent variables operational across ${ops.length} use cases (${ops.join(', ')}). The same geometry is why latent diffusion can generate in a compressed representation before decoding back to pixels.`,
   };
+
+  const knobs = ['beta-VAE weight', 'latent capacity', 'decoder power', 'KL annealing'];
 
   yield {
     state: labelMatrix(
@@ -196,7 +220,7 @@ function* latentSpace() {
       ],
     ),
     highlight: { active: ['beta:helps', 'capacity:helps', 'anneal:helps'], compare: ['decoder:risk'] },
-    explanation: 'VAE behavior is sensitive to the balance between reconstruction and regularization. The model can memorize, blur, or ignore the latent code depending on architecture and schedules.',
+    explanation: `VAE behavior is sensitive to the balance between reconstruction and regularization across ${knobs.length} knobs. The model can memorize, blur, or ignore the latent code depending on architecture and schedules.`,
   };
 }
 
@@ -218,7 +242,8 @@ export const article = {
           text: 'A VAE is trainable because randomness is sampled outside the encoder path while the latent sample remains differentiable with respect to mu and sigma.',
         },
         'The latent space view shows encoded inputs as scattered points in a two-dimensional latent plane. Without KL regularization, clusters drift into isolated islands with dead zones between them. With KL, clusters overlap near the origin, filling the space so that interpolation between known points and random sampling from the prior both produce coherent decoder outputs. The prior marker at (0, 0) shows where N(0, I) sits; a well-trained VAE surrounds it.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/variational-autoencoders.gif', alt: 'Animated walkthrough of the variational autoencoders visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

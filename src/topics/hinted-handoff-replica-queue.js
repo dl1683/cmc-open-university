@@ -56,32 +56,42 @@ function handoffGraph(title) {
 }
 
 function* writePath() {
+  const rf = 3;
+  const healthy = ['a', 'b'];
+  const down = ['c'];
+  const quorum = Math.floor(rf / 2) + 1;
+
   yield {
     state: handoffGraph('One replica is unavailable during a quorum write'),
     highlight: { active: ['client', 'coord', 'a', 'b', 'e-client-coord', 'e-coord-a', 'e-coord-b'], removed: ['c'] },
-    explanation: 'With replication factor 3 and quorum writes, the coordinator can succeed after A and B acknowledge even while C is unavailable. The write remains available, but C has missed the mutation.',
+    explanation: `With replication factor ${rf} and quorum writes (need ${quorum} of ${rf}), the coordinator can succeed after ${healthy.map(n => n.toUpperCase()).join(' and ')} acknowledge even while ${down.map(n => n.toUpperCase()).join(', ')} is unavailable. The write remains available with ${healthy.length} acks, but ${down.length} replica has missed the mutation.`,
     invariant: 'Hinted handoff repairs missed replicas; it is not the same thing as the quorum acknowledgment.',
   };
+
+  const hintFields = ['target node', 'mutation data or pointer', 'timestamp', 'metadata'];
 
   yield {
     state: handoffGraph('The coordinator stores a durable hint for C'),
     highlight: { active: ['coord', 'hints', 'e-coord-hints'], compare: ['c'], found: ['a', 'b'] },
-    explanation: 'A hint records enough information to replay the mutation to the intended replica later: target node, mutation data or pointer, timestamp, and metadata needed for safe delivery.',
+    explanation: `A hint records enough information to replay the mutation to the intended replica later. It captures ${hintFields.length} pieces: ${hintFields.join(', ')} — everything needed for safe delivery to ${down.map(n => n.toUpperCase()).join(', ')}.`,
   };
+
+  const hintRows = [
+    { id: 'target', label: 'target' },
+    { id: 'mutation', label: 'mutation' },
+    { id: 'time', label: 'timestamp' },
+    { id: 'ttl', label: 'expiry' },
+  ];
+  const hintCols = [
+    { id: 'stores', label: 'stores' },
+    { id: 'why', label: 'why' },
+  ];
 
   yield {
     state: labelMatrix(
       'Hint record shape',
-      [
-        { id: 'target', label: 'target' },
-        { id: 'mutation', label: 'mutation' },
-        { id: 'time', label: 'timestamp' },
-        { id: 'ttl', label: 'expiry' },
-      ],
-      [
-        { id: 'stores', label: 'stores' },
-        { id: 'why', label: 'why' },
-      ],
+      hintRows,
+      hintCols,
       [
         ['replica C', 'handoff destination'],
         ['row update', 'what C missed'],
@@ -90,18 +100,21 @@ function* writePath() {
       ],
     ),
     highlight: { active: ['target:stores', 'mutation:stores'], found: ['ttl:why'] },
-    explanation: 'A hint is queue state, not a mystical consistency guarantee. It must be durable enough to survive coordinator restarts, but bounded enough that a long outage cannot consume the cluster.',
+    explanation: `A hint is queue state with ${hintRows.length} fields across ${hintCols.length} dimensions (what it stores and why). It must be durable enough to survive coordinator restarts, but bounded enough that a long outage cannot consume the cluster's ${hintCols.map(c => c.label).join('/')} capacity.`,
   };
+
+  const repairMechanisms = ['hinted handoff', 'read repair', 'anti-entropy'];
+  const fitRows = [
+    { id: 'quorum', label: 'quorum write' },
+    { id: 'hint', label: 'hinted handoff' },
+    { id: 'read', label: 'read repair' },
+    { id: 'anti', label: 'anti-entropy' },
+  ];
 
   yield {
     state: labelMatrix(
       'Where hinted handoff fits',
-      [
-        { id: 'quorum', label: 'quorum write' },
-        { id: 'hint', label: 'hinted handoff' },
-        { id: 'read', label: 'read repair' },
-        { id: 'anti', label: 'anti-entropy' },
-      ],
+      fitRows,
       [
         { id: 'time', label: 'when' },
         { id: 'scope', label: 'scope' },
@@ -114,32 +127,41 @@ function* writePath() {
       ],
     ),
     highlight: { active: ['hint:time', 'hint:scope'], compare: ['anti:scope'] },
-    explanation: 'Hinted handoff is the fast repair path for short outages. It complements read repair and Merkle-tree anti-entropy; it does not replace them.',
+    explanation: `Hinted handoff is the fast repair path for short outages. It is one of ${repairMechanisms.length} convergence mechanisms (${repairMechanisms.join(', ')}); each covers a different ${fitRows.length > 1 ? 'time horizon and scope' : 'scope'}, and none replaces the others.`,
   };
+
+  const activeNodes = ['client', 'coord', 'hints'];
 
   yield {
     state: handoffGraph('Availability now, convergence later'),
-    highlight: { active: ['client', 'coord', 'hints'], found: ['a', 'b'], removed: ['c'] },
-    explanation: 'The system accepted the write because enough replicas acknowledged. The hint preserves a plan to heal C when it returns. That is the core availability trade: do not block the write, but remember the debt.',
+    highlight: { active: activeNodes, found: ['a', 'b'], removed: ['c'] },
+    explanation: `The system accepted the write because ${healthy.length} of ${rf} replicas acknowledged — meeting the quorum of ${quorum}. The hint preserves a plan to heal ${down.map(n => n.toUpperCase()).join(', ')} when it returns. That is the core availability trade: do not block the write, but remember the debt across ${activeNodes.length} active components.`,
   };
 }
 
 function* replayAndLimits() {
+  const returningNode = 'C';
+  const healthyReplicas = ['a', 'b'];
+  const replayPipeline = ['c', 'hints', 'replay'];
+
   yield {
     state: handoffGraph('C returns and hints drain toward it'),
-    highlight: { active: ['c', 'hints', 'replay', 'e-hints-replay', 'e-replay-c'], found: ['a', 'b'] },
-    explanation: 'When C is reachable again, the coordinator drains its hint queue and sends missed mutations. Replay must be throttled so recovery traffic does not overload the recovering node.',
+    highlight: { active: ['c', 'hints', 'replay', 'e-hints-replay', 'e-replay-c'], found: healthyReplicas },
+    explanation: `When ${returningNode} is reachable again, the coordinator drains its hint queue through a ${replayPipeline.length}-stage pipeline (${replayPipeline.join(' → ')}). Replay must be throttled so recovery traffic does not overload the recovering node while ${healthyReplicas.length} healthy replicas (${healthyReplicas.map(n => n.toUpperCase()).join(', ')}) continue serving.`,
   };
+
+  const queueStates = [
+    { id: 'queued', label: 'queued' },
+    { id: 'sending', label: 'sending' },
+    { id: 'acked', label: 'acked' },
+    { id: 'expired', label: 'expired' },
+  ];
+  const queueDisciplines = ['durable append', 'retry state', 'acknowledgement', 'deletion', 'expiry', 'metrics'];
 
   yield {
     state: labelMatrix(
       'Replay queue states',
-      [
-        { id: 'queued', label: 'queued' },
-        { id: 'sending', label: 'sending' },
-        { id: 'acked', label: 'acked' },
-        { id: 'expired', label: 'expired' },
-      ],
+      queueStates,
       [
         { id: 'meaning', label: 'meaning' },
         { id: 'action', label: 'action' },
@@ -152,18 +174,21 @@ function* replayAndLimits() {
       ],
     ),
     highlight: { active: ['sending:action', 'acked:action'], found: ['expired:action'] },
-    explanation: 'The queue needs ordinary data-structure discipline: durable append, retry state, acknowledgement, deletion, expiry, and metrics. Otherwise hints become an invisible backlog.',
+    explanation: `The queue cycles through ${queueStates.length} states (${queueStates.map(s => s.label).join(' → ')}) and needs ${queueDisciplines.length} disciplines: ${queueDisciplines.join(', ')}. Without them, hints become an invisible backlog.`,
   };
+
+  const limitTypes = [
+    { id: 'window', label: 'max window' },
+    { id: 'disk', label: 'disk budget' },
+    { id: 'throttle', label: 'throttle' },
+    { id: 'topology', label: 'topology change' },
+  ];
+  const repairFallbacks = ['hinted handoff', 'read repair', 'anti-entropy'];
 
   yield {
     state: labelMatrix(
       'Limits and failure modes',
-      [
-        { id: 'window', label: 'max window' },
-        { id: 'disk', label: 'disk budget' },
-        { id: 'throttle', label: 'throttle' },
-        { id: 'topology', label: 'topology change' },
-      ],
+      limitTypes,
       [
         { id: 'protects', label: 'protects' },
         { id: 'risk', label: 'risk' },
@@ -176,25 +201,31 @@ function* replayAndLimits() {
       ],
     ),
     highlight: { active: ['window:risk', 'disk:risk'], found: ['throttle:protects'] },
-    explanation: 'Hints are deliberately bounded. If a node is down beyond the hint window, the system needs anti-entropy repair, not infinite queue growth.',
+    explanation: `Hints are deliberately bounded by ${limitTypes.length} limits (${limitTypes.map(l => l.label).join(', ')}). If a node is down beyond the hint window, the system falls back through ${repairFallbacks.length} repair tiers (${repairFallbacks.join(' → ')}), not infinite queue growth.`,
   };
+
+  const expiredComponents = ['hints', 'e-hints-replay'];
+  const rf = 3;
 
   yield {
     state: handoffGraph('Expired hints hand off the problem to repair'),
-    highlight: { removed: ['hints', 'e-hints-replay'], active: ['c'], compare: ['replay'], found: ['a', 'b'] },
-    explanation: 'When hints expire or cannot be replayed, C may remain stale for some ranges. Cassandra-style repair then compares replicas and streams differences deliberately.',
+    highlight: { removed: expiredComponents, active: ['c'], compare: ['replay'], found: healthyReplicas },
+    explanation: `When hints expire (${expiredComponents.length} components removed from the graph), ${returningNode} may remain stale for some ranges. With ${rf} replicas total, Cassandra-style repair then compares ${healthyReplicas.length} healthy replicas against ${returningNode} and streams differences deliberately.`,
   };
+
+  const checklistRows = [
+    { id: 'write', label: 'write accepted' },
+    { id: 'hint', label: 'hint stored' },
+    { id: 'recover', label: 'replica returns' },
+    { id: 'drain', label: 'queue drains' },
+    { id: 'repair', label: 'repair verifies' },
+  ];
+  const evidencePaths = ['write path', 'replay path', 'repair evidence'];
 
   yield {
     state: labelMatrix(
       'Complete case study checklist',
-      [
-        { id: 'write', label: 'write accepted' },
-        { id: 'hint', label: 'hint stored' },
-        { id: 'recover', label: 'replica returns' },
-        { id: 'drain', label: 'queue drains' },
-        { id: 'repair', label: 'repair verifies' },
-      ],
+      checklistRows,
       [
         { id: 'evidence', label: 'evidence' },
         { id: 'lesson', label: 'lesson' },
@@ -208,7 +239,7 @@ function* replayAndLimits() {
       ],
     ),
     highlight: { active: ['hint:lesson', 'drain:evidence'], found: ['repair:lesson'] },
-    explanation: 'A mature system treats hinted handoff as an observable queue. The write path, replay path, and later repair evidence all matter.',
+    explanation: `A mature system treats hinted handoff as an observable queue spanning ${checklistRows.length} lifecycle milestones. All ${evidencePaths.length} evidence paths (${evidencePaths.join(', ')}) matter for full convergence.`,
   };
 }
 
@@ -221,6 +252,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/hinted-handoff-replica-queue.gif', alt: 'Animated walkthrough of the hinted handoff replica queue visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'The problem',
       paragraphs: [

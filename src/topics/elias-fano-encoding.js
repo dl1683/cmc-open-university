@@ -58,7 +58,7 @@ function* encodeMonotoneList() {
   yield {
     state: efGraph('Elias-Fano starts with a sorted integer sequence'),
     highlight: { active: ['list', 'split', 'e-list-split'], compare: ['low', 'high'] },
-    explanation: 'Elias-Fano works because the input is monotone. Sorted document ids, graph neighbor ids, and timestamp offsets have order that ordinary variable-byte coding does not fully exploit.',
+    explanation: `Elias-Fano works because the input is monotone. The pipeline flows through ${6} stages from sorted ids to searchable access. Sorted document ids, graph neighbor ids, and timestamp offsets have order that ordinary variable-byte coding does not fully exploit.`,
   };
 
   yield {
@@ -87,8 +87,8 @@ function* encodeMonotoneList() {
       ],
     ),
     highlight: { active: ['v2:high', 'v2:low', 'v2:rebuild'], found: ['v5:high', 'v5:low'] },
-    explanation: 'Choose l lower bits. Store the low parts directly. The high parts are nondecreasing, so they can be stored compactly as a unary bitvector.',
-    invariant: 'value(i) = high(i) * 2^l + low(i).',
+    explanation: `Choose l = ${2} lower bits to split each of the ${6} values. Store the low parts directly. The high parts are nondecreasing, so they can be stored compactly as a unary bitvector.`,
+    invariant: `value(i) = high(i) * 2^${2} + low(i) for all ${6} elements.`,
   };
 
   yield {
@@ -116,13 +116,13 @@ function* encodeMonotoneList() {
       ],
     ),
     highlight: { found: ['h5:bit', 'h8:bit'], active: ['h0:meaning', 'h1:meaning'] },
-    explanation: 'The high stream is encoded by placing the i-th 1 at position high(i) + i. Select on that bitvector recovers high(i).',
+    explanation: `The high stream is encoded by placing the i-th 1-bit at position high(i) + i across ${6} marker positions. Select on that bitvector recovers high(i).`,
   };
 
   yield {
     state: efGraph('Low bits plus select over high bits reconstruct every value'),
     highlight: { active: ['low', 'high', 'rankselect', 'access', 'e-low-access', 'e-high-rs', 'e-rs-access'], found: ['split'] },
-    explanation: 'The result is compressed but still searchable. Rank/select structures make the high bitvector navigable instead of a pile of bits.',
+    explanation: `The result is compressed but still searchable. The ${6} pipeline nodes show how rank/select structures make the high bitvector navigable instead of a pile of bits.`,
   };
 }
 
@@ -148,13 +148,13 @@ function* queryOperations() {
       ],
     ),
     highlight: { active: ['select:operation', 'high:result', 'merge:result'], found: ['low:operation'] },
-    explanation: 'Random access is not full decompression. You locate the i-th high marker, read the low part, and combine them.',
+    explanation: `Random access is not full decompression. The ${4}-step process locates the i-th high marker via select1, reads the low part, and combines them.`,
   };
 
   yield {
     state: efGraph('Predecessor search skips through high blocks'),
     highlight: { active: ['rankselect', 'access'], found: ['high', 'low'], compare: ['list'] },
-    explanation: 'Search operations use the high bitvector to narrow the candidate region, then inspect lows inside that region. This is why Elias-Fano is useful inside indexes, not just archives.',
+    explanation: `Search operations use the high bitvector to narrow the candidate region among ${6} nodes, then inspect lows inside that region. This is why Elias-Fano is useful inside indexes, not just archives.`,
   };
 
   yield {
@@ -178,7 +178,7 @@ function* queryOperations() {
       ],
     ),
     highlight: { found: ['postings:sequence', 'postings:query'], compare: ['graph:query', 'log:query'] },
-    explanation: 'Elias-Fano is at home when ids are sorted and queries need skipping, predecessor, successor, or random access.',
+    explanation: `Elias-Fano is at home when ids are sorted and queries need skipping, predecessor, successor, or random access — the matrix shows ${4} domains where this applies.`,
   };
 
   yield {
@@ -202,7 +202,7 @@ function* queryOperations() {
       ],
     ),
     highlight: { active: ['dense:effect', 'unsorted:response'], found: ['updates:response'] },
-    explanation: 'The representation earns its power from sorted order. If the data is unsorted or changing constantly, the engineering answer may be a different structure.',
+    explanation: `The representation earns its power from sorted order. The tradeoff map covers ${4} scenarios — if the data is unsorted or changing constantly, the engineering answer may be a different structure.`,
   };
 }
 
@@ -234,7 +234,8 @@ export const article = {
           type: 'note',
           text: 'The example uses l = 2 so arithmetic stays visible. Real systems pick l from the universe-to-count ratio, often per partition. The same layout scales to millions of document ids because access touches one select structure and one packed low value.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/elias-fano-encoding.gif', alt: 'Animated walkthrough of the elias fano encoding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -54,14 +54,15 @@ function bltGraph(title) {
 }
 
 function* dynamicBytePatches() {
+  const modelRows = [
+    { id: 'chars', label: 'C' },
+    { id: 'bpe', label: 'BPE' },
+    { id: 'bytes', label: 'BLT' },
+  ];
   yield {
     state: labelMatrix(
       'Three ways to feed language into a model',
-      [
-        { id: 'chars', label: 'C' },
-        { id: 'bpe', label: 'BPE' },
-        { id: 'bytes', label: 'BLT' },
-      ],
+      modelRows,
       [
         { id: 'unit', label: 'unit' },
         { id: 'cost', label: 'issue' },
@@ -73,9 +74,14 @@ function* dynamicBytePatches() {
       ],
     ),
     highlight: { active: ['bytes:unit', 'bytes:cost'], compare: ['bpe:cost'] },
-    explanation: 'Byte Latent Transformer starts from raw UTF-8 bytes instead of a fixed BPE vocabulary. The naive byte baseline is universal but too long. BLT keeps byte coverage, then groups bytes into dynamic patches so the expensive global transformer runs on fewer steps.',
+    explanation: `Byte Latent Transformer starts from raw UTF-8 bytes instead of a fixed BPE vocabulary. Comparing ${modelRows.length} approaches, the naive byte baseline is universal but too long. BLT keeps byte coverage, then groups bytes into dynamic patches so the expensive global transformer runs on fewer steps.`,
   };
 
+  const cutMarkers = [
+    { id: 'cut1', x: 3, y: 0.55, label: 'cut' },
+    { id: 'cut2', x: 9, y: 0.62, label: 'cut' },
+    { id: 'cut3', x: 16, y: 0.44, label: 'cut' },
+  ];
   yield {
     state: plotState({
       axes: { x: { label: 'byte position', min: 0, max: 20 }, y: { label: 'next-byte entropy', min: 0, max: 1.0 } },
@@ -87,32 +93,31 @@ function* dynamicBytePatches() {
           { x: 15, y: 0.17 }, { x: 16, y: 0.44 }, { x: 17, y: 0.68 }, { x: 18, y: 0.30 }, { x: 19, y: 0.18 },
         ] },
       ],
-      markers: [
-        { id: 'cut1', x: 3, y: 0.55, label: 'cut' },
-        { id: 'cut2', x: 9, y: 0.62, label: 'cut' },
-        { id: 'cut3', x: 16, y: 0.44, label: 'cut' },
-      ],
+      markers: cutMarkers,
     }),
     highlight: { active: ['entropy'], found: ['cut1', 'cut2', 'cut3'] },
-    explanation: 'Read the peaks as uncertainty. Predictable byte spans can be packed into longer patches; high-entropy spans get shorter patches and more local modeling. The patch policy is a compute allocation rule, not a linguistic tokenizer.',
+    explanation: `Read the peaks as uncertainty. With ${cutMarkers.length} cut points placed at high-entropy positions, predictable byte spans can be packed into longer patches; high-entropy spans get shorter patches and more local modeling. The patch policy is a compute allocation rule, not a linguistic tokenizer.`,
     invariant: 'Low entropy gets longer patches; high entropy gets more local resolution.',
   };
 
+  const bltState = bltGraph('BLT separates local byte modeling from global patch reasoning');
+  const bltNodes = bltState.graph.nodes;
   yield {
-    state: bltGraph('BLT separates local byte modeling from global patch reasoning'),
+    state: bltState,
     highlight: { active: ['entropy', 'patches', 'global'], found: ['localEnc', 'localDec'] },
-    explanation: 'The local encoder and decoder handle byte-level detail. The global latent transformer reasons over patch states. That separation is the core architecture: keep byte universality without paying full transformer cost at every byte position.',
+    explanation: `The local encoder and decoder handle byte-level detail across ${bltNodes.length} pipeline stages. The global latent transformer reasons over patch states. That separation is the core architecture: keep byte universality without paying full transformer cost at every byte position.`,
   };
 
+  const scalingRows = [
+    { id: 'vocab', label: 'vocabulary' },
+    { id: 'rare', label: 'rare text' },
+    { id: 'compute', label: 'compute' },
+    { id: 'robust', label: 'robustness' },
+  ];
   yield {
     state: labelMatrix(
       'Why patches can scale better than tokens',
-      [
-        { id: 'vocab', label: 'vocabulary' },
-        { id: 'rare', label: 'rare text' },
-        { id: 'compute', label: 'compute' },
-        { id: 'robust', label: 'robustness' },
-      ],
+      scalingRows,
       [
         { id: 'token model', label: 'token model' },
         { id: 'BLT', label: 'BLT' },
@@ -125,20 +130,21 @@ function* dynamicBytePatches() {
       ],
     ),
     highlight: { found: ['vocab:BLT', 'rare:BLT', 'compute:BLT'], compare: ['vocab:token model'] },
-    explanation: 'The paper reports that byte-level models can match tokenized LLM performance at scale while improving inference efficiency and long-tail robustness. The important systems lesson is dynamic granularity: compute should follow information density.',
+    explanation: `The paper reports that byte-level models can match tokenized LLM performance at scale while improving inference efficiency and long-tail robustness. Across ${scalingRows.length} dimensions (${scalingRows.map(r => r.label).join(', ')}), the important systems lesson is dynamic granularity: compute should follow information density.`,
   };
 }
 
 function* fastByteGeneration() {
+  const genRows = [
+    { id: 'byteAR', label: 'byte-by-byte AR' },
+    { id: 'patchAR', label: 'patch autoreg' },
+    { id: 'draft', label: 'draft+verify' },
+    { id: 'diffuse', label: 'block diffusion' },
+  ];
   yield {
     state: labelMatrix(
       'The generation bottleneck',
-      [
-        { id: 'byteAR', label: 'byte-by-byte AR' },
-        { id: 'patchAR', label: 'patch autoreg' },
-        { id: 'draft', label: 'draft+verify' },
-        { id: 'diffuse', label: 'block diffusion' },
-      ],
+      genRows,
       [
         { id: 'step shape', label: 'step shape' },
         { id: 'bottleneck', label: 'bottleneck' },
@@ -151,19 +157,20 @@ function* fastByteGeneration() {
       ],
     ),
     highlight: { active: ['byteAR:bottleneck'], found: ['draft:step shape', 'diffuse:step shape'] },
-    explanation: 'The May 2026 Fast BLT paper targets the serving bottleneck: byte-level models avoid tokenizer edge cases, but one full forward pass per byte is too slow for generation. The rest of this view is about reducing expensive passes per output span.',
+    explanation: `The May 2026 Fast BLT paper targets the serving bottleneck across ${genRows.length} generation strategies: byte-level models avoid tokenizer edge cases, but one full forward pass per byte is too slow for generation. The rest of this view is about reducing expensive passes per output span.`,
   };
 
+  const variantNodes = [
+    { id: 'context', label: 'byte context', x: 0.8, y: 3.8, note: 'prefix' },
+    { id: 'bltD', label: 'BLT-D', x: 3.0, y: 2.2, note: 'diffusion' },
+    { id: 'bltS', label: 'BLT-S', x: 3.0, y: 3.8, note: 'self-spec' },
+    { id: 'bltDV', label: 'BLT-DV', x: 3.0, y: 5.4, note: 'diffuse+verify' },
+    { id: 'verify', label: 'verify', x: 5.7, y: 3.8, note: 'full model' },
+    { id: 'bytes', label: 'next bytes', x: 8.2, y: 3.8, note: 'output block' },
+  ];
   yield {
     state: graphState({
-      nodes: [
-        { id: 'context', label: 'byte context', x: 0.8, y: 3.8, note: 'prefix' },
-        { id: 'bltD', label: 'BLT-D', x: 3.0, y: 2.2, note: 'diffusion' },
-        { id: 'bltS', label: 'BLT-S', x: 3.0, y: 3.8, note: 'self-spec' },
-        { id: 'bltDV', label: 'BLT-DV', x: 3.0, y: 5.4, note: 'diffuse+verify' },
-        { id: 'verify', label: 'verify', x: 5.7, y: 3.8, note: 'full model' },
-        { id: 'bytes', label: 'next bytes', x: 8.2, y: 3.8, note: 'output block' },
-      ],
+      nodes: variantNodes,
       edges: [
         { id: 'e-context-bltD', from: 'context', to: 'bltD', weight: '' },
         { id: 'e-context-bltS', from: 'context', to: 'bltS', weight: '' },
@@ -175,35 +182,37 @@ function* fastByteGeneration() {
       ],
     }, { title: 'Fast BLT variants reduce forward passes per output span' }),
     highlight: { active: ['bltD', 'bltS', 'bltDV'], found: ['bytes'] },
-    explanation: 'Fast BLT introduces diffusion-style block generation and speculative-style verification variants. The shared idea is to generate or draft multiple bytes per expensive model step, then control quality with verification.',
+    explanation: `Fast BLT introduces ${variantNodes.filter(n => n.id.startsWith('blt')).length} variants — diffusion-style block generation and speculative-style verification. The shared idea is to generate or draft multiple bytes per expensive model step, then control quality with verification.`,
   };
 
+  const costSeries = [
+    { id: 'byteAR', label: 'byte autoregressive', points: [
+      { x: 16, y: 16 }, { x: 32, y: 32 }, { x: 64, y: 64 }, { x: 128, y: 128 },
+    ] },
+    { id: 'block', label: 'block generation', points: [
+      { x: 16, y: 5 }, { x: 32, y: 9 }, { x: 64, y: 17 }, { x: 128, y: 33 },
+    ] },
+  ];
   yield {
     state: plotState({
       axes: { x: { label: 'output bytes', min: 0, max: 128 }, y: { label: 'full-model forwards', min: 0, max: 128 } },
-      series: [
-        { id: 'byteAR', label: 'byte autoregressive', points: [
-          { x: 16, y: 16 }, { x: 32, y: 32 }, { x: 64, y: 64 }, { x: 128, y: 128 },
-        ] },
-        { id: 'block', label: 'block generation', points: [
-          { x: 16, y: 5 }, { x: 32, y: 9 }, { x: 64, y: 17 }, { x: 128, y: 33 },
-        ] },
-      ],
+      series: costSeries,
     }),
     highlight: { active: ['block'], compare: ['byteAR'] },
-    explanation: 'The toy curve shows the systems pressure: reduce the number of expensive forward passes per output byte. The Fast BLT paper reports estimated memory-bandwidth cost reductions for generation tasks.',
+    explanation: `The toy curve compares ${costSeries.length} strategies — at 128 output bytes, block generation needs only ${costSeries[1].points[3].y} forwards versus ${costSeries[0].points[3].y} for byte-autoregressive. The Fast BLT paper reports estimated memory-bandwidth cost reductions for generation tasks.`,
     invariant: 'Generation speed improves when each full-model pass validates more output bytes.',
   };
 
+  const auditRows = [
+    { id: 'quality', label: 'quality' },
+    { id: 'cost', label: 'cost' },
+    { id: 'tails', label: 'long tail' },
+    { id: 'stack', label: 'serving stack' },
+  ];
   yield {
     state: labelMatrix(
       'What to audit before believing a tokenizer-free win',
-      [
-        { id: 'quality', label: 'quality' },
-        { id: 'cost', label: 'cost' },
-        { id: 'tails', label: 'long tail' },
-        { id: 'stack', label: 'serving stack' },
-      ],
+      auditRows,
       [
         { id: 'question', label: 'question' },
         { id: 'related topic', label: 'read next' },
@@ -216,7 +225,7 @@ function* fastByteGeneration() {
       ],
     ),
     highlight: { found: ['quality:question', 'cost:question', 'stack:question'] },
-    explanation: 'A tokenizer-free architecture must be judged under controlled compute, generation latency, memory bandwidth, long-tail robustness, and serving integration. The architecture win and the systems win are inseparable.',
+    explanation: `A tokenizer-free architecture must be judged across ${auditRows.length} audit dimensions (${auditRows.map(r => r.label).join(', ')}). The architecture win and the systems win are inseparable.`,
   };
 }
 
@@ -229,6 +238,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/byte-latent-transformer.gif', alt: 'Animated walkthrough of the byte latent transformer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why BLT exists',
       paragraphs: [

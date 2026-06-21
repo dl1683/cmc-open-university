@@ -162,7 +162,8 @@ export const article = {
         'The first view shows sample data, bootstrap resamples, the histogram of resampled means, and the confidence interval bounds. Each resample draws ten values with replacement from the original ten, so some values repeat and some vanish. The histogram collects all 200 resampled means into a distribution. The interval is the middle 95 percent of that distribution, read directly from the sorted percentiles.',
         'The second view covers how to interpret confidence intervals and where the bootstrap breaks. Active markers highlight the current decision; found markers show settled facts.',
         {type: 'callout', text: 'The bootstrap replaces an unavailable formula with repeated resampling, turning one sample into an empirical distribution of plausible estimates.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/bootstrap-ci.gif', alt: 'Animated walkthrough of the bootstrap ci visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

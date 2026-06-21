@@ -162,7 +162,8 @@ export const article = {
         {type: 'callout', text: 'DFS is a stack invariant: every active node is on the current path, and finishing a node proves its whole unexplored subtree is exhausted.'},
         'Node colors encode three states. Unvisited nodes have no timestamp — DFS has not reached them. Active nodes (highlighted) are on the stack, forming the current path from the source. Visited/finished nodes have both timestamps and are grayed — DFS is done with them.',
         'The stack contents shown at each step are the current path from source to frontier. When the stack grows, DFS is diving deeper. When it shrinks, DFS is backtracking because a dead end was reached. The finish timestamps always appear in reverse depth order: the deepest node on a path finishes first.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/graph-dfs.gif', alt: 'Animated walkthrough of the graph dfs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

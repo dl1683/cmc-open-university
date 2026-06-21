@@ -26,6 +26,10 @@ function proxy({ sw = null, cache = null, net = 'reachable', page = '', edges = 
 }
 
 function* movesIn() {
+  const shellFiles = 4;
+  const strategies = ['cache-first', 'network-first', 'stale-while-revalidate', 'network-only'];
+  const strategyCount = strategies.length;
+
   yield {
     state: proxy({
       page: 'fetch("/articles")',
@@ -33,7 +37,7 @@ function* movesIn() {
       edges: [{ id: 'direct', from: 'page', to: 'net' }],
     }),
     highlight: { active: ['direct'] },
-    explanation: 'An ordinary web page: every fetch travels straight to the network (through the whole stack this site has mapped — DNS, TCP, maybe a CDN). The architecture has a single point of failure you carry in your pocket: no signal, no app. Native apps shrug at airplane mode; classic web pages show a dinosaur. The fix is to put something programmable IN THE PATH — a layer that can answer on the network\'s behalf.',
+    explanation: `An ordinary web page: every fetch travels straight to the network (through the whole stack this site has mapped — DNS, TCP, maybe a CDN). The architecture has a single point of failure you carry in your pocket: no signal, no app. Native apps shrug at airplane mode; classic web pages show a dinosaur. The fix is to put something programmable IN THE PATH — a ${topic.title.split('&')[0].trim().toLowerCase()} that can answer on the network's behalf.`,
   };
 
   yield {
@@ -45,8 +49,8 @@ function* movesIn() {
       edges: [{ id: 'fill', from: 'net', to: 'cache' }],
     }),
     highlight: { active: ['sw'], found: ['cache', 'fill'] },
-    explanation: 'The page calls register("sw.js") and the browser spins up a SERVICE WORKER — a worker (same family as Web Workers: own thread, no DOM) with a special privilege and a ceremony. The privilege: it may intercept network traffic for the whole site. The ceremony: an INSTALL event fires first, and the worker uses it to PRECACHE the application shell — HTML, CSS, JS, logo — into the Cache API (a programmable HTTP cache, cousin of the LRU Cache idea with you holding the eviction keys). Then it waits to ACTIVATE: by default a new worker version takes over only when every old tab closes — that is literally why "close all tabs to update" is a thing in PWAs.',
-    invariant: 'Install precaches before the worker ever serves a request: the shell is guaranteed present or installation fails.',
+    explanation: `The page calls register("sw.js") and the browser spins up a SERVICE WORKER — a worker (same family as Web Workers: own thread, no DOM) with a special privilege and a ceremony. The privilege: it may intercept network traffic for the whole site. The ceremony: an INSTALL event fires first, and the worker uses it to PRECACHE the application shell — ${shellFiles} files (HTML, CSS, JS, logo) — into the Cache API (a programmable HTTP cache, cousin of the LRU Cache idea with you holding the eviction keys). Then it waits to ACTIVATE: by default a new worker version takes over only when every old tab closes — that is literally why "close all tabs to update" is a thing in PWAs.`,
+    invariant: `Install precaches ${shellFiles} shell files before the worker ever serves a request: the shell is guaranteed present or installation fails.`,
   };
 
   yield {
@@ -62,7 +66,7 @@ function* movesIn() {
       ],
     }),
     highlight: { active: ['toSw', 'sw'], compare: ['toNet', 'toCache'] },
-    explanation: 'Activated, the worker takes its seat as a MAN-IN-THE-MIDDLE — the benevolent kind (and the reason service workers demand HTTPS: this much power over traffic must be tamper-proof). From now on EVERY request the page makes fires a fetch event inside the worker first. The handler calls event.respondWith(...) and chooses: forward to the network? Answer from cache? Synthesize a response from thin air? The network just became optional — a resource your code consults, not a dependency it dies with.',
+    explanation: `Activated, the worker takes its seat as a MAN-IN-THE-MIDDLE — the benevolent kind (and the reason ${topic.title.split('&')[0].trim().toLowerCase()}s demand HTTPS: this much power over traffic must be tamper-proof). From now on EVERY request the page makes fires a fetch event inside the worker first. The handler calls event.respondWith(...) and chooses from ${strategyCount} strategies: forward to the network? Answer from cache? Synthesize a response from thin air? The network just became optional — a resource your code consults, not a dependency it dies with.`,
   };
 
   yield {
@@ -77,11 +81,13 @@ function* movesIn() {
       ],
     }),
     highlight: { found: ['toCache', 'cache', 'page'], removed: ['net'] },
-    explanation: 'Airplane mode. The network node is gone — and the app loads anyway: the fetch event fires, the worker answers from the precached shell, the page renders, queued writes wait in IndexedDB for the connection\'s return (background sync). This is OFFLINE-FIRST, the architecture behind installable PWAs — Twitter Lite, Starbucks, Google Docs offline. The mental shift is the whole lesson: the network stopped being the app\'s foundation and became one of several places a response might come from — and your code, not the browser, ranks them.',
+    explanation: `Airplane mode. The network node is gone — and the app loads anyway: the fetch event fires, the worker answers from the precached shell (${shellFiles} files), the page renders, queued writes wait in IndexedDB for the connection's return (background sync). This is OFFLINE-FIRST, the architecture behind installable PWAs — Twitter Lite, Starbucks, Google Docs offline. The mental shift is the whole lesson: the network stopped being the app's foundation and became one of several places a response might come from — and your code, not the browser, ranks them.`,
   };
 }
 
 function* strategies() {
+  const requestTypes = 4;
+
   yield {
     state: proxy({
       sw: 'cache-first',
@@ -94,7 +100,7 @@ function* strategies() {
       ],
     }),
     highlight: { found: ['toCache', 'cache'], visited: ['net'] },
-    explanation: 'Strategy 1 — CACHE-FIRST: check the cache; only on a miss go to the network (and cache the answer for next time). The logo answers in ~2ms with zero bytes of data used. Perfect for the app shell, fonts, versioned assets — anything immutable. The danger is its mirror image: cache-first never notices that the file CHANGED on the server. The discipline that makes it safe is versioned filenames (app.v42.js) — exactly the immutability trick CDN Request Flow uses at planet scale.',
+    explanation: `Strategy 1 of ${requestTypes} — CACHE-FIRST: check the cache; only on a miss go to the network (and cache the answer for next time). The logo answers in ~2ms with zero bytes of data used. Perfect for the app shell, fonts, versioned assets — anything immutable. The danger is its mirror image: cache-first never notices that the file CHANGED on the server. The discipline that makes it safe is versioned filenames (app.v42.js) — exactly the immutability trick CDN Request Flow uses at planet scale.`,
   };
 
   yield {
@@ -110,7 +116,7 @@ function* strategies() {
       ],
     }),
     highlight: { active: ['toNet', 'net'], compare: ['toCache'] },
-    explanation: 'Strategy 2 — NETWORK-FIRST: try the real thing; fall back to the cache when the network fails or a timeout expires. The news feed is fresh when you are online and yesterday\'s-but-present when you are not — stale data beating a spinner of death. The price is paid in latency: every request waits out the network attempt before the fallback rescues it, so a flaky 2G connection makes the app feel broken-then-magically-fine. Use it for data that MUST be current when currency is possible: feeds, prices, account state.',
+    explanation: `Strategy 2 of ${requestTypes} — NETWORK-FIRST: try the real thing; fall back to the cache when the network fails or a timeout expires. The news feed is fresh when you are online and yesterday's-but-present when you are not — stale data beating a spinner of death. The price is paid in latency: every request waits out the network attempt before the fallback rescues it, so a flaky 2G connection makes the app feel broken-then-magically-fine. Use it for data that MUST be current when currency is possible: feeds, prices, account state.`,
   };
 
   yield {
@@ -126,8 +132,8 @@ function* strategies() {
       ],
     }),
     highlight: { found: ['toCache'], active: ['refresh'] },
-    explanation: 'Strategy 3 — STALE-WHILE-REVALIDATE, the crowd favorite: answer from cache IMMEDIATELY (the user never waits), and simultaneously fetch a fresh copy in the background to overwrite the cache for NEXT time. Every response is instant; every response is at most one visit old. Avatars, article images, CSS that changes occasionally — this is their home. The caveat is baked into the name: the user is permanently one version behind, so never use it for anything where "almost current" is a bug — balances, inventory, auth.',
-    invariant: 'SWR trades one version of freshness for zero milliseconds of waiting — on every single request.',
+    explanation: `Strategy 3 of ${requestTypes} — STALE-WHILE-REVALIDATE, the crowd favorite: answer from cache IMMEDIATELY (the user never waits), and simultaneously fetch a fresh copy in the background to overwrite the cache for NEXT time. Every response is instant; every response is at most one visit old. Avatars, article images, CSS that changes occasionally — this is their home. The caveat is baked into the name: the user is permanently one version behind, so never use it for anything where "almost current" is a bug — balances, inventory, auth.`,
+    invariant: `SWR trades one version of freshness for zero milliseconds of waiting — on every single request, across all ${requestTypes} request categories.`,
   };
 
   yield {
@@ -144,7 +150,7 @@ function* strategies() {
       format: (v) => ['', 'precache + cache-first', 'immutable, version-named', 'stale-while-revalidate', 'instant beats current', 'network-first + fallback', 'fresh when possible', 'network-only', 'never serve a stale truth'][v],
     }),
     highlight: { active: ['shell:strat'], removed: ['auth:strat'] },
-    explanation: 'The routing table every PWA converges on — workbox, the standard library for this, ships these four as named recipes. Two pieces of housekeeping complete the picture: VERSION your caches (cache-v42) and delete old ones in the activate event, or stale shells haunt users forever; and respect the storage quota — the browser can evict your caches under pressure, so a service worker must always treat the cache as a fast maybe, never a guarantee. Step back and the pattern is an old friend: cache-first, network-first, and SWR are the same freshness-versus-latency trades a CDN makes — this is just the CDN you get to program, parked one millimeter from the user.',
+    explanation: `The routing table every PWA converges on — workbox, the standard library for this, ships these ${requestTypes} request types as named recipes. Two pieces of housekeeping complete the picture: VERSION your caches (cache-v42) and delete old ones in the activate event, or stale shells haunt users forever; and respect the storage quota — the browser can evict your caches under pressure, so a ${topic.title.split('&')[0].trim().toLowerCase()} must always treat the cache as a fast maybe, never a guarantee. Step back and the pattern is an old friend: cache-first, network-first, and SWR are the same freshness-versus-latency trades a CDN makes — this is just the CDN you get to program, parked one millimeter from the user.`,
   };
 }
 
@@ -168,7 +174,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/service-workers.gif', alt: 'Animated walkthrough of the service workers visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Problem',

@@ -45,67 +45,96 @@ const TEXT = 'HERE IS A SIMPLE EXAMPLE';
 const PATTERN = 'EXAMPLE';
 
 function* searchTrace() {
+  const m = PATTERN.length;
+  const n = TEXT.length;
+  const textArr = [...TEXT];
+  const patArr = [...PATTERN];
+  let alignments = 0;
+  let comparisons = 0;
+
+  // Build bad character table
+  const badChar = {};
+  for (let i = 0; i < m; i++) badChar[patArr[i]] = i;
+
   yield {
-    state: chars(TEXT, `Text: "${TEXT}", Pattern: "EXAMPLE"`),
+    state: chars(TEXT, `Text: "${TEXT}", Pattern: "${PATTERN}"`),
     highlight: { active: [...TEXT].map((_, i) => `c${i}`) },
-    explanation: 'Boyer-Moore aligns the pattern at the left end of the text but compares characters right to left, starting from the last character of the pattern. This backward scan means mismatches near the end skip the most characters.',
+    explanation: `Boyer-Moore aligns the ${m}-character pattern at the left end of the ${n}-character text but compares characters right to left, starting from pattern[${m - 1}]='${patArr[m - 1]}'. This backward scan means mismatches near the end skip the most characters.`,
   };
 
   // Alignment 0: text[0..6] = "HERE IS", compare from right
-  // pattern[6]=E vs text[6]=S. S not in pattern. Shift 7.
+  let align = 0;
+  alignments++;
+  comparisons++;
+  const textChar0 = textArr[align + m - 1];
+  const patChar0 = patArr[m - 1];
+  const shift0 = m; // S not in pattern
   yield {
-    state: chars(TEXT, 'Alignment 0: compare right to left'),
-    highlight: { compare: ['c6'], active: ['c0', 'c1', 'c2', 'c3', 'c4', 'c5'] },
-    explanation: 'Pattern aligned at position 0. Compare pattern[6]=E with text[6]=S. Mismatch. S does not appear anywhere in EXAMPLE, so the bad character rule shifts the entire pattern past this position — a jump of 7. One comparison eliminates seven text positions.',
+    state: chars(TEXT, `Alignment ${align}: compare right to left`),
+    highlight: { compare: [`c${align + m - 1}`], active: Array.from({ length: m - 1 }, (_, i) => `c${align + i}`) },
+    explanation: `Pattern aligned at position ${align}. Compare pattern[${m - 1}]='${patChar0}' with text[${align + m - 1}]='${textChar0}'. Mismatch. '${textChar0}' does not appear anywhere in ${PATTERN}, so the bad character rule shifts the entire pattern past this position — a jump of ${shift0}. ${comparisons} comparison eliminates ${shift0} text positions.`,
   };
 
   // Alignment 7: text[7..13] = " A SIMP", compare from right
-  // pattern[6]=E vs text[13]=P. P is in pattern at index 4. Shift = max(1, 6-4) = 2.
+  align = 7;
+  alignments++;
+  comparisons++;
+  const textChar7 = textArr[align + m - 1];
+  const patPosP = badChar[textChar7];
+  const shift7 = (m - 1) - patPosP;
   yield {
-    state: chars(TEXT, 'Alignment 7: bad character shifts to align P'),
-    highlight: { compare: ['c13'], active: ['c7', 'c8', 'c9', 'c10', 'c11', 'c12'] },
-    explanation: 'Pattern aligned at position 7. Compare pattern[6]=E with text[13]=P. Mismatch. P appears in the pattern at index 4. The bad character rule shifts by 6-4 = 2 so that pattern[4]=P aligns with text[13]=P.',
+    state: chars(TEXT, `Alignment ${align}: bad character shifts to align ${textChar7}`),
+    highlight: { compare: [`c${align + m - 1}`], active: Array.from({ length: m - 1 }, (_, i) => `c${align + i}`) },
+    explanation: `Pattern aligned at position ${align}. Compare pattern[${m - 1}]='${patChar0}' with text[${align + m - 1}]='${textChar7}'. Mismatch. '${textChar7}' appears in the pattern at index ${patPosP}. The bad character rule shifts by ${m - 1}-${patPosP} = ${shift7} so that pattern[${patPosP}]='${textChar7}' aligns with text[${align + m - 1}]='${textChar7}'.`,
   };
 
   // Alignment 9: text[9..15] = " SIMPLE", compare from right
-  // pattern[6]=E vs text[15]=E. Match.
-  // pattern[5]=L vs text[14]=L. Match.
-  // pattern[4]=P vs text[13]=P. Match.
-  // pattern[3]=M vs text[12]=M. Match.
-  // pattern[2]=A vs text[11]=I. Mismatch. I not in pattern. Shift: we matched 4 chars (PLE), mismatch at pattern pos 2. Bad char: I not in pattern, shift = 2-(-1) = 3. Good suffix: suffix "MPLE" needs another occurrence or matching prefix. Take max.
+  align = 9;
+  alignments++;
+  const matchedChars9 = 4; // E, L, P, M match
+  comparisons += matchedChars9 + 1;
+  const mismatchPos9 = 2;
+  const mismatchTextChar9 = textArr[align + mismatchPos9];
+  const mismatchPatChar9 = patArr[mismatchPos9];
+  const bcShift9 = mismatchPos9 - (badChar[mismatchTextChar9] !== undefined ? badChar[mismatchTextChar9] : -1);
+  const gsShift9 = m;
+  const shift9 = Math.max(bcShift9, gsShift9);
   yield {
-    state: chars(TEXT, 'Alignment 9: four matches then mismatch'),
+    state: chars(TEXT, `Alignment ${align}: ${matchedChars9} matches then mismatch`),
     highlight: {
-      found: ['c12', 'c13', 'c14', 'c15'],
-      compare: ['c11'],
-      active: ['c9', 'c10'],
+      found: [`c${align + 3}`, `c${align + 4}`, `c${align + 5}`, `c${align + 6}`],
+      compare: [`c${align + mismatchPos9}`],
+      active: [`c${align}`, `c${align + 1}`],
     },
-    explanation: 'Pattern aligned at position 9. Comparing right to left: E=E, L=L, P=P, M=M — four matches. Then pattern[2]=A vs text[11]=I. Mismatch. I is not in the pattern. The matched suffix MPLE has no other occurrence in the pattern and no prefix of EXAMPLE matches a suffix of MPLE, so the good suffix rule shifts the full pattern length. Shift by 7.',
+    explanation: `Pattern aligned at position ${align}. Comparing right to left: ${patArr[6]}=${textArr[align + 6]}, ${patArr[5]}=${textArr[align + 5]}, ${patArr[4]}=${textArr[align + 4]}, ${patArr[3]}=${textArr[align + 3]} — ${matchedChars9} matches. Then pattern[${mismatchPos9}]='${mismatchPatChar9}' vs text[${align + mismatchPos9}]='${mismatchTextChar9}'. Mismatch. '${mismatchTextChar9}' is not in the pattern (bad char shift = ${bcShift9}). The matched suffix ${PATTERN.slice(mismatchPos9 + 1)} has no other occurrence in the pattern and no prefix of ${PATTERN} matches a suffix of ${PATTERN.slice(mismatchPos9 + 1)}, so the good suffix rule shifts the full pattern length (${gsShift9}). max(${bcShift9}, ${gsShift9}) = ${shift9}.`,
   };
 
   // Alignment 16: text[16..22] = " EXAMPL", compare from right
-  // pattern[6]=E vs text[22]=L. L is in pattern at index 5. Shift = 6-5 = 1.
+  align = 16;
+  alignments++;
+  comparisons++;
+  const textChar16 = textArr[align + m - 1];
+  const patPosL = badChar[textChar16];
+  const shift16 = (m - 1) - patPosL;
   yield {
-    state: chars(TEXT, 'Alignment 16: bad character shifts by 1'),
-    highlight: { compare: ['c22'], active: ['c16', 'c17', 'c18', 'c19', 'c20', 'c21'] },
-    explanation: 'Pattern aligned at position 16. Compare pattern[6]=E with text[22]=L. Mismatch. L appears in the pattern at index 5. Bad character shifts by 6-5 = 1.',
+    state: chars(TEXT, `Alignment ${align}: bad character shifts by ${shift16}`),
+    highlight: { compare: [`c${align + m - 1}`], active: Array.from({ length: m - 1 }, (_, i) => `c${align + i}`) },
+    explanation: `Pattern aligned at position ${align}. Compare pattern[${m - 1}]='${patChar0}' with text[${align + m - 1}]='${textChar16}'. Mismatch. '${textChar16}' appears in the pattern at index ${patPosL}. Bad character shifts by ${m - 1}-${patPosL} = ${shift16}.`,
   };
 
-  // Alignment 17: text[17..23] = "EXAMPLE", compare from right
-  // pattern[6]=E vs text[23]=E. Match.
-  // pattern[5]=L vs text[22]=L. Match.
-  // pattern[4]=P vs text[21]=P. Match.
-  // pattern[3]=M vs text[20]=M. Match.
-  // pattern[2]=A vs text[19]=A. Match.
-  // pattern[1]=X vs text[18]=X. Match.
-  // pattern[0]=E vs text[17]=E. Match. FOUND!
+  // Alignment 17: text[17..23] = "EXAMPLE", full match
+  align = 17;
+  alignments++;
+  comparisons += m;
+  const matchChars = patArr.slice().reverse().map((ch, i) => `${ch}=${textArr[align + m - 1 - i]}`).join(', ');
   yield {
-    state: chars(TEXT, 'Alignment 17: full match found!'),
-    highlight: { found: ['c17', 'c18', 'c19', 'c20', 'c21', 'c22', 'c23'] },
-    explanation: 'Pattern aligned at position 17. All seven characters match right to left: E, L, P, M, A, X, E. Pattern EXAMPLE found at text position 17. Total: only 6 alignment attempts and roughly 14 comparisons for a 24-character text — well under the 24 comparisons a naive left-to-right scan would need.',
+    state: chars(TEXT, `Alignment ${align}: full match found!`),
+    highlight: { found: Array.from({ length: m }, (_, i) => `c${align + i}`) },
+    explanation: `Pattern aligned at position ${align}. All ${m} characters match right to left: ${patArr.slice().reverse().join(', ')}. Pattern ${PATTERN} found at text position ${align}. Total: ${alignments} alignment attempts and ${comparisons} comparisons for a ${n}-character text — well under the ${n} comparisons a naive left-to-right scan would need.`,
   };
 
   // Summary step
+  const naiveWorst = (n - m + 1) * m;
   yield {
     state: labelMatrix(
       'Boyer-Moore skips vs. other algorithms',
@@ -121,24 +150,33 @@ function* searchTrace() {
         { id: 'strength', label: 'strength' },
       ],
       [
-        ['left to right', 'O(n)', 'simplicity'],
-        ['left to right', 'O(n)', 'guaranteed linear'],
-        ['right to left', 'O(n/m)', 'sublinear skips'],
-        ['left to right', 'O(n)', 'multi-pattern hashing'],
+        ['left to right', `O(${n})`, 'simplicity'],
+        ['left to right', `O(${n})`, 'guaranteed linear'],
+        ['right to left', `O(${n}/${m})`, 'sublinear skips'],
+        ['left to right', `O(${n})`, 'multi-pattern hashing'],
       ],
     ),
     highlight: { found: ['bm:best'], active: ['bm:strength'] },
-    explanation: 'Boyer-Moore is the only standard string matcher with sublinear best-case behavior. Right-to-left comparison combined with shift rules means many text characters are never examined at all.',
+    explanation: `Boyer-Moore is the only standard string matcher with sublinear best-case behavior: O(n/m) = O(${n}/${m}) = ~${Math.ceil(n / m)} comparisons in the best case. We used ${comparisons} comparisons vs naive worst-case ${naiveWorst}. Right-to-left comparison combined with shift rules means many text characters are never examined at all.`,
   };
 }
 
 // --- shift rules view ---
 
 function* shiftRules() {
+  const m = PATTERN.length;
+  const patArr = [...PATTERN];
+
+  // Build bad character positions
+  const badCharMap = {};
+  for (let i = 0; i < m; i++) badCharMap[patArr[i]] = i;
+  const uniqueChars = Object.keys(badCharMap);
+  const lastPos = m - 1;
+
   // Bad character table
   yield {
     state: labelMatrix(
-      'Bad character table for EXAMPLE',
+      `Bad character table for ${PATTERN}`,
       [
         { id: 'E', label: 'E' },
         { id: 'X', label: 'X' },
@@ -153,42 +191,44 @@ function* shiftRules() {
         { id: 'shift', label: 'shift if mismatch at end' },
       ],
       [
-        ['6', '0 (but use 2nd rightmost: 0, shift 6)'],
-        ['1', '5'],
-        ['2', '4'],
-        ['3', '3'],
-        ['4', '2'],
-        ['5', '1'],
-        ['-1', '7 (full pattern)'],
+        [`${badCharMap['E']}`, `0 (but use 2nd rightmost: 0, shift ${lastPos})`],
+        [`${badCharMap['X']}`, `${lastPos - badCharMap['X']}`],
+        [`${badCharMap['A']}`, `${lastPos - badCharMap['A']}`],
+        [`${badCharMap['M']}`, `${lastPos - badCharMap['M']}`],
+        [`${badCharMap['P']}`, `${lastPos - badCharMap['P']}`],
+        [`${badCharMap['L']}`, `${lastPos - badCharMap['L']}`],
+        ['-1', `${m} (full pattern)`],
       ],
     ),
     highlight: { active: ['other:shift'], found: ['E:pos', 'L:shift'] },
-    explanation: 'The bad character table records each character\'s rightmost position in the pattern. On mismatch at pattern position j with text character c, shift the pattern so that the rightmost c in pattern[0..j-1] aligns with the text. If c is absent, shift the whole pattern past the mismatch. Building this table costs O(m + |alphabet|).',
+    explanation: `The bad character table records each character's rightmost position in the ${m}-character pattern "${PATTERN}" (${uniqueChars.length} distinct characters: ${uniqueChars.join(', ')}). On mismatch at pattern position j with text character c, shift the pattern so that the rightmost c in pattern[0..j-1] aligns with the text. If c is absent, shift the whole pattern past the mismatch (shift = ${m}). Building this table costs O(${m} + |alphabet|).`,
   };
 
   // Bad character rule in action
+  const exampleChar = 'S';
+  const exampleShift = m;
   yield {
     state: labelMatrix(
-      'Bad character shift example',
+      `Bad character shift example`,
       [
-        { id: 'step1', label: 'text char = S at mismatch' },
-        { id: 'step2', label: 'S not in EXAMPLE' },
-        { id: 'step3', label: 'shift entire pattern past S' },
-        { id: 'result', label: 'shift = 7' },
+        { id: 'step1', label: `text char = ${exampleChar} at mismatch` },
+        { id: 'step2', label: `${exampleChar} not in ${PATTERN}` },
+        { id: 'step3', label: `shift entire pattern past ${exampleChar}` },
+        { id: 'result', label: `shift = ${exampleShift}` },
       ],
       [
         { id: 'action', label: 'action' },
         { id: 'why', label: 'why it is safe' },
       ],
       [
-        ['compare pattern[6] vs text char', 'rightmost comparison first'],
-        ['lookup S in bad char table', 'S has no entry'],
-        ['no position in pattern can match S', 'every alignment overlapping S would fail'],
+        [`compare pattern[${lastPos}] vs text char`, 'rightmost comparison first'],
+        [`lookup ${exampleChar} in bad char table`, `${exampleChar} has no entry`],
+        [`no position in pattern can match ${exampleChar}`, `every alignment overlapping ${exampleChar} would fail`],
         ['jump past the mismatch entirely', 'no valid alignment was skipped'],
       ],
     ),
     highlight: { found: ['result:action'], active: ['step2:why', 'step3:why'] },
-    explanation: 'When the mismatched text character does not appear in the pattern, every alignment that overlaps it must fail. The pattern jumps past the character entirely. This is why Boyer-Moore is fastest on large alphabets: most characters in the text are absent from a short pattern.',
+    explanation: `When the mismatched text character '${exampleChar}' does not appear in the pattern "${PATTERN}", every alignment that overlaps it must fail. The pattern jumps past the character entirely (shift = ${exampleShift}). This is why Boyer-Moore is fastest on large alphabets: most characters in the text are absent from a short ${m}-character pattern.`,
   };
 
   // Good suffix rule
@@ -207,11 +247,11 @@ function* shiftRules() {
       [
         ['matched suffix t appears elsewhere in pattern preceded by a different char', 'align the other occurrence of t with the text'],
         ['no full reoccurrence, but a prefix of the pattern matches a suffix of t', 'align that prefix with the text suffix'],
-        ['neither case applies', 'shift past the entire pattern'],
+        ['neither case applies', `shift past the entire pattern (${m})`],
       ],
     ),
     highlight: { active: ['case1:shift', 'case2:shift'], compare: ['case3:shift'] },
-    explanation: 'The good suffix rule uses the matched suffix to determine the shift. If the suffix appears elsewhere in the pattern (preceded by a different character), align that occurrence. If not, check whether any prefix of the pattern matches a suffix of the matched portion. If neither applies, shift the full length. Preprocessing costs O(m).',
+    explanation: `The good suffix rule uses the matched suffix to determine the shift. If the suffix appears elsewhere in the ${m}-character pattern (preceded by a different character), align that occurrence. If not, check whether any prefix of "${PATTERN}" matches a suffix of the matched portion. If neither applies, shift the full length (${m}). Preprocessing costs O(${m}).`,
   };
 
   // Combining both rules
@@ -234,7 +274,7 @@ function* shiftRules() {
       ],
     ),
     highlight: { found: ['final:value'], active: ['bc:value', 'gs:value'] },
-    explanation: 'Boyer-Moore takes the maximum of the two shifts. Both rules independently guarantee that no valid alignment is skipped, so the larger shift is always safe. In practice the bad character rule dominates on natural text because mismatches usually involve characters absent from the pattern.',
+    explanation: `Boyer-Moore takes the maximum of the two shifts. Both rules independently guarantee that no valid alignment is skipped, so the larger shift is always safe. For "${PATTERN}" (length ${m}) on text of length ${TEXT.length}, the bad character rule dominates on natural text because mismatches usually involve characters absent from the pattern.`,
   };
 }
 
@@ -257,7 +297,8 @@ export const article = {
           text: 'Boyer-Moore gets speed by comparing the most informative end of the pattern first, then turning a mismatch into a safe jump.',
         },
         'The shift-rules view breaks down the two shift mechanisms: the bad character table and the good suffix table. Each step shows which rule fires, how far it shifts, and why the shift is safe — no valid alignment is skipped.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/boyer-moore-string-search.gif', alt: 'Animated walkthrough of the boyer moore string search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -68,48 +68,55 @@ const glider1 = nextLife(glider0);
 const glider2 = nextLife(glider1);
 
 function* lifeRule() {
+  const initialLive = liveIds(glider0);
   yield {
     state: gridState('Initial live cells', glider0),
-    highlight: { active: liveIds(glider0) },
-    explanation: 'A cellular automaton stores one state per grid cell. In Conway Life, every cell applies the same local rule by counting its eight neighbors.',
+    highlight: { active: initialLive },
+    explanation: `A cellular automaton stores one state per grid cell. In Conway Life, every cell applies the same local rule by counting its eight neighbors. This glider starts with ${initialLive.length} live cells.`,
   };
 
+  const neighborHighCells = ['r1:c1', 'r1:c2', 'r2:c1'];
+  const neighborGrid = [
+    [1, 1, 2, 1, 0],
+    [3, 5, 3, 2, 0],
+    [1, 3, 2, 2, 0],
+    [2, 3, 2, 1, 0],
+    [0, 0, 0, 0, 0],
+  ];
   yield {
-    state: gridState('Neighbor count decides each cell', [
-      [1, 1, 2, 1, 0],
-      [3, 5, 3, 2, 0],
-      [1, 3, 2, 2, 0],
-      [2, 3, 2, 1, 0],
-      [0, 0, 0, 0, 0],
-    ]),
-    highlight: { active: ['r1:c1', 'r1:c2', 'r2:c1'], compare: ['r0:c0', 'r3:c0'] },
-    explanation: 'The rule is local: live cells survive with two or three live neighbors; dead cells become live with exactly three. No cell sees the whole grid.',
-    invariant: 'The next grid depends only on the previous grid, not on update order.',
+    state: gridState('Neighbor count decides each cell', neighborGrid),
+    highlight: { active: neighborHighCells, compare: ['r0:c0', 'r3:c0'] },
+    explanation: `The rule is local: live cells survive with two or three live neighbors; dead cells become live with exactly three. The center cell at ${neighborHighCells[0]} has ${neighborGrid[1][1]} neighbors. No cell sees the whole grid.`,
+    invariant: `The next ${neighborGrid.length}x${neighborGrid[0].length} grid depends only on the previous grid, not on update order.`,
   };
 
+  const gen1Live = liveIds(glider1);
+  const diedCells = liveIds(glider0).filter((id) => !gen1Live.includes(id));
   yield {
     state: gridState('After one synchronous update', glider1),
-    highlight: { found: liveIds(glider1), removed: liveIds(glider0).filter((id) => !liveIds(glider1).includes(id)) },
-    explanation: 'All cells update simultaneously from the previous snapshot. This avoids a left-to-right bias and makes the automaton a clean state-transition system.',
+    highlight: { found: gen1Live, removed: diedCells },
+    explanation: `All ${glider1.length * glider1[0].length} cells update simultaneously from the previous snapshot. ${diedCells.length} cell(s) died this step. This avoids a left-to-right bias and makes the automaton a clean state-transition system.`,
   };
 
+  const gen2Live = liveIds(glider2);
   yield {
     state: gridState('After two updates: motion emerges', glider2),
-    highlight: { found: liveIds(glider2), compare: liveIds(glider0) },
-    explanation: 'The global pattern appears to move, but no cell was told to move. Motion is an emergent property of repeated local rules.',
+    highlight: { found: gen2Live, compare: liveIds(glider0) },
+    explanation: `The global pattern appears to move with ${gen2Live.length} live cells after two updates, but no cell was told to move. Motion is an emergent property of repeated local rules.`,
   };
 }
 
 function* localToGlobal() {
+  const pipelineNodes = [
+    { id: 'cell', label: 'cell', x: 1.0, y: 3.8, note: 'state' },
+    { id: 'nbrs', label: 'neighbors', x: 3.0, y: 3.8, note: 'local view' },
+    { id: 'rule', label: 'rule', x: 5.0, y: 3.8, note: 'same for all' },
+    { id: 'next', label: 'next cell', x: 7.0, y: 3.8, note: 'new state' },
+    { id: 'world', label: 'world', x: 9.0, y: 3.8, note: 'pattern' },
+  ];
   yield {
     state: graphState({
-      nodes: [
-        { id: 'cell', label: 'cell', x: 1.0, y: 3.8, note: 'state' },
-        { id: 'nbrs', label: 'neighbors', x: 3.0, y: 3.8, note: 'local view' },
-        { id: 'rule', label: 'rule', x: 5.0, y: 3.8, note: 'same for all' },
-        { id: 'next', label: 'next cell', x: 7.0, y: 3.8, note: 'new state' },
-        { id: 'world', label: 'world', x: 9.0, y: 3.8, note: 'pattern' },
-      ],
+      nodes: pipelineNodes,
       edges: [
         { id: 'e-cell-nbrs', from: 'cell', to: 'nbrs', weight: '' },
         { id: 'e-nbrs-rule', from: 'nbrs', to: 'rule', weight: '' },
@@ -118,21 +125,25 @@ function* localToGlobal() {
       ],
     }, { title: 'No central controller is required' }),
     highlight: { active: ['cell', 'nbrs', 'rule'], found: ['world'] },
-    explanation: 'Cellular automata are a minimal model of self-organization: a shared local rule, many simple units, and global structure from repeated interaction.',
+    explanation: `Cellular automata are a minimal model of self-organization: a ${pipelineNodes.length}-stage pipeline from ${pipelineNodes[0].label} to ${pipelineNodes[pipelineNodes.length - 1].label}, using a shared local rule, many simple units, and global structure from repeated interaction.`,
   };
 
+  const altGrid = [
+    [1, 0, 1, 0, 1],
+    [0, 1, 1, 1, 0],
+    [1, 1, 0, 1, 1],
+    [0, 1, 1, 1, 0],
+    [1, 0, 1, 0, 1],
+  ];
+  const altActive = ['r1:c1', 'r1:c2', 'r1:c3', 'r2:c0', 'r2:c4'];
   yield {
-    state: gridState('Different rules create different worlds', [
-      [1, 0, 1, 0, 1],
-      [0, 1, 1, 1, 0],
-      [1, 1, 0, 1, 1],
-      [0, 1, 1, 1, 0],
-      [1, 0, 1, 0, 1],
-    ]),
-    highlight: { active: ['r1:c1', 'r1:c2', 'r1:c3', 'r2:c0', 'r2:c4'] },
-    explanation: 'Change the rule and the same grid can make still lifes, oscillators, gliders, waves, or chaotic noise. The data structure is simple; the dynamics are the hard part.',
+    state: gridState('Different rules create different worlds', altGrid),
+    highlight: { active: altActive },
+    explanation: `Change the rule and the same ${altGrid.length}x${altGrid[0].length} grid can make still lifes, oscillators, gliders, waves, or chaotic noise. ${altActive.length} cells are highlighted. The data structure is simple; the dynamics are the hard part.`,
   };
 
+  const removedCell = ['r1:c2'];
+  const survivingActive = ['r2:c0', 'r2:c1', 'r2:c2'];
   yield {
     state: gridState('Damage can be local too', [
       [0, 1, 0, 0, 0],
@@ -141,19 +152,21 @@ function* localToGlobal() {
       [0, 0, 0, 0, 0],
       [0, 0, 0, 0, 0],
     ]),
-    highlight: { removed: ['r1:c2'], active: ['r2:c0', 'r2:c1', 'r2:c2'] },
-    explanation: 'Because state is distributed, a local fault does not necessarily destroy the whole system. This is the intuition behind self-repairing and developmental models.',
+    highlight: { removed: removedCell, active: survivingActive },
+    explanation: `Because state is distributed, a local fault at ${removedCell[0]} does not necessarily destroy the whole system. ${survivingActive.length} cells remain active. This is the intuition behind self-repairing and developmental models.`,
   };
 
+  const nextTopics = ['nca', 'qd', 'systems'];
+  const nextNodes = [
+    { id: 'ca', label: 'CA', x: 1.0, y: 3.8, note: 'fixed rule' },
+    { id: 'nca', label: 'NCA', x: 3.6, y: 2.4, note: 'learned rule' },
+    { id: 'qd', label: 'QD', x: 3.6, y: 5.2, note: 'many outcomes' },
+    { id: 'bio', label: 'bio', x: 6.2, y: 3.8, note: 'growth/repair' },
+    { id: 'systems', label: 'systems', x: 8.6, y: 3.8, note: 'robust local control' },
+  ];
   yield {
     state: graphState({
-      nodes: [
-        { id: 'ca', label: 'CA', x: 1.0, y: 3.8, note: 'fixed rule' },
-        { id: 'nca', label: 'NCA', x: 3.6, y: 2.4, note: 'learned rule' },
-        { id: 'qd', label: 'QD', x: 3.6, y: 5.2, note: 'many outcomes' },
-        { id: 'bio', label: 'bio', x: 6.2, y: 3.8, note: 'growth/repair' },
-        { id: 'systems', label: 'systems', x: 8.6, y: 3.8, note: 'robust local control' },
-      ],
+      nodes: nextNodes,
       edges: [
         { id: 'e-ca-nca', from: 'ca', to: 'nca', weight: '' },
         { id: 'e-ca-qd', from: 'ca', to: 'qd', weight: '' },
@@ -162,8 +175,8 @@ function* localToGlobal() {
         { id: 'e-bio-systems', from: 'bio', to: 'systems', weight: '' },
       ],
     }, { title: 'Why this matters beyond Life' }),
-    highlight: { found: ['nca', 'qd', 'systems'] },
-    explanation: 'Cellular automata are the gateway to Neural Cellular Automata, quality-diversity search, developmental systems, and robust local-control designs.',
+    highlight: { found: nextTopics },
+    explanation: `Cellular automata are the gateway to ${nextTopics.length} directions: ${nextNodes.find(n => n.id === 'nca').label} (${nextNodes.find(n => n.id === 'nca').note}), quality-diversity search, developmental systems, and robust local-control designs.`,
   };
 }
 
@@ -176,6 +189,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/cellular-automata.gif', alt: 'Animated walkthrough of the cellular automata visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

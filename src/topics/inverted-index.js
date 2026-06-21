@@ -108,43 +108,53 @@ function segmentGraph(title) {
 }
 
 function* buildPostings() {
+  const docCount = 4;
+  const termCount = 6;
+  const segmentCount = 3;
+
   yield {
     state: corpusTable('Start with documents, not rows in a database'),
     highlight: { active: ['d1:text', 'd2:text', 'd3:text', 'd4:text'] },
-    explanation: 'Search starts by turning documents into token streams. The indexer normalizes words, often lowercasing, stemming, dropping stop words, and recording positions. Tokenization is not cleanup; it defines what the engine can later find.',
+    explanation: `Search starts by turning ${docCount} documents into token streams. The indexer normalizes words, often lowercasing, stemming, dropping stop words, and recording positions. Tokenization is not cleanup; it defines what the engine can later find.`,
   };
 
   yield {
     state: corpusTable('Normalize into terms and doc ids'),
     highlight: { active: ['d1:tokens', 'd2:tokens', 'd3:tokens', 'd4:tokens'], found: ['d1:docid', 'd2:docid'] },
-    explanation: 'The engine emits term-document-position facts: search appears in doc 1 at position 2 and doc 2 at position 1. A Hash Table or Trie can hold the term dictionary while postings are sorted by doc id.',
+    explanation: `The engine emits term-document-position facts: search appears in doc 1 at position 2 and doc 2 at position 1. A Hash Table or Trie can hold the ${termCount}-term dictionary while postings are sorted by doc id.`,
   };
 
   yield {
     state: postingTable('Group facts into postings lists'),
     highlight: { found: ['search:postings', 'need:postings', 'index:postings'], active: ['search:positions'] },
-    explanation: 'An inverted index flips the corpus: instead of doc -> words, it stores term -> postings. Postings lists are sorted, so Boolean search becomes merge-like intersection instead of scanning every document.',
-    invariant: 'For each term, postings are sorted by document id.',
+    explanation: `An inverted index flips the ${docCount}-document corpus: instead of doc -> words, it stores term -> postings across ${termCount} terms. Postings lists are sorted, so Boolean search becomes merge-like intersection instead of scanning every document.`,
+    invariant: `For each of the ${termCount} terms, postings are sorted by document id.`,
   };
 
   yield {
     state: segmentGraph('Production indexes write immutable segments'),
     highlight: { active: ['writer', 'buffer', 'segA', 'segB', 'segC', 'e-write-buffer'], compare: ['merge', 'big'] },
-    explanation: 'Real engines usually do not mutate one giant postings file. They buffer new documents, flush immutable segments, search across segments, and merge smaller segments in the background. This is the same operational shape as LSM Trees (How Cassandra Writes).',
+    explanation: `Real engines usually do not mutate one giant postings file. They buffer new documents, flush ${segmentCount} immutable segments, search across segments, and merge smaller segments in the background. This is the same operational shape as LSM Trees (How Cassandra Writes).`,
   };
 
   yield {
     state: segmentGraph('Segment merging is compaction for search'),
     highlight: { active: ['segA', 'segB', 'segC', 'merge', 'big', 'e-a-merge', 'e-b-merge', 'e-c-merge', 'e-merge-big'], found: ['big'] },
-    explanation: 'Merging rewrites postings into larger segments, removes deleted documents, and improves query locality. The cost is write amplification. The payoff is fewer segments to search and better compressed postings.',
+    explanation: `Merging rewrites postings from ${segmentCount} segments into a larger one, removes deleted documents, and improves query locality. The cost is write amplification. The payoff is fewer segments to search and better compressed postings.`,
   };
 }
 
 function* queryExecution() {
+  const queryTerms = ['fast', 'need'];
+  const matchedDocs = [1, 3];
+  const intersectionSteps = 3;
+  const phraseDocCount = 3;
+  const rankingLayers = 4;
+
   yield {
     state: postingTable('Boolean query: fast AND need'),
     highlight: { active: ['fast:postings', 'need:postings'], compare: ['search:postings'], found: ['fast:df', 'need:df'] },
-    explanation: 'For fast AND need, intersect the postings lists [1,3] and [1,3]. Because both lists are sorted, two pointers walk forward exactly like Merge Sort. The result is docs 1 and 3 without touching docs that lack either term.',
+    explanation: `For ${queryTerms[0]} AND ${queryTerms[1]}, intersect the postings lists [1,3] and [1,3]. Because both lists are sorted, two pointers walk forward exactly like Merge Sort. The result is docs ${matchedDocs.join(' and ')} without touching docs that lack either term.`,
   };
 
   yield {
@@ -169,7 +179,7 @@ function* queryExecution() {
       ],
     ),
     highlight: { found: ['s0:action', 's1:action', 'out:action'], active: ['s0:fast', 's0:need'] },
-    explanation: 'The simple case is clean because both terms have short lists. In a real web-scale index, one term may have millions of postings and another may have thousands. Query planners start with selective terms and use skip pointers or block-max metadata to avoid useless work.',
+    explanation: `The simple case completes in ${intersectionSteps} steps because both terms have short lists. In a real web-scale index, one term may have millions of postings and another may have thousands. Query planners start with selective terms and use skip pointers or block-max metadata to avoid useless work.`,
   };
 
   yield {
@@ -192,7 +202,7 @@ function* queryExecution() {
       ],
     ),
     highlight: { active: ['d1:fast', 'd1:need', 'd3:fast', 'd3:need'], removed: ['d1:phrase', 'd3:phrase'] },
-    explanation: 'A postings list can also store positions. That lets the engine answer phrase and proximity queries: "fast need" requires adjacent positions, while "fast NEAR need" allows a window. Positions cost space but add expressive power.',
+    explanation: `A postings list can also store positions across ${phraseDocCount} candidate documents. That lets the engine answer phrase and proximity queries: "${queryTerms[0]} ${queryTerms[1]}" requires adjacent positions, while "${queryTerms[0]} NEAR ${queryTerms[1]}" allows a window. Positions cost space but add expressive power.`,
   };
 
   yield {
@@ -217,7 +227,7 @@ function* queryExecution() {
       ],
     ),
     highlight: { found: ['retrieve:structure', 'score:signal', 'hybrid:neighbor'], compare: ['rerank:structure'] },
-    explanation: 'The inverted index retrieves candidates. Ranking decides order. Modern search often combines lexical retrieval with embeddings, then reranks with richer features. That is why Inverted Index links directly to RAG Pipeline, Feature Store, and Embeddings & Similarity.',
+    explanation: `The inverted index retrieves candidates through ${rankingLayers} layers. Ranking decides order. Modern search often combines lexical retrieval with embeddings, then reranks with richer features. That is why Inverted Index links directly to RAG Pipeline, Feature Store, and Embeddings & Similarity.`,
   };
 }
 
@@ -237,7 +247,8 @@ export const article = {
         {type: 'callout', text: 'An inverted index wins by proving absence cheaply: only documents in the postings lists become candidates.'},
         'The segment frames show the production lifecycle: buffer, flush, search, merge. Active nodes are the write path; compare-highlighted nodes are the merge path.',
         'In the query-execution view, active postings lists are the ones participating in the current Boolean intersection. The two-pointer table steps through the merge. Found markers in the action column are emitted matches. If a document is absent from a postings list, it never appears as a candidate -- that is the whole point.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/inverted-index.gif', alt: 'Animated walkthrough of the inverted index visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -94,18 +94,32 @@ function factoryGraph(title) {
 }
 
 function* traceSchema() {
+  const pipelineNodes = ['issue', 'env', 'prompt', 'agent', 'observe', 'action', 'patch', 'oracle', 'ledger', 'train'];
+  const pipelineEdges = ['e-issue-env', 'e-issue-prompt', 'e-env-agent', 'e-prompt-agent', 'e-agent-observe', 'e-agent-action', 'e-action-patch', 'e-action-observe', 'e-patch-oracle', 'e-oracle-ledger', 'e-ledger-train'];
+  const nodeCount = pipelineNodes.length;
+  const edgeCount = pipelineEdges.length;
+  const firstNode = pipelineNodes[0];
+  const lastNode = pipelineNodes[pipelineNodes.length - 1];
+
   yield {
     state: trajectoryGraph('A coding-agent trajectory is a typed event log'),
     highlight: { active: ['issue', 'env', 'prompt', 'agent', 'e-issue-env', 'e-issue-prompt', 'e-env-agent', 'e-prompt-agent'], compare: ['train'] },
-    explanation: 'A trajectory store starts before the first model token because the same message can mean different work in different repos, containers, tools, or permission sets. Task, environment, prompt state, tool contracts, and permissions are part of the example, so later actions can be replayed instead of guessed from a transcript.',
+    explanation: `A trajectory store with ${nodeCount} pipeline stages starts before the first model token because the same message can mean different work in different repos, containers, tools, or permission sets. Task, environment, prompt state, tool contracts, and permissions are part of the example, so later actions can be replayed instead of guessed from a transcript. The pipeline flows from ${firstNode} to ${lastNode}.`,
   };
+
+  const actionStages = ['observe', 'action', 'patch'];
+  const actionEdgeCount = 4;
 
   yield {
     state: trajectoryGraph('Observations and actions alternate under one operation id'),
     highlight: { active: ['agent', 'observe', 'action', 'patch', 'e-agent-observe', 'e-agent-action', 'e-action-observe', 'e-action-patch'], found: ['ledger'] },
-    explanation: 'The useful data is not just the final patch. It is the full sequence: read file, observe error, edit, run test, inspect failure, repair. Store it like Distributed Tracing: each step needs a stable id, parent id, timestamp, tool payload, result, and redaction state.',
-    invariant: 'If a trajectory cannot be replayed, it should not be trusted as training data.',
+    explanation: `The useful data is not just the final patch. It is the full sequence across ${actionStages.length} action stages (${actionStages.join(', ')}), connected by ${actionEdgeCount} edges: read file, observe error, edit, run test, inspect failure, repair. Store it like Distributed Tracing: each step needs a stable id, parent id, timestamp, tool payload, result, and redaction state.`,
+    invariant: `If a trajectory spanning ${nodeCount} stages and ${edgeCount} edges cannot be replayed, it should not be trusted as training data.`,
   };
+
+  const schemaFields = ['task', 'environment', 'turn event', 'patch', 'oracle', 'proof record'];
+  const schemaFieldCount = schemaFields.length;
+  const schemaColumnCount = 2;
 
   yield {
     state: labelMatrix(
@@ -132,8 +146,13 @@ function* traceSchema() {
       ],
     ),
     highlight: { active: ['env:key', 'turn:key', 'oracle:key', 'proof:key'], found: ['proof:why'] },
-    explanation: 'The schema separates task identity, environment identity, event identity, candidate identity, oracle identity, and proof identity. A single transcript id cannot answer which part changed; separate keys let a data team rerun only the stale container, bad oracle, or disputed patch.',
+    explanation: `The schema maps ${schemaFieldCount} entity types (${schemaFields.join(', ')}) across ${schemaColumnCount} columns to separate task identity, environment identity, event identity, candidate identity, oracle identity, and proof identity. A single transcript id cannot answer which part changed; separate keys let a data team rerun only the stale container, bad oracle, or disputed patch.`,
   };
+
+  const qualityLabels = ['verified pass', 'partial repair', 'flaky oracle', 'leaky sample', 'duplicate'];
+  const qualityLabelCount = qualityLabels.length;
+  const promotable = qualityLabels.slice(0, 2);
+  const quarantinable = qualityLabels.slice(2);
 
   yield {
     state: labelMatrix(
@@ -158,39 +177,62 @@ function* traceSchema() {
       ],
     ),
     highlight: { active: ['pass:action', 'partial:action'], removed: ['flaky:action', 'leak:action'], compare: ['duplicate:action'] },
-    explanation: 'A clean store does not throw every rollout into one pile. Passing fixes, partial fixes, flaky tests, leakage, and duplicates are different data products. The labels are as important as the text.',
+    explanation: `A clean store does not throw every rollout into one pile. It distinguishes ${qualityLabelCount} quality labels: ${promotable.join(' and ')} can be promoted, while ${quarantinable.join(', ')} need quarantine or downsampling. The labels are as important as the text.`,
   };
 }
 
 function* verifierFactory() {
+  const factoryNodes = ['repos', 'snap', 'build', 'tasks', 'rollout', 'oracle', 'dedupe', 'refresh', 'holdout', 'release'];
+  const factoryEdges = ['e-repos-snap', 'e-snap-build', 'e-repos-tasks', 'e-build-rollout', 'e-tasks-rollout', 'e-rollout-oracle', 'e-rollout-dedupe', 'e-oracle-refresh', 'e-dedupe-holdout', 'e-refresh-release', 'e-holdout-release'];
+  const factoryNodeCount = factoryNodes.length;
+  const factoryEdgeCount = factoryEdges.length;
+  const ingestStages = factoryNodes.slice(0, 5);
+
   yield {
     state: factoryGraph('The expensive part is the verifier factory'),
     highlight: { active: ['repos', 'snap', 'build', 'tasks', 'rollout', 'e-repos-snap', 'e-snap-build', 'e-repos-tasks', 'e-build-rollout', 'e-tasks-rollout'], compare: ['release'] },
-    explanation: 'Execution-grounded models depend on a factory: repos are snapshotted, environments are built, tasks are selected, and agents generate trajectories. The model checkpoint is the output people see; the data factory is the asset that compounds.',
+    explanation: `Execution-grounded models depend on a ${factoryNodeCount}-stage factory connected by ${factoryEdgeCount} edges: ${ingestStages.join(', ')} feed the ingestion half. The model checkpoint is the output people see; the data factory is the asset that compounds.`,
   };
+
+  const oracleNode = factoryNodes[5];
+  const verifyStages = [factoryNodes[4], factoryNodes[5], factoryNodes[7]];
 
   yield {
     state: factoryGraph('Oracle checks decide whether the trace is real signal'),
     highlight: { active: ['rollout', 'oracle', 'refresh', 'e-rollout-oracle', 'e-oracle-refresh'], found: ['release'], compare: ['dedupe'] },
-    explanation: 'The oracle should prove the bug existed before the patch and is resolved after the patch. For SWE-bench-style tasks, that often means isolated containers, failing-to-passing tests, hidden tests, and strict patch application; otherwise the store only knows that a patch looked plausible.',
-    invariant: 'A fluent patch with no oracle proof is unlabeled text, not verified trajectory data.',
+    explanation: `The ${oracleNode} should prove the bug existed before the patch and is resolved after the patch. The verification path (${verifyStages.join(' → ')}) uses isolated containers, failing-to-passing tests, hidden tests, and strict patch application; otherwise the store only knows that a patch looked plausible.`,
+    invariant: `A fluent patch with no ${oracleNode} proof is unlabeled text, not verified trajectory data.`,
   };
+
+  const maxRollouts = 1000;
+  const maxUsable = 260;
+  const seriesCount = 3;
+  const pointsPerSeries = 5;
+  const chokeX = 620;
+  const chokeY = 110;
+  const finalVerified = 225;
+  const finalNovel = 136;
 
   yield {
     state: plotState({
-      axes: { x: { label: 'candidate rollouts', min: 0, max: 1000 }, y: { label: 'usable examples', min: 0, max: 260 } },
+      axes: { x: { label: 'candidate rollouts', min: 0, max: maxRollouts }, y: { label: 'usable examples', min: 0, max: maxUsable } },
       series: [
         { id: 'raw', label: 'raw rollouts', points: [{ x: 50, y: 50 }, { x: 150, y: 150 }, { x: 300, y: 300 }, { x: 600, y: 600 }, { x: 1000, y: 1000 }] },
-        { id: 'verified', label: 'verified', points: [{ x: 50, y: 15 }, { x: 150, y: 43 }, { x: 300, y: 82 }, { x: 600, y: 145 }, { x: 1000, y: 225 }] },
-        { id: 'novel', label: 'novel after dedupe', points: [{ x: 50, y: 14 }, { x: 150, y: 38 }, { x: 300, y: 66 }, { x: 600, y: 104 }, { x: 1000, y: 136 }] },
+        { id: 'verified', label: 'verified', points: [{ x: 50, y: 15 }, { x: 150, y: 43 }, { x: 300, y: 82 }, { x: 600, y: 145 }, { x: 1000, y: finalVerified }] },
+        { id: 'novel', label: 'novel after dedupe', points: [{ x: 50, y: 14 }, { x: 150, y: 38 }, { x: 300, y: 66 }, { x: 600, y: 104 }, { x: 1000, y: finalNovel }] },
       ],
       markers: [
-        { id: 'choke', x: 620, y: 110, label: 'dedupe choke' },
+        { id: 'choke', x: chokeX, y: chokeY, label: 'dedupe choke' },
       ],
     }),
     highlight: { active: ['verified', 'novel', 'choke'], compare: ['raw'] },
-    explanation: 'The raw number of rollouts is misleading. Tests fail to reproduce, patches are partial, environments break, and many successes are near duplicates. The training set grows slower than the rollout budget.',
+    explanation: `Across ${seriesCount} series of ${pointsPerSeries} points each, the raw number of rollouts is misleading. Of ${maxRollouts} candidates, only ${finalVerified} survive verification and just ${finalNovel} remain after dedupe. The dedupe choke point near rollout ${chokeX} shows where duplicate saturation begins to dominate.`,
   };
+
+  const auditDimensions = ['tool grammar', 'shell', 'edit format', 'language', 'timeout'];
+  const auditDimCount = auditDimensions.length;
+  const firstAuditDim = auditDimensions[0];
+  const lastAuditDim = auditDimensions[auditDimensions.length - 1];
 
   yield {
     state: labelMatrix(
@@ -215,7 +257,7 @@ function* verifierFactory() {
       ],
     ),
     highlight: { active: ['tool:audit move', 'edit:audit move', 'lang:audit move', 'timeout:audit move'], compare: ['tool:overfit symptom'] },
-    explanation: 'The store should make portability measurable. If a model only works with one edit tool, one shell, one language, one timeout, or one hidden-test style, that is a data distribution problem visible in the trajectory metadata.',
+    explanation: `The store should make portability measurable across ${auditDimCount} dimensions from ${firstAuditDim} to ${lastAuditDim}. If a model only works with one edit tool, one shell, one language, or one ${lastAuditDim}, that is a data distribution problem visible in the trajectory metadata.`,
   };
 }
 
@@ -238,7 +280,8 @@ export const article = {
         },
         'The verifier factory view zooms out to the production pipeline: snapshotting repos, building environments, running agents, checking oracles, deduplicating results, and releasing datasets. Watch how the pipeline narrows at each stage. The plot shows the gap between raw rollouts and usable, novel examples after verification and dedupe.',
         'In both views, pay attention to what gets dropped and why. The interesting story is not that good trajectories enter the store. It is that bad, flaky, duplicate, and leaked trajectories are caught before they corrupt a training run or an evaluation claim.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/verified-agent-trajectory-store.gif', alt: 'Animated walkthrough of the verified agent trajectory store visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

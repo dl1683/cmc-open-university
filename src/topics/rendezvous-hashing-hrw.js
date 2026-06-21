@@ -28,60 +28,68 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* winnerSelection() {
+  const scoreNodes = [
+    { id: 'scoreA', label: 'A:72', x: 2.6, y: 4.0, note: 'hash' },
+    { id: 'scoreB', label: 'B:91', x: 4.4, y: 4.0, note: 'hash' },
+    { id: 'scoreC', label: 'C:37', x: 6.2, y: 4.0, note: 'hash' },
+  ];
+  const winnerLabel = 'B wins';
+  const nodes = [
+    { id: 'key', label: 'key', x: 0.8, y: 4.0, note: 'photo42' },
+    ...scoreNodes,
+    { id: 'winner', label: winnerLabel, x: 8.3, y: 4.0, note: 'max' },
+  ];
+  const edges = [
+    { id: 'e-key-a', from: 'key', to: 'scoreA' },
+    { id: 'e-a-b', from: 'scoreA', to: 'scoreB' },
+    { id: 'e-b-c', from: 'scoreB', to: 'scoreC' },
+    { id: 'e-c-winner', from: 'scoreC', to: 'winner' },
+  ];
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'key', label: 'key', x: 0.8, y: 4.0, note: 'photo42' },
-        { id: 'scoreA', label: 'A:72', x: 2.6, y: 4.0, note: 'hash' },
-        { id: 'scoreB', label: 'B:91', x: 4.4, y: 4.0, note: 'hash' },
-        { id: 'scoreC', label: 'C:37', x: 6.2, y: 4.0, note: 'hash' },
-        { id: 'winner', label: 'B wins', x: 8.3, y: 4.0, note: 'max' },
-      ],
-      edges: [
-        { id: 'e-key-a', from: 'key', to: 'scoreA' },
-        { id: 'e-a-b', from: 'scoreA', to: 'scoreB' },
-        { id: 'e-b-c', from: 'scoreB', to: 'scoreC' },
-        { id: 'e-c-winner', from: 'scoreC', to: 'winner' },
-      ],
-    }, { title: 'For each key, hash the key with every node and pick max' }),
+    state: graphState({ nodes, edges }, { title: 'For each key, hash the key with every node and pick max' }),
     highlight: { active: ['scoreA', 'scoreB', 'scoreC'], found: ['winner'] },
-    explanation: 'Rendezvous hashing, also called highest-random-weight hashing, gives each node a score for the key. Every client that knows the same node set picks the same highest-scoring node.',
-    invariant: 'Distributed agreement comes from deterministic scoring, not a coordinator.',
+    explanation: `Rendezvous hashing, also called highest-random-weight hashing, gives each of ${scoreNodes.length} nodes a score for the key. Every client that knows the same node set picks the same highest-scoring node (${winnerLabel}).`,
+    invariant: `Distributed agreement among ${nodes.length} participants comes from deterministic scoring, not a coordinator.`,
   };
 
+  const matrixRows = [
+    { id: 'A', label: 'node A' },
+    { id: 'B', label: 'node B' },
+    { id: 'C', label: 'node C' },
+    { id: 'D', label: 'node D' },
+  ];
+  const scores = ['72', '91', '37', '69'];
+  const ownerScore = scores[1];
   yield {
     state: labelMatrix(
       'One key, four nodes',
-      [
-        { id: 'A', label: 'node A' },
-        { id: 'B', label: 'node B' },
-        { id: 'C', label: 'node C' },
-        { id: 'D', label: 'node D' },
-      ],
+      matrixRows,
       [
         { id: 'score', label: 'score' },
         { id: 'rank', label: 'rank' },
       ],
       [
-        ['72', '2'],
-        ['91', '1 owner'],
-        ['37', '4'],
-        ['69', '3'],
+        [scores[0], '2'],
+        [scores[1], '1 owner'],
+        [scores[2], '4'],
+        [scores[3], '3'],
       ],
     ),
     highlight: { found: ['B:rank'], active: ['A:rank', 'D:rank'] },
-    explanation: 'The full ranking is useful. The highest score owns the key; the next scores can be replicas or failover targets without adding a ring or virtual-node table.',
+    explanation: `The full ranking across ${matrixRows.length} nodes is useful. The highest score (${ownerScore}) owns the key; the next scores can be replicas or failover targets without adding a ring or virtual-node table.`,
   };
 
+  const methods = [
+    { id: 'mod', label: 'key mod N' },
+    { id: 'ring', label: 'ring hash' },
+    { id: 'hrw', label: 'HRW' },
+    { id: 'maglev', label: 'Maglev' },
+  ];
+  const hrwMeta = 'node list';
   yield {
     state: labelMatrix(
       'Compare placement methods',
-      [
-        { id: 'mod', label: 'key mod N' },
-        { id: 'ring', label: 'ring hash' },
-        { id: 'hrw', label: 'HRW' },
-        { id: 'maglev', label: 'Maglev' },
-      ],
+      methods,
       [
         { id: 'state', label: 'metadata' },
         { id: 'churn', label: 'membership churn' },
@@ -89,60 +97,68 @@ function* winnerSelection() {
       [
         ['none', 'huge remap'],
         ['tokens', 'small remap'],
-        ['node list', 'small remap'],
+        [hrwMeta, 'small remap'],
         ['lookup table', 'small remap'],
       ],
     ),
     highlight: { found: ['hrw:state', 'hrw:churn'], compare: ['mod:churn', 'ring:state'] },
-    explanation: 'HRW is often simpler than ring hashing: no token circle, no virtual-node metadata. The tradeoff is scoring each candidate node unless you add extra acceleration techniques.',
+    explanation: `Comparing ${methods.length} placement methods, HRW needs only a ${hrwMeta} — no token circle, no virtual-node metadata. The tradeoff is scoring each candidate node unless you add extra acceleration techniques.`,
   };
 
+  const maxNodes = 1000;
+  const series = [
+    { id: 'hrw', label: 'basic HRW O(n)', points: [{ x: 1, y: 1 }, { x: 50, y: 10 }, { x: 250, y: 40 }, { x: 1000, y: 95 }] },
+    { id: 'ring', label: 'ring O(log tokens)', points: [{ x: 1, y: 2 }, { x: 50, y: 8 }, { x: 250, y: 16 }, { x: 1000, y: 28 }] },
+  ];
   yield {
     state: plotState({
-      axes: { x: { label: 'nodes', min: 1, max: 1000 }, y: { label: 'lookup work', min: 0, max: 100 } },
-      series: [
-        { id: 'hrw', label: 'basic HRW O(n)', points: [{ x: 1, y: 1 }, { x: 50, y: 10 }, { x: 250, y: 40 }, { x: 1000, y: 95 }] },
-        { id: 'ring', label: 'ring O(log tokens)', points: [{ x: 1, y: 2 }, { x: 50, y: 8 }, { x: 250, y: 16 }, { x: 1000, y: 28 }] },
-      ],
+      axes: { x: { label: 'nodes', min: 1, max: maxNodes }, y: { label: 'lookup work', min: 0, max: 100 } },
+      series,
     }),
     highlight: { active: ['hrw'], compare: ['ring'] },
-    explanation: 'The basic algorithm scores every node per lookup. That is fine for small or moderate node sets, but large fleets may need weighted HRW variants, candidate windows, or table-based schemes such as Maglev.',
+    explanation: `The basic algorithm scores every node per lookup, comparing ${series.length} strategies up to ${maxNodes} nodes. That is fine for small or moderate node sets, but large fleets may need weighted HRW variants, candidate windows, or table-based schemes such as Maglev.`,
   };
 }
 
 function* churnAndReplicas() {
+  const rankedNodes = [
+    { id: 'rank1', label: 'B', x: 0.8, y: 4.0, note: 'rank 1' },
+    { id: 'rank2', label: 'A', x: 2.7, y: 4.0, note: 'rank 2' },
+    { id: 'rank3', label: 'D', x: 4.6, y: 4.0, note: 'rank 3' },
+    { id: 'rank4', label: 'C', x: 6.5, y: 4.0, note: 'rank 4' },
+  ];
+  const replicaCount = 3;
+  const churnNodes = [
+    ...rankedNodes,
+    { id: 'replicas', label: `top ${replicaCount}`, x: 8.4, y: 4.0, note: 'replicas' },
+  ];
+  const churnEdges = [
+    { id: 'e-r1-r2', from: 'rank1', to: 'rank2' },
+    { id: 'e-r2-r3', from: 'rank2', to: 'rank3' },
+    { id: 'e-r3-r4', from: 'rank3', to: 'rank4' },
+    { id: 'e-r4-replicas', from: 'rank4', to: 'replicas' },
+  ];
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'rank1', label: 'B', x: 0.8, y: 4.0, note: 'rank 1' },
-        { id: 'rank2', label: 'A', x: 2.7, y: 4.0, note: 'rank 2' },
-        { id: 'rank3', label: 'D', x: 4.6, y: 4.0, note: 'rank 3' },
-        { id: 'rank4', label: 'C', x: 6.5, y: 4.0, note: 'rank 4' },
-        { id: 'replicas', label: 'top 3', x: 8.4, y: 4.0, note: 'replicas' },
-      ],
-      edges: [
-        { id: 'e-r1-r2', from: 'rank1', to: 'rank2' },
-        { id: 'e-r2-r3', from: 'rank2', to: 'rank3' },
-        { id: 'e-r3-r4', from: 'rank3', to: 'rank4' },
-        { id: 'e-r4-replicas', from: 'rank4', to: 'replicas' },
-      ],
-    }, { title: 'Top-k scores give replicas and failover order' }),
+    state: graphState({ nodes: churnNodes, edges: churnEdges }, { title: 'Top-k scores give replicas and failover order' }),
     highlight: { found: ['rank1', 'rank2', 'rank3', 'replicas'], compare: ['rank4'] },
-    explanation: 'For replication factor k, take the top k nodes by score. If the owner is down, the next highest score is already the deterministic failover target.',
-    invariant: 'A single ranking answers owner, replica, and fallback questions.',
+    explanation: `For replication factor k, take the top k nodes by score. With ${rankedNodes.length} ranked candidates and k=${replicaCount}, if the owner is down, the next highest score is already the deterministic failover target.`,
+    invariant: `A single ranking of ${rankedNodes.length} nodes answers owner, replica, and fallback questions.`,
   };
 
+  const removalRows = [
+    { id: 'onB', label: 'keys owned by B' },
+    { id: 'onA', label: 'keys owned by A' },
+    { id: 'onC', label: 'keys owned by C' },
+    { id: 'onD', label: 'keys owned by D' },
+  ];
+  const removedNode = 'B';
+  const survivorCount = removalRows.length - 1;
   yield {
     state: labelMatrix(
       'Removing a node',
+      removalRows,
       [
-        { id: 'onB', label: 'keys owned by B' },
-        { id: 'onA', label: 'keys owned by A' },
-        { id: 'onC', label: 'keys owned by C' },
-        { id: 'onD', label: 'keys owned by D' },
-      ],
-      [
-        { id: 'afterBDown', label: 'after B down' },
+        { id: 'afterBDown', label: `after ${removedNode} down` },
         { id: 'movement', label: 'movement' },
       ],
       [
@@ -153,17 +169,19 @@ function* churnAndReplicas() {
       ],
     ),
     highlight: { active: ['onB:movement'], found: ['onA:movement', 'onC:movement', 'onD:movement'] },
-    explanation: 'Only keys whose winning node disappeared need a new owner. Everyone else recomputes the same top score and stays put.',
+    explanation: `Only keys whose winning node (${removedNode}) disappeared need a new owner. The other ${survivorCount} owners recompute the same top score and stay put.`,
   };
 
+  const weightTiers = [
+    { id: 'small', label: 'small node' },
+    { id: 'medium', label: 'medium node' },
+    { id: 'large', label: 'large node' },
+  ];
+  const largestCapacity = '4x';
   yield {
     state: labelMatrix(
       'Weighted HRW idea',
-      [
-        { id: 'small', label: 'small node' },
-        { id: 'medium', label: 'medium node' },
-        { id: 'large', label: 'large node' },
-      ],
+      weightTiers,
       [
         { id: 'capacity', label: 'capacity' },
         { id: 'effect', label: 'effect' },
@@ -171,22 +189,24 @@ function* churnAndReplicas() {
       [
         ['1x', 'normal odds'],
         ['2x', 'more wins'],
-        ['4x', 'many wins'],
+        [largestCapacity, 'many wins'],
       ],
     ),
     highlight: { found: ['large:effect'], compare: ['small:effect'] },
-    explanation: 'Real clusters are rarely identical. Weighted variants adjust scores so larger nodes win proportionally more keys while keeping deterministic agreement.',
+    explanation: `Real clusters are rarely identical. Across ${weightTiers.length} capacity tiers (up to ${largestCapacity}), weighted variants adjust scores so larger nodes win proportionally more keys while keeping deterministic agreement.`,
   };
 
+  const useCases = [
+    { id: 'cache', label: 'cache shard' },
+    { id: 'replica', label: 'replica set' },
+    { id: 'publisher', label: 'pub/sub' },
+    { id: 'huge', label: 'huge fleet' },
+  ];
+  const goodFitCount = 3;
   yield {
     state: labelMatrix(
       'When HRW is a good fit',
-      [
-        { id: 'cache', label: 'cache shard' },
-        { id: 'replica', label: 'replica set' },
-        { id: 'publisher', label: 'pub/sub' },
-        { id: 'huge', label: 'huge fleet' },
-      ],
+      useCases,
       [
         { id: 'fit', label: 'fit' },
         { id: 'reason', label: 'reason' },
@@ -199,7 +219,7 @@ function* churnAndReplicas() {
       ],
     ),
     highlight: { found: ['cache:fit', 'replica:fit', 'publisher:fit'], compare: ['huge:reason'] },
-    explanation: 'HRW is strongest when the candidate set is manageable and deterministic top-k agreement matters. Massive node sets may prefer rings, tables, or optimized HRW variants.',
+    explanation: `Of ${useCases.length} use cases examined, ${goodFitCount} are a good fit for HRW where the candidate set is manageable and deterministic top-k agreement matters. Massive node sets may prefer rings, tables, or optimized HRW variants.`,
   };
 }
 
@@ -212,6 +232,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/rendezvous-hashing-hrw.gif', alt: 'Animated walkthrough of the rendezvous hashing hrw visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why rendezvous hashing exists',
       paragraphs: [

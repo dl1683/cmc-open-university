@@ -116,7 +116,8 @@ const legacyArticle = {
       heading: `How to read the animation`,
       paragraphs: [
         `Read each table as a running odds ledger. The first table is the trained model: rows are words, columns are classes, and each cell says how often that word appeared in that class. The next tables start from the prior odds and multiply in one word at a time. The highlighted cell shows which class the current word supports. The invariant is the score ratio: after every word, spam score divided by ham score equals the prior odds times all likelihood ratios seen so far. The naive baseline is counting suspicious words or ignoring base rates; the animation shows why evidence strength and priors both matter. Watch for the two practical taxes: tiny products require log probabilities, and unseen words require smoothing.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/naive-bayes.gif', alt: 'Animated walkthrough of the naive bayes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `How it works`,

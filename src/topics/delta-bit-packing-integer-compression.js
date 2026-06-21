@@ -53,11 +53,21 @@ function packFlow(title) {
 }
 
 function* frameOfReference() {
+  const pipelineNodes = 5;    // ints, delta, width, pack, decode
+  const pipelineEdges = 4;    // edges in packFlow
+  const blockSize = 5;        // number of values in the example block
+  const baseValue = 1000;     // frame-of-reference base
+  const maxOffset = 14;       // largest offset value
+  const bitsNeeded = 4;       // bits to represent maxOffset
+  const rawBitsPerInt = 32;   // original bits per integer
+  const totalRawBits = blockSize * rawBitsPerInt;
+  const totalPackedBits = blockSize * bitsNeeded;
+
   yield {
     state: packFlow('Compression starts by making integers small'),
     highlight: { active: ['delta', 'width'], found: ['pack', 'decode'] },
-    explanation: 'Integer compression for indexes and column stores often starts with a block of nearby values. Subtract a base or previous value, then most numbers need far fewer bits.',
-    invariant: 'Transform first, then pack; decoding reverses the transform.',
+    explanation: `Integer compression for indexes and column stores often starts with a block of nearby values. The ${pipelineNodes}-stage pipeline subtracts a base or previous value, then most numbers need far fewer than ${rawBitsPerInt} bits.`,
+    invariant: `Transform first, then pack across all ${pipelineEdges} edges; decoding reverses the transform.`,
   };
 
   yield {
@@ -83,7 +93,7 @@ function* frameOfReference() {
       ],
     ),
     highlight: { active: ['v3:offset', 'v4:offset'], found: ['v4:bits'] },
-    explanation: 'Instead of storing five 32-bit integers, store base = 1000 and offsets. The largest offset is 14, so this toy block needs only 4 bits per value.',
+    explanation: `Instead of storing ${blockSize} ${rawBitsPerInt}-bit integers, store base = ${baseValue} and offsets. The largest offset is ${maxOffset}, so this toy block needs only ${bitsNeeded} bits per value.`,
   };
 
   yield {
@@ -109,7 +119,7 @@ function* frameOfReference() {
       ],
     ),
     highlight: { active: ['x1:delta', 'x2:delta', 'x4:delta'], found: ['x4:rebuild'] },
-    explanation: 'Delta coding stores differences from the previous value. Decoding uses a running sum. It is excellent for sorted ids, timestamps, and offsets with small gaps.',
+    explanation: `Delta coding stores differences from the previous value across all ${blockSize} entries. Decoding uses a running sum to reconstruct the original ${rawBitsPerInt}-bit integers.`,
   };
 
   yield {
@@ -133,17 +143,25 @@ function* frameOfReference() {
       ],
     ),
     highlight: { found: ['width:value', 'block:value'], active: ['decode:meaning'] },
-    explanation: 'Bit-packing is simple but powerful: choose one width for the block, place codes back-to-back, and decode with shifts, masks, or SIMD kernels.',
+    explanation: `Bit-packing is simple but powerful: choose one ${bitsNeeded}-bit width for the block of ${blockSize} values, place codes back-to-back into ${totalPackedBits} packed bits, and decode with shifts, masks, or SIMD kernels.`,
   };
 
   yield {
     state: packFlow('Fast codecs optimize the hot decode loop'),
     highlight: { active: ['width', 'pack', 'decode'], found: ['delta'], compare: ['ints'] },
-    explanation: 'Search engines and analytics engines care about decode speed as much as bytes. A slightly larger block that decodes with predictable vectorized operations can beat a denser but branchy encoding.',
+    explanation: `Search engines and analytics engines care about decode speed as much as bytes. Compressing ${totalRawBits} raw bits to ${totalPackedBits} packed bits helps, but a slightly larger block that decodes with predictable vectorized operations can beat a denser but branchy encoding.`,
   };
 }
 
 function* exceptionsAndSystems() {
+  const pipelineNodes = 5;
+  const pipelineEdges = 4;
+  const pforRows = 4;         // rows in PFOR matrix
+  const systemCount = 4;      // Parquet, Lucene, Gorilla, FastPFOR
+  const codecChoices = 4;     // rows in choosing a codec matrix
+  const normalBits = 5;       // bits for most values in PFOR example
+  const outlierBits = 13;     // bits the outlier needs
+
   yield {
     state: labelMatrix(
       'PFOR-style exception idea',
@@ -165,8 +183,8 @@ function* exceptionsAndSystems() {
       ],
     ),
     highlight: { active: ['normal:choice', 'main:choice'], compare: ['outlier:result'], found: ['patch:result'] },
-    explanation: 'A single large delta can force a whole block to use a large bit width. Patched schemes keep the common width small and store outliers separately.',
-    invariant: 'Compression format is a contract between encoder density and decoder speed.',
+    explanation: `A single large delta needing ${outlierBits} bits can force a whole block to use a large bit width. Patched schemes keep the common width at ${normalBits} bits and store outliers separately across the ${pforRows} categories shown.`,
+    invariant: `Compression format is a contract between encoder density and decoder speed across all ${pipelineNodes} pipeline stages.`,
   };
 
   yield {
@@ -190,7 +208,7 @@ function* exceptionsAndSystems() {
       ],
     ),
     highlight: { found: ['parquet:pattern', 'lucene:pattern'], active: ['gorilla:pattern', 'fastpfor:pattern'] },
-    explanation: 'Different systems tune the same primitives for different access patterns: column scans, postings intersections, time-series ingestion, or raw integer-array decode speed.',
+    explanation: `${systemCount} major systems tune the same ${pipelineEdges} primitives for different access patterns: column scans, postings intersections, time-series ingestion, or raw integer-array decode speed.`,
   };
 
   yield {
@@ -214,13 +232,13 @@ function* exceptionsAndSystems() {
       ],
     ),
     highlight: { found: ['sorted:good fit', 'timestamps:good fit'], compare: ['random:why'] },
-    explanation: 'Compression wins when the transform exposes structure. If the integers are already random across the full range, no block codec can magically remove entropy. Base-128 Varint & ZigZag Encoding is the message-format cousin: it compresses each integer independently instead of choosing one packed width for a block.',
+    explanation: `Compression wins when the transform exposes structure across ${codecChoices} data patterns shown. If the integers are already random across the full range, no block codec can magically remove entropy. Base-128 Varint & ZigZag Encoding is the message-format cousin: it compresses each integer independently instead of choosing one packed width for a block.`,
   };
 
   yield {
     state: packFlow('The whole block must be designed for the query path'),
     highlight: { active: ['ints', 'delta', 'pack'], found: ['decode'], compare: ['width'] },
-    explanation: 'A database codec is not just storage. It decides how much data the CPU must unpack for filters, joins, intersections, skips, and vectorized scans.',
+    explanation: `A database codec spanning ${pipelineNodes} stages and ${pipelineEdges} transitions is not just storage. It decides how much data the CPU must unpack for filters, joins, intersections, skips, and vectorized scans.`,
   };
 }
 
@@ -233,6 +251,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/delta-bit-packing-integer-compression.gif', alt: 'Animated walkthrough of the delta bit packing integer compression visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

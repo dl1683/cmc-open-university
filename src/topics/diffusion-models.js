@@ -64,34 +64,40 @@ function imageMatrix(title, noiseAmount) {
 }
 
 function* forwardNoising() {
+  const gridSize = BASE.length;
+  const totalCells = gridSize * gridSize;
+  const cleanNoise = 0.0;
   yield {
-    state: imageMatrix('x0: a clean training example', 0.0),
+    state: imageMatrix('x0: a clean training example', cleanNoise),
     highlight: { active: ['r2:c2'], found: ['r1:c1', 'r1:c3', 'r3:c1', 'r3:c3'] },
-    explanation: 'A diffusion model starts with real data. This toy matrix stands in for an image. Training does not ask the model to generate it in one jump; training creates many corrupted versions at different noise levels.',
+    explanation: `A diffusion model starts with real data. This ${gridSize}x${gridSize} toy matrix (${totalCells} cells) stands in for an image at noise level ${cleanNoise}. Training does not ask the model to generate it in one jump; training creates many corrupted versions at different noise levels.`,
   };
 
+  const moderateNoise = 0.35;
   yield {
-    state: imageMatrix('xt at moderate noise', 0.35),
+    state: imageMatrix('xt at moderate noise', moderateNoise),
     highlight: { compare: ['r2:c2', 'r0:c0'], active: ['r1:c3', 'r3:c0'] },
-    explanation: 'The forward process is fixed and known: add a little Gaussian noise at each timestep. At moderate noise, the original pattern is still visible, but every cell has been perturbed.',
-    invariant: 'The forward process is not learned; the reverse process is learned.',
+    explanation: `The forward process is fixed and known: add a little Gaussian noise at each timestep. At noise level ${moderateNoise}, the original pattern across ${totalCells} cells is still visible, but every cell has been perturbed.`,
+    invariant: `The forward process is not learned; only the reverse process reversing ${moderateNoise} noise back toward ${cleanNoise} is learned.`,
   };
 
+  const heavyNoise = 0.9;
   yield {
-    state: imageMatrix('xT: almost pure noise', 0.9),
+    state: imageMatrix('xT: almost pure noise', heavyNoise),
     highlight: { removed: ['r2:c2'], compare: ['r0:c0', 'r4:c1', 'r2:c4'] },
-    explanation: 'After enough steps, the sample is almost indistinguishable from noise. Generation will start from this kind of noise and run the learned reverse process back toward structured data.',
+    explanation: `After enough steps at noise level ${heavyNoise}, the ${gridSize}x${gridSize} sample is almost indistinguishable from noise. Generation will start from this kind of noise and run the learned reverse process back toward structured data.`,
   };
 
+  const trainRows = [
+    { id: 'input', label: 'noisy xt' },
+    { id: 'time', label: 'timestep t' },
+    { id: 'net', label: 'denoiser' },
+    { id: 'loss', label: 'training loss' },
+  ];
   yield {
     state: labelMatrix(
       'What the model learns at each timestep',
-      [
-        { id: 'input', label: 'noisy xt' },
-        { id: 'time', label: 'timestep t' },
-        { id: 'net', label: 'denoiser' },
-        { id: 'loss', label: 'training loss' },
-      ],
+      trainRows,
       [
         { id: 'role', label: 'role' },
         { id: 'why', label: 'why it matters' },
@@ -104,39 +110,44 @@ function* forwardNoising() {
       ],
     ),
     highlight: { found: ['net:role', 'loss:why'], active: ['input:role', 'time:role'] },
-    explanation: 'The training target is available because we created the corruption. The network sees noisy xt and t, then predicts the noise that was added or the clean sample direction.',
+    explanation: `The training target is available because we created the corruption. The network sees ${trainRows[0].label} and ${trainRows[1].label}, then predicts the noise that was added or the clean sample direction across all ${trainRows.length} components.`,
   };
 }
 
 function* reverseDenoising() {
+  const gridSize = BASE.length;
+  const startNoise = 1.0;
   yield {
-    state: imageMatrix('Start generation from noise', 1.0),
+    state: imageMatrix('Start generation from noise', startNoise),
     highlight: { active: ['r0:c0', 'r2:c4', 'r4:c1'], compare: ['r2:c2'] },
-    explanation: 'Sampling starts from random noise, not from a database lookup. The model then performs many reverse steps. Each step is small because the learned task is local: remove a little noise at this timestep.',
+    explanation: `Sampling starts from random noise (level ${startNoise}) across a ${gridSize}x${gridSize} grid, not from a database lookup. The model then performs many reverse steps. Each step is small because the learned task is local: remove a little noise at this timestep.`,
   };
 
+  const midNoise = 0.65;
   yield {
-    state: imageMatrix('Reverse step: predict and subtract noise', 0.65),
+    state: imageMatrix('Reverse step: predict and subtract noise', midNoise),
     highlight: { active: ['r2:c2'], found: ['r1:c1', 'r1:c3', 'r3:c1', 'r3:c3'] },
-    explanation: 'The denoiser predicts the noise component consistent with both the current sample and timestep. Subtracting that prediction nudges the sample toward the data manifold.',
-    invariant: 'Sampling is iterative refinement, not one forward pass.',
+    explanation: `The denoiser predicts the noise component at level ${midNoise} consistent with both the current ${gridSize}x${gridSize} sample and timestep. Subtracting that prediction nudges the sample toward the data manifold.`,
+    invariant: `Sampling through noise levels ${startNoise} to ${midNoise} to 0 is iterative refinement, not one forward pass.`,
   };
 
+  const lateNoise = 0.25;
   yield {
-    state: imageMatrix('Later reverse step: structure reappears', 0.25),
+    state: imageMatrix('Later reverse step: structure reappears', lateNoise),
     highlight: { found: ['r2:c2', 'r1:c1', 'r1:c3', 'r3:c1', 'r3:c3'], compare: ['r0:c0'] },
-    explanation: 'As noise decreases, global structure becomes visible. High-quality diffusion systems spend many steps here, although faster samplers reduce the number of steps by changing the numerical integration path.',
+    explanation: `As noise decreases to ${lateNoise}, global structure becomes visible across the ${gridSize}x${gridSize} grid. High-quality diffusion systems spend many steps here, although faster samplers reduce the number of steps by changing the numerical integration path.`,
   };
 
+  const choiceRows = [
+    { id: 'cfg', label: 'classifier-free guidance' },
+    { id: 'steps', label: 'fewer steps' },
+    { id: 'latent', label: 'latent diffusion' },
+    { id: 'eval', label: 'evaluation' },
+  ];
   yield {
     state: labelMatrix(
       'Guidance and sampler choices',
-      [
-        { id: 'cfg', label: 'classifier-free guidance' },
-        { id: 'steps', label: 'fewer steps' },
-        { id: 'latent', label: 'latent diffusion' },
-        { id: 'eval', label: 'evaluation' },
-      ],
+      choiceRows,
       [
         { id: 'benefit', label: 'benefit' },
         { id: 'tradeoff', label: 'tradeoff' },
@@ -149,7 +160,7 @@ function* reverseDenoising() {
       ],
     ),
     highlight: { active: ['cfg:benefit', 'steps:benefit', 'latent:benefit'], compare: ['eval:tradeoff'] },
-    explanation: 'Modern diffusion systems add guidance, latent spaces, distillation, and faster samplers. The core idea remains the same: learn how to reverse a controlled corruption process.',
+    explanation: `Modern diffusion systems add ${choiceRows.length} enhancements (${choiceRows.map(r => r.label).join(', ')}). The core idea remains the same: learn how to reverse a controlled corruption process.`,
   };
 }
 
@@ -169,7 +180,8 @@ export const article = {
         {type: `callout`, text: `Diffusion turns generation into many supervised denoising steps, so the model learns the reverse path from noise back to data.`},
         `The reverse-denoising view starts from near-pure noise and runs backward. Active cells show where the denoiser is making its largest corrections. Found cells mark values that have converged close to the clean target. The training table highlights the denoiser and loss rows as found because those are the learned components; the input and timestep rows are active because they are given conditioning, not learned.`,
         `At each frame, ask two questions: how much original structure survives at this noise level, and what kind of prediction must the denoiser make -- fine texture cleanup (low noise) or coarse structure inference (high noise)?`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/diffusion-models.gif', alt: 'Animated walkthrough of the diffusion models visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

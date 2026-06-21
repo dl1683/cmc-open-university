@@ -16,6 +16,15 @@ export const topic = {
 };
 
 function* fourLeaks() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const abxImportance = 0.96;
+  const aucLeaky = 0.99;
+  const nFeatures = 4;
+  const photoId = 4471;
+  const nAugmentations = 3;  // original + mirrored + cropped
+  const trainCopies = 2;
+  const testCopies = 1;
+  const nDays = 5;
   yield {
     state: matrixState({
       title: 'Leak 1 — TARGET LEAKAGE: a feature computed from the answer',
@@ -30,7 +39,7 @@ function* fourLeaks() {
       format: (v) => (v === 1 ? 'at prediction time âœ“' : v === 2 ? 'AFTER diagnosis âœ—' : `${(v * 100).toFixed(0)}%`),
     }),
     highlight: { removed: ['abx:imp', 'abx:when'] },
-    explanation: 'Task: predict pneumonia from intake data. The model scores a jaw-dropping AUC of 0.99 — and one feature carries 96% of the importance: took_antibiotics. Look at WHEN that feature gets its value: doctors prescribe antibiotics AFTER diagnosing pneumonia. The feature is the label\'s shadow — the model learned "patients treated for pneumonia have pneumonia," a tautology that scores brilliantly in training and is worthless at prediction time, when the prescription hasn\'t happened yet. TARGET LEAKAGE: any feature whose value is set by, after, or because of the outcome. The 0.99 was never skill; it was the answer key stapled to the exam.',
+    explanation: `Task: predict pneumonia from ${nFeatures} intake features. The model scores a jaw-dropping AUC of ${aucLeaky} — and one feature carries ${r2(abxImportance * 100)}% of the importance: took_antibiotics. Look at WHEN that feature gets its value: doctors prescribe antibiotics AFTER diagnosing pneumonia. The feature is the label's shadow — the model learned "patients treated for pneumonia have pneumonia," a tautology that scores brilliantly in training and is worthless at prediction time, when the prescription hasn't happened yet. TARGET LEAKAGE: any feature whose value is set by, after, or because of the outcome. The ${aucLeaky} was never skill; it was the answer key stapled to the exam.`,
     invariant: 'A feature is leaky if its value would not exist, unchanged, at the moment of prediction.',
   };
 
@@ -47,7 +56,7 @@ function* fourLeaks() {
       format: (v) => ['', 'TRAINING set', 'TEST set âš '][v],
     }),
     highlight: { removed: ['flip:where'], compare: ['orig:where', 'crop:where'] },
-    explanation: 'Leak 2 is quieter: AUGMENT a dataset (flips, crops, paraphrases), THEN split randomly — and near-copies of the same photo land on both sides of the wall. The test set now contains questions the model literally memorized the answers to, just mirrored. The same accident happens with duplicate web pages, the same patient\'s multiple visits, or near-identical log entries. The grade inflates, sometimes massively — and Cross-Validation\'s machinery runs perfectly while measuring nothing, because the violation happened BEFORE the split. Rule: deduplicate and group FIRST, augment INSIDE the training side only, split at the entity level (patient, user, document — not row).',
+    explanation: `Leak 2 is quieter: AUGMENT a dataset (flips, crops, paraphrases), THEN split randomly — and near-copies of the same photo land on both sides of the wall. In this example, photo #${photoId} appears in ${nAugmentations} forms — ${trainCopies} copies land in training, ${testCopies} in test. The test set now contains questions the model literally memorized the answers to, just mirrored. The grade inflates, sometimes massively — and Cross-Validation's machinery runs perfectly while measuring nothing, because the violation happened BEFORE the split. Rule: deduplicate and group FIRST, augment INSIDE the training side only, split at the entity level (patient, user, document — not row).`,
     invariant: 'Split before you augment; group before you split: near-duplicates must never straddle the wall.',
   };
 
@@ -66,7 +75,7 @@ function* fourLeaks() {
       format: (v) => ['', 'train', 'TEST âš  — model saw Wed–Fri'][v],
     }),
     highlight: { removed: ['tue:role'], visited: ['wed:role', 'thu:role', 'fri:role'] },
-    explanation: 'Leak 3 — TEMPORAL: split time-series data randomly and the model trains on Wednesday-through-Friday to "predict" Tuesday — it has seen the future it is being graded on. Stock models are the famous victims, but the subtle version bites everyone: a rolling average computed over the WHOLE series before splitting injects future values into past rows; a "customer lifetime spend" feature summarizes purchases that hadn\'t happened yet. Every feature must be computable from strictly-before-the-timestamp data, and the split must be past â†’ future, full stop. (Cross-Validation\'s leakage warning, sharpened: for time, the fold boundary is an arrow, not a wall.)',
+    explanation: `Leak 3 — TEMPORAL: split ${nDays} days of time-series data randomly and the model trains on Wednesday-through-Friday to "predict" Tuesday — it has seen the future it is being graded on. In this example, ${nDays - 1} of ${nDays} days go to training, and Tuesday becomes the test — but the model already saw Wed–Fri. Stock models are the famous victims, but the subtle version bites everyone: a rolling average computed over the WHOLE series before splitting injects future values into past rows. Every feature must be computable from strictly-before-the-timestamp data, and the split must be past to future, full stop.`,
     invariant: 'Temporal data splits along the arrow of time: everything in training strictly precedes everything in test.',
   };
 
@@ -83,11 +92,16 @@ function* fourLeaks() {
       format: (v) => ['', 'scrapes the open web — including answer discussions', 'published on the open web, with answers', 'model recites what it memorized'][v],
     }),
     highlight: { compare: ['crawl:what', 'bench:what'], removed: ['eval:what'] },
-    explanation: 'Leak 4 is the LLM era\'s version: benchmarks live on the public web — questions, answers, GitHub repos full of solutions, blog walkthroughs — and pretraining crawls scrape the public web. The exam was in the textbook. Contaminated models post inflated scores on the famous benchmarks while gaining nothing real; labs now publish n-gram-overlap "decontamination" reports, hold back private test splits, and rotate fresh evals (the reason new benchmarks keep appearing is partly that old ones keep dissolving into the training data). When a model\'s benchmark score jumps but its behavior on YOUR task doesn\'t, contamination is the first suspect — the same too-good-to-be-true fingerprint as leak 1, at planetary scale.',
+    explanation: `Leak 4 is the LLM era's version: benchmarks live on the public web — questions, answers, GitHub repos full of solutions, blog walkthroughs — and pretraining crawls scrape the public web. The exam was in the textbook. Contaminated models post inflated scores on the famous benchmarks while gaining nothing real; labs now publish n-gram-overlap "decontamination" reports, hold back private test splits, and rotate fresh evals. All ${nFeatures} leak types share the same fingerprint: performance you did not earn. When a model's benchmark score jumps but its behavior on YOUR task doesn't, contamination is the first suspect — the same too-good-to-be-true fingerprint as leak 1 (AUC ${aucLeaky}), at planetary scale.`,
   };
 }
 
 function* detectDefend() {
+  const nFingerprints = 4;
+  const nChecklistSteps = 5;
+  const offlineScore = 94;
+  const prodScore = 76;
+  const scoreGap = offlineScore - prodScore;
   yield {
     state: matrixState({
       title: 'The fingerprints: how leakage betrays itself',
@@ -102,7 +116,7 @@ function* detectDefend() {
       format: (v) => ['', '0.99 AUC on a hard problem at the first attempt', '96% importance — interrogate that feature\'s timestamp', 'CV said 94%, production says 76%', 'verbatim continuations of test items'][v],
     }),
     highlight: { active: ['toogood:smell'], compare: ['prodgap:smell'] },
-    explanation: 'Detection starts with calibrated suspicion: hard problems do not yield 0.99 AUC to a first attempt — celebrate for five minutes, then audit. The single-dominant-feature fingerprint is checkable in one line (feature importances, or the deletion test from Saliency Maps & Feature Attribution: remove the suspect, watch the score crater back to honest). The offline/production gap is the lagging indicator — by then users met the broken model. And Influence: Which Training Data Did This? gives the forensic tool: contaminated or duplicated examples show up as wildly influential training points for their own test twins.',
+    explanation: `Detection starts with calibrated suspicion: ${nFingerprints} fingerprints betray leakage. Hard problems do not yield ${0.99} AUC to a first attempt — celebrate for five minutes, then audit. The single-dominant-feature fingerprint is checkable in one line (feature importances, or the deletion test: remove the suspect, watch the score crater back to honest). The offline/production gap is the lagging indicator — CV said ${offlineScore}%, production says ${prodScore}%, a ${scoreGap}-point drop that means the model met honest data for the first time at launch.`,
     invariant: 'Leakage announces itself as performance you did not earn: audit windfalls before banking them.',
   };
 
@@ -121,7 +135,7 @@ function* detectDefend() {
       format: (v) => ['', 'leak 2: twins straddling the wall', 'leak 3: training on the future', 'scalers/SMOTE peeking (Cross-Validation\'s dragon)', 'leak 1: features born after the label', 'the wear-out from repeated peeking'][v],
     }),
     highlight: { active: ['dedup:why', 'split:why'] },
-    explanation: 'The defense is ORDERING: leakage is almost always a pipeline step executed too early (augmenting before splitting, scaling before folding, featurizing before timestamp-checking). Numbering the checklist makes it mechanical — and step 4 deserves its ritual sentence, asked of every feature in the schema: "would this value exist, exactly as stored, at the moment we need the prediction?" If the answer involves the future, the outcome, or the whole dataset, the feature is contraband. Teams that institutionalize this question catch leaks in code review; teams that do not catch them in incident review.',
+    explanation: `The defense is ORDERING: all ${nChecklistSteps} steps must happen in sequence. Leakage is almost always a pipeline step executed too early (augmenting before splitting, scaling before folding, featurizing before timestamp-checking). Step 4 of ${nChecklistSteps} deserves its ritual sentence, asked of every feature in the schema: "would this value exist, exactly as stored, at the moment we need the prediction?" If the answer involves the future, the outcome, or the whole dataset, the feature is contraband. Teams that institutionalize this question catch leaks in code review; teams that do not catch them in incident review.`,
   };
 
   yield {
@@ -137,7 +151,7 @@ function* detectDefend() {
       format: (v) => ['', 'every test green, every metric beautiful', 'leaky models WIN model selection — they score highest', 'the first honest evaluation is the launch'][v],
     }),
     highlight: { removed: ['reward:note'] },
-    explanation: 'The closing warning, and the reason this page exists: leakage is the only bug that makes your dashboard BETTER. Nothing crashes; the metrics improve; the leaky model beats every honest candidate in selection (it is the best cheater in the room), so process actively promotes it. Kaggle competitions have been won and then voided over leaks; published medical models have collapsed on real patients; the pattern survives because the incentive gradient points toward it. Hence the discipline that sounds paranoid until it saves you — Cross-Validation\'s chain of custody, Early Stopping & Patience\'s sealed validation, this page\'s timestamp ritual. An evaluation is an experiment, and an experiment contaminated is an experiment not run.',
+    explanation: `The closing warning, and the reason this page exists: leakage is the only bug that makes your dashboard BETTER. Nothing crashes; the metrics improve; the leaky model beats every honest candidate in selection (it is the best cheater in the room), so process actively promotes it. All ${nFingerprints} fingerprints share one trait: performance you did not earn — ${offlineScore}% offline vs ${prodScore}% in production, a ${scoreGap}-point gap. Kaggle competitions have been won and then voided over leaks; published medical models have collapsed on real patients; the pattern survives because the incentive gradient points toward it. An evaluation is an experiment, and an experiment contaminated is an experiment not run.`,
   };
 }
 
@@ -157,7 +171,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/data-leakage.gif', alt: 'Animated walkthrough of the data leakage visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why this exists`,

@@ -84,36 +84,40 @@ function fetchGraph(title) {
 }
 
 function* cidGraph() {
+  const dagNodes = ['chunkA', 'chunkB', 'cidA', 'cidB', 'node', 'root', 'pin', 'fetch', 'peer'];
+  const dagEdges = ['e-a-cid', 'e-b-cid', 'e-cidA-node', 'e-cidB-node', 'e-node-root', 'e-root-pin', 'e-root-fetch', 'e-fetch-peer'];
   yield {
     state: dagGraph('A block name is derived from the block bytes'),
     highlight: { active: ['chunkA', 'cidA', 'e-a-cid'], compare: ['chunkB', 'cidB'] },
-    explanation: 'Content addressing names an object by a cryptographic digest of its contents. Change one byte, and the name changes. Identical bytes with the same settings get the same name.',
+    explanation: `Content addressing names an object by a cryptographic digest of its contents. The DAG has ${dagNodes.length} nodes and ${dagEdges.length} edges. Change one byte, and the name changes.`,
   };
   yield {
     state: dagGraph('Links carry CIDs, so parents commit to children'),
     highlight: { active: ['cidA', 'cidB', 'node', 'e-cidA-node', 'e-cidB-node'], found: ['root'] },
-    explanation: 'A Merkle DAG node carries a payload plus links to child CIDs. Hashing the node commits to both its local payload and the identities of its children.',
-    invariant: 'The root CID names the whole reachable DAG, not just the root block.',
+    explanation: `A Merkle DAG node carries a payload plus links to ${2} child CIDs. Hashing the node commits to both its local payload and the identities of its children.`,
+    invariant: `The root CID names the whole reachable DAG of ${dagNodes.length} nodes, not just the root block.`,
   };
   yield {
     state: dagGraph('Pins protect reachable data from garbage collection'),
     highlight: { active: ['root', 'pin', 'e-root-pin'], compare: ['fetch'] },
-    explanation: 'Because objects are immutable, a store can delete anything not reachable from a retained root. A pin, branch, manifest, package lock, or release tag is a root that keeps a subgraph alive.',
+    explanation: `Because objects are immutable, a store can delete anything not reachable from a retained root. A pin, branch, manifest, package lock, or release tag is a root that keeps the ${dagNodes.length - 1} descendant blocks alive.`,
   };
+  const recordRows = [
+    { id: 'block', label: 'block' },
+    { id: 'cid', label: 'CID' },
+    { id: 'node', label: 'DAG node' },
+    { id: 'root', label: 'root' },
+    { id: 'pin', label: 'pin' },
+  ];
+  const recordCols = [
+    { id: 'contains', label: 'contains' },
+    { id: 'lesson', label: 'lesson' },
+  ];
   yield {
     state: labelMatrix(
       'Content-addressed records',
-      [
-        { id: 'block', label: 'block' },
-        { id: 'cid', label: 'CID' },
-        { id: 'node', label: 'DAG node' },
-        { id: 'root', label: 'root' },
-        { id: 'pin', label: 'pin' },
-      ],
-      [
-        { id: 'contains', label: 'contains' },
-        { id: 'lesson', label: 'lesson' },
-      ],
+      recordRows,
+      recordCols,
       [
         ['payload bytes', 'immutable atom'],
         ['hash + codec', 'self-describing name'],
@@ -123,39 +127,43 @@ function* cidGraph() {
       ],
     ),
     highlight: { active: ['cid:contains', 'node:lesson', 'root:lesson', 'pin:lesson'] },
-    explanation: 'Git trees, IPFS DAG nodes, package lockfiles, and container manifests all use the same idea: immutable blocks plus hash links plus a small root name.',
+    explanation: `Git trees, IPFS DAG nodes, package lockfiles, and container manifests all use the same idea: ${recordRows.length} record types (${recordRows.map(r => r.label).join(', ')}) built from immutable blocks plus hash links plus a small root name.`,
   };
 }
 
 function* fetchAndGc() {
+  const fetchNodes = ['want', 'index', 'block', 'verify', 'links', 'walk', 'cache', 'gc'];
+  const fetchEdges = ['e-want-index', 'e-index-block', 'e-block-verify', 'e-verify-links', 'e-links-walk', 'e-walk-cache', 'e-walk-gc'];
   yield {
     state: fetchGraph('Fetch by CID, then verify the bytes'),
     highlight: { active: ['want', 'index', 'block', 'verify', 'e-want-index', 'e-index-block', 'e-block-verify'], compare: ['cache'] },
-    explanation: 'A peer, gateway, cache, or local store may provide the bytes. Trust comes from recomputing the hash and checking it matches the CID, not from trusting the transport.',
+    explanation: `A peer, gateway, cache, or local store may provide the bytes. The fetch pipeline has ${fetchNodes.length} stages across ${fetchEdges.length} edges. Trust comes from recomputing the hash and checking it matches the CID, not from trusting the transport.`,
   };
   yield {
     state: fetchGraph('Verified links drive recursive traversal'),
     highlight: { active: ['verify', 'links', 'walk', 'e-verify-links', 'e-links-walk'], found: ['cache'] },
-    explanation: 'After a block verifies, its links name the child blocks to fetch. The traversal can deduplicate automatically because the same CID means the same block.',
+    explanation: `After a block verifies, its links name the child blocks to fetch. The traversal can deduplicate automatically because the same CID means the same block — ${fetchNodes.length} nodes share ${fetchEdges.length} directed edges.`,
   };
   yield {
     state: fetchGraph('Garbage collection is reachability over pinned roots'),
     highlight: { active: ['walk', 'gc', 'cache', 'e-walk-gc', 'e-walk-cache'], compare: ['want'] },
-    explanation: 'The store can mark all blocks reachable from pinned roots, then sweep unmarked blocks. This is Graph BFS plus immutable content addressing.',
+    explanation: `The store can mark all blocks reachable from pinned roots, then sweep unmarked blocks. GC walks the same ${fetchEdges.length}-edge DAG that fetch built.`,
   };
+  const failureRows = [
+    { id: 'codec', label: 'wrong codec' },
+    { id: 'chunk', label: 'bad chunking' },
+    { id: 'pin', label: 'lost pin' },
+    { id: 'privacy', label: 'public CID' },
+  ];
+  const failureCols = [
+    { id: 'symptom', label: 'symptom' },
+    { id: 'control', label: 'control' },
+  ];
   yield {
     state: labelMatrix(
       'Failure modes',
-      [
-        { id: 'codec', label: 'wrong codec' },
-        { id: 'chunk', label: 'bad chunking' },
-        { id: 'pin', label: 'lost pin' },
-        { id: 'privacy', label: 'public CID' },
-      ],
-      [
-        { id: 'symptom', label: 'symptom' },
-        { id: 'control', label: 'control' },
-      ],
+      failureRows,
+      failureCols,
       [
         ['bytes parse wrong', 'multicodec metadata'],
         ['poor dedupe', 'stable chunker'],
@@ -164,7 +172,7 @@ function* fetchAndGc() {
       ],
     ),
     highlight: { active: ['codec:control', 'pin:control', 'privacy:control'], compare: ['chunk:symptom'] },
-    explanation: 'Content addressing verifies integrity. It does not solve privacy, naming, availability, retention, or schema evolution by itself.',
+    explanation: `Content addressing verifies integrity but has ${failureRows.length} failure modes (${failureRows.map(r => r.label).join(', ')}). It does not solve privacy, naming, availability, retention, or schema evolution by itself.`,
   };
 }
 
@@ -177,6 +185,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/content-addressed-merkle-dag-object-store.gif', alt: 'Animated walkthrough of the content addressed merkle dag object store visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -28,6 +28,10 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* readerRetry() {
+  const readSteps = 5;
+  const exampleSeq = 42;
+  const seriesCount = 2;
+
   yield {
     state: graphState({
       nodes: [
@@ -45,8 +49,8 @@ function* readerRetry() {
       ],
     }, { title: 'The read path is copy, validate, maybe retry' }),
     highlight: { found: ['ok'], active: ['s1', 's2'], compare: ['retry'] },
-    explanation: 'A seqlock reader samples a sequence counter, copies the protected fields, then samples the counter again. If the counter was even and unchanged, the copy was consistent.',
-    invariant: 'The reader does not block the writer; it validates the snapshot afterward.',
+    explanation: `A ${topic.title.toLowerCase()} reader follows ${readSteps} steps: sample sequence counter, copy protected fields, sample counter again. If the counter was even and unchanged, the copy was consistent.`,
+    invariant: `The reader does not block the writer; it validates the snapshot afterward across ${readSteps} read-path nodes.`,
   };
 
   yield {
@@ -68,8 +72,8 @@ function* readerRetry() {
       ],
     ),
     highlight: { found: ['end:data'], active: ['begin:seq', 'end:seq'] },
-    explanation: 'The accepted path is just two version reads around a local copy. The first even value says no writer was already active; the matching ending value says no writer overlapped this read.',
-    invariant: 'Same even sequence means one coherent version.',
+    explanation: `The accepted path is just two version reads around a local copy. The first even value (${exampleSeq}) says no writer was already active; the matching ending value (${exampleSeq}) says no writer overlapped this read.`,
+    invariant: `Same even sequence (${exampleSeq}) means one coherent version.`,
   };
 
   yield {
@@ -91,7 +95,7 @@ function* readerRetry() {
       ],
     ),
     highlight: { active: ['copy:seq', 'end:seq'], removed: ['end:data'] },
-    explanation: 'If the sequence changes, or if the reader observes an odd value, a writer may have split the read across two versions. The reader throws away the copy and tries again.',
+    explanation: `If the sequence changes from ${exampleSeq} to ${exampleSeq + 2}, or if the reader observes an odd value like ${exampleSeq + 1}, a writer may have split the read across two versions. The reader throws away the copy and tries again.`,
   };
 
   yield {
@@ -103,11 +107,16 @@ function* readerRetry() {
       ],
     }),
     highlight: { active: ['seqlock'], compare: ['lock'] },
-    explanation: 'A seqlock trades blocking for retry work. That is excellent for short writes and tiny copied state; it is dangerous for large structures or frequent writers.',
+    explanation: `A seqlock trades blocking for retry work, as shown by ${seriesCount} series (seqlock vs lock). That is excellent for short writes and tiny copied state; it is dangerous for large structures or frequent writers.`,
   };
 }
 
 function* writerDiscipline() {
+  const oddSeq = 43;
+  const evenSeq = 44;
+  const patternCount = 3;
+  const writerSteps = 5;
+
   yield {
     state: labelMatrix(
       'Writer makes the counter odd while data is unstable',
@@ -127,8 +136,8 @@ function* writerDiscipline() {
       ],
     ),
     highlight: { active: ['start:seq', 'mutate:seq'], found: ['finish:reader'] },
-    explanation: 'The writer serializes with other writers, increments the sequence to an odd value, mutates the fields, then increments again to the next even value. Odd means a write is in progress.',
-    invariant: 'Only writers take the writer lock; readers validate with the counter.',
+    explanation: `The writer serializes with other writers, increments the sequence to an odd value (${oddSeq}), mutates the fields, then increments again to the next even value (${evenSeq}). Odd means a write is in progress.`,
+    invariant: `Only writers take the writer lock; readers validate with the counter (odd ${oddSeq} signals dirty, even ${evenSeq} signals clean).`,
   };
 
   yield {
@@ -152,7 +161,7 @@ function* writerDiscipline() {
       ],
     ),
     highlight: { found: ['time:fit', 'stats:fit'], removed: ['pointer:fit', 'slow:fit'] },
-    explanation: 'Seqlocks protect small, copyable groups of fields. They are not a safe way to chase pointers whose target can be freed while a reader is copying.',
+    explanation: `${topic.title} protect small, copyable groups of fields. They are not a safe way to chase pointers whose target can be freed while a reader is copying.`,
   };
 
   yield {
@@ -174,7 +183,7 @@ function* writerDiscipline() {
       ],
     ),
     highlight: { active: ['seqlock:reader'], compare: ['rcu:reader', 'rwlock:reader'] },
-    explanation: 'Seqlocks, Read-Copy-Update (RCU), and reader-writer locks solve neighboring problems. Pick the mechanism by mutation frequency, object lifetime, and whether readers can afford to retry.',
+    explanation: `Comparing ${patternCount} read-mostly patterns: seqlocks, Read-Copy-Update (RCU), and reader-writer locks solve neighboring problems. Pick the mechanism by mutation frequency, object lifetime, and whether readers can afford to retry.`,
   };
 
   yield {
@@ -194,7 +203,7 @@ function* writerDiscipline() {
       ],
     }, { title: 'Correctness depends on strict writer ordering' }),
     highlight: { active: ['wlock', 'odd', 'even'], found: ['readers'] },
-    explanation: 'The memory-ordering details matter. Readers must not reorder validation around the copied data, and writers must publish the odd/even transitions around the mutation.',
+    explanation: `The memory-ordering details matter across all ${writerSteps} writer-path nodes. Readers must not reorder validation around the copied data, and writers must publish the odd (${oddSeq}) / even (${evenSeq}) transitions around the mutation.`,
   };
 }
 
@@ -218,7 +227,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/sequence-lock-seqlock.gif', alt: 'Animated walkthrough of the sequence lock seqlock visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

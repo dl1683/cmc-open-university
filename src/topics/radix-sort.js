@@ -110,7 +110,8 @@ export const article = {
         { type: 'callout', text: 'Radix sort wins by changing the question: it sorts by bounded digit values instead of asking pairwise comparisons.' },
         'After the digit extraction, counting sort rearranges the array by those digits. Watch for two things: values move into digit-group order, and values that share a digit keep the same relative order they had before the pass. That preserved order is stability.',
         'After pass k, the array is sorted by its last k digits. By the final pass, all digit positions have been processed and the array is fully sorted. At each frame, ask: which digit position is active, what digit does each value have there, and where does counting sort place each value without ever comparing two values directly?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/radix-sort.gif', alt: 'Animated walkthrough of the radix sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

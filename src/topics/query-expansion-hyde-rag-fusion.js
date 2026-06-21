@@ -60,10 +60,14 @@ function expansionGraph(title) {
 }
 
 function* hydePivot() {
+  const expansionTypes = 4;    // rows in the expansion-type matrix
+  const pipelineStages = 8;    // nodes in the expansion graph
+  const edgeCount = 9;         // edges connecting the pipeline stages
+
   yield {
     state: expansionGraph('Query expansion rewrites the problem before search'),
     highlight: { active: ['query', 'rewrite', 'hyde', 'e-query-rewrite', 'e-query-hyde'], compare: ['bm25', 'vector'] },
-    explanation: 'Read the split as several guesses about the same intent. The raw query is preserved, rewrites expose alternate wording, and HyDE creates answer-shaped text only to steer dense retrieval.',
+    explanation: `Read the split as several guesses about the same intent across ${pipelineStages} pipeline stages. The raw query is preserved, rewrites expose alternate wording, and HyDE creates answer-shaped text only to steer dense retrieval through ${edgeCount} directed edges.`,
   };
 
   yield {
@@ -87,14 +91,14 @@ function* hydePivot() {
       ],
     ),
     highlight: { active: ['multi:move', 'hyde:move', 'fusion:move'], compare: ['hyde:risk', 'fusion:risk'] },
-    explanation: 'The HyDE row is a routing artifact, not a source. Its job is to land the embedding near real corpus documents that the short user query might not reach by itself.',
-    invariant: 'Expanded queries are retrieval hints, not facts.',
+    explanation: `The HyDE row is a routing artifact, not a source. Across all ${expansionTypes} expansion types, its job is to land the embedding near real corpus documents that the short user query might not reach by itself.`,
+    invariant: `Expanded queries are retrieval hints, not facts — all ${expansionTypes} types serve recall, not truth.`,
   };
 
   yield {
     state: expansionGraph('HyDE pivots through a hypothetical document embedding'),
     highlight: { active: ['hyde', 'vector', 'e-hyde-vector'], found: ['context'], compare: ['query'] },
-    explanation: 'The dense encoder acts as a bottleneck. False details in the generated pseudo-document should be filtered by nearest real corpus documents, but this only works when the corpus actually contains matching evidence and the encoder is robust.',
+    explanation: `The dense encoder acts as a bottleneck filtering false details across ${pipelineStages} stages. The generated pseudo-document should land near real corpus documents, but this only works when the corpus actually contains matching evidence and the encoder is robust.`,
   };
 
   yield {
@@ -118,11 +122,17 @@ function* hydePivot() {
       ],
     ),
     highlight: { active: ['rewrite:role', 'hyde:role'], found: ['evidence:content'], removed: ['hyde:content'] },
-    explanation: 'The assistant should never cite the HyDE document. It should cite the real policy section retrieved because the HyDE document made the vector search look in the right neighborhood.',
+    explanation: `The assistant should never cite the HyDE document. Among the ${expansionTypes} expansion rows, only the retrieved evidence row is a citable source — the HyDE document merely steered the vector search into the right neighborhood.`,
   };
 }
 
 function* fusionTradeoffs() {
+  const queryViews = 4;   // number of candidate list rows
+  const ranksPerView = 3; // columns in the candidate matrix
+  const maxViews = 8;     // max x-axis value in the tradeoff plot
+  const rrfK = 60;        // standard RRF constant
+  const evalSlices = 4;   // evaluation categories
+
   yield {
     state: labelMatrix(
       'RAG-Fusion candidate lists',
@@ -145,7 +155,7 @@ function* fusionTradeoffs() {
       ],
     ),
     highlight: { found: ['q1:rank1', 'q2:rank2', 'q3:rank1', 'q4:rank3'], compare: ['q4:rank2'] },
-    explanation: 'RAG-Fusion runs several query views, retrieves for each, then applies Reciprocal Rank Fusion or a similar rank aggregator. Documents that repeatedly appear near the top become strong candidates for reranking.',
+    explanation: `RAG-Fusion runs ${queryViews} query views, retrieves the top ${ranksPerView} per view, then applies Reciprocal Rank Fusion (k=${rrfK}) to aggregate ranks. Documents that repeatedly appear near the top become strong candidates for reranking.`,
   };
 
   yield {
@@ -157,13 +167,13 @@ function* fusionTradeoffs() {
       ],
     }),
     highlight: { active: ['recall'], compare: ['noise'] },
-    explanation: 'The curve is the tradeoff to watch in production: early query views often add recall, but later views can add mostly cost, duplicate candidates, and reranker pressure.',
+    explanation: `The curve is the tradeoff to watch in production: early query views often add recall, but beyond ${maxViews} views the noise and latency curve overtakes the recall curve — later views add mostly cost, duplicate candidates, and reranker pressure.`,
   };
 
   yield {
     state: expansionGraph('Fusion must still hand a small set to the expensive layer'),
     highlight: { active: ['rrf', 'rerank', 'context', 'e-rrf-rerank', 'e-rerank-context'], compare: ['rewrite', 'hyde'] },
-    explanation: 'The precision layer still matters. RRF can put good candidates into the pool, but the cross-encoder, ColBERT reranker, or LLM reranker decides what fits the final context budget.',
+    explanation: `The precision layer still matters. RRF (k=${rrfK}) can put good candidates into the pool from ${queryViews} views, but the cross-encoder, ColBERT reranker, or LLM reranker decides what fits the final context budget.`,
   };
 
   yield {
@@ -187,7 +197,7 @@ function* fusionTradeoffs() {
       ],
     ),
     highlight: { active: ['exact:watch', 'paraphrase:watch', 'fresh:watch'], removed: ['underspecified:failure'] },
-    explanation: 'Evaluate query expansion by slice. It should help paraphrases without damaging exact identifiers, current-policy retrieval, authorization filters, or user questions that should ask for clarification instead of searching.',
+    explanation: `Evaluate query expansion across ${evalSlices} slices. It should help paraphrases without damaging exact identifiers, current-policy retrieval, authorization filters, or user questions that should ask for clarification instead of searching.`,
   };
 }
 
@@ -207,7 +217,8 @@ export const article = {
         {type: 'callout', text: 'Query expansion is a recall move: widen candidate evidence first, then make precision earn its place through fusion and reranking.'},
         'The fusion tradeoffs view shows ranked candidate lists from multiple query views, then a plot of recall versus noise as the number of views increases. The crossing point of those two curves is the practical limit: beyond it, adding more views costs more than it helps.',
         'In the matrix steps, active cells mark the strategic move each expansion type makes. Compare cells mark the corresponding risk. The pairing is deliberate: every recall gain has a failure mode. Read horizontally to evaluate one method, vertically to compare methods on the same axis.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/query-expansion-hyde-rag-fusion.gif', alt: 'Animated walkthrough of the query expansion hyde rag fusion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -48,43 +48,115 @@ export function* run(input) {
   const scale = 1 / (1 - p);
 
   const cols = ACTIVATIONS.map((_, j) => ({ id: `n${j}`, label: `n${j + 1}` }));
-  const layer = (values, title) => matrixState({
+  const layer = (values, title, rowLabel) => matrixState({
     title,
-    rows: [{ id: 'a', label: 'a' }],
+    rows: [{ id: 'a', label: rowLabel || 'a' }],
     columns: cols,
     values: [values.map(r2)],
   });
+  const multiLayer = (rowDefs, allValues, title) => matrixState({
+    title,
+    rows: rowDefs,
+    columns: cols,
+    values: allValues.map((v) => v.map(r2)),
+  });
 
+  // Step 1: Show the healthy network — all 8 neurons
   yield {
     state: layer(ACTIVATIONS, 'A hidden layer during training (8 neurons)'),
-    highlight: {},
-    explanation: `The disease dropout cures: CO-ADAPTATION. With every neuron always present, neurons learn to lean on each other — fragile committees where one member\'s quirks cover another\'s mistakes, which is overfitting in mechanism form. ${p === 0 ? 'You picked p = 0, so dropout is OFF — watch what does NOT happen.' : `The cure is almost comic: every training batch, silence each neuron with probability p = ${p}.`}`,
+    highlight: { active: cols.map((c) => `a:${c.id}`) },
+    explanation: `A hidden layer with 8 neurons, each producing an activation from the forward pass: ${ACTIVATIONS.map((a, j) => `n${j + 1}=${a}`).join(', ')}. This is the full network — every neuron present, every connection intact. ${p === 0 ? 'You picked p = 0, so dropout is OFF — watch what does NOT happen.' : `We are about to apply dropout with p = ${p}.`}`,
   };
 
+  // Step 2: Explain the disease — co-adaptation
+  yield {
+    state: layer(ACTIVATIONS, 'The disease: co-adaptation'),
+    highlight: { visited: ['a:n3', 'a:n6'] },
+    explanation: 'The disease dropout cures: CO-ADAPTATION. When every neuron is always present, neurons learn to lean on each other — fragile committees where one member\'s quirks cover another\'s mistakes. Neuron 4 (2.1) might develop a feature that only works because neuron 7 (1.7) compensates for its errors. That partnership works on training data, but it is overfitting in mechanism form — perturb one member and the other\'s output becomes meaningless. L2 regularization makes weights small; it does not break these private agreements.',
+  };
+
+  // Steps 3-8: Three batches, each with mask reveal then scaled values
+  const batchSurvivors = [];
   for (let batch = 0; batch < masks.length; batch += 1) {
     const mask = masks[batch];
     const dropped = mask.map((m, j) => (m === 0 ? `a:n${j}` : null)).filter(Boolean);
-    const values = ACTIVATIONS.map((a, j) => (mask[j] === 0 ? 0 : a * scale));
+    const kept = mask.map((m, j) => (m === 1 ? `a:n${j}` : null)).filter(Boolean);
+    const survivorCount = mask.filter((m) => m === 1).length;
+    batchSurvivors.push(mask);
+
+    // Show the mask being applied
     yield {
-      state: layer(values, `Training batch ${batch + 1}${p > 0 ? ` — ${dropped.length} of 8 neurons dropped` : ' — nothing dropped'}`),
-      highlight: dropped.length ? { removed: dropped } : {},
+      state: layer(
+        ACTIVATIONS.map((a, j) => (mask[j] === 0 ? 0 : a)),
+        `Batch ${batch + 1}: rolling the mask — ${p > 0 ? `${dropped.length} neurons silenced` : 'nothing dropped'}`,
+      ),
+      highlight: dropped.length ? { removed: dropped } : { active: kept },
       explanation: p === 0
-        ? `Batch ${batch + 1}: all 8 neurons participate, every batch, forever. The network trains fine — but nothing stops neuron 4 from quietly relying on neuron 7\'s output instead of learning a robust feature of its own.`
-        : `Batch ${batch + 1}: a fresh coin flip per neuron drops ${dropped.length} of them — their activations become 0, and Backpropagation sends them no blame either (the gate blocks both directions). Survivors are scaled by 1/(1âˆ'p) = ${r2(scale)} so the layer\'s total signal keeps the same expected size ("inverted dropout"). This batch effectively trains a DIFFERENT sub-network.`,
-      invariant: p === 0 ? undefined : 'Expected activation is preserved: each survivor is scaled up by exactly the probability of surviving.',
+        ? `Batch ${batch + 1}: all 8 neurons participate, every batch, forever. No mask, no randomness. Nothing stops neuron 4 from quietly relying on neuron 7 instead of learning a robust feature of its own.`
+        : `Batch ${batch + 1}: a fresh coin flip (p = ${p}) per neuron. Mask: [${mask.join(', ')}]. ${dropped.length} neurons are SILENCED — their activations become 0 and backpropagation sends them no gradient either (the gate blocks both directions). ${survivorCount} survivors must carry the entire signal for this batch.`,
+    };
+
+    // Show scaled values
+    const scaledValues = ACTIVATIONS.map((a, j) => (mask[j] === 0 ? 0 : a * scale));
+    yield {
+      state: layer(
+        scaledValues,
+        `Batch ${batch + 1}: survivors scaled by 1/(1−p)${p > 0 ? ` = ${r2(scale)}` : ''}`,
+      ),
+      highlight: kept.length && p > 0 ? { active: kept } : {},
+      explanation: p === 0
+        ? `Batch ${batch + 1}: no scaling needed — every neuron is present at its original value. The same computation graph, every time. Co-adaptation thrives in this environment.`
+        : `Survivors are scaled by 1/(1−p) = ${r2(scale)} so the layer\'s expected output stays the same ("inverted dropout"). ${kept.length > 0 ? `For example, n${mask.indexOf(1) + 1} had activation ${ACTIVATIONS[mask.indexOf(1)]} → now outputs ${r2(ACTIVATIONS[mask.indexOf(1)] * scale)}.` : ''} This batch effectively trains a DIFFERENT sub-network — one of the 2⁸ = 256 possible thinned architectures.`,
+      invariant: p === 0 ? undefined : 'Expected activation is preserved: E[output] = (1−p) × (x/(1−p)) + p × 0 = x for every neuron.',
     };
   }
 
+  // Step 9: Statistics — how many times each neuron was active across 3 batches
+  const activeCounts = ACTIVATIONS.map((_, j) => batchSurvivors.reduce((sum, mask) => sum + mask[j], 0));
+  const alwaysActive = activeCounts.filter((c) => c === 3).length;
+  const neverActive = activeCounts.filter((c) => c === 0).length;
+  yield {
+    state: multiLayer(
+      [
+        { id: 'b1', label: 'batch 1' },
+        { id: 'b2', label: 'batch 2' },
+        { id: 'b3', label: 'batch 3' },
+        { id: 'count', label: 'active count' },
+      ],
+      [
+        batchSurvivors[0],
+        batchSurvivors[1],
+        batchSurvivors[2],
+        activeCounts,
+      ],
+      'Participation across 3 batches (1 = active, 0 = dropped)',
+    ),
+    highlight: {
+      active: activeCounts.map((c, j) => (c === 3 ? `count:n${j}` : null)).filter(Boolean),
+      removed: activeCounts.map((c, j) => (c === 0 ? `count:n${j}` : null)).filter(Boolean),
+    },
+    explanation: p === 0
+      ? 'Every neuron was active all 3 batches — identical computation graph every time. No diversity, no ensemble effect, no pressure against co-adaptation.'
+      : `Across 3 batches, each neuron was active a different number of times: [${activeCounts.join(', ')}]. ${alwaysActive > 0 ? `${alwaysActive} neuron(s) survived every batch. ` : ''}${neverActive > 0 ? `${neverActive} neuron(s) were never active. ` : ''}No neuron can count on being present — each must learn a feature that is individually useful. This is the pressure that breaks co-adaptation.`,
+  };
+
+  // Step 10: Inference — full network, no mask, no scaling
   yield {
     state: layer(ACTIVATIONS, 'Inference: the full network, no dropout, no scaling'),
     highlight: { active: cols.map((c) => `a:${c.id}`) },
-    explanation: `At inference, dropout turns OFF: all 8 neurons fire, unscaled (the 1/(1âˆ'p) during training already balanced the books). ${p === 0 ? 'With p = 0 there was never a difference between training and inference — and never any regularization either.' : `Here is the beautiful reading: with 8 neurons there are 2⁸ = 256 possible sub-networks, and training sampled a new one every batch — all SHARING the same weights. Inference with the full network approximates averaging that entire ensemble. Sound familiar? It\'s the Random Forest move — average many noisy learners — smuggled inside a single network.`}`,
+    explanation: p === 0
+      ? 'With p = 0 there was never a difference between training and inference — and never any regularization either. The network trained the same way it infers: every neuron present, every time.'
+      : `At inference, dropout turns OFF: all 8 neurons fire at their original values, unscaled. The 1/(1−p) scaling during training already balanced the books — no correction needed. The full network approximates averaging ALL 2⁸ = 256 possible sub-networks that training sampled from. This is the Random Forest move — average many noisy learners — smuggled inside a single set of weights.`,
   };
 
+  // Step 11: Summary — ensemble via weight sharing
+  const totalSubnets = Math.pow(2, ACTIVATIONS.length);
   yield {
-    state: layer(ACTIVATIONS, 'Dropout in one line'),
+    state: layer(ACTIVATIONS, p === 0 ? 'No dropout — no ensemble' : `Dropout: ${totalSubnets} sub-networks, one set of weights`),
     highlight: {},
-    explanation: `One line of code — mask, scale, train — and the network is forced to learn REDUNDANT, individually-useful features, because no neuron can count on any other being awake. Classic rates: 0.5 in old fully-connected nets (AlexNet used exactly that), 0.1–0.3 in modern Transformers — and today\'s largest LLMs often skip it entirely, because oceans of training data regularize on their own. Knowing when a technique stops being needed is as instructive as the technique itself.`,
+    explanation: p === 0
+      ? `With dropout off, the network is a single model trained a single way. No ensemble, no redundancy pressure, no co-adaptation defense. Every neuron could be hiding fragile partnerships with its neighbors. For small datasets, this leads directly to overfitting. Turn on p = 0.5 and compare.`
+      : `With 8 droppable neurons there are 2⁸ = ${totalSubnets} possible sub-networks, and training sampled a new one every batch — all SHARING the same weight matrices. A gradient update to one sub-network improves every overlapping sub-network too. One line of code — mask, scale, train — and the network is forced to learn redundant, individually useful features. Classic rates: 0.5 in AlexNet\'s FC layers (1 + 2 = essential), 0.1–0.3 in modern Transformers, and today\'s largest LLMs often skip it entirely — because oceans of training data regularize on their own. Knowing when a technique stops being needed is as instructive as the technique itself.`,
   };
 }
 
@@ -97,7 +169,8 @@ export const article = {
         {type: 'callout', text: 'Dropout regularizes by training many thinned subnetworks that all have to share useful weights.'},
         'Track three things across frames. First, which neurons vanish: the mask is different every batch, so different neurons disappear each time. Second, survivor magnitudes: with p = 0.5, each survivor doubles, because it must carry the signal that two neurons would normally share. Third, the final frame: inference uses all neurons at their original scale, no mask, no scaling. That frame is the payoff -- the full ensemble answering at once.',
         'Set p = 0 to see what dropout removes: every batch uses the same 8 neurons, the same computation graph, the same opportunity for neurons to co-adapt. Compare with p = 0.5 and the difference is immediate.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/dropout.gif', alt: 'Animated walkthrough of the dropout visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

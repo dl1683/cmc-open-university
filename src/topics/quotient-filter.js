@@ -66,6 +66,12 @@ function slots(title) {
 }
 
 function* fingerprintLayout() {
+  const keyCount = 4; // apple, apricot, banana, berry
+  const slotCount = 8; // number of slots in the filter
+  const fingerprintBits = 6; // total fingerprint bits
+  const quotientBits = 3;
+  const remainderBits = 3;
+
   yield {
     state: labelMatrix(
       'Hash fingerprint splits into quotient and remainder',
@@ -89,14 +95,14 @@ function* fingerprintLayout() {
       ],
     ),
     highlight: { active: ['apple:quotient', 'apple:remainder', 'berry:quotient', 'berry:remainder'], found: ['apricot:slot', 'berry:slot'] },
-    explanation: 'A quotient filter hashes each key into a fingerprint, then splits that fingerprint into a quotient and remainder. The quotient chooses the canonical slot; the stored remainder is the compact evidence.',
+    explanation: `A quotient filter hashes each of ${keyCount} keys into a ${fingerprintBits}-bit fingerprint, then splits it into a ${quotientBits}-bit quotient and ${remainderBits}-bit remainder. The quotient chooses one of ${slotCount} canonical slots; the stored remainder is the compact evidence.`,
   };
 
   yield {
     state: slots('Remainders live in quotient-indexed runs'),
     highlight: { active: ['s2:rem', 's3:rem', 's2:occupied', 's3:cont', 's3:shifted'], found: ['s5:rem', 's6:rem'] },
-    explanation: 'Collisions form runs. Metadata bits encode whether a quotient is occupied, whether a slot continues a run, and whether an entry was shifted away from its canonical slot.',
-    invariant: 'The filter never stores full keys, only compact fingerprints.',
+    explanation: `Collisions form runs across the ${slotCount} slots. Metadata bits encode whether a quotient is occupied, whether a slot continues a run, and whether an entry was shifted away from its canonical slot.`,
+    invariant: `The filter never stores full keys, only compact ${remainderBits}-bit remainders selected by ${quotientBits}-bit quotients.`,
   };
 
   yield {
@@ -120,7 +126,7 @@ function* fingerprintLayout() {
       ],
     ),
     highlight: { found: ['miss:answer', 'miss:certainty'], compare: ['hit:certainty', 'maybe:certainty'] },
-    explanation: 'Like a Bloom Filter, a quotient filter can say definitely absent or probably present. Unlike a basic Bloom filter, it stores movable fingerprints, which can support deletion and merging in variants.',
+    explanation: `Like a Bloom Filter, a quotient filter can say definitely absent or probably present. Unlike a basic Bloom filter, it stores movable ${fingerprintBits}-bit fingerprints across ${slotCount} slots, which can support deletion and merging in variants.`,
   };
 
   yield {
@@ -143,21 +149,24 @@ function* fingerprintLayout() {
       ],
     ),
     highlight: { found: ['quotient:stores', 'quotient:good'], compare: ['bloom:tradeoff', 'cuckoo:tradeoff'] },
-    explanation: 'Quotient filters are easiest to understand as another point in the approximate-membership design space: compact fingerprints, local scans, and metadata instead of multiple independent bit positions.',
+    explanation: `Quotient filters are easiest to understand as another point in the approximate-membership design space: compact ${fingerprintBits}-bit fingerprints split into ${quotientBits}+${remainderBits} bits, local scans, and metadata instead of multiple independent bit positions.`,
   };
 }
 
 function* lookupAndDelete() {
+  const slotCount = 8;
+  const deleteSteps = 4; // find, remove, shift, repair
+
   yield {
     state: slots('Lookup quotient 2 with remainder 04'),
     highlight: { active: ['s2:occupied', 's2:rem', 's3:rem'], found: ['s2:rem'] },
-    explanation: 'A lookup jumps to the quotient slot, finds the run for that quotient, and scans remainders in the run. If the queried remainder appears, the answer is probably present.',
+    explanation: `A lookup jumps to the quotient slot among ${slotCount} total slots, finds the run for that quotient, and scans remainders in the run. If the queried remainder appears, the answer is probably present.`,
   };
 
   yield {
     state: slots('Lookup quotient 4 stops at an empty canonical slot'),
     highlight: { active: ['s4:occupied', 's4:rem'], removed: ['s4:rem'] },
-    explanation: 'If the canonical slot is not occupied, no key with that quotient has been inserted. That gives the definitive "absent" answer.',
+    explanation: `If the canonical slot is not occupied, no key with that quotient has been inserted across the ${slotCount}-slot table. That gives the definitive "absent" answer.`,
   };
 
   yield {
@@ -181,7 +190,7 @@ function* lookupAndDelete() {
       ],
     ),
     highlight: { active: ['find:operation', 'remove:operation'], found: ['shift:why', 'repair:why'] },
-    explanation: 'Deletion is possible because fingerprints are represented as entries, not just smeared across independent bits. But the clustered layout means deletion must repair shifts and metadata.',
+    explanation: `Deletion requires ${deleteSteps} steps (find, remove, shift, repair) because fingerprints are represented as entries, not just smeared across independent bits. The clustered layout across ${slotCount} slots means deletion must repair shifts and metadata.`,
   };
 
   yield {
@@ -205,7 +214,7 @@ function* lookupAndDelete() {
       ],
     ),
     highlight: { found: ['database:question', 'stream:question'], compare: ['gpu:link'] },
-    explanation: 'Approximate membership structures are not only theoretical. They are practical front doors for expensive storage and network lookups.',
+    explanation: `Approximate membership structures are not only theoretical. They are practical front doors for expensive storage and network lookups, each scanning a table of ${slotCount} or more slots.`,
   };
 }
 
@@ -226,7 +235,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/quotient-filter.gif', alt: 'Animated walkthrough of the quotient filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

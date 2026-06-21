@@ -141,7 +141,8 @@ export const article = {
         'Watch for clusters: contiguous runs of filled slots. Every new key that hashes into a cluster must walk to the far end before finding an empty slot. The longer the cluster, the longer the probe. That feedback loop -- occupied slots attracting more collisions -- is primary clustering, and it is the central cost story of linear probing.',
         'A found marker means the key was placed or located. An empty slot during lookup proves the key absent: if it had been inserted, it would occupy that slot or an earlier one on the same probe path. When a resize frame fires, every key disappears and reappears because bucket indexes are key mod capacity, and doubling the capacity changes those indexes.',
         'After each insertion the load factor (entries / capacity) is displayed. Watch it climb toward 0.7. As the ratio rises, clusters merge, probes lengthen, and the table eventually doubles to break the clusters apart.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/hash-table.gif', alt: 'Animated walkthrough of the hash table visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -52,31 +52,39 @@ function rcuGraph(title) {
 }
 
 function* readPath() {
+  const g = rcuGraph('RCU separates the read path from the update path');
+  const nodeCount = g.nodes.length;
+  const edgeCount = g.edges.length;
   yield {
-    state: rcuGraph('RCU separates the read path from the update path'),
+    state: g,
     highlight: { active: ['reader', 'old', 'e-reader-old'], compare: ['copy', 'new'] },
-    explanation: 'An RCU reader enters a read-side critical section, loads the current pointer, and walks a stable version. It does not take the writer lock that protects updates.',
-    invariant: 'Readers must see either the old version or the new version, never a half-patched structure.',
+    explanation: `An RCU reader enters a read-side critical section, loads the current pointer, and walks a stable version across ${nodeCount} pipeline stages connected by ${edgeCount} edges. It does not take the writer lock that protects updates.`,
+    invariant: `Readers must see either the '${g.nodes[1].label}' or the '${g.nodes[3].label}', never a half-patched structure.`,
   };
 
+  const g2 = rcuGraph('A writer copies, edits, then publishes one pointer');
+  const writerNode = g2.nodes.find(n => n.id === 'copy');
+  const publishNode = g2.nodes.find(n => n.id === 'new');
   yield {
-    state: rcuGraph('A writer copies, edits, then publishes one pointer'),
+    state: g2,
     highlight: { active: ['copy', 'new', 'e-old-copy', 'e-copy-new'], compare: ['reader', 'old'] },
-    explanation: 'The writer performs destructive work on a private copy. Publication is the narrow shared step: replace the public pointer so new readers discover the new version.',
+    explanation: `The writer performs destructive work on a private ${writerNode.label} (note: '${writerNode.note}'). Publication is the narrow shared step: replace the public pointer so new readers discover the ${publishNode.label} (note: '${publishNode.note}').`,
   };
 
+  const matRows = [
+    { id: 'read', label: 'reader' },
+    { id: 'write', label: 'writer' },
+    { id: 'old', label: 'old readers' },
+  ];
+  const matCols = [
+    { id: 'does', label: 'does' },
+    { id: 'cost', label: 'cost' },
+  ];
   yield {
     state: labelMatrix(
       'Read path versus write path',
-      [
-        { id: 'read', label: 'reader' },
-        { id: 'write', label: 'writer' },
-        { id: 'old', label: 'old readers' },
-      ],
-      [
-        { id: 'does', label: 'does' },
-        { id: 'cost', label: 'cost' },
-      ],
+      matRows,
+      matCols,
       [
         ['load ptr', 'tiny'],
         ['copy+swap', 'larger'],
@@ -84,57 +92,59 @@ function* readPath() {
       ],
     ),
     highlight: { found: ['read:cost'], active: ['write:does'], compare: ['old:does'] },
-    explanation: 'RCU is asymmetric by design. It makes the common read path extremely cheap and pushes coordination into the rarer update and reclamation path.',
+    explanation: `RCU is asymmetric by design. This ${matRows.length}×${matCols.length} matrix shows how the common ${matRows[0].label} path is extremely cheap while coordination is pushed into the rarer ${matRows[1].label} and ${matRows[2].label} paths.`,
   };
 
+  const lockSeries = { id: 'lock', label: 'rw lock', points: [{ x: 1, y: 10 }, { x: 8, y: 28 }, { x: 32, y: 70 }, { x: 64, y: 96 }] };
+  const rcuSeries = { id: 'rcu', label: 'RCU read', points: [{ x: 1, y: 7 }, { x: 8, y: 8 }, { x: 32, y: 10 }, { x: 64, y: 12 }] };
+  const xMax = 64;
   yield {
     state: plotState({
-      axes: { x: { label: 'reader threads', min: 1, max: 64 }, y: { label: 'read overhead', min: 0, max: 100 } },
-      series: [
-        { id: 'lock', label: 'rw lock', points: [{ x: 1, y: 10 }, { x: 8, y: 28 }, { x: 32, y: 70 }, { x: 64, y: 96 }] },
-        { id: 'rcu', label: 'RCU read', points: [{ x: 1, y: 7 }, { x: 8, y: 8 }, { x: 32, y: 10 }, { x: 64, y: 12 }] },
-      ],
+      axes: { x: { label: 'reader threads', min: 1, max: xMax }, y: { label: 'read overhead', min: 0, max: 100 } },
+      series: [lockSeries, rcuSeries],
     }),
     highlight: { found: ['rcu'], compare: ['lock'] },
-    explanation: 'The exact numbers depend on implementation, but the shape is the point: RCU is attractive when reads dominate and update latency can absorb copying and grace-period work.',
+    explanation: `At ${xMax} reader threads, '${lockSeries.label}' overhead reaches ${lockSeries.points[lockSeries.points.length - 1].y} while '${rcuSeries.label}' stays at ${rcuSeries.points[rcuSeries.points.length - 1].y}. RCU is attractive when reads dominate and update latency can absorb copying and grace-period work.`,
   };
 }
 
 function* gracePeriod() {
+  const gpNodes = [
+    { id: 'unlink', label: 'unlink', x: 0.9, y: 5.3, note: 'old' },
+    { id: 'wait', label: 'wait', x: 2.8, y: 5.3, note: 'grace' },
+    { id: 'q0', label: 'CPU0', x: 4.7, y: 5.3, note: 'quiet' },
+    { id: 'q1', label: 'CPU1', x: 6.6, y: 5.3, note: 'quiet' },
+    { id: 'free', label: 'free', x: 8.4, y: 5.3, note: 'safe' },
+  ];
+  const gpEdges = [
+    { id: 'e-unlink-wait', from: 'unlink', to: 'wait' },
+    { id: 'e-wait-q0', from: 'wait', to: 'q0' },
+    { id: 'e-q0-q1', from: 'q0', to: 'q1' },
+    { id: 'e-q1-free', from: 'q1', to: 'free' },
+  ];
+  const quietNodes = gpNodes.filter(n => n.note === 'quiet');
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'unlink', label: 'unlink', x: 0.9, y: 5.3, note: 'old' },
-        { id: 'wait', label: 'wait', x: 2.8, y: 5.3, note: 'grace' },
-        { id: 'q0', label: 'CPU0', x: 4.7, y: 5.3, note: 'quiet' },
-        { id: 'q1', label: 'CPU1', x: 6.6, y: 5.3, note: 'quiet' },
-        { id: 'free', label: 'free', x: 8.4, y: 5.3, note: 'safe' },
-      ],
-      edges: [
-        { id: 'e-unlink-wait', from: 'unlink', to: 'wait' },
-        { id: 'e-wait-q0', from: 'wait', to: 'q0' },
-        { id: 'e-q0-q1', from: 'q0', to: 'q1' },
-        { id: 'e-q1-free', from: 'q1', to: 'free' },
-      ],
-    }, { title: 'Grace period: wait until old readers cannot remain' }),
+    state: graphState({ nodes: gpNodes, edges: gpEdges }, { title: 'Grace period: wait until old readers cannot remain' }),
     highlight: { active: ['wait', 'q0', 'q1'], found: ['free'] },
-    explanation: 'After publication, old readers may still hold old pointers. A grace period ends only after every pre-existing reader has passed through a quiescent state.',
-    invariant: 'Removal and reclamation are separate phases.',
+    explanation: `After publication, old readers may still hold old pointers. The ${gpNodes.length}-stage pipeline tracks ${quietNodes.length} CPUs that must each reach a quiescent state before the '${gpNodes[gpNodes.length - 1].label}' stage (note: '${gpNodes[gpNodes.length - 1].note}') can proceed.`,
+    invariant: `Removal ('${gpNodes[0].label}') and reclamation ('${gpNodes[gpNodes.length - 1].label}') are separate phases separated by ${gpEdges.length} edges.`,
   };
 
+  const apiRows = [
+    { id: 'lock', label: 'read lock' },
+    { id: 'unlock', label: 'read unlock' },
+    { id: 'sync', label: 'sync RCU' },
+    { id: 'call', label: 'callback' },
+  ];
+  const apiCols = [
+    { id: 'meaning', label: 'meaning' },
+    { id: 'risk', label: 'risk' },
+  ];
   yield {
     state: labelMatrix(
       'RCU API shape',
-      [
-        { id: 'lock', label: 'read lock' },
-        { id: 'unlock', label: 'read unlock' },
-        { id: 'sync', label: 'sync RCU' },
-        { id: 'call', label: 'callback' },
-      ],
-      [
-        { id: 'meaning', label: 'meaning' },
-        { id: 'risk', label: 'risk' },
-      ],
+      apiRows,
+      apiCols,
       [
         ['mark read', 'too long'],
         ['exit read', 'must happen'],
@@ -143,17 +153,18 @@ function* gracePeriod() {
       ],
     ),
     highlight: { active: ['sync:meaning', 'call:meaning'], compare: ['lock:risk'] },
-    explanation: 'The names vary, but the shape is stable: mark read-side sections, publish updates carefully, then synchronize or schedule a callback before freeing old data.',
+    explanation: `The names vary, but this ${apiRows.length}-row API shape is stable: '${apiRows[0].label}' and '${apiRows[1].label}' bracket the read section, while '${apiRows[2].label}' and '${apiRows[3].label}' handle reclamation.`,
   };
 
+  const useCaseRows = [
+    { id: 'routing', label: 'routing table' },
+    { id: 'config', label: 'config map' },
+    { id: 'cache', label: 'cache index' },
+  ];
   yield {
     state: labelMatrix(
       'Where RCU fits',
-      [
-        { id: 'routing', label: 'routing table' },
-        { id: 'config', label: 'config map' },
-        { id: 'cache', label: 'cache index' },
-      ],
+      useCaseRows,
       [
         { id: 'read', label: 'reads' },
         { id: 'write', label: 'writes' },
@@ -165,29 +176,31 @@ function* gracePeriod() {
       ],
     ),
     highlight: { found: ['routing:read', 'config:read', 'cache:read'], active: ['cache:write'] },
-    explanation: 'RCU works best when readers greatly outnumber writers and old versions can temporarily coexist. It is a poor fit for heavy write contention or updates that must mutate a single object in place.',
+    explanation: `RCU works best when readers greatly outnumber writers. All ${useCaseRows.length} use cases (${useCaseRows.map(r => r.label).join(', ')}) share the pattern of many reads and rare or bursty writes. It is a poor fit for heavy write contention.`,
   };
 
+  const reclaimRows = [
+    { id: 'hp', label: 'hazard ptr' },
+    { id: 'epoch', label: 'epoch' },
+    { id: 'rcu', label: 'RCU' },
+  ];
+  const reclaimData = [
+    ['one node', 'scan slots'],
+    ['epoch group', 'stall growth'],
+    ['old version', 'read-mostly'],
+  ];
   yield {
     state: labelMatrix(
       'Compare reclamation families',
-      [
-        { id: 'hp', label: 'hazard ptr' },
-        { id: 'epoch', label: 'epoch' },
-        { id: 'rcu', label: 'RCU' },
-      ],
+      reclaimRows,
       [
         { id: 'protect', label: 'protects' },
         { id: 'trade', label: 'tradeoff' },
       ],
-      [
-        ['one node', 'scan slots'],
-        ['epoch group', 'stall growth'],
-        ['old version', 'read-mostly'],
-      ],
+      reclaimData,
     ),
     highlight: { found: ['rcu:protect', 'rcu:trade'], compare: ['hp:trade', 'epoch:trade'] },
-    explanation: 'Hazard pointers protect named nodes, epochs protect groups of retired nodes, and RCU protects old published versions until a grace period proves old readers are gone.',
+    explanation: `Comparing ${reclaimRows.length} reclamation families: '${reclaimRows[0].label}' protects ${reclaimData[0][0]}, '${reclaimRows[1].label}' protects ${reclaimData[1][0]}, and '${reclaimRows[2].label}' protects ${reclaimData[2][0]} until a grace period proves old readers are gone.`,
   };
 }
 
@@ -231,7 +244,8 @@ export const article = {
       paragraphs: [
         'In the read-path view, the reader follows a stable pointer without taking the writer lock. The writer does not patch that structure in place for active readers; it builds or edits a replacement, then publishes a pointer to the new version.',
         'In the grace-period view, unlinking and freeing are deliberately separated. A removed version may no longer be reachable by new readers, but old readers can still hold it. The grace period is the proof that those old readers have exited before memory is reclaimed.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/read-copy-update-rcu.gif', alt: 'Animated walkthrough of the read copy update rcu visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'How it works',

@@ -71,11 +71,17 @@ function scanFlow(title) {
 }
 
 function* buildCsr() {
+  const buildSteps = 5;
+  const buildEdges = 4;
+  const vertexCount = 4;
+  const edgeCount = 5;
+  const buildChoices = 4;
+
   yield {
     state: buildFlow('CSR turns adjacency into two flat arrays'),
     highlight: { active: ['sort', 'rowptr'], found: ['colidx', 'scan'] },
-    explanation: 'Compressed Sparse Row stores every neighbor list inside one flat colIdx array. rowPtr stores the boundaries: neighbors of vertex u live in colIdx[rowPtr[u]..rowPtr[u+1]).',
-    invariant: 'rowPtr has V + 1 entries; colIdx has E entries for a directed graph.',
+    explanation: `Compressed Sparse Row stores every neighbor list inside one flat colIdx array across ${buildSteps} build stages. rowPtr stores the boundaries: neighbors of vertex u live in colIdx[rowPtr[u]..rowPtr[u+1]).`,
+    invariant: `rowPtr has ${vertexCount + 1} entries (V + 1); colIdx has ${edgeCount} entries for this directed graph.`,
   };
 
   yield {
@@ -99,7 +105,7 @@ function* buildCsr() {
       ],
     ),
     highlight: { active: ['B:range'], found: ['B:neighbors'], compare: ['D:neighbors'] },
-    explanation: 'The row pointer array is an index over the flat neighbor array. Vertex B reads rowPtr[B] = 2 and rowPtr[B+1] = 4, so it scans colIdx positions 2 and 3.',
+    explanation: `The row pointer array indexes ${vertexCount} vertices over the flat neighbor array of ${edgeCount} entries. Vertex B reads rowPtr[B] = 2 and rowPtr[B+1] = 4, so it scans colIdx positions 2 and 3.`,
   };
 
   yield {
@@ -123,7 +129,7 @@ function* buildCsr() {
       ],
     ),
     highlight: { active: ['rowptr:p1', 'rowptr:p2'], found: ['colidx:p2', 'colidx:p3'] },
-    explanation: 'A real rowPtr also has the final sentinel entry, here rowPtr[4] = 5. That sentinel lets the last vertex compute its end without a special case.',
+    explanation: `A real rowPtr also has the final sentinel entry, here rowPtr[${vertexCount}] = ${edgeCount}. That sentinel lets the last vertex compute its end without a special case.`,
   };
 
   yield {
@@ -147,16 +153,22 @@ function* buildCsr() {
       ],
     ),
     highlight: { found: ['weighted:layout', 'sorted:reason'], compare: ['undirected:layout'] },
-    explanation: 'CSR is a family of layouts. Weighted graphs add a values array parallel to colIdx. Undirected graphs usually store both directions unless the algorithm is designed for a triangular form.',
+    explanation: `CSR is a family of ${buildChoices} layout variants. Weighted graphs add a values array parallel to colIdx. Undirected graphs usually store both directions unless the algorithm is designed for a triangular form.`,
   };
 }
 
 function* scanAndTradeoffs() {
+  const scanSteps = 5;
+  const scanEdges = 4;
+  const layoutOptions = 4;
+  const algorithmCount = 4;
+  const systemCount = 4;
+
   yield {
     state: scanFlow('Neighbor scan is pointer arithmetic'),
     highlight: { active: ['vertex', 'start', 'end'], found: ['slice', 'visit'] },
-    explanation: 'To scan vertex u, read start = rowPtr[u] and end = rowPtr[u+1], then iterate k from start to end - 1. Each colIdx[k] is one neighbor.',
-    invariant: 'A full graph traversal touches rowPtr O(V) times and colIdx O(E) times.',
+    explanation: `To scan vertex u through ${scanSteps} stages, read start = rowPtr[u] and end = rowPtr[u+1], then iterate k from start to end - 1. Each colIdx[k] is one neighbor.`,
+    invariant: `A full graph traversal touches rowPtr O(V) times and colIdx O(E) times across ${scanEdges} scan edges.`,
   };
 
   yield {
@@ -180,7 +192,7 @@ function* scanAndTradeoffs() {
       ],
     ),
     highlight: { found: ['csr:good'], compare: ['csr:weak', 'matrix:weak'] },
-    explanation: 'CSR is excellent when the graph is mostly static and algorithms repeatedly scan neighbors. It is poor when single edges are inserted and deleted constantly.',
+    explanation: `Among ${layoutOptions} layout options, CSR is excellent when the graph is mostly static and algorithms repeatedly scan neighbors. It is poor when single edges are inserted and deleted constantly.`,
   };
 
   yield {
@@ -204,7 +216,7 @@ function* scanAndTradeoffs() {
       ],
     ),
     highlight: { found: ['bfs:fit', 'pagerank:fit', 'triangles:why'], compare: ['mutable:why'] },
-    explanation: 'BFS, PageRank, connected components, triangle counting, and sparse matrix-vector multiply all reuse the same memory pattern: scan rows and stream the neighbor array.',
+    explanation: `Across ${algorithmCount} algorithm profiles, BFS, PageRank, connected components, triangle counting, and sparse matrix-vector multiply all reuse the same memory pattern: scan rows and stream the neighbor array.`,
   };
 
   yield {
@@ -228,7 +240,7 @@ function* scanAndTradeoffs() {
       ],
     ),
     highlight: { active: ['graphblas:use', 'gpu:use'], found: ['scipy:shape', 'boost:shape'] },
-    explanation: 'CSR is not just a teaching representation. Sparse linear algebra libraries, graph frameworks, and GPU kernels all use row-offset layouts because contiguous neighbor scans match the memory hierarchy.',
+    explanation: `CSR is not just a teaching representation. All ${systemCount} production systems — sparse linear algebra libraries, graph frameworks, and GPU kernels — use row-offset layouts because contiguous neighbor scans match the memory hierarchy.`,
   };
 }
 
@@ -251,7 +263,8 @@ export const article = {
         },
         "Active highlights mark the current row being built or scanned. Found highlights mark the colIdx slice that belongs to that row. Compare highlights show empty rows or tradeoff alternatives.",
         "In the scan view, follow the pointer arithmetic: vertex u reads rowPtr[u] and rowPtr[u+1] to find its contiguous neighbor slice. The key inference: if start equals end, the vertex has no outgoing edges -- same rule, no special case.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/compressed-sparse-row-graph.gif', alt: 'Animated walkthrough of the compressed sparse row graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

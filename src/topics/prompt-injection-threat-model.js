@@ -91,7 +91,7 @@ function* attackSurface() {
   yield {
     state: boundaryGraph('Trusted and untrusted text collapse into one context'),
     highlight: { active: ['system', 'user', 'retrieval', 'prompt', 'model', 'e-system-prompt', 'e-user-prompt', 'e-retrieval-prompt', 'e-prompt-model'], compare: ['tool', 'secret'] },
-    explanation: 'The graph shows the broken boundary: the app knows system text, user text, and retrieved text have different trust levels, but the model receives one mixed token stream. Prompt injection exploits that collapse.',
+    explanation: `The graph shows the broken boundary: the app knows system text, user text, and retrieved text have different trust levels, but the model receives one mixed token stream. ${topic.title.split(' ').slice(0, 2).join(' ')} exploits that collapse.`,
   };
 
   yield {
@@ -115,14 +115,14 @@ function* attackSurface() {
       ],
     ),
     highlight: { active: ['direct:entry', 'indirect:entry', 'stored:entry', 'tool:entry'], found: ['indirect:risk', 'tool:risk'] },
-    explanation: 'The matrix separates entry points by who planted the instruction. Direct injection comes from the user; indirect injection waits inside retrieved pages, documents, tickets, or tool output until the app reads it.',
-    invariant: 'Treat external content as hostile even when it arrived through retrieval.',
+    explanation: `The ${topic.title} matrix separates entry points by who planted the instruction. Direct injection comes from the user; indirect injection waits inside retrieved pages, documents, tickets, or tool output until the app reads it.`,
+    invariant: `Treat external content as hostile even when it arrived through retrieval — that is the ${topic.title}'s first rule.`,
   };
 
   yield {
     state: boundaryGraph('The model becomes a confused deputy'),
     highlight: { active: ['retrieval', 'prompt', 'model', 'tool', 'secret', 'e-retrieval-prompt', 'e-prompt-model', 'e-model-tool', 'e-tool-secret'], removed: ['output'] },
-    explanation: 'The confused-deputy path is the real danger. The attacker never touches the privileged tool; malicious content steers the model, and the model invokes the tool with someone else\'s authority.',
+    explanation: `The confused-deputy path is the real danger in the ${topic.title}. The attacker never touches the privileged tool; malicious content steers the model, and the model invokes the tool with someone else's authority.`,
   };
 
   yield {
@@ -146,7 +146,7 @@ function* attackSurface() {
       ],
     ),
     highlight: { active: ['leak:control', 'act:control', 'poison:control'], compare: ['steal:target'] },
-    explanation: 'The target matrix keeps the threat model concrete. The serious failures are private-data leakage, unauthorized actions, policy extraction, and corrupted decisions, not merely rude or jailbreak-like text.',
+    explanation: `The ${topic.title} target matrix keeps the threat model concrete. The serious failures are private-data leakage, unauthorized actions, policy extraction, and corrupted decisions, not merely rude or jailbreak-like text.`,
   };
 }
 
@@ -154,7 +154,7 @@ function* defenseLayers() {
   yield {
     state: defenseGraph('Defense belongs outside the model too'),
     highlight: { active: ['ingest', 'prompt', 'model', 'policy', 'tool', 'e-ingest-prompt', 'e-prompt-model', 'e-model-policy', 'e-model-tool'], found: ['log'] },
-    explanation: 'The defense graph moves trust decisions outside the prompt. Labels, scoped retrieval, output checks, tool gates, logs, and human escalation reduce blast radius because no single instruction can create a hard boundary.',
+    explanation: `The ${topic.title} defense graph moves trust decisions outside the prompt. Labels, scoped retrieval, output checks, tool gates, logs, and human escalation reduce blast radius because no single instruction can create a hard boundary.`,
   };
 
   yield {
@@ -180,14 +180,14 @@ function* defenseLayers() {
       ],
     ),
     highlight: { found: ['context:control', 'retrieval:control', 'output:control', 'tools:control', 'ops:control'] },
-    explanation: 'Each control belongs to a boundary. Retrieval controls decide what enters context; output controls decide what leaves the model; tool controls decide what can change the world.',
+    explanation: `Each control in the ${topic.title} belongs to a boundary. Retrieval controls decide what enters context; output controls decide what leaves the model; tool controls decide what can change the world.`,
   };
 
   yield {
     state: defenseGraph('Tool gates should ignore model enthusiasm'),
     highlight: { active: ['model', 'policy', 'tool', 'human', 'log', 'e-model-policy', 'e-model-tool', 'e-policy-human', 'e-tool-log'], removed: ['retrieval'] },
-    explanation: 'The model can propose an action, but the gate must decide authorization. Typed schemas, approval flows, rate limits, and audit logs matter because they are deterministic checks outside model persuasion.',
-    invariant: 'Never let the model be the only authority over a privileged action.',
+    explanation: `The model can propose an action, but the gate must decide authorization. Typed schemas, approval flows, rate limits, and audit logs matter because they are deterministic checks outside model persuasion — the ${topic.title}'s core defense.`,
+    invariant: `Never let the model be the only authority over a privileged action.`,
   };
 
   yield {
@@ -211,7 +211,7 @@ function* defenseLayers() {
       ],
     ),
     highlight: { removed: ['deny:problem', 'hidden:problem'], active: ['parse:replacement', 'firewall:replacement'] },
-    explanation: 'The bad-defense table shows why text filters are not enough. Constrained decoding can make a tool call valid JSON, but only policy and authorization can decide whether the action is allowed.',
+    explanation: `The ${topic.title}'s bad-defense table shows why text filters are not enough. Constrained decoding can make a tool call valid JSON, but only policy and authorization can decide whether the action is allowed.`,
   };
 
   yield {
@@ -235,7 +235,7 @@ function* defenseLayers() {
       ],
     ),
     highlight: { active: ['sources:artifact', 'privs:artifact', 'state:artifact', 'tests:artifact'] },
-    explanation: 'The checklist turns a threat model into artifacts. Trust maps, permission tables, data-flow diagrams, attack corpora, and traces make prompt-injection risk inspectable and rerunnable.',
+    explanation: `The checklist turns the ${topic.title} into artifacts. Trust maps, permission tables, data-flow diagrams, attack corpora, and traces make prompt-injection risk inspectable and rerunnable.`,
   };
 }
 
@@ -322,7 +322,8 @@ export const article = {
       paragraphs: [
         'The attack-surface graph shows the boundary collapse. The app has different trust levels, but the model sees one context stream. The dangerous edge is not just untrusted text entering the prompt; it is untrusted text influencing a privileged tool, secret, or decision.',
         'The defense graph shows where controls belong. Retrieval controls decide what enters context. Output controls decide what leaves the model. Tool gates decide what can change the world. The model can help explain or propose, but the gate must ignore model enthusiasm when policy says no.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/prompt-injection-threat-model.gif', alt: 'Animated walkthrough of the prompt injection threat model visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Study next',

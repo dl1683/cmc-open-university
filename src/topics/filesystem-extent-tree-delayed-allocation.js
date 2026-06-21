@@ -52,22 +52,27 @@ function extentGraph(title, notes = {}) {
 }
 
 function* extentMapLookup() {
+  const extentNodes = ['file', 'cache', 'emap', 'inline', 'tree', 'free', 'disk'];
+  const extentEdges = ['e-file-cache', 'e-cache-emap', 'e-emap-inline', 'e-emap-tree', 'e-free-inline', 'e-free-tree', 'e-tree-disk', 'e-inline-disk'];
   yield {
     state: extentGraph('Extents compress many block pointers into ranges'),
     highlight: { active: ['file', 'emap', 'inline', 'tree'], found: ['disk'] },
-    explanation: 'An extent maps a contiguous logical file range to a contiguous physical block range. Instead of storing one pointer per block, the filesystem stores start, length, and destination.',
-    invariant: 'Extent = logical start, physical start, length, plus state flags.',
+    explanation: `An extent maps a contiguous logical file range to a contiguous physical block range. The ${extentNodes.length}-node graph shows how, instead of storing one pointer per block, the filesystem stores start, length, and destination across ${extentEdges.length} edges.`,
+    invariant: `Each extent record among the ${extentNodes.length} nodes encodes: logical start, physical start, length, plus state flags.`,
   };
 
+  const extents = [
+    { id: 'e0', label: '0..31', state: 'written' },
+    { id: 'e1', label: '32..95', state: 'written' },
+    { id: 'hole', label: '96..127', state: 'hole' },
+    { id: 'e2', label: '128..191', state: 'unwritten' },
+  ];
+  const holes = extents.filter(e => e.state === 'hole');
+  const written = extents.filter(e => e.state === 'written');
   yield {
     state: labelMatrix(
       'Logical blocks to physical extents',
-      [
-        { id: 'e0', label: '0..31' },
-        { id: 'e1', label: '32..95' },
-        { id: 'hole', label: '96..127' },
-        { id: 'e2', label: '128..191' },
-      ],
+      extents.map(({ id, label }) => ({ id, label })),
       [
         { id: 'physical', label: 'physical blocks' },
         { id: 'state', label: 'state' },
@@ -80,24 +85,25 @@ function* extentMapLookup() {
       ],
     ),
     highlight: { active: ['e1:physical', 'e2:state'], compare: ['hole:state'] },
-    explanation: 'Extent maps naturally represent sparse files, written ranges, and preallocated-but-unwritten ranges. A hole needs no physical blocks until data is written.',
+    explanation: `${extents.length} extent records describe the file: ${written.length} written, ${holes.length} hole, and ${extents.length - written.length - holes.length} unwritten. Holes need no physical blocks until data is written.`,
   };
 
   yield {
     state: extentGraph('Small files can keep extents near the inode; fragmented files need a tree', { inline: 'inode slots', tree: 'extent B+tree', disk: 'many ranges' }),
     highlight: { active: ['inline', 'tree', 'emap'], compare: ['disk'] },
-    explanation: 'Filesystems commonly keep a few extent records close to the inode. When a file grows or fragments past that small inline capacity, the mapping becomes a tree so lookup stays logarithmic.',
+    explanation: `Filesystems commonly keep a few extent records close to the inode (the '${extentNodes[3]}' path). When a file grows past that capacity — like our ${extents.length} extents — the mapping becomes a tree (the '${extentNodes[4]}' path) so lookup stays logarithmic.`,
   };
 
+  const mapStyles = [
+    { id: 'direct', label: 'direct blocks' },
+    { id: 'indirect', label: 'indirect blocks' },
+    { id: 'extent', label: 'extent map' },
+    { id: 'btree', label: 'extent tree' },
+  ];
   yield {
     state: labelMatrix(
       'Extent lookup versus older block maps',
-      [
-        { id: 'direct', label: 'direct blocks' },
-        { id: 'indirect', label: 'indirect blocks' },
-        { id: 'extent', label: 'extent map' },
-        { id: 'btree', label: 'extent tree' },
-      ],
+      mapStyles,
       [
         { id: 'stores', label: 'stores' },
         { id: 'best for' , label: 'best for' },
@@ -110,39 +116,42 @@ function* extentMapLookup() {
       ],
     ),
     highlight: { active: ['extent:stores', 'btree:stores'], compare: ['direct:stores'] },
-    explanation: 'The data-structure move is compression by runs. If a 1 GB file occupies long contiguous ranges, an extent map can describe it with a handful of records instead of hundreds of thousands of block pointers.',
+    explanation: `Across ${mapStyles.length} mapping styles, the data-structure move is compression by runs. If a 1 GB file occupies long contiguous ranges, an extent map can describe it with a handful of records instead of hundreds of thousands of block pointers.`,
   };
 
   yield {
     state: extentGraph('fiemap exposes extent-like answers to user space', { file: 'fiemap', emap: 'walk ranges', tree: 'lookup', disk: 'reported extents' }),
     highlight: { active: ['file', 'emap', 'tree', 'disk'], found: ['inline'] },
-    explanation: 'Linux fiemap is the user-facing idea: ask a filesystem which physical or logical extents back a file. The answer may include flags such as delayed, unknown, encoded, unwritten, or shared.',
+    explanation: `Linux fiemap is the user-facing idea: ask a filesystem which physical or logical extents back a file. The ${extentNodes.length}-node model maps to answers that may include flags such as delayed, unknown, encoded, unwritten, or shared.`,
   };
 }
 
 function* delayedAllocationWriteback() {
+  const writeSize = '64 MB';
+  const pipelineStages = ['file', 'cache', 'emap', 'free', 'disk'];
   yield {
-    state: extentGraph('Buffered write dirties cache before physical blocks are chosen', { file: 'append 64 MB', cache: 'dirty', emap: 'delayed', free: 'not chosen', disk: 'old layout' }),
+    state: extentGraph('Buffered write dirties cache before physical blocks are chosen', { file: `append ${writeSize}`, cache: 'dirty', emap: 'delayed', free: 'not chosen', disk: 'old layout' }),
     highlight: { active: ['file', 'cache', 'emap'], compare: ['free', 'disk'] },
-    explanation: 'Delayed allocation means the filesystem can accept dirty page-cache data without immediately assigning exact physical blocks. The logical range exists, but placement is postponed.',
-    invariant: 'Delayed extents reserve intent before physical placement is final.',
+    explanation: `Delayed allocation means the filesystem can accept ${writeSize} of dirty page-cache data without immediately assigning physical blocks. Only ${3} of ${pipelineStages.length} stages are active — the logical range exists, but placement is postponed.`,
+    invariant: `Delayed extents reserve intent across ${pipelineStages.length} stages before physical placement is final.`,
   };
 
   yield {
     state: extentGraph('Writeback sees the full dirty range and asks for contiguous space', { cache: '64 MB batch', emap: 'convert', free: 'choose run', inline: 'new extent', disk: 'contiguous' }),
     highlight: { active: ['cache', 'emap', 'free', 'inline', 'disk', 'e-free-inline', 'e-inline-disk'] },
-    explanation: 'At writeback time, the allocator has more context. Instead of allocating tiny chunks as each write arrives, it can choose a larger contiguous physical run and then convert the delayed extent into a real one.',
+    explanation: `At writeback time, all ${pipelineStages.length} stages become active. Instead of allocating tiny chunks as each write arrives, the allocator can choose a larger contiguous physical run for the full ${writeSize} batch and convert the delayed extent into a real one.`,
   };
 
+  const tradeoffs = [
+    { id: 'contiguity', label: 'contiguity' },
+    { id: 'metadata', label: 'metadata' },
+    { id: 'crash', label: 'crash window' },
+    { id: 'fsync', label: 'fsync' },
+  ];
   yield {
     state: labelMatrix(
       'Delayed allocation tradeoff',
-      [
-        { id: 'contiguity', label: 'contiguity' },
-        { id: 'metadata', label: 'metadata' },
-        { id: 'crash', label: 'crash window' },
-        { id: 'fsync', label: 'fsync' },
-      ],
+      tradeoffs,
       [
         { id: 'benefit', label: 'benefit' },
         { id: 'cost', label: 'cost' },
@@ -155,24 +164,25 @@ function* delayedAllocationWriteback() {
       ],
     ),
     highlight: { active: ['contiguity:benefit', 'metadata:benefit'], compare: ['crash:cost', 'fsync:cost'] },
-    explanation: 'Delayed allocation improves layout and reduces metadata churn, but it moves important work later. fsync, sync, memory pressure, or writeback can turn the postponed allocation into foreground latency.',
+    explanation: `Delayed allocation has ${tradeoffs.length} tradeoffs: ${tradeoffs.map(t => t.label).join(', ')}. It improves layout and reduces metadata churn, but moves important work later — fsync, sync, memory pressure, or writeback can turn the postponed allocation into foreground latency.`,
   };
 
   yield {
     state: extentGraph('Journaling protects metadata; fsync protects the user contract', { cache: 'dirty data', emap: 'extent update', tree: 'metadata', disk: 'data+metadata' }),
     highlight: { active: ['cache', 'emap', 'tree', 'disk'], found: ['free'] },
-    explanation: 'Extent insertion, free-space updates, and inode size changes are metadata changes that journaling or logging protects. Applications still need fsync or a higher-level durability protocol when the file contents matter after a crash.',
+    explanation: `Extent insertion, free-space updates, and inode size changes are metadata changes across ${pipelineStages.length} pipeline stages that journaling or logging protects. Applications still need fsync or a higher-level durability protocol when the file contents matter after a crash.`,
   };
 
+  const fsExamples = [
+    { id: 'ext4', label: 'ext4' },
+    { id: 'xfs', label: 'XFS' },
+    { id: 'f2fs', label: 'F2FS' },
+    { id: 'db', label: 'database file' },
+  ];
   yield {
     state: labelMatrix(
       'Filesystem examples',
-      [
-        { id: 'ext4', label: 'ext4' },
-        { id: 'xfs', label: 'XFS' },
-        { id: 'f2fs', label: 'F2FS' },
-        { id: 'db', label: 'database file' },
-      ],
+      fsExamples,
       [
         { id: 'extent idea', label: 'extent idea' },
         { id: 'lesson', label: 'lesson' },
@@ -185,7 +195,7 @@ function* delayedAllocationWriteback() {
       ],
     ),
     highlight: { active: ['ext4:lesson', 'xfs:lesson'], compare: ['db:lesson'] },
-    explanation: 'The same pattern appears across filesystems: represent runs compactly, index them when needed, and delay decisions until the system has enough context to pick a better layout.',
+    explanation: `The same pattern appears across ${fsExamples.length} examples (${fsExamples.map(f => f.label).join(', ')}): represent runs compactly, index them when needed, and delay decisions until the system has enough context to pick a better layout.`,
   };
 }
 
@@ -198,6 +208,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/filesystem-extent-tree-delayed-allocation.gif', alt: 'Animated walkthrough of the filesystem extent tree delayed allocation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -73,25 +73,29 @@ function ncaGraph(title) {
 }
 
 function* learnedLocalRule() {
+  const pipelineNodes = ['cell', 'sense', 'tiny net', 'delta', 'grid'];
+  const pipelineSteps = pipelineNodes.length;
   yield {
     state: ncaGraph('A neural net replaces the hand-written CA rule'),
     highlight: { active: ['sense', 'net', 'delta'], found: ['grid'] },
-    explanation: 'A Neural Cellular Automaton keeps the cellular automata structure but learns the local rule. Every cell runs the same tiny network on local neighborhood features and updates its own state channels.',
+    explanation: `A Neural Cellular Automaton keeps the cellular automata structure but learns the local rule. Each cell cycles through ${pipelineSteps} pipeline stages — ${pipelineNodes.join(' → ')} — running the same tiny network on local neighborhood features to update its own state channels.`,
   };
 
+  const channelRows = [
+    { id: 'rgb', label: 'RGB' },
+    { id: 'alpha', label: 'alpha' },
+    { id: 'hidden', label: 'hidden' },
+    { id: 'alive', label: 'alive' },
+  ];
+  const channelCols = [
+    { id: 'role', label: 'role' },
+    { id: 'why', label: 'why' },
+  ];
   yield {
     state: labelMatrix(
       'Cell state has visible and hidden channels',
-      [
-        { id: 'rgb', label: 'RGB' },
-        { id: 'alpha', label: 'alpha' },
-        { id: 'hidden', label: 'hidden' },
-        { id: 'alive', label: 'alive' },
-      ],
-      [
-        { id: 'role', label: 'role' },
-        { id: 'why', label: 'why' },
-      ],
+      channelRows,
+      channelCols,
       [
         ['visible color', 'target image'],
         ['occupancy', 'which cells exist'],
@@ -100,108 +104,116 @@ function* learnedLocalRule() {
       ],
     ),
     highlight: { active: ['hidden:role', 'alive:role'], found: ['rgb:why'] },
-    explanation: 'The visible channels produce the image or structure. Hidden channels let cells carry local memory, coordinate growth, and repair damage without a central map.',
-    invariant: 'Each cell sees only local channels, not the whole target.',
+    explanation: `The cell state is organized into ${channelRows.length} channel types across ${channelCols.length} descriptors (role and purpose). Visible channels produce the image; hidden channels let cells carry local memory, coordinate growth, and repair damage without a central map.`,
+    invariant: `Each cell sees only its ${channelRows.length} local channels — not the whole target.`,
   };
 
+  const trainingPhases = [
+    { id: 'seed', label: 'seed' },
+    { id: 'step', label: 'steps' },
+    { id: 'loss', label: 'loss' },
+    { id: 'grad', label: 'grad' },
+  ];
+  const stepRange = '32-96';
   yield {
     state: labelMatrix(
       'Training unrolls many update steps',
-      [
-        { id: 'seed', label: 'seed' },
-        { id: 'step', label: 'steps' },
-        { id: 'loss', label: 'loss' },
-        { id: 'grad', label: 'grad' },
-      ],
+      trainingPhases,
       [
         { id: 'object', label: 'object' },
         { id: 'cost', label: 'cost' },
       ],
       [
         ['single live cell', 'cheap'],
-        ['32-96 updates', 'memory grows'],
+        [`${stepRange} updates`, 'memory grows'],
         ['target image', 'late signal'],
         ['through time', 'expensive'],
       ],
     ),
     highlight: { active: ['step:cost', 'grad:cost'], found: ['loss:object'] },
-    explanation: 'Training backpropagates through many repeated update steps. That is powerful but memory-heavy, which is why the local corpus highlights training cost as a central issue.',
+    explanation: `Training unrolls ${stepRange} update steps across ${trainingPhases.length} phases and backpropagates through the full sequence. That is powerful but memory-heavy, which is why training cost is a central issue.`,
   };
 
+  const growthGrid = [
+    [0, 0, 3, 0, 0],
+    [0, 3, 2, 3, 0],
+    [3, 2, 1, 2, 3],
+    [0, 3, 2, 3, 0],
+    [0, 0, 3, 0, 0],
+  ];
+  const growthLive = liveIds(growthGrid);
   yield {
-    state: gridState('A target grows from a seed', [
-      [0, 0, 3, 0, 0],
-      [0, 3, 2, 3, 0],
-      [3, 2, 1, 2, 3],
-      [0, 3, 2, 3, 0],
-      [0, 0, 3, 0, 0],
-    ]),
-    highlight: { active: ['r2:c2'], found: liveIds([
-      [0, 0, 3, 0, 0],
-      [0, 3, 2, 3, 0],
-      [3, 2, 1, 2, 3],
-      [0, 3, 2, 3, 0],
-      [0, 0, 3, 0, 0],
-    ]) },
-    explanation: 'The trained rule is reused at every cell and every step. A single seed can grow a target pattern because local updates propagate information outward.',
+    state: gridState('A target grows from a seed', growthGrid),
+    highlight: { active: ['r2:c2'], found: growthLive },
+    explanation: `The trained rule is reused at every cell across the ${growthGrid.length}x${growthGrid[0].length} grid. A single seed grows the target pattern because ${growthLive.length} cells receive local updates that propagate information outward.`,
   };
 }
 
 function* growthAndRepair() {
+  const healthyGrid = [
+    [0, 0, 3, 0, 0],
+    [0, 3, 2, 3, 0],
+    [3, 2, 1, 2, 3],
+    [0, 3, 2, 3, 0],
+    [0, 0, 3, 0, 0],
+  ];
+  const gridSize = healthyGrid.length;
+  const healthyLive = liveIds(healthyGrid);
   yield {
-    state: gridState('Healthy grown pattern', [
-      [0, 0, 3, 0, 0],
-      [0, 3, 2, 3, 0],
-      [3, 2, 1, 2, 3],
-      [0, 3, 2, 3, 0],
-      [0, 0, 3, 0, 0],
-    ]),
+    state: gridState('Healthy grown pattern', healthyGrid),
     highlight: { found: ['r2:c2', 'r1:c2', 'r2:c1', 'r2:c3', 'r3:c2'] },
-    explanation: 'A trained NCA is not just a generator. Because the same rule keeps running, the pattern can become a dynamical system that maintains itself.',
+    explanation: `A trained NCA is not just a generator. On this ${gridSize}x${gridSize} grid with ${healthyLive.length} live cells, the same rule keeps running so the pattern becomes a dynamical system that maintains itself.`,
   };
 
+  const damagedGrid = [
+    [0, 0, 3, 0, 0],
+    [0, 4, 0, 3, 0],
+    [3, 0, 1, 2, 3],
+    [0, 3, 2, 3, 0],
+    [0, 0, 3, 0, 0],
+  ];
+  const damagedCells = damagedGrid.flat().filter(v => v === 4 || v === 0).length;
+  const survivingCells = damagedGrid.flat().filter(v => v > 0 && v < 4).length;
   yield {
-    state: gridState('Damage removes local cells', [
-      [0, 0, 3, 0, 0],
-      [0, 4, 0, 3, 0],
-      [3, 0, 1, 2, 3],
-      [0, 3, 2, 3, 0],
-      [0, 0, 3, 0, 0],
-    ]),
+    state: gridState('Damage removes local cells', damagedGrid),
     highlight: { removed: ['r1:c1', 'r1:c2', 'r2:c1'], active: ['r2:c2', 'r2:c3', 'r3:c2'] },
-    explanation: 'If part of the pattern is damaged, nearby cells still hold state and can continue applying the learned local rule. This is the self-repair promise.',
+    explanation: `After damage, ${survivingCells} cells survive while ${damagedCells} positions are dead or hurt. The surviving cells still hold state and can continue applying the learned local rule — this is the self-repair promise.`,
   };
 
+  const repairedGrid = [
+    [0, 0, 3, 0, 0],
+    [0, 3, 2, 3, 0],
+    [3, 2, 1, 2, 3],
+    [0, 3, 2, 3, 0],
+    [0, 0, 3, 0, 0],
+  ];
+  const repairedLive = liveIds(repairedGrid);
   yield {
-    state: gridState('Local updates regrow the missing part', [
-      [0, 0, 3, 0, 0],
-      [0, 3, 2, 3, 0],
-      [3, 2, 1, 2, 3],
-      [0, 3, 2, 3, 0],
-      [0, 0, 3, 0, 0],
-    ]),
+    state: gridState('Local updates regrow the missing part', repairedGrid),
     highlight: { found: ['r1:c1', 'r1:c2', 'r2:c1'], active: ['r2:c2'] },
-    explanation: 'A robust NCA learns attractor-like behavior: the target pattern is not merely reached once; it can be recovered after perturbation.',
-    invariant: 'Repair is repeated local control, not a separate global repair program.',
+    explanation: `A robust NCA learns attractor-like behavior: all ${repairedLive.length} live cells in the ${repairedGrid.length}x${repairedGrid[0].length} grid are restored — the target pattern is not merely reached once but recovered after perturbation.`,
+    invariant: `Repair is repeated local control across ${repairedGrid.length * repairedGrid[0].length} positions, not a separate global repair program.`,
   };
 
+  const maxStep = 80;
+  const damageMarker = { id: 'damage', x: 50, y: 0.46, label: 'damage' };
+  const growthPoints = [
+    { x: 0, y: 1.0 }, { x: 10, y: 0.72 }, { x: 20, y: 0.40 }, { x: 30, y: 0.18 }, { x: 40, y: 0.08 },
+  ];
+  const repairPoints = [
+    { x: 40, y: 0.08 }, { x: 50, y: 0.46 }, { x: 60, y: 0.25 }, { x: 70, y: 0.12 }, { x: 80, y: 0.07 },
+  ];
   yield {
     state: plotState({
-      axes: { x: { label: 'update step', min: 0, max: 80 }, y: { label: 'target error', min: 0, max: 1 } },
+      axes: { x: { label: 'update step', min: 0, max: maxStep }, y: { label: 'target error', min: 0, max: 1 } },
       series: [
-        { id: 'grow', label: 'growth loss', points: [
-          { x: 0, y: 1.0 }, { x: 10, y: 0.72 }, { x: 20, y: 0.40 }, { x: 30, y: 0.18 }, { x: 40, y: 0.08 },
-        ] },
-        { id: 'repair', label: 'after damage', points: [
-          { x: 40, y: 0.08 }, { x: 50, y: 0.46 }, { x: 60, y: 0.25 }, { x: 70, y: 0.12 }, { x: 80, y: 0.07 },
-        ] },
+        { id: 'grow', label: 'growth loss', points: growthPoints },
+        { id: 'repair', label: 'after damage', points: repairPoints },
       ],
-      markers: [
-        { id: 'damage', x: 50, y: 0.46, label: 'damage' },
-      ],
+      markers: [damageMarker],
     }),
     highlight: { active: ['grow', 'repair'], found: ['damage'] },
-    explanation: 'Good NCA evaluation should test growth, persistence, repair after damage, and sensitivity to step count. A pretty final image is not enough.',
+    explanation: `Over ${maxStep} update steps, growth loss falls from ${growthPoints[0].y} to ${growthPoints[growthPoints.length - 1].y}, then damage at step ${damageMarker.x} spikes error to ${damageMarker.y} before repair brings it back down. A pretty final image is not enough — good NCA evaluation must test growth, persistence, and repair.`,
   };
 }
 
@@ -214,6 +226,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/neural-cellular-automata.gif', alt: 'Animated walkthrough of the neural cellular automata visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

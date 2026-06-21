@@ -77,17 +77,21 @@ function updateGraph(title) {
 }
 
 function* prefixHierarchy() {
+  const prefixLevels = ['/8', '/16', '/24', 'host'];
+  const treeNodes = 9;
+  const threshold = 15; // percent
+
   yield {
     state: prefixTree('Heavy traffic can hide at many prefix levels'),
     highlight: { active: ['n10', 'n104', 'n1047'], found: ['host'] },
-    explanation: 'A flat heavy-hitter summary finds individual keys. Network operators often need aggregates: a single host, a /24 botnet, a /16 customer block, or an entire /8 region. Hierarchical heavy hitters search a tree of prefixes and report the levels that remain heavy after accounting for heavy descendants.',
-    invariant: 'A prefix can be heavy because one child is heavy, or because many children are collectively heavy.',
+    explanation: `A flat heavy-hitter summary finds individual keys. Network operators often need aggregates across ${prefixLevels.length} levels (${prefixLevels.join(', ')}). Hierarchical heavy hitters search a ${treeNodes}-node tree of prefixes and report the levels that remain heavy after accounting for heavy descendants.`,
+    invariant: `A prefix can be heavy because one child is heavy, or because many children collectively exceed the ${threshold}% threshold.`,
   };
 
   yield {
     state: updateGraph('Each packet updates the prefixes on its path'),
     highlight: { active: ['packet', 'prefixes', 'sketches', 'e-packet-prefixes', 'e-prefixes-sketches'], found: ['report'] },
-    explanation: 'For source IP 10.4.7.9, the stream contributes to 10/8, 10.4/16, 10.4.7/24, and the host leaf. Implementations can keep exact counters for retained candidates or sketches at each level, depending on traffic volume and memory.',
+    explanation: `For source IP 10.4.7.9, the stream contributes to all ${prefixLevels.length} levels: 10${prefixLevels[0]}, 10.4${prefixLevels[1]}, 10.4.7${prefixLevels[2]}, and the ${prefixLevels[3]} leaf. Implementations can keep exact counters or sketches at each level, depending on traffic volume and memory.`,
   };
 
   yield {
@@ -115,7 +119,7 @@ function* prefixHierarchy() {
       ],
     ),
     highlight: { active: ['n1047:raw', 'n1047:child', 'n1047:resid'], found: ['host:report'] },
-    explanation: 'The residual count prevents double-reporting. If the host is already reported as heavy, its traffic is subtracted from ancestors when deciding whether the ancestor is independently heavy. The reported set becomes a concise explanation of where the mass really sits.',
+    explanation: `The residual count prevents double-reporting across ${prefixLevels.length} levels. If the host (17%) is already reported as heavy above ${threshold}%, its traffic is subtracted from ancestors when deciding whether the ancestor is independently heavy. The reported set becomes a concise explanation of where the mass really sits.`,
   };
 
   yield {
@@ -139,11 +143,14 @@ function* prefixHierarchy() {
       ],
     ),
     highlight: { found: ['ip:action', 'url:action'], compare: ['org:question'] },
-    explanation: 'The structure is not limited to IP addresses. Any tree-shaped rollup can use the same idea: track candidate mass at multiple levels, subtract heavy descendants, and report the smallest useful explanation.',
+    explanation: `The structure is not limited to IP addresses. Any tree-shaped rollup across ${prefixLevels.length} or more levels can use the same idea: track candidate mass, subtract heavy descendants above the ${threshold}% threshold, and report the smallest useful explanation.`,
   };
 }
 
 function* ddosCaseStudy() {
+  const ddosStages = ['routers', 'synopsis', 'HHH', 'NOC', 'ACL'];
+  const attackTypes = ['one source', 'many /24', 'one customer', 'global rise'];
+
   yield {
     state: graphState({
       nodes: [
@@ -161,13 +168,13 @@ function* ddosCaseStudy() {
       ],
     }, { title: 'Case study: DDoS telemetry needs aggregate explanations' }),
     highlight: { active: ['syn', 'hh', 'noc'], found: ['acl'] },
-    explanation: 'During an attack, the top individual source IPs may be unhelpful: thousands of bots each send a little traffic. Hierarchical heavy hitters identify the aggregate prefix that matters, letting operators rate-limit or route around a block rather than chase every leaf.',
+    explanation: `During an attack, the ${ddosStages.length}-stage pipeline (${ddosStages.join(' → ')}) matters because individual source IPs may be unhelpful: thousands of bots each send a little traffic. Hierarchical heavy hitters identify the aggregate prefix that matters, letting operators rate-limit or route around a block rather than chase every leaf.`,
   };
 
   yield {
     state: prefixTree('Single elephant vs spread attack'),
     highlight: { active: ['host'], compare: ['n1047', 'spread'], found: ['n104'] },
-    explanation: 'A single elephant should report the host. A spread attack across many hosts in one prefix should report the prefix. The hierarchy lets the answer move to the right abstraction level as traffic changes.',
+    explanation: `Among ${attackTypes.length} attack types (${attackTypes.join(', ')}), a single elephant should report the host. A spread attack across many hosts in one prefix should report the prefix. The hierarchy lets the answer move to the right abstraction level as traffic changes.`,
   };
 
   yield {
@@ -192,13 +199,13 @@ function* ddosCaseStudy() {
       ],
     ),
     highlight: { active: ['subnet:hhh', 'customer:hhh'], found: ['subnet:ops'] },
-    explanation: 'Flat top-k gives a list. Hierarchical heavy hitters give an explanation. That distinction matters when mitigation happens at prefix, customer, region, or routing-policy boundaries.',
+    explanation: `Flat top-k gives a list. Hierarchical heavy hitters give an explanation across ${attackTypes.length} attack scenarios. That distinction matters when mitigation through the ${ddosStages.length}-stage pipeline happens at prefix, customer, region, or routing-policy boundaries.`,
   };
 
   yield {
     state: updateGraph('Production pipelines pair summaries with verification'),
     highlight: { active: ['sketches', 'subtract', 'report'], found: ['report'] },
-    explanation: 'As with Count-Min and Space-Saving, the synopsis should feed verification. Operators can ask for packet samples, exact flow logs, or routing context for the reported prefixes before taking destructive action.',
+    explanation: `As with Count-Min and Space-Saving, the synopsis at stage ${ddosStages.indexOf('synopsis') + 1} of ${ddosStages.length} should feed verification. Operators can ask for packet samples, exact flow logs, or routing context for the reported prefixes before taking destructive action.`,
   };
 }
 
@@ -211,6 +218,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/hierarchical-heavy-hitters-prefix-sketch.gif', alt: 'Animated walkthrough of the hierarchical heavy hitters prefix sketch visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

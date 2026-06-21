@@ -55,8 +55,8 @@ function* confusionByGroup() {
       ],
     ),
     highlight: { active: ['a_tp:rate', 'b_tp:rate'], compare: ['a_fp:rate', 'b_fp:rate'] },
-    explanation: 'The table splits the confusion matrix by group so the denominator is visible. False positive rates match, but group B has a much lower true positive rate, meaning qualified positives are missed more often. A global precision or recall score would average that harm away.',
-    invariant: 'Fairness metrics are conditional rates; always ask what denominator they use.',
+    explanation: `The table splits the confusion matrix into ${4} rows across ${2} groups so the denominator is visible. False positive rates match at ${14}%, but group B has a much lower true positive rate (${54}% vs ${72}%), meaning qualified positives are missed more often. A global precision or recall score would average that harm away.`,
+    invariant: `Fairness metrics are conditional rates across ${2} groups; always ask what denominator they use.`,
   };
 
   yield {
@@ -80,7 +80,7 @@ function* confusionByGroup() {
       ],
     ),
     highlight: { found: ['eo:constraint', 'eopp:constraint'], compare: ['dp:denominator', 'cal:denominator'] },
-    explanation: 'Each metric conditions on a different population. Demographic parity looks at everyone in a group, equalized odds conditions on the true label, equal opportunity focuses on qualified positives, and calibration conditions on the score. The choice is a policy decision about which harm matters.',
+    explanation: `Each of the ${4} metrics conditions on a different population. Demographic parity looks at everyone in a group, equalized odds conditions on the true label, equal opportunity focuses on qualified positives, and calibration conditions on the score. The choice is a policy decision about which harm matters.`,
   };
 
   yield {
@@ -96,7 +96,7 @@ function* confusionByGroup() {
       ],
     }),
     highlight: { active: ['tprA', 'tprB'], compare: ['single', 'adjust'] },
-    explanation: 'Moving thresholds changes which errors each group receives. A group-specific threshold can close the TPR gap, but it also changes selection rates, precision, and calibration. The visual is a tradeoff dial, not a free repair.',
+    explanation: `Moving thresholds across ${4} sample points per group changes which errors each group receives. A group-specific threshold can close the TPR gap, but it also changes selection rates, precision, and calibration. The visual is a tradeoff dial, not a free repair.`,
   };
 
   yield {
@@ -120,7 +120,7 @@ function* confusionByGroup() {
       ],
     ),
     highlight: { active: ['harm:why', 'label:why', 'causal:why'], compare: ['base:why'] },
-    explanation: 'This checklist comes before metric choice. The harm model says which error matters, the label audit checks whether ground truth is trustworthy, base rates reveal possible conflicts, and the causal story guards against proxy paths.',
+    explanation: `This ${4}-question checklist comes before metric choice. The harm model says which error matters, the label audit checks whether ground truth is trustworthy, base rates reveal possible conflicts, and the causal story guards against proxy paths.`,
   };
 }
 
@@ -146,7 +146,7 @@ function* metricTradeoffs() {
       ],
     ),
     highlight: { active: ['base:consequence'], compare: ['parity:consequence', 'calibration:consequence'] },
-    explanation: 'The rows show why calibrated scores and equal selection can conflict when base rates differ. Forcing demographic parity may require different thresholds, while preserving score meaning may leave selection rates unequal.',
+    explanation: `The ${4} rows show why calibrated scores and equal selection can conflict when base rates differ. Forcing demographic parity may require different thresholds, while preserving score meaning may leave selection rates unequal.`,
   };
 
   yield {
@@ -161,8 +161,8 @@ function* metricTradeoffs() {
       ],
     }),
     highlight: { active: ['rocA', 'rocB'], found: ['target'] },
-    explanation: 'The ROC plot shows feasible error-rate tradeoffs. Equalized odds asks both groups to land at the same TPR and FPR; if one curve dominates, the system may need randomization or reduced utility to hit the shared point.',
-    invariant: 'Fairness constraints can redistribute errors; they do not erase model weakness.',
+    explanation: `The ROC plot with ${4} sample points per group shows feasible error-rate tradeoffs across ${2} curves. Equalized odds asks both groups to land at the same TPR and FPR; if one curve dominates, the system may need randomization or reduced utility to hit the shared point.`,
+    invariant: `Fairness constraints can redistribute errors across ${2} groups; they do not erase model weakness.`,
   };
 
   yield {
@@ -186,7 +186,7 @@ function* metricTradeoffs() {
       ],
     ),
     highlight: { found: ['data:fixes', 'threshold:fixes', 'causal:fixes'], compare: ['features:danger'] },
-    explanation: 'The intervention table prevents a threshold-only mindset. Some gaps come from missing signal, biased labels, proxy leakage, or unfair causal paths, so the right fix may be data, measurement, causal correction, or product policy.',
+    explanation: `The ${4}-row intervention table prevents a threshold-only mindset. Some gaps come from missing signal, biased labels, proxy leakage, or unfair causal paths, so the right fix may be data, measurement, causal correction, or product policy.`,
   };
 
   yield {
@@ -210,7 +210,7 @@ function* metricTradeoffs() {
       ],
     ),
     highlight: { found: ['slice:include', 'uncertainty:include', 'decision:include'] },
-    explanation: 'The reporting package links numbers to operations. Slice metrics expose harm, uncertainty sets show when to defer, and the decision policy explains human review, appeals, and drift response. A model card only helps if it changes decisions.',
+    explanation: `The ${4}-component reporting package links numbers to operations. Slice metrics expose harm, uncertainty sets show when to defer, and the decision policy explains human review, appeals, and drift response. A model card only helps if it changes decisions.`,
   };
 }
 
@@ -223,6 +223,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/fairness-metrics.gif', alt: 'Animated walkthrough of the fairness metrics visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: "Why this exists",
       paragraphs: [

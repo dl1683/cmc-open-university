@@ -150,7 +150,8 @@ export const article = {
         'Gradient flow arrows run right to left -- the reverse direction. Highlighted cells mark the gradient currently being computed. A zero gradient means that neuron was gated off by ReLU during the forward pass, so no error signal passes through it backward either. The forward gate and the backward gate are the same gate.',
         'The final panel reruns the forward pass with updated weights. The before-and-after loss comparison is the payoff: if the loss dropped, the gradients pointed downhill and the learning rate was small enough to follow them. One backward sweep, all weights updated, network measurably less wrong.',
         {type: 'callout', text: 'Backpropagation makes every cached forward value reusable so one reverse sweep assigns blame to every weight.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/backpropagation.gif', alt: 'Animated walkthrough of the backpropagation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

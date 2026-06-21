@@ -147,7 +147,8 @@ export const article = {
         'After the rotation fires, the repaired nodes appear as found. The height labels on each node let you verify the balance factor yourself: subtract the right child\'s height from the left child\'s height. If the result is outside {-1, 0, +1}, a rotation is due.',
         'Switch to the sorted-input option to watch the worst case for a plain BST. Every other insert triggers a rotation, yet the tree stays short. That is the entire point of AVL.',
         {type: 'callout', text: 'AVL keeps lookup latency bounded by making every mutation repair shape before height debt can spread.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/avl-tree.gif', alt: 'Animated walkthrough of the avl tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

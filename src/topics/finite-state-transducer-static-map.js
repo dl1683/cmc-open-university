@@ -71,22 +71,24 @@ function buildGraph(title) {
 }
 
 function* lookupPath() {
+  const lookupStages = ['key', 'fst', 'output', 'slot', 'answer'];
   yield {
     state: lookupGraph('An FST maps strings to compact outputs'),
     highlight: { active: ['key', 'fst', 'output'], found: ['slot', 'answer'] },
-    explanation: 'A finite-state transducer is an automaton with outputs on transitions or states. Lookup walks the key symbols and accumulates output pieces to reach a stored ordinal, pointer, weight, or payload id.',
-    invariant: 'The FST is exact for its stored language: a missing transition proves the key is absent.',
+    explanation: `A finite-state transducer is an automaton with outputs on transitions. Lookup walks ${lookupStages.length} stages (${lookupStages.join(' -> ')}) — key symbols are consumed, output pieces accumulate, and a stored ordinal, pointer, or payload id emerges.`,
+    invariant: `The FST is exact for its stored language: a missing transition at any of the ${lookupStages.length} stages proves the key is absent.`,
   };
 
+  const keys = [
+    { id: 'car', label: 'car', out: 10 },
+    { id: 'card', label: 'card', out: 11 },
+    { id: 'care', label: 'care', out: 12 },
+    { id: 'dog', label: 'dog', out: 30 },
+  ];
   yield {
     state: labelMatrix(
       'Tiny static map',
-      [
-        { id: 'car', label: 'car' },
-        { id: 'card', label: 'card' },
-        { id: 'care', label: 'care' },
-        { id: 'dog', label: 'dog' },
-      ],
+      keys.map(({ id, label }) => ({ id, label })),
       [
         { id: 'path', label: 'path' },
         { id: 'out', label: 'output' },
@@ -99,18 +101,19 @@ function* lookupPath() {
       ],
     ),
     highlight: { active: ['card:path'], found: ['card:out'], compare: ['car:path', 'care:path'] },
-    explanation: 'The stored keys remain lexicographic like a trie, but the output is part of the machine. A search engine can map a term to a term ordinal or a block pointer without storing one object per term.',
+    explanation: `${keys.length} stored keys (${keys.map(k => k.label).join(', ')}) remain lexicographic like a trie, but outputs (${keys.map(k => k.out).join(', ')}) are part of the machine. A search engine can map a term to a term ordinal or block pointer without storing one object per term.`,
   };
 
+  const sharingDimensions = [
+    { id: 'prefix', label: 'prefixes' },
+    { id: 'suffix', label: 'suffixes' },
+    { id: 'outputs', label: 'outputs' },
+    { id: 'finals', label: 'final states' },
+  ];
   yield {
     state: labelMatrix(
       'What gets shared',
-      [
-        { id: 'prefix', label: 'prefixes' },
-        { id: 'suffix', label: 'suffixes' },
-        { id: 'outputs', label: 'outputs' },
-        { id: 'finals', label: 'final states' },
-      ],
+      sharingDimensions,
       [
         { id: 'trie', label: 'plain trie' },
         { id: 'fst', label: 'minimal FST' },
@@ -123,18 +126,19 @@ function* lookupPath() {
       ],
     ),
     highlight: { active: ['suffix:fst', 'outputs:fst'], compare: ['suffix:trie'] },
-    explanation: 'A minimized acyclic automaton can share identical suffix subgraphs, not just prefixes. Transducer outputs are factored so common output prefixes live near the root and deltas live on later arcs.',
+    explanation: `Across ${sharingDimensions.length} sharing dimensions, a minimized acyclic automaton can merge identical suffix subgraphs — not just prefixes. With ${keys.length} keys like ours, transducer outputs are factored so common output prefixes live near the root and deltas live on later arcs.`,
   };
 
+  const alternatives = [
+    { id: 'hash', label: 'MPHF' },
+    { id: 'fst', label: 'FST' },
+    { id: 'trie', label: 'trie' },
+    { id: 'bloom', label: 'Bloom' },
+  ];
   yield {
     state: labelMatrix(
       'Compare static dictionaries',
-      [
-        { id: 'hash', label: 'MPHF' },
-        { id: 'fst', label: 'FST' },
-        { id: 'trie', label: 'trie' },
-        { id: 'bloom', label: 'Bloom' },
-      ],
+      alternatives,
       [
         { id: 'best', label: 'best at' },
         { id: 'miss', label: 'miss proof' },
@@ -147,27 +151,30 @@ function* lookupPath() {
       ],
     ),
     highlight: { found: ['fst:best', 'fst:miss'], compare: ['hash:miss', 'bloom:miss'] },
-    explanation: 'FSTs sit between tries and perfect hashes. They keep order and prefix traversal like tries, compress static dictionaries aggressively, and can return values directly like a map.',
+    explanation: `Among ${alternatives.length} static dictionary structures (${alternatives.map(a => a.label).join(', ')}), FSTs sit between tries and perfect hashes. They keep order and prefix traversal like tries, compress static dictionaries aggressively, and return values directly like a map.`,
   };
 }
 
 function* buildAndMinimize() {
+  const buildStages = ['terms', 'trie', 'register', 'merge', 'fst'];
   yield {
     state: buildGraph('Sorted input enables online minimization'),
     highlight: { active: ['terms', 'trie', 'register'], found: ['merge', 'fst'] },
-    explanation: 'A practical builder reads terms in sorted order. After each new key, the suffix of the previous key is frozen, compared with a register of equivalent states, and merged when the future behavior is identical.',
-    invariant: 'Two states can merge when they accept the same suffix language and carry compatible outputs.',
+    explanation: `A practical builder reads terms through ${buildStages.length} stages (${buildStages.join(' -> ')}). After each new key, the suffix of the previous key is frozen, compared with a register of equivalent states, and merged when the future behavior is identical.`,
+    invariant: `Two states can merge when they accept the same suffix language and carry compatible outputs — the ${buildStages[2]} decides.`,
   };
 
+  const equivCriteria = [
+    { id: 'same', label: 'same suffix', decision: 'merge' },
+    { id: 'final', label: 'same final', decision: 'merge' },
+    { id: 'out', label: 'same output', decision: 'merge/factor' },
+    { id: 'diff', label: 'different arc', decision: 'keep apart' },
+  ];
+  const mergeable = equivCriteria.filter(c => c.decision.startsWith('merge'));
   yield {
     state: labelMatrix(
       'State equivalence',
-      [
-        { id: 'same', label: 'same suffix' },
-        { id: 'final', label: 'same final' },
-        { id: 'out', label: 'same output' },
-        { id: 'diff', label: 'different arc' },
-      ],
+      equivCriteria.map(({ id, label }) => ({ id, label })),
       [
         { id: 'decision', label: 'decision' },
         { id: 'reason', label: 'reason' },
@@ -180,18 +187,20 @@ function* buildAndMinimize() {
       ],
     ),
     highlight: { found: ['same:decision', 'final:decision'], active: ['out:decision'], compare: ['diff:decision'] },
-    explanation: 'Minimization is not visual decoration. It is the compression step. If two states answer every possible remaining suffix in the same way, one state can represent both histories.',
+    explanation: `Minimization is not visual decoration. ${mergeable.length} of ${equivCriteria.length} criteria lead to merging — if two states answer every possible remaining suffix in the same way, one state can represent both histories.`,
   };
 
+  const factorKeys = [
+    { id: 'car', label: 'car', common: 10, delta: 0 },
+    { id: 'card', label: 'card', common: 10, delta: 1 },
+    { id: 'care', label: 'care', common: 10, delta: 2 },
+    { id: 'cars', label: 'cars', common: 10, delta: 3 },
+  ];
+  const commonOut = factorKeys[0].common;
   yield {
     state: labelMatrix(
       'Output factoring',
-      [
-        { id: 'car', label: 'car' },
-        { id: 'card', label: 'card' },
-        { id: 'care', label: 'care' },
-        { id: 'cars', label: 'cars' },
-      ],
+      factorKeys.map(({ id, label }) => ({ id, label })),
       [
         { id: 'common', label: 'common out' },
         { id: 'delta', label: 'delta' },
@@ -204,13 +213,13 @@ function* buildAndMinimize() {
       ],
     ),
     highlight: { active: ['car:common', 'card:common', 'care:common', 'cars:common'], found: ['card:delta', 'care:delta', 'cars:delta'] },
-    explanation: 'When nearby keys map to nearby ordinals, the builder can push common output pieces toward shared arcs. Lookup accumulates the common part plus the final delta.',
+    explanation: `All ${factorKeys.length} keys share common output ${commonOut} on the early arc. The builder pushes this toward the root, leaving deltas ${factorKeys.map(k => k.delta).join(', ')} on later arcs. Lookup accumulates the common part plus the final delta.`,
   };
 
   yield {
     state: buildGraph('Lucene-style terms dictionaries use the pattern'),
     highlight: { active: ['terms', 'fst'], found: ['merge'], compare: ['trie'] },
-    explanation: 'Lucene popularized FSTs for compact in-memory term dictionaries. The FST can guide a term lookup toward the block or ordinal that contains the postings metadata, while larger postings data stays outside the automaton.',
+    explanation: `Lucene popularized FSTs for compact in-memory term dictionaries. Through the ${buildStages.length}-stage pipeline, the FST can guide a term lookup toward the block or ordinal that contains the postings metadata, while larger postings data stays outside the automaton.`,
   };
 }
 
@@ -230,7 +239,8 @@ export const article = {
         {type: 'callout', text: 'An FST map stores keys as paths and values as output accumulated along those paths.'},
         'The "build and minimize" view traces construction. Active nodes are the builder stages: sorted terms feed a trie frontier, frozen suffixes enter a register, equivalent states merge, and the minimal FST emerges. The output factoring frame shows how nearby values share a common prefix on early arcs and leave only small deltas on later arcs.',
         'In both views, a missing transition is proof of absence. If the automaton has no arc for the next input byte, the key is not in the dictionary. This is stronger than a hash miss, which only says the slot is empty.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/finite-state-transducer-static-map.gif', alt: 'Animated walkthrough of the finite state transducer static map visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -117,7 +117,8 @@ export const article = {
         {type: 'callout', text: 'The tails array does not store the answer; it stores the cheapest possible ending for each answer length.'},
         'Two things can happen at each step. If the current element is larger than every tail, it extends the tails array and the LIS length grows by one. If not, a binary search finds the first tail that is greater than or equal to the current element and replaces it. The length stays the same, but the tails array now has a smaller value at that position -- a better springboard for future growth.',
         'At the end, found highlights trace the actual longest increasing subsequence recovered through parent pointers. The tails array itself is not the LIS. It is the working structure that makes O(n log n) possible.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/longest-increasing-subsequence.gif', alt: 'Animated walkthrough of the longest increasing subsequence visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -55,11 +55,15 @@ function radixGraph(title) {
 }
 
 function* bucketLayout() {
+  const lastKey = 8;
+  const bucketCount = 4; // B0 through B3 shown
+  const heapTypes = 4; // binary, fibo, pairing, radix in comparison
+
   yield {
     state: radixGraph('Buckets are relative to the last extracted key'),
     highlight: { active: ['last', 'b0', 'b1', 'b2', 'b3'], compare: ['redistribute'] },
-    explanation: 'A radix heap assumes extracted keys never decrease. It groups integer keys by the most significant bit where the key differs from the last extracted key.',
-    invariant: 'Every stored key is at least last; Dijkstra with nonnegative edges satisfies this monotone condition.',
+    explanation: `A radix heap assumes extracted keys never decrease. It groups integer keys by the most significant bit where the key differs from the last extracted key (last = ${lastKey} in this example).`,
+    invariant: `Every stored key is at least last (${lastKey}); Dijkstra with nonnegative edges satisfies this monotone condition.`,
   };
 
   yield {
@@ -83,13 +87,13 @@ function* bucketLayout() {
       ],
     ),
     highlight: { active: ['k9:bucket', 'k10:bucket', 'k14:bucket'], found: ['k8:bucket'] },
-    explanation: 'B0 contains keys equal to last and can be popped directly. Higher buckets cover ranges whose exact minimum is found when that bucket becomes the first nonempty bucket.',
+    explanation: `B0 contains keys equal to last (${lastKey}) and can be popped directly. The ${bucketCount} buckets shown cover ranges whose exact minimum is found when that bucket becomes the first nonempty bucket.`,
   };
 
   yield {
     state: radixGraph('Opening a bucket finds its minimum and redistributes'),
     highlight: { active: ['b2', 'redistribute', 'pop', 'e-bucket-redist', 'e-redist-pop'], compare: ['b3'] },
-    explanation: 'When B0 is empty, find the first nonempty bucket, scan it to find its minimum, set last to that minimum, and redistribute the bucket entries under the new last.',
+    explanation: `When B0 is empty, find the first nonempty bucket among the ${bucketCount} shown, scan it to find its minimum, set last to that minimum, and redistribute the bucket entries under the new last.`,
   };
 
   yield {
@@ -113,11 +117,16 @@ function* bucketLayout() {
       ],
     ),
     highlight: { found: ['radix:keys', 'radix:best'], compare: ['binary:best'] },
-    explanation: 'Radix heaps are specialized. They buy speed by using integer bits and monotonicity instead of comparison-tree ordering.',
+    explanation: `Radix heaps are specialized. Compared to the other ${heapTypes - 1} heap types shown, they buy speed by using integer bits and monotonicity instead of comparison-tree ordering.`,
   };
 }
 
 function* dijkstraPop() {
+  const lastKey = 8;
+  const edgeWeightA = 1;
+  const edgeWeightB = 6;
+  const costRows = 4; // scan, min, move, amortized
+
   yield {
     state: labelMatrix(
       'Dijkstra distance queue',
@@ -139,13 +148,13 @@ function* dijkstraPop() {
       ],
     ),
     highlight: { active: ['relaxA:bucket', 'relaxB:bucket'], found: ['next:key'] },
-    explanation: 'Dijkstra with nonnegative edges pops vertices in nondecreasing distance. That is exactly the monotone property radix heaps require.',
+    explanation: `Dijkstra with nonnegative edges pops vertices in nondecreasing distance. After popping dist ${lastKey}, relaxing edges +${edgeWeightA} and +${edgeWeightB} produces keys ${lastKey + edgeWeightA} and ${lastKey + edgeWeightB} -- both >= last.`,
   };
 
   yield {
     state: radixGraph('Relaxed distances go into bit-distance buckets'),
     highlight: { active: ['last', 'b1', 'b3', 'e-last-b1', 'e-last-b3'], compare: ['b2'] },
-    explanation: 'A newly relaxed distance is compared to the last popped distance, not to every other queued item. The bucket number is derived from the highest differing bit.',
+    explanation: `A newly relaxed distance is compared to the last popped distance (${lastKey}), not to every other queued item. The bucket number is derived from the highest differing bit between the key and ${lastKey}.`,
   };
 
   yield {
@@ -169,8 +178,8 @@ function* dijkstraPop() {
       ],
     ),
     highlight: { found: ['amortized:why', 'move:why'], compare: ['scan:work'] },
-    explanation: 'Redistribution can scan a whole bucket, but each move lowers an item into a more precise bucket. The total cost is controlled by key word length.',
-    invariant: 'After redistribution, B0 contains the new last key if it is still present.',
+    explanation: `Redistribution can scan a whole bucket, but each move lowers an item into a more precise bucket. The ${costRows} cost rows show that the total cost is controlled by key word length.`,
+    invariant: `After redistribution, B0 contains the new last key (was ${lastKey}) if it is still present.`,
   };
 
   yield {
@@ -194,7 +203,7 @@ function* dijkstraPop() {
       ],
     ),
     highlight: { found: ['dijkstra:lesson', 'queue:lesson'], compare: ['weights:condition'] },
-    explanation: 'The case-study rule is simple: if shortest-path keys are nonnegative integers and pop order is monotone, a radix heap may beat a comparison heap.',
+    explanation: `The case-study rule is simple: if shortest-path keys are nonnegative integers (like edges +${edgeWeightA} and +${edgeWeightB} from dist ${lastKey}) and pop order is monotone, a radix heap may beat a comparison heap.`,
   };
 }
 
@@ -225,7 +234,8 @@ export const article = {
             'Check that last never decreases -- that is the monotone invariant the entire structure depends on.',
           ],
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/radix-heap.gif', alt: 'Animated walkthrough of the radix heap visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

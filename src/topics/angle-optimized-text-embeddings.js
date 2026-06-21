@@ -72,6 +72,8 @@ function gradientPoints() {
 }
 
 function* cosineSaturation() {
+  const nearAngle = 10;
+  const farAngle = 170;
   yield {
     state: plotState({
       axes: { x: { label: 'angle between vectors (deg)', min: 0, max: 180 }, y: { label: 'cosine value', min: -1.05, max: 1.05 } },
@@ -79,12 +81,12 @@ function* cosineSaturation() {
         { id: 'cos', label: 'cos(angle)', points: cosinePoints() },
       ],
       markers: [
-        { id: 'near', x: 10, y: 0.98, label: 'near duplicate' },
-        { id: 'far', x: 170, y: -0.98, label: 'obvious negative' },
+        { id: 'near', x: nearAngle, y: 0.98, label: 'near duplicate' },
+        { id: 'far', x: farAngle, y: -0.98, label: 'obvious negative' },
       ],
     }),
     highlight: { active: ['cos'], compare: ['near', 'far'] },
-    explanation: 'Cosine similarity is the standard metric for sentence embeddings, but the curve flattens near 0 deg and 180 deg. The pairs that are already very similar or very different can produce weak learning signal even when their ordering still matters.',
+    explanation: `Cosine similarity is the standard metric for sentence embeddings, but the curve flattens near ${nearAngle} deg and ${farAngle} deg. The pairs that are already very similar or very different can produce weak learning signal even when their ordering still matters.`,
   };
 
   yield {
@@ -100,19 +102,20 @@ function* cosineSaturation() {
       ],
     }),
     highlight: { active: ['flatA', 'flatB'], found: ['steep'] },
-    explanation: 'The derivative is strongest around 90 deg and tiny near the saturation zones. AnglE targets that weakness: optimize angular information more directly instead of asking cosine to carry the entire training objective.',
-    invariant: 'If the metric saturates, gradient descent gets quiet exactly where ranking can still be useful.',
+    explanation: `The derivative is strongest around ${90} deg where |sin| = ${Math.sin(90 * Math.PI / 180).toFixed(1)} and tiny near the saturation zones. AnglE targets that weakness: optimize angular information more directly instead of asking cosine to carry the entire training objective.`,
+    invariant: `If the metric saturates, gradient descent gets quiet exactly where ranking can still be useful — |sin(${5}°)| is only ${Math.sin(5 * Math.PI / 180).toFixed(2)}.`,
   };
 
+  const pairTypes = [
+    { id: 'dup', label: 'duplicate issue' },
+    { id: 'same', label: 'same intent' },
+    { id: 'near', label: 'near topic' },
+    { id: 'neg', label: 'unrelated' },
+  ];
   yield {
     state: labelMatrix(
       'Semantic pair pressure',
-      [
-        { id: 'dup', label: 'duplicate issue' },
-        { id: 'same', label: 'same intent' },
-        { id: 'near', label: 'near topic' },
-        { id: 'neg', label: 'unrelated' },
-      ],
+      pairTypes,
       [
         { id: 'target', label: 'target' },
         { id: 'cosine risk', label: 'cos risk' },
@@ -126,17 +129,23 @@ function* cosineSaturation() {
       ],
     ),
     highlight: { active: ['dup:cosine risk', 'neg:cosine risk'], found: ['dup:angle fix', 'neg:angle fix'] },
-    explanation: 'Semantic textual similarity is not just binary match/no-match. Good embeddings must order duplicates, paraphrases, related passages, and unrelated passages. The saturation problem hides exactly in those fine distinctions.',
+    explanation: `Semantic textual similarity is not just binary match/no-match. Good embeddings must order ${pairTypes.length} levels — ${pairTypes.map(p => p.label).join(', ')}. The saturation problem hides exactly in those fine distinctions.`,
   };
 
+  const pipelineStages = ['split', 'angle'];
   yield {
     state: embeddingPipeline('AnglE keeps the familiar embedding pipeline but changes the geometry of the loss'),
-    highlight: { active: ['split', 'angle'], found: ['rank'] },
-    explanation: 'AnglE keeps the production-friendly recipe - encode text, produce vectors, compare pairs - but introduces angle optimization in complex space. The result is still an embedding model you can use for retrieval, clustering, and reranking.',
+    highlight: { active: pipelineStages, found: ['rank'] },
+    explanation: `AnglE keeps the production-friendly recipe — encode text, produce vectors, compare pairs — but introduces ${pipelineStages[1]} optimization via complex ${pipelineStages[0]}. The result is still an embedding model you can use for retrieval, clustering, and reranking.`,
   };
 }
 
 function* complexAngleLoss() {
+  const vectors = [
+    { id: 'q', from: { x: 0, y: 0 }, to: { x: 0.92, y: 0.39 }, label: 'query' },
+    { id: 'p', from: { x: 0, y: 0 }, to: { x: 0.76, y: 0.65 }, label: 'positive' },
+    { id: 'n', from: { x: 0, y: 0 }, to: { x: -0.5, y: 0.87 }, label: 'negative' },
+  ];
   yield {
     state: plotState({
       axes: { x: { label: 'real axis', min: -1.2, max: 1.2 }, y: { label: 'imag axis', min: -1.2, max: 1.2 } },
@@ -146,25 +155,22 @@ function* complexAngleLoss() {
           { x: -1.0, y: 0.0 }, { x: -0.71, y: -0.71 }, { x: 0.0, y: -1.0 }, { x: 0.71, y: -0.71 }, { x: 1.0, y: 0.0 },
         ] },
       ],
-      vectors: [
-        { id: 'q', from: { x: 0, y: 0 }, to: { x: 0.92, y: 0.39 }, label: 'query' },
-        { id: 'p', from: { x: 0, y: 0 }, to: { x: 0.76, y: 0.65 }, label: 'positive' },
-        { id: 'n', from: { x: 0, y: 0 }, to: { x: -0.5, y: 0.87 }, label: 'negative' },
-      ],
+      vectors,
     }),
     highlight: { active: ['q', 'p'], compare: ['n'] },
-    explanation: 'A complex representation makes angle a first-class object. Similar text should occupy nearby phase directions; mismatches should land farther around the circle.',
+    explanation: `A complex representation makes angle a first-class object. The ${vectors[1].label} text should occupy a nearby phase direction to the ${vectors[0].label}; the ${vectors[2].label} should land farther around the circle.`,
   };
 
+  const complexParts = [
+    { id: 'dims', label: 'embedding dims' },
+    { id: 'real', label: 'real part' },
+    { id: 'imag', label: 'imag part' },
+    { id: 'phase', label: 'phase' },
+  ];
   yield {
     state: labelMatrix(
       'Complex split of a sentence vector',
-      [
-        { id: 'dims', label: 'embedding dims' },
-        { id: 'real', label: 'real part' },
-        { id: 'imag', label: 'imag part' },
-        { id: 'phase', label: 'phase' },
-      ],
+      complexParts,
       [
         { id: 'role', label: 'role' },
         { id: 'intuition', label: 'intuition' },
@@ -177,19 +183,20 @@ function* complexAngleLoss() {
       ],
     ),
     highlight: { active: ['real:intuition', 'imag:intuition', 'phase:intuition'] },
-    explanation: 'The real and imaginary halves form complex coordinates. That does not make the encoder mystical; it gives the loss a cleaner way to talk about angular relations between sentence representations.',
-    invariant: 'Complex coordinates expose phase; phase exposes angular order.',
+    explanation: `The ${complexParts[1].label} and ${complexParts[2].label} halves form complex coordinates. That does not make the encoder mystical; it gives the loss a cleaner way to talk about angular relations between sentence representations.`,
+    invariant: `Complex coordinates expose ${complexParts[3].label}; ${complexParts[3].label} exposes angular order.`,
   };
 
+  const auditRows = [
+    { id: 'source', label: 'pair label' },
+    { id: 'metric', label: 'metric' },
+    { id: 'loss', label: 'loss' },
+    { id: 'eval', label: 'eval' },
+  ];
   yield {
     state: labelMatrix(
       'Training objective audit',
-      [
-        { id: 'source', label: 'pair label' },
-        { id: 'metric', label: 'metric' },
-        { id: 'loss', label: 'loss' },
-        { id: 'eval', label: 'eval' },
-      ],
+      auditRows,
       [
         { id: 'question', label: 'question' },
         { id: 'failure mode', label: 'failure' },
@@ -202,9 +209,10 @@ function* complexAngleLoss() {
       ],
     ),
     highlight: { found: ['metric:failure mode', 'loss:failure mode', 'eval:failure mode'] },
-    explanation: 'The important lesson is not only the specific paper. Embedding quality is created by the alignment between labels, geometry, loss, and evaluation. A better metric can fail if the data or evaluation target is wrong.',
+    explanation: `The important lesson is not only the specific paper. Embedding quality is created by the alignment between ${auditRows.map(r => r.label).join(', ')}. A better ${auditRows[1].label} can fail if the data or ${auditRows[3].label} target is wrong.`,
   };
 
+  const downstreamNodes = ['hnsw', 'rank', 'answer'];
   yield {
     state: graphState({
       nodes: [
@@ -224,8 +232,8 @@ function* complexAngleLoss() {
         { id: 'e-rank-answer', from: 'rank', to: 'answer', weight: '' },
       ],
     }, { title: 'Where angle-optimized embeddings plug in' }),
-    highlight: { active: ['embed'], found: ['hnsw', 'rank', 'answer'] },
-    explanation: 'Angle-optimized embeddings are still ordinary production artifacts: vectors in an index, vectors in a retrieval pipeline, vectors in a reranker. The difference is the training geometry that shaped them.',
+    highlight: { active: ['embed'], found: downstreamNodes },
+    explanation: `Angle-optimized embeddings are still ordinary production artifacts: vectors in an ${downstreamNodes[0].toUpperCase()} index, vectors in a retrieval pipeline, vectors in a ${downstreamNodes[1]}er. The difference is the training geometry that shaped them.`,
   };
 }
 
@@ -238,6 +246,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/angle-optimized-text-embeddings.gif', alt: 'Animated walkthrough of the angle optimized text embeddings visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this topic exists',
       paragraphs: [

@@ -58,27 +58,32 @@ function fuseGraph(title) {
 }
 
 function* fuseConstruction() {
+  const segmentCount = 3;
+  const segmentIds = ['segment0', 'segment1', 'segment2'];
   yield {
     state: fuseGraph('Static keys are spread across nearby fuse segments'),
-    highlight: { active: ['keys', 'segment0', 'segment1', 'segment2'], found: ['e-keys-s0', 'e-keys-s1', 'e-keys-s2'] },
-    explanation: 'Binary fuse filters are static approximate-membership filters. Like xor filters, each key contributes to a few fingerprint cells, but construction arranges positions through segmented ranges for better space and build behavior.',
+    highlight: { active: ['keys', ...segmentIds], found: ['e-keys-s0', 'e-keys-s1', 'e-keys-s2'] },
+    explanation: `Binary fuse filters are static approximate-membership filters. Like xor filters, each key contributes to ${segmentCount} fingerprint cells, but construction arranges positions through segmented ranges for better space and build behavior.`,
   };
 
+  const buildSteps = ['peel', 'assign'];
   yield {
     state: fuseGraph('Construction peels degree-one cells, then assigns backwards'),
-    highlight: { active: ['peel', 'assign', 'e-peel-assign', 'e-assign-table'], compare: ['table'] },
-    explanation: 'The builder peels keys whose current cell appears in only one remaining key, records the order, then fills fingerprints in reverse so every stored key satisfies its xor equation.',
-    invariant: 'The query is tiny because the builder solves the equations ahead of time.',
+    highlight: { active: [buildSteps[0], buildSteps[1], 'e-peel-assign', 'e-assign-table'], compare: ['table'] },
+    explanation: `The builder ${buildSteps[0]}s keys whose current cell appears in only one remaining key, records the order, then fills fingerprints in reverse so every stored key satisfies its xor equation.`,
+    invariant: `The query is tiny because the builder solves the equations during the ${buildSteps[1]} phase ahead of time.`,
   };
 
+  const filterNames = ['Bloom', 'xor', 'binary fuse', 'ribbon'];
+  const queryOps = '3 reads + xor';
   yield {
     state: labelMatrix(
       'Static filter family',
       [
-        { id: 'bloom', label: 'Bloom' },
-        { id: 'xor', label: 'xor' },
-        { id: 'fuse', label: 'binary fuse' },
-        { id: 'ribbon', label: 'ribbon' },
+        { id: 'bloom', label: filterNames[0] },
+        { id: 'xor', label: filterNames[1] },
+        { id: 'fuse', label: filterNames[2] },
+        { id: 'ribbon', label: filterNames[3] },
       ],
       [
         { id: 'build', label: 'build style' },
@@ -87,23 +92,24 @@ function* fuseConstruction() {
       ],
       [
         ['set bits', 'k bit probes', 'larger but update-friendly'],
-        ['peel hypergraph', '3 reads + xor', 'compact static'],
-        ['segmented peel', '3 reads + xor', 'closer to lower bound'],
+        ['peel hypergraph', queryOps, 'compact static'],
+        ['segmented peel', queryOps, 'closer to lower bound'],
         ['linear system', 'few reads', 'very compact but build-heavy'],
       ],
     ),
     highlight: { found: ['fuse:build', 'fuse:space'], compare: ['bloom:build', 'ribbon:build'] },
-    explanation: 'Binary fuse filters sit in the static-filter branch. They give up incremental updates to buy small space and fast negative lookups.',
+    explanation: `${filterNames[2]} filters sit in the static-filter branch among ${filterNames.length} relatives. They give up incremental updates to buy small space and fast negative lookups.`,
   };
 
+  const outcomes = ['success', 'failure'];
   yield {
     state: labelMatrix(
       'Build failure and rebuild discipline',
       [
         { id: 'seed', label: 'choose seed' },
         { id: 'peel', label: 'try peel' },
-        { id: 'success', label: 'success' },
-        { id: 'fail', label: 'failure' },
+        { id: 'success', label: outcomes[0] },
+        { id: 'fail', label: outcomes[1] },
       ],
       [
         { id: 'event', label: 'event' },
@@ -117,65 +123,71 @@ function* fuseConstruction() {
       ],
     ),
     highlight: { active: ['peel:event', 'success:response'], compare: ['fail:response'] },
-    explanation: 'The construction is probabilistic. A production builder must treat failure as an ordinary retry path, not as a surprising exception.',
+    explanation: `The construction is probabilistic — ${outcomes[1]} can occur when an unpeelable core remains. A production builder must treat ${outcomes[1]} as an ordinary retry path, not as a surprising exception.`,
   };
 }
 
 function* queryPath() {
+  const cellCount = 3;
+  const cellNames = ['a', 'b', 'c'];
+  const querySteps = ['hash key', 'load cells', 'xor fingerprints', 'compare'];
   yield {
     state: labelMatrix(
       'One query',
       [
-        { id: 'hash', label: 'hash key' },
-        { id: 'load', label: 'load cells' },
-        { id: 'xor', label: 'xor fingerprints' },
-        { id: 'compare', label: 'compare' },
+        { id: 'hash', label: querySteps[0] },
+        { id: 'load', label: querySteps[1] },
+        { id: 'xor', label: querySteps[2] },
+        { id: 'compare', label: querySteps[3] },
       ],
       [
         { id: 'work', label: 'work' },
         { id: 'meaning', label: 'meaning' },
       ],
       [
-        ['compute segment and offsets', 'find three cells'],
-        ['table[a], table[b], table[c]', 'small fingerprint bytes'],
-        ['fa xor fb xor fc', 'candidate fingerprint'],
+        ['compute segment and offsets', `find ${cellCount} cells`],
+        [`table[${cellNames[0]}], table[${cellNames[1]}], table[${cellNames[2]}]`, 'small fingerprint bytes'],
+        [`f${cellNames[0]} xor f${cellNames[1]} xor f${cellNames[2]}`, 'candidate fingerprint'],
         ['equals f(key)?', 'maybe present or absent'],
       ],
     ),
     highlight: { active: ['load:work', 'xor:work', 'compare:meaning'], found: ['hash:work'] },
-    explanation: 'A binary fuse query keeps the xor-filter payoff: a handful of deterministic reads and xor operations. The heavier work happened once during construction.',
+    explanation: `A binary fuse query completes in ${querySteps.length} steps — a handful of deterministic reads and xor operations. The heavier work happened once during construction.`,
   };
 
+  const avoidedOps = ['SSTable probe', 'network request', 'object lookup', 'decompression step'];
   yield {
     state: fuseGraph('Negative lookups avoid expensive source checks'),
     highlight: { active: ['table'], found: ['keys'], compare: ['segment0', 'segment1', 'segment2'] },
-    explanation: 'Filters are normally placed before a slower source of truth. A definite negative avoids an SSTable probe, network request, object lookup, or decompression step.',
+    explanation: `Filters are normally placed before a slower source of truth. A definite negative avoids an ${avoidedOps.join(', ')}.`,
   };
 
+  const useCases = [
+    { id: 'sstable', label: 'immutable SSTable', fit: 'excellent' },
+    { id: 'manifest', label: 'object manifest', fit: 'excellent' },
+    { id: 'cdn', label: 'published asset set', fit: 'good' },
+    { id: 'live', label: 'live mutable set', fit: 'poor' },
+  ];
   yield {
     state: labelMatrix(
       'When binary fuse fits',
-      [
-        { id: 'sstable', label: 'immutable SSTable' },
-        { id: 'manifest', label: 'object manifest' },
-        { id: 'cdn', label: 'published asset set' },
-        { id: 'live', label: 'live mutable set' },
-      ],
+      useCases.map(u => ({ id: u.id, label: u.label })),
       [
         { id: 'fit', label: 'fit' },
         { id: 'why', label: 'why' },
       ],
       [
-        ['excellent', 'built at flush time'],
-        ['excellent', 'snapshot membership'],
-        ['good', 'rebuilt per deploy'],
-        ['poor', 'updates need rebuild'],
+        [useCases[0].fit, 'built at flush time'],
+        [useCases[1].fit, 'snapshot membership'],
+        [useCases[2].fit, 'rebuilt per deploy'],
+        [useCases[3].fit, 'updates need rebuild'],
       ],
     ),
     highlight: { found: ['sstable:fit', 'manifest:fit'], compare: ['live:fit'] },
-    explanation: 'Binary fuse filters belong with immutable or versioned data. If every request inserts and deletes keys, use a different filter family.',
+    explanation: `Binary fuse filters belong with immutable or versioned data — ${useCases[0].label} and ${useCases[1].label} are ${useCases[0].fit}. If every request inserts and deletes keys, use a different filter family.`,
   };
 
+  const answerTypes = ['maybe present', 'definitely absent'];
   yield {
     state: labelMatrix(
       'Correctness semantics',
@@ -190,14 +202,14 @@ function* queryPath() {
         { id: 'system', label: 'system response' },
       ],
       [
-        ['maybe present', 'verify or read value'],
-        ['definitely absent', 'skip source'],
-        ['maybe present', 'source rejects'],
+        [answerTypes[0], 'verify or read value'],
+        [answerTypes[1], 'skip source'],
+        [answerTypes[0], 'source rejects'],
         ['authoritative result', 'filter never replaces truth'],
       ],
     ),
     highlight: { active: ['member:answer', 'negative:answer'], found: ['source:system'] },
-    explanation: 'Like Bloom and xor filters, binary fuse filters are accelerators, not authorities. Maybe present still requires the real data structure when correctness matters.',
+    explanation: `Like Bloom and xor filters, binary fuse filters are accelerators, not authorities. A "${answerTypes[0]}" answer still requires the real data structure when correctness matters.`,
   };
 }
 
@@ -210,6 +222,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/binary-fuse-filter.gif', alt: 'Animated walkthrough of the binary fuse filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

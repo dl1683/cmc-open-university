@@ -53,11 +53,15 @@ function bidiGraph(title) {
 }
 
 function* synthesizeVsCheck() {
+  const modes = ['synth', 'check'];
+  const forms = ['variable', 'literal', 'apply', 'lambda'];
   yield {
     state: bidiGraph('Types move in two directions'),
     highlight: { active: ['expr', 'synth', 'check', 'e-expr-synth', 'e-expr-check'], compare: ['ok'] },
-    explanation: 'A synthesizing expression produces its type from local information. A checking expression is validated against a type supplied by the surrounding context.',
+    explanation: `A ${modes[0]}esizing expression produces its type from local information. A ${modes[1]}ing expression is validated against a type supplied by the surrounding context.`,
   };
+  const synthForms = [forms[0], forms[1], forms[2]];
+  const checkForms = [forms[3]];
   yield {
     state: labelMatrix(
       'Mode split',
@@ -79,49 +83,61 @@ function* synthesizeVsCheck() {
       ],
     ),
     highlight: { active: ['app:mode', 'lam:mode'], found: ['var:reason'], compare: ['lam:reason'] },
-    explanation: 'Variables and literals usually synthesize. Lambdas usually check against an expected function type, because their parameter type is otherwise missing.',
-    invariant: 'When inference gets stuck, require an annotation at the boundary instead of guessing globally.',
+    explanation: `${synthForms.join(', ')}s usually synthesize. ${checkForms[0]}s usually check against an expected function type, because their parameter type is otherwise missing.`,
+    invariant: `When inference gets stuck, require an annotation at the boundary instead of guessing globally — ${modes.length} modes keep the search local.`,
   };
+  const activeNodes = ['check', 'expect', 'ann'];
   yield {
     state: bidiGraph('Local checking reduces global solver pressure'),
-    highlight: { active: ['check', 'expect', 'ann', 'e-check-expect', 'e-expect-ann'], found: ['ok'] },
-    explanation: 'Bidirectional checking is popular because it keeps inference local. The expected type guides the inside of a term, so the checker needs fewer whole-program guesses.',
+    highlight: { active: [...activeNodes, 'e-check-expect', 'e-expect-ann'], found: ['ok'] },
+    explanation: `Bidirectional checking is popular because it keeps inference local. The expected type at ${activeNodes[1]} guides the inside of a term, so the checker needs fewer whole-program guesses.`,
   };
 }
 
 function* annotations() {
+  const annotExpr = '(e : A)';
+  const typeVar = 'A';
   yield {
     state: bidiGraph('Annotations switch checking back into synthesis'),
     highlight: { active: ['ann', 'synth', 'rules', 'e-rules-ann'], compare: ['expect'], found: ['sub'] },
-    explanation: 'An annotated expression (e : A) can synthesize A after the checker verifies that e checks against A. This is the bridge between explicit programmer intent and local inference.',
+    explanation: `An annotated expression ${annotExpr} can synthesize ${typeVar} after the checker verifies that e checks against ${typeVar}. This is the bridge between explicit programmer intent and local inference.`,
   };
+  const paramType = 'int';
+  const fnType = `${paramType}->${paramType}`;
+  const steps = [
+    { label: 'x => x+1', input: 'no expected type', output: 'cannot synth' },
+    { label: `: ${fnType}`, input: 'expected fn', output: 'check lambda' },
+    { label: `x+1`, input: `x:${paramType}`, output: `body:${paramType}` },
+    { label: 'result', input: fnType, output: 'typed' },
+  ];
   yield {
     state: labelMatrix(
       'Example: lambda',
       [
-        { id: 'raw', label: 'x => x+1' },
-        { id: 'ann', label: ': int->int' },
-        { id: 'body', label: 'x+1' },
-        { id: 'result', label: 'result' },
+        { id: 'raw', label: steps[0].label },
+        { id: 'ann', label: steps[1].label },
+        { id: 'body', label: steps[2].label },
+        { id: 'result', label: steps[3].label },
       ],
       [
         { id: 'input', label: 'input' },
         { id: 'output', label: 'output' },
       ],
       [
-        ['no expected type', 'cannot synth'],
-        ['expected fn', 'check lambda'],
-        ['x:int', 'body:int'],
-        ['int->int', 'typed'],
+        [steps[0].input, steps[0].output],
+        [steps[1].input, steps[1].output],
+        [steps[2].input, steps[2].output],
+        [steps[3].input, steps[3].output],
       ],
     ),
     highlight: { active: ['ann:input', 'body:input', 'body:output'], found: ['result:output'], compare: ['raw:output'] },
-    explanation: 'The annotation supplies the function type. The checker pushes int down to the parameter, checks the body, and accepts the lambda as int -> int.',
+    explanation: `The annotation supplies the function type. The checker pushes ${paramType} down to the parameter, checks the body, and accepts the lambda as ${fnType}.`,
   };
+  const compatRelations = ['subtyping', 'unions', 'effects', 'gradual dynamic types'];
   yield {
     state: bidiGraph('Subtyping and gradual systems add compatibility checks'),
     highlight: { active: ['sub', 'ok', 'e-ann-sub', 'e-sub-ok'], compare: ['rules'], found: ['ann'] },
-    explanation: 'In richer languages, synthesis may produce a type that only needs to be compatible with the expected type. That compatibility relation may include subtyping, unions, effects, or gradual dynamic types.',
+    explanation: `In richer languages, synthesis may produce a type that only needs to be compatible with the expected type. That compatibility relation may include ${compatRelations.join(', ')}.`,
   };
 }
 
@@ -134,6 +150,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/bidirectional-type-checking-synthesis-checking.gif', alt: 'Animated walkthrough of the bidirectional type checking synthesis checking visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

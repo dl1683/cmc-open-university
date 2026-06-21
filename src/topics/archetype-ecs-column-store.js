@@ -77,27 +77,30 @@ function moveGraph(title) {
 }
 
 function* archetypeChunks() {
+  const components = ['pos', 'vel', 'entity'];
   yield {
     state: archetypeGraph('Entities with the same component set share an archetype'),
-    highlight: { active: ['world', 'archPV', 'chunk', 'e-world-pv', 'e-pv-chunk'], found: ['pos', 'vel', 'entity'] },
-    explanation: 'An archetype is the exact component signature of an entity. All entities with Position and Velocity, and no extra table components, can live together in the same storage group.',
-    invariant: 'One archetype owns rows whose entities have the same component set.',
+    highlight: { active: ['world', 'archPV', 'chunk', 'e-world-pv', 'e-pv-chunk'], found: components },
+    explanation: `An archetype is the exact component signature of an entity. All entities with ${components[0][0].toUpperCase() + components[0].slice(1)}ition and ${components[1][0].toUpperCase() + components[1].slice(1)}ocity, and no extra table components, can live together in the same storage group.`,
+    invariant: `One archetype owns rows whose entities share the same ${components.length}-component set.`,
   };
 
+  const chunkRows = [
+    { id: 'row0', label: 'row 0' },
+    { id: 'row1', label: 'row 1' },
+    { id: 'row2', label: 'row 2' },
+    { id: 'row3', label: 'row 3' },
+  ];
+  const chunkCols = [
+    { id: 'entity', label: 'Entity' },
+    { id: 'pos', label: 'Position' },
+    { id: 'vel', label: 'Velocity' },
+  ];
   yield {
     state: labelMatrix(
       'Chunk columns',
-      [
-        { id: 'row0', label: 'row 0' },
-        { id: 'row1', label: 'row 1' },
-        { id: 'row2', label: 'row 2' },
-        { id: 'row3', label: 'row 3' },
-      ],
-      [
-        { id: 'entity', label: 'Entity' },
-        { id: 'pos', label: 'Position' },
-        { id: 'vel', label: 'Velocity' },
-      ],
+      chunkRows,
+      chunkCols,
       [
         ['e12', '(4,8)', '(1,0)'],
         ['e19', '(6,7)', '(0,1)'],
@@ -105,25 +108,27 @@ function* archetypeChunks() {
         ['e44', '(2,5)', '(0,-1)'],
       ],
     ),
-    highlight: { active: ['row0:pos', 'row1:pos', 'row2:pos', 'row3:pos'], found: ['row0:vel', 'row1:vel', 'row2:vel', 'row3:vel'] },
-    explanation: 'Inside a chunk, each component type is stored as a tight array. A movement system can stream Position and Velocity columns in row order with predictable memory access.',
+    highlight: { active: chunkRows.map(r => r.id + ':pos'), found: chunkRows.map(r => r.id + ':vel') },
+    explanation: `Inside a chunk, each of the ${chunkCols.length} component columns is stored as a tight array across ${chunkRows.length} rows. A movement system can stream ${chunkCols[1].label} and ${chunkCols[2].label} columns in row order with predictable memory access.`,
   };
 
+  const queryTargets = ['pos', 'vel'];
   yield {
     state: archetypeGraph('Queries cache matching archetypes and scan their chunks'),
-    highlight: { active: ['query', 'pos', 'vel', 'e-pos-query', 'e-vel-query'], compare: ['archPR'], found: ['chunk'] },
-    explanation: 'A query for Position plus Velocity does not inspect every entity. It finds matching archetypes, then scans their chunks. That is why archetype sets tend to stabilize and become cacheable.',
+    highlight: { active: ['query', ...queryTargets, 'e-pos-query', 'e-vel-query'], compare: ['archPR'], found: ['chunk'] },
+    explanation: `A query for ${queryTargets.map(t => t[0].toUpperCase() + t.slice(1)).join(' plus ')} does not inspect every entity. It finds matching archetypes, then scans their chunks. That is why archetype sets tend to stabilize and become cacheable.`,
   };
 
+  const speedReasons = [
+    { id: 'scan', label: 'linear scan' },
+    { id: 'cache', label: 'cache lines' },
+    { id: 'simd', label: 'SIMD' },
+    { id: 'parallel', label: 'parallel jobs' },
+  ];
   yield {
     state: labelMatrix(
       'Why column chunks are fast',
-      [
-        { id: 'scan', label: 'linear scan' },
-        { id: 'cache', label: 'cache lines' },
-        { id: 'simd', label: 'SIMD' },
-        { id: 'parallel', label: 'parallel jobs' },
-      ],
+      speedReasons,
       [
         { id: 'benefit', label: 'benefit' },
         { id: 'condition', label: 'condition' },
@@ -135,34 +140,37 @@ function* archetypeChunks() {
         ['chunk splitting', 'no conflicts'],
       ],
     ),
-    highlight: { active: ['scan:benefit', 'cache:benefit', 'simd:benefit'], found: ['parallel:benefit'] },
-    explanation: 'The structure converts object-oriented pointer chasing into columnar loops. It is especially strong for transforms, physics integration, visibility, particles, and repeated simulation systems.',
+    highlight: { active: speedReasons.slice(0, 3).map(r => r.id + ':benefit'), found: ['parallel:benefit'] },
+    explanation: `The structure converts object-oriented pointer chasing into columnar loops with ${speedReasons.length} speed advantages: ${speedReasons.map(r => r.label).join(', ')}. It is especially strong for transforms, physics integration, visibility, particles, and repeated simulation systems.`,
   };
 
+  const activeNodes = ['archPV', 'chunk', 'pos', 'vel', 'query'];
   yield {
     state: archetypeGraph('Complete case: update many moving entities'),
-    highlight: { active: ['archPV', 'chunk', 'pos', 'vel', 'query'], found: ['entity'], compare: ['archPR'] },
-    explanation: 'A frame update can find every chunk containing Position and Velocity, stream through those columns, and skip unrelated entities entirely. The cost is paid when entity composition changes.',
+    highlight: { active: activeNodes, found: ['entity'], compare: ['archPR'] },
+    explanation: `A frame update touches ${activeNodes.length} nodes in the pipeline — archetype, chunk, and both columns through the query — streaming through Position and Velocity while skipping unrelated entities entirely. The cost is paid when entity composition changes.`,
   };
 }
 
 function* structuralChange() {
+  const moveSteps = ['row', 'remove', 'copy', 'add', 'dest'];
   yield {
     state: moveGraph('Adding a component moves the entity to another archetype'),
-    highlight: { active: ['row', 'remove', 'copy', 'add', 'dest', 'e-row-remove', 'e-remove-copy', 'e-copy-add', 'e-copy-dest'], found: ['fix'] },
-    explanation: 'When an entity gains Health, it no longer belongs in the Position+Velocity archetype. The ECS copies the retained columns to a Position+Velocity+Health row, initializes Health, and updates the entity location index.',
-    invariant: 'Component composition is encoded by storage location, so composition changes are storage moves.',
+    highlight: { active: [...moveSteps, 'e-row-remove', 'e-remove-copy', 'e-copy-add', 'e-copy-dest'], found: ['fix'] },
+    explanation: `When an entity gains Health, it no longer belongs in the Position+Velocity archetype. The ECS performs ${moveSteps.length} steps: ${moveSteps.join(' -> ')}, copying retained columns to a Position+Velocity+Health row, initializing Health, and updating the entity location index.`,
+    invariant: `Component composition is encoded by storage location, so composition changes require ${moveSteps.length - 1} data moves plus a fix step.`,
   };
 
+  const traceSteps = [
+    { id: 'source', label: 'source P+V' },
+    { id: 'copy', label: 'copy retained' },
+    { id: 'init', label: 'init Health' },
+    { id: 'index', label: 'entity index' },
+  ];
   yield {
     state: labelMatrix(
       'Structural change trace',
-      [
-        { id: 'source', label: 'source P+V' },
-        { id: 'copy', label: 'copy retained' },
-        { id: 'init', label: 'init Health' },
-        { id: 'index', label: 'entity index' },
-      ],
+      traceSteps,
       [
         { id: 'action', label: 'action' },
         { id: 'cost', label: 'cost' },
@@ -175,21 +183,25 @@ function* structuralChange() {
       ],
     ),
     highlight: { active: ['copy:action', 'init:action'], found: ['index:action'], compare: ['source:cost'] },
-    explanation: 'This is why adding and removing components in tight loops is expensive. The operation changes storage groups, not just a flag.',
+    explanation: `This is why adding and removing components in tight loops is expensive. Each structural change touches ${traceSteps.length} phases — ${traceSteps.map(s => s.label).join(', ')} — changing storage groups, not just a flag.`,
   };
 
+  const swapNodes = ['remove', 'swap', 'fix'];
   yield {
     state: moveGraph('Swap-with-last keeps source chunks packed'),
-    highlight: { active: ['remove', 'swap', 'fix', 'e-remove-swap', 'e-swap-fix'], found: ['dest'], compare: ['copy'] },
-    explanation: 'Removing a row from the source chunk usually moves the last row into the hole. The moved entity location must be repaired, just like swap-remove in a sparse set.',
+    highlight: { active: [...swapNodes, 'e-remove-swap', 'e-swap-fix'], found: ['dest'], compare: ['copy'] },
+    explanation: `Removing a row from the source chunk involves ${swapNodes.length} operations: ${swapNodes.join(', ')}. The last row moves into the hole, and the moved entity's location must be repaired, just like swap-remove in a sparse set.`,
   };
 
+  const storageKinds = [
+    { id: 'archetype', label: 'archetype table' },
+    { id: 'sparse', label: 'sparse component' },
+  ];
   yield {
     state: labelMatrix(
       'Archetype versus sparse-set storage',
       [
-        { id: 'archetype', label: 'archetype table' },
-        { id: 'sparse', label: 'sparse component' },
+        ...storageKinds,
         { id: 'chunk', label: 'chunk metadata' },
         { id: 'query', label: 'query cache' },
       ],
@@ -204,14 +216,16 @@ function* structuralChange() {
         ['stable signatures', 'invalidations'],
       ],
     ),
-    highlight: { active: ['archetype:best', 'sparse:best'], compare: ['archetype:watch'], found: ['query:best'] },
-    explanation: 'Modern ECS engines often support both table/archetype storage and sparse-set storage because each one makes a different workload cheap.',
+    highlight: { active: storageKinds.map(k => k.id + ':best'), compare: ['archetype:watch'], found: ['query:best'] },
+    explanation: `Modern ECS engines often support both ${storageKinds[0].label} and ${storageKinds[1].label} storage because each one makes a different workload cheap.`,
   };
 
+  const hotActive = ['add', 'dest', 'fix'];
+  const deferredOps = ['copy', 'swap'];
   yield {
     state: moveGraph('Complete case: stage structural changes outside hot simulation loops'),
-    highlight: { active: ['add', 'dest', 'fix'], compare: ['copy', 'swap'], found: ['row'] },
-    explanation: 'A common engine rule is to batch structural changes at command-buffer boundaries. Hot systems stream chunks. Spawn/despawn and add/remove operations are staged so storage moves do not interrupt tight loops.',
+    highlight: { active: hotActive, compare: deferredOps, found: ['row'] },
+    explanation: `A common engine rule is to batch structural changes at command-buffer boundaries. Hot systems stream chunks while ${deferredOps.length} expensive operations (${deferredOps.join(', ')}) are staged so storage moves do not interrupt tight loops.`,
   };
 }
 
@@ -232,7 +246,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/archetype-ecs-column-store.gif', alt: 'Animated walkthrough of the archetype ecs column store visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

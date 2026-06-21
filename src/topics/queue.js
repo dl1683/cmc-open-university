@@ -60,7 +60,8 @@ export const article = {
         { type: 'callout', text: 'A queue is a contract about time: newer work may wait, but it cannot pass older work unless you choose a different structure.' },
         'A highlighted (active) box is the element just added or about to be removed. After dequeue, the removed box briefly flashes before it vanishes. The remaining boxes keep their left-to-right order, which is the arrival order.',
         'Think of two invisible pointers: front always marks the next item to leave, and rear always marks where the next arrival will land. Every enqueue moves rear one step right. Every dequeue moves front one step right. The items between front and rear are the live contents of the queue.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/queue.gif', alt: 'Animated walkthrough of the queue visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

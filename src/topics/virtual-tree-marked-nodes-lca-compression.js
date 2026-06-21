@@ -2,6 +2,8 @@
 
 import { graphState, matrixState, InputError } from '../core/state.js';
 
+const r2 = (v) => Math.round(v * 100) / 100;
+
 export const topic = {
   id: 'virtual-tree-marked-nodes-lca-compression',
   title: 'Virtual Tree LCA Compression',
@@ -120,6 +122,12 @@ function stackGraph(title, shownEdgeIds, { stack = '', scan = '', notes = {} } =
 }
 
 function* compressNodes() {
+  const markedIds = ['login', 'oauth', 'invoices', 'checkout', 'cache'];
+  const markedCount = markedIds.length;
+  const lcaIds = ['auth', 'root', 'shop'];
+  const lcaCount = lcaIds.length;
+  const tinValues = [3, 4, 8, 10, 13];
+
   yield {
     state: fullTreeGraph('Start with a large rooted tree and a small marked set', {
       login: 'marked',
@@ -129,13 +137,13 @@ function* compressNodes() {
       cache: 'marked',
     }),
     highlight: { active: ['login', 'oauth', 'invoices', 'checkout', 'cache'], compare: ['root'] },
-    explanation: 'A virtual tree starts from a query subset. Here the original service tree has 13 nodes, but the incident touches only five marked services.',
-    invariant: 'Only marked nodes and LCAs that preserve their ancestry relationships are needed for this query.',
+    explanation: `A virtual tree starts from a query subset. Here the original service tree has ${FULL_NODES.length} nodes, but the incident touches only ${markedCount} marked services.`,
+    invariant: `Only ${markedCount} marked nodes and LCAs that preserve their ancestry relationships are needed for this query.`,
   };
 
   yield {
     state: labelMatrix(
-      'Sort marked nodes by Euler entry time',
+      `Sort ${markedCount} marked nodes by Euler entry time`,
       [
         { id: 'm1', label: 'login' },
         { id: 'm2', label: 'oauth' },
@@ -153,12 +161,12 @@ function* compressNodes() {
       ],
     ),
     highlight: { active: ['m1:tin', 'm2:tin', 'm3:tin', 'm4:tin', 'm5:tin'], found: ['m1:role'] },
-    explanation: 'Euler order turns the tree geometry into a linear scan. Adjacent marked nodes in this order reveal the LCAs needed to keep the compressed tree connected.',
+    explanation: `Euler order turns the tree geometry into a linear scan. Adjacent marked nodes in this order (tin ${tinValues.join(', ')}) reveal the LCAs needed to keep the compressed tree connected.`,
   };
 
   yield {
     state: labelMatrix(
-      'Add LCAs of adjacent marked nodes',
+      `Add LCAs of ${markedCount - 1} adjacent marked pairs`,
       [
         { id: 'p1', label: 'm1-m2' },
         { id: 'p2', label: 'm2-m3' },
@@ -172,11 +180,11 @@ function* compressNodes() {
         ['root', 'add'],
         ['shop', 'add'],
         ['root', 'seen'],
-        ['8 nodes', 'sort again'],
+        [`${VIRTUAL_NODES.length} nodes`, 'sort again'],
       ],
     ),
     highlight: { active: ['p1:lca', 'p2:lca', 'p3:lca'], found: ['done:action'], compare: ['p4:action'] },
-    explanation: 'The closure step adds auth, root, and shop. After deduplication, the virtual tree has eight nodes rather than the full original tree.',
+    explanation: `The closure step adds ${lcaIds.join(', ')}. After deduplication, the virtual tree has ${VIRTUAL_NODES.length} nodes rather than the full ${FULL_NODES.length}-node original tree.`,
   };
 
   yield {
@@ -195,7 +203,7 @@ function* compressNodes() {
       found: ['root', 'auth', 'shop'],
       compare: ['v-shop-invoices', 'v-root-cache'],
     },
-    explanation: 'Each virtual edge may stand for a whole original path. The edge weight stores the skipped distance, so later dynamic programming does not lose path length.',
+    explanation: `Each of the ${VIRTUAL_EDGES.length} virtual edges may stand for a whole original path. The edge weight stores the skipped distance, so later dynamic programming does not lose path length.`,
   };
 
   yield {
@@ -209,77 +217,90 @@ function* compressNodes() {
       ],
       [{ id: 'size', label: 'size' }, { id: 'reason' }],
       [
-        ['n=13', 'all'],
-        ['k=5', 'set'],
-        ['<=2k-1', 'closed'],
+        [`n=${FULL_NODES.length}`, 'all'],
+        [`k=${markedCount}`, 'set'],
+        [`<=${2 * markedCount - 1}`, 'closed'],
         ['O(k)', 'run'],
       ],
     ),
     highlight: { found: ['virtual:size', 'query:size'], compare: ['orig:size'] },
-    explanation: 'The useful bound is structural: after adding adjacent LCAs and deduping, a virtual tree has O(k) nodes. Large background subtrees disappear from the query.',
+    explanation: `The useful bound is structural: after adding ${markedCount - 1} adjacent LCAs and deduping, a virtual tree has at most ${2 * markedCount - 1} nodes (here ${VIRTUAL_NODES.length}). Large background subtrees disappear from the query.`,
   };
 }
 
 function* stackBuild() {
+  const scanOrder = VIRTUAL_NODES.map((n) => n.id);
+  const cacheEdge = VIRTUAL_EDGES.find((e) => e.to === 'cache');
+  const cacheDistance = cacheEdge ? cacheEdge.weight : '?';
+
   yield {
-    state: stackGraph('Scan the closed node set in Euler order', [], {
+    state: stackGraph(`Scan the ${VIRTUAL_NODES.length} closed nodes in Euler order`, [], {
       stack: 'empty',
-      scan: 'root auth login ...',
+      scan: `${scanOrder[0]} ${scanOrder[1]} ${scanOrder[2]} ...`,
       notes: { root: 'first' },
     }),
     highlight: { active: ['scan', 'root'], compare: ['stack'] },
-    explanation: 'After sorting marked nodes plus LCAs by tin, the stack algorithm builds parent-child links between nearest kept ancestors.',
-    invariant: 'The stack always stores a chain of ancestors in the original tree.',
+    explanation: `After sorting ${VIRTUAL_NODES.length} nodes (marked plus LCAs) by tin, the stack algorithm builds parent-child links between nearest kept ancestors.`,
+    invariant: `The stack always stores a chain of ancestors in the original ${FULL_NODES.length}-node tree.`,
   };
 
   yield {
-    state: stackGraph('Push root, auth, then login', ['v-root-auth', 'v-auth-login'], {
-      stack: 'root/auth/login',
-      scan: 'at login',
+    state: stackGraph(`Push ${scanOrder[0]}, ${scanOrder[1]}, then ${scanOrder[2]}`, ['v-root-auth', 'v-auth-login'], {
+      stack: `${scanOrder[0]}/${scanOrder[1]}/${scanOrder[2]}`,
+      scan: `at ${scanOrder[2]}`,
       notes: { root: 'ancestor', auth: 'ancestor', login: 'top' },
     }),
     highlight: { active: ['root', 'auth', 'login', 'v-root-auth', 'v-auth-login'], found: ['stack'] },
-    explanation: 'When the next node is inside the subtree of the stack top, connect it as a child and push it. root -> auth -> login is a clean ancestor chain.',
+    explanation: `When the next node is inside the subtree of the stack top, connect it as a child and push it. ${scanOrder[0]} -> ${scanOrder[1]} -> ${scanOrder[2]} is a clean ancestor chain.`,
   };
 
   yield {
-    state: stackGraph('Process oauth by popping login back to auth', ['v-root-auth', 'v-auth-login', 'v-auth-oauth'], {
-      stack: 'root/auth/oauth',
-      scan: 'at oauth',
+    state: stackGraph(`Process ${scanOrder[3]} by popping ${scanOrder[2]} back to ${scanOrder[1]}`, ['v-root-auth', 'v-auth-login', 'v-auth-oauth'], {
+      stack: `${scanOrder[0]}/${scanOrder[1]}/${scanOrder[3]}`,
+      scan: `at ${scanOrder[3]}`,
       notes: { login: 'popped', auth: 'parent', oauth: 'new top' },
     }),
     highlight: { active: ['auth', 'oauth', 'v-auth-oauth'], removed: ['login'], compare: ['stack'] },
-    explanation: 'oauth is not inside login, so login is popped. auth is still an ancestor, so auth becomes the parent of oauth in the virtual tree.',
+    explanation: `${scanOrder[3]} is not inside ${scanOrder[2]}, so ${scanOrder[2]} is popped. ${scanOrder[1]} is still an ancestor, so ${scanOrder[1]} becomes the parent of ${scanOrder[3]} in the virtual tree.`,
   };
 
   yield {
     state: stackGraph(
-      'Move to shop and attach its marked descendants',
+      `Move to ${scanOrder[4]} and attach its marked descendants`,
       ['v-root-auth', 'v-auth-login', 'v-auth-oauth', 'v-root-shop', 'v-shop-invoices', 'v-shop-checkout'],
       {
-        stack: 'root/shop/checkout',
-        scan: 'at checkout',
+        stack: `${scanOrder[0]}/${scanOrder[4]}/${scanOrder[6]}`,
+        scan: `at ${scanOrder[6]}`,
         notes: { shop: 'parent', invoices: 'done', checkout: 'top', auth: 'closed' },
       },
     ),
     highlight: { active: ['shop', 'invoices', 'checkout', 'v-root-shop', 'v-shop-invoices', 'v-shop-checkout'], compare: ['auth'] },
-    explanation: 'Leaving the auth subtree pops back to root. Then shop attaches under root, and its marked descendants attach to the nearest kept ancestor shop.',
+    explanation: `Leaving the ${scanOrder[1]} subtree pops back to ${scanOrder[0]}. Then ${scanOrder[4]} attaches under ${scanOrder[0]}, and its marked descendants (${scanOrder[5]}, ${scanOrder[6]}) attach to the nearest kept ancestor ${scanOrder[4]}.`,
   };
 
   yield {
-    state: stackGraph('Finish by attaching cache under root with distance 2', VIRTUAL_EDGES.map((edge) => edge.id), {
-      stack: 'root/cache',
+    state: stackGraph(`Finish by attaching ${scanOrder[7]} under ${scanOrder[0]} with distance ${cacheDistance}`, VIRTUAL_EDGES.map((edge) => edge.id), {
+      stack: `${scanOrder[0]}/${scanOrder[7]}`,
       scan: 'done',
       notes: { cache: 'last mark', root: 'parent' },
     }),
     highlight: { active: ['cache', 'root', 'v-root-cache'], found: ['scan'], compare: ['v-shop-invoices', 'v-shop-checkout'] },
-    explanation: 'cache lives under search, but search is not marked and not an LCA of marked nodes. The virtual edge root -> cache records a compressed path of length two.',
+    explanation: `${scanOrder[7]} lives under search, but search is not marked and not an LCA of marked nodes. The virtual edge ${scanOrder[0]} -> ${scanOrder[7]} records a compressed path of length ${cacheDistance}. All ${VIRTUAL_EDGES.length} edges are now built.`,
   };
 }
 
 function* incidentCaseStudy() {
+  const alertServices = ['login', 'oauth', 'invoices', 'checkout', 'cache'];
+  const alertCount = alertServices.length;
+  const teamNodes = ['auth', 'shop', 'search'];
+  const authAlerts = alertServices.filter((s) => s === 'login' || s === 'oauth').length;
+  const shopAlerts = alertServices.filter((s) => s === 'invoices' || s === 'checkout').length;
+  const cacheAlerts = alertServices.filter((s) => s === 'cache').length;
+  const totalRollup = authAlerts + shopAlerts + cacheAlerts;
+  const checklistItems = 5;
+
   yield {
-    state: fullTreeGraph('Incident query marks a few services inside a much larger tree', {
+    state: fullTreeGraph(`Incident query marks ${alertCount} services inside a ${FULL_NODES.length}-node tree`, {
       login: 'alert',
       oauth: 'alert',
       invoices: 'alert',
@@ -289,24 +310,24 @@ function* incidentCaseStudy() {
       shop: 'team',
       search: 'team',
     }),
-    highlight: { active: ['login', 'oauth', 'invoices', 'checkout', 'cache'], compare: ['auth', 'shop', 'search'] },
-    explanation: 'Suppose an incident page receives five affected services from traces. The ownership tree is much larger than the alert set, so scanning every subtree per incident is wasteful.',
+    highlight: { active: alertServices, compare: teamNodes },
+    explanation: `Suppose an incident page receives ${alertCount} affected services (${alertServices.join(', ')}) from traces. The ownership tree has ${FULL_NODES.length} nodes, so scanning every subtree per incident is wasteful.`,
   };
 
   yield {
-    state: virtualGraph('Build a per-incident auxiliary tree', undefined, {
+    state: virtualGraph(`Build a ${VIRTUAL_NODES.length}-node per-incident auxiliary tree`, undefined, {
       root: 'incident root',
-      auth: '2 alerts',
-      shop: '2 alerts',
-      cache: '1 alert',
+      auth: `${authAlerts} alerts`,
+      shop: `${shopAlerts} alerts`,
+      cache: `${cacheAlerts} alert`,
     }),
-    highlight: { active: ['login', 'oauth', 'invoices', 'checkout', 'cache'], found: ['auth', 'shop', 'root'], compare: ['v-root-auth', 'v-root-shop', 'v-root-cache'] },
-    explanation: 'The incident system builds a virtual tree for just the affected services. It can now aggregate impact by ownership boundary without touching unrelated branches.',
+    highlight: { active: alertServices, found: ['auth', 'shop', 'root'], compare: ['v-root-auth', 'v-root-shop', 'v-root-cache'] },
+    explanation: `The incident system builds a virtual tree with ${VIRTUAL_NODES.length} nodes and ${VIRTUAL_EDGES.length} edges for just the ${alertCount} affected services. It can now aggregate impact by ownership boundary without touching unrelated branches.`,
   };
 
   yield {
     state: labelMatrix(
-      'Postorder impact DP',
+      `Postorder impact DP over ${VIRTUAL_NODES.length} virtual nodes`,
       [
         { id: 'auth', label: 'auth' },
         { id: 'shop', label: 'shop' },
@@ -315,19 +336,19 @@ function* incidentCaseStudy() {
       ],
       [{ id: 'marked', label: 'alerts' }, { id: 'rollup', label: 'rollup' }],
       [
-        ['2', 'team page'],
-        ['2', 'team page'],
-        ['1', 'single svc'],
-        ['5', 'incident'],
+        [`${authAlerts}`, 'team page'],
+        [`${shopAlerts}`, 'team page'],
+        [`${cacheAlerts}`, 'single svc'],
+        [`${totalRollup}`, 'incident'],
       ],
     ),
     highlight: { active: ['auth:rollup', 'shop:rollup'], found: ['root:marked'], compare: ['cache:marked'] },
-    explanation: 'A postorder DP over the virtual tree counts marked descendants per compressed branch. The same pattern can compute minimum distance, risk score, or affected owners.',
+    explanation: `A postorder DP over the ${VIRTUAL_NODES.length}-node virtual tree counts marked descendants per compressed branch. auth rolls up ${authAlerts}, shop rolls up ${shopAlerts}, root totals ${totalRollup}.`,
   };
 
   yield {
     state: labelMatrix(
-      'Per-query budget',
+      `Per-query budget (n=${FULL_NODES.length}, k=${alertCount})`,
       [
         { id: 'prep', label: 'preprocess' },
         { id: 'sort', label: 'sort marks' },
@@ -337,20 +358,20 @@ function* incidentCaseStudy() {
       ],
       [{ id: 'cost', label: 'cost' }, { id: 'scope', label: 'scope' }],
       [
-        ['O(n log n)', 'once'],
-        ['O(k log k)', 'query'],
-        ['O(k log n)', 'query'],
-        ['O(k)', 'query'],
-        ['O(k)', 'virtual'],
+        [`O(n log n)`, 'once'],
+        [`O(k log k)`, 'query'],
+        [`O(k log n)`, 'query'],
+        [`O(k)`, 'query'],
+        [`O(k)`, 'virtual'],
       ],
     ),
     highlight: { found: ['stack:cost', 'dp:cost'], active: ['sort:scope', 'lca:scope'], compare: ['prep:scope'] },
-    explanation: 'The full tree pays for LCA preprocessing once. Each incident then scales with k, the number of marked services, not n, the size of the ownership tree.',
+    explanation: `The full ${FULL_NODES.length}-node tree pays for LCA preprocessing once. Each incident then scales with k=${alertCount}, the number of marked services, not n=${FULL_NODES.length}.`,
   };
 
   yield {
     state: labelMatrix(
-      'Production checklist',
+      `Production checklist (${checklistItems} items)`,
       [
         { id: 'lca', label: 'LCA' },
         { id: 'dedupe', label: 'uniq' },
@@ -368,7 +389,7 @@ function* incidentCaseStudy() {
       ],
     ),
     highlight: { active: ['lca:rule', 'weight:rule', 'clear:rule'], found: ['change:bug'], compare: ['dedupe:bug'] },
-    explanation: 'The common failures are mechanical: missing LCAs, duplicate nodes, forgetting compressed edge lengths, or reusing per-query adjacency after the query is done.',
+    explanation: `The ${checklistItems} common failures are mechanical: missing LCAs, duplicate nodes, forgetting ${VIRTUAL_EDGES.length} compressed edge lengths, or reusing per-query adjacency after the query is done.`,
   };
 }
 
@@ -382,6 +403,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/virtual-tree-marked-nodes-lca-compression.gif', alt: 'Animated walkthrough of the virtual tree marked nodes lca compression visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

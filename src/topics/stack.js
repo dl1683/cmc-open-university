@@ -66,7 +66,8 @@ export const article = {
         {type: 'callout', text: 'A stack is useful because it turns nested unfinished work into one enforced rule: the newest live item is the only item you can touch.'},
         'Watch the top position. After every push, the new value sits on top of everything already there. After every pop, the item beneath the removed one becomes the new top. Peek highlights the top without removing it. At the end, the stack empties in reverse order: the last value pushed is the first value popped.',
         'If you pause at any frame, the top of the stack is always the most recently pushed item that has not yet been popped. That one fact is the entire data structure.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/stack.gif', alt: 'Animated walkthrough of the stack visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -151,7 +151,8 @@ export const article = {
         'Highlighted nodes show where the algorithm is currently deciding which child to descend into. Visited nodes mark levels already checked. Found marks the node where the target was located or proved absent. Watch for splits: when a node overflows, it breaks in two and pushes its median key up into the parent.',
         'This demo uses an order-3 B-tree (each node holds at most 2 keys). Real databases use order 500+, but the mechanics -- multi-way branching, upward splits, uniform leaf depth -- are identical.',
         {type: 'callout', text: 'A B-tree wins by matching the unit of search to the unit of storage, so one page read discards hundreds of key ranges.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/b-tree.gif', alt: 'Animated walkthrough of the b tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

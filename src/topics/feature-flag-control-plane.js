@@ -60,14 +60,14 @@ function* evaluationPath() {
   yield {
     state: flagGraph('The application asks for a typed flag value'),
     highlight: { active: ['app', 'sdk', 'e-app-sdk'], compare: ['provider'] },
-    explanation: 'A feature flag starts as a typed evaluation request: flag key, default value, and context. The application should be able to fall back safely if the provider is unavailable.',
+    explanation: `A feature flag starts as a typed evaluation request flowing through ${7} pipeline nodes: flag key, default value, and context. The application should be able to fall back safely if the provider is unavailable.`,
   };
 
   yield {
     state: flagGraph('Context and provider rules resolve the variant'),
     highlight: { active: ['context', 'provider', 'rules', 'variant', 'e-context-rules', 'e-provider-rules'], found: ['e-rules-variant'] },
-    explanation: 'The provider evaluates targeting rules against context: user id, tenant, region, version, plan, device, or request attributes. The output is a variant plus metadata explaining why.',
-    invariant: 'A flag is a pure decision function over key, default, rules, and context.',
+    explanation: `The provider evaluates targeting rules against context through ${7} edges: user id, tenant, region, version, plan, device, or request attributes. The output is a variant plus metadata explaining why.`,
+    invariant: `A flag is a pure decision function over ${4} inputs: key, default, rules, and context.`,
   };
 
   yield {
@@ -91,7 +91,7 @@ function* evaluationPath() {
       ],
     ),
     highlight: { found: ['invocation:example', 'target:example'], active: ['global:source', 'client:source'] },
-    explanation: 'Context merging matters because percentage rollout and targeting need stable inputs. Missing or unstable targeting keys create users who jump between variants.',
+    explanation: `Context merging across ${4} hierarchy levels matters because percentage rollout and targeting need stable inputs. Missing or unstable targeting keys create users who jump between variants.`,
   };
 
   yield {
@@ -115,7 +115,7 @@ function* evaluationPath() {
       ],
     ),
     highlight: { active: ['before:job', 'after:job'], found: ['error:guardrail'] },
-    explanation: 'Hooks add cross-cutting behavior such as telemetry and context enrichment. They also need latency discipline because flag evaluation often sits directly in the request path.',
+    explanation: `The ${4} lifecycle hooks add cross-cutting behavior such as telemetry and context enrichment. They also need latency discipline because flag evaluation often sits directly in the request path.`,
   };
 }
 
@@ -141,13 +141,13 @@ function* rolloutSafety() {
       ],
     ),
     highlight: { active: ['canary:traffic', 'canary:exit'], found: ['ramp:exit'] },
-    explanation: 'Feature flags turn deployment into progressive exposure. Code can be deployed everywhere while behavior is enabled for carefully chosen cohorts.',
+    explanation: `Feature flags turn deployment into progressive exposure through ${4} rollout stages. Code can be deployed everywhere while behavior is enabled for carefully chosen cohorts.`,
   };
 
   yield {
     state: flagGraph('Telemetry closes the rollout loop'),
     highlight: { active: ['variant', 'hooks', 'e-rules-hooks'], found: ['context', 'rules'] },
-    explanation: 'A rollout is only safe if the chosen variant is observable. Evaluation events, traces, metrics, and business outcomes connect the flag decision to impact.',
+    explanation: `A rollout is only safe if the chosen variant is observable. The telemetry loop through ${7} pipeline nodes connects evaluation events, traces, metrics, and business outcomes to impact.`,
   };
 
   yield {
@@ -171,7 +171,7 @@ function* rolloutSafety() {
       ],
     ),
     highlight: { found: ['release:purpose', 'ops:purpose', 'experiment:purpose'], compare: ['permission:debt'] },
-    explanation: 'Not every flag is the same. Release flags should expire. Experiment flags need A/B Testing discipline. Ops flags are safety controls. Permission flags can become product policy.',
+    explanation: `Not every flag is the same. The matrix shows ${4} distinct types: release flags should expire, experiment flags need A/B Testing discipline, ops flags are safety controls, and permission flags can become product policy.`,
   };
 
   yield {
@@ -195,7 +195,7 @@ function* rolloutSafety() {
       ],
     ),
     highlight: { active: ['default:symptom', 'target:symptom'], found: ['debt:fix'] },
-    explanation: 'Flags are a control plane. They need defaults, TTLs, ownership, audit logs, and cleanup or they become a distributed pile of hidden branches.',
+    explanation: `Flags are a control plane with ${4} common failure modes. They need defaults, TTLs, ownership, audit logs, and cleanup or they become a distributed pile of hidden branches.`,
   };
 }
 
@@ -219,7 +219,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/feature-flag-control-plane.gif', alt: 'Animated walkthrough of the feature flag control plane visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

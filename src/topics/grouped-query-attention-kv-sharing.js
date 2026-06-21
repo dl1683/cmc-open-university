@@ -72,6 +72,10 @@ export function* run(input) {
   const layout = String(input.layout);
   if (!['MHA', 'GQA', 'MQA'].includes(layout)) throw new InputError('Pick MHA, GQA, or MQA.');
 
+  const kvCount = layout === 'MHA' ? 8 : layout === 'GQA' ? 2 : 1;
+  const queryHeadCount = 8;
+  const groupSize = queryHeadCount / kvCount;
+
   const activeEdges = layout === 'MHA'
     ? ['e-q0-kv0', 'e-q1-kv1', 'e-q2-kv2', 'e-q3-kv3', 'e-q4-kv4', 'e-q5-kv5', 'e-q6-kv6', 'e-q7-kv7']
     : layout === 'GQA'
@@ -82,11 +86,11 @@ export function* run(input) {
     state: sharingGraph(layout),
     highlight: { active: activeEdges, found: ['q0', 'q1', 'q2', 'q3'], compare: ['q4', 'q5', 'q6', 'q7'] },
     explanation: layout === 'MHA'
-      ? 'Multi-head attention gives every query head its own cached K/V head. That maximizes per-head separation but stores the largest KV cache.'
+      ? `Multi-head attention gives every query head its own cached K/V head. With ${queryHeadCount} query heads and ${kvCount} KV heads, each group has ${groupSize} queries — maximizing per-head separation but storing the largest KV cache.`
       : layout === 'GQA'
-        ? 'Grouped-query attention keeps many query heads but shares fewer K/V heads. Here eight query heads read from two cached K/V heads.'
-        : 'Multi-query attention is the extreme: many query heads share one cached K/V head. It minimizes KV traffic but can lose quality.',
-    invariant: 'Decode cache size scales with KV heads, not query heads.',
+        ? `Grouped-query attention keeps ${queryHeadCount} query heads but shares only ${kvCount} KV heads. Each KV head serves a group of ${groupSize} query heads, cutting cache to ${Math.round(100 * kvCount / queryHeadCount)}% of the MHA size.`
+        : `Multi-query attention is the extreme: ${queryHeadCount} query heads share ${kvCount} KV head. It minimizes KV traffic to ${Math.round(100 * kvCount / queryHeadCount)}% of MHA but can lose quality.`,
+    invariant: `Decode cache size scales with the ${kvCount} KV head${kvCount === 1 ? '' : 's'}, not the ${queryHeadCount} query heads.`,
   };
 
   yield {
@@ -110,7 +114,7 @@ export function* run(input) {
       ],
     ),
     highlight: { active: [`${layout.toLowerCase()}:kv`, `${layout.toLowerCase()}:cache`], compare: ['mha:cache', 'mqa:risk'] },
-    explanation: 'GQA sits between MHA and MQA. It captures most of the serving-memory win while keeping more K/V diversity than a single shared head.',
+    explanation: `${layout} is the active layout. GQA sits between MHA (${queryHeadCount} KV heads) and MQA (1 KV head), capturing most of the serving-memory win while keeping more K/V diversity than a single shared head.`,
   };
 
   yield {
@@ -120,7 +124,7 @@ export function* run(input) {
       { id: 'mha', x: 32, y: 100, label: 'MHA' },
     ]),
     highlight: { active: ['kv-bytes'], found: ['mqa', 'gqa8', 'mha'] },
-    explanation: 'If a model keeps 32 query heads but stores only 8 KV heads, the KV cache is about one quarter of the full multi-head layout.',
+    explanation: `If a model keeps ${queryHeadCount} query heads but stores only ${kvCount} KV head${kvCount === 1 ? '' : 's'} (${layout}), the KV cache is about ${Math.round(100 * kvCount / queryHeadCount)}% of the full multi-head layout.`,
   };
 
   yield {
@@ -144,7 +148,7 @@ export function* run(input) {
       ],
     ),
     highlight: { found: ['decode:why', 'capacity:why', 'long:why'], compare: ['training:watch'] },
-    explanation: 'The strongest production effect appears during inference. Smaller K/V tensors reduce memory bandwidth, increase concurrency, and make long contexts less punishing.',
+    explanation: `The strongest production effect of ${layout} appears during inference. With ${kvCount} KV head${kvCount === 1 ? '' : 's'} instead of ${queryHeadCount}, smaller K/V tensors reduce memory bandwidth, increase concurrency, and make long contexts less punishing.`,
   };
 }
 
@@ -158,7 +162,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/grouped-query-attention-kv-sharing.gif', alt: 'Animated walkthrough of the grouped query attention kv sharing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why this exists`,

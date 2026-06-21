@@ -17,6 +17,12 @@ export const topic = {
 };
 
 function* melting() {
+  const visibleWriters = 3;
+  const queuedWriters = 997;
+  const totalWriters = visibleWriters + queuedWriters;
+  const edgeCount = 3;
+  const viewCount = '1,048,572';
+
   yield {
     state: graphState({
       nodes: [
@@ -33,27 +39,35 @@ function* melting() {
       ],
     }),
     highlight: { active: ['e1'], compare: ['w2', 'w3'], removed: ['queue'] },
-    explanation: 'The animation shows the simplest hotspot: many writers, one mutable row. Each view tries to run the same UPDATE against the same counter. The database must serialize those writes because two transactions cannot both own the current value at once. That lock is correctness doing its job. The performance bug is the data shape: a thousand independent events are being forced through one shared cell.',
-    invariant: 'Row-level locking serializes writers to the same row: a hot row is a single-file line.',
+    explanation: `The animation shows the simplest hotspot: ${visibleWriters} visible writers plus ${queuedWriters} queued — ${totalWriters} total — all pointing at one mutable row. Each view tries to run the same UPDATE against the same counter. The database must serialize those writes because two transactions cannot both own the current value at once. That lock is correctness doing its job. The performance bug is the data shape: a thousand independent events are being forced through one shared cell.`,
+    invariant: `Row-level locking serializes all ${totalWriters} writers to the same row: a hot row is a single-file line through ${edgeCount} edges.`,
   };
 
   const arrive = 1000;
   const serve = 900;
+  const surplus = arrive - serve;
+  const plotPoints = 31;
+  const tippingTime = 30;
+  const tippingDepth = surplus * tippingTime;
   yield {
     state: plotState({
       axes: { x: { label: 'seconds since going viral' }, y: { label: 'writers waiting in line' } },
       series: [{
         id: 'backlog',
         label: 'queue depth (1,000/s arriving, ~900/s served)',
-        points: Array.from({ length: 31 }, (_, t) => ({ x: t, y: (arrive - serve) * t })),
+        points: Array.from({ length: plotPoints }, (_, t) => ({ x: t, y: surplus * t })),
       }],
-      markers: [{ id: 'tipping', x: 30, y: 3000, label: '3,000 waiting — timeouts begin' }],
+      markers: [{ id: 'tipping', x: tippingTime, y: tippingDepth, label: `${tippingDepth.toLocaleString('en-US')} waiting — timeouts begin` }],
     }),
     highlight: { active: ['backlog'], removed: ['tipping'] },
-    explanation: 'This plot is the queueing law in plain view. If the row can complete about 900 locked updates per second and arrivals are 1,000 per second, the backlog grows by 100 every second. It will not settle at "a little slow." It grows until clients time out, retries add more arrivals, and the database spends more time managing the line than doing useful work. Slightly above a serialized resource\'s capacity is an unstable state.',
-    invariant: 'Arrivals > service rate means unbounded queue growth: hot-row overload compounds, never stabilizes.',
+    explanation: `This plot is the queueing law in plain view. If the row can complete about ${serve} locked updates per second and arrivals are ${arrive.toLocaleString('en-US')} per second, the backlog grows by ${surplus} every second. It will not settle at "a little slow." It grows until clients time out, retries add more arrivals, and the database spends more time managing the line than doing useful work. Slightly above a serialized resource's capacity is an unstable state.`,
+    invariant: `Arrivals (${arrive.toLocaleString('en-US')}/s) > service rate (${serve}/s) means unbounded queue growth: ${surplus} extra writers per second compound, never stabilize.`,
   };
 
+  const deadPerSec = 1000;
+  const deadPerMin = deadPerSec * 60;
+  const deadPerDay = deadPerSec * 86400;
+  const deadPerDayMillions = Math.round(deadPerDay / 1_000_000);
   yield {
     state: matrixState({
       title: 'And the second bill: the corpse factory (MVCC)',
@@ -63,35 +77,47 @@ function* melting() {
         { id: 'day', label: 'per day' },
       ],
       columns: [{ id: 'dead', label: 'dead tuples from ONE row' }, { id: 'note', label: '' }],
-      values: [[1000, 1], [60000, 2], [86400000, 3]],
-      format: (v) => (v >= 1000 ? v.toLocaleString('en-US') : ['', 'every update births a corpse', 'autovacuum already behind', '86 MILLION versions of one number'][v]),
+      values: [[deadPerSec, 1], [deadPerMin, 2], [deadPerDay, 3]],
+      format: (v) => (v >= 1000 ? v.toLocaleString('en-US') : ['', 'every update births a corpse', 'autovacuum already behind', `${deadPerDayMillions} MILLION versions of one number`][v]),
     }),
     highlight: { removed: ['day:dead'] },
-    explanation: 'MVCC adds the second bill. Every update creates a newer tuple version and leaves an older one for VACUUM. A hot counter at 1,000 updates per second is also a dead-tuple generator at 1,000 per second. So the row fails two ways: writers queue on the lock, and cleanup chases the corpses. The fix is not just "make the database faster"; it is "stop representing independent events as one constantly rewritten row."',
+    explanation: `MVCC adds the second bill. Every update creates a newer tuple version and leaves an older one for VACUUM. A hot counter at ${deadPerSec.toLocaleString('en-US')} updates per second is also a dead-tuple generator at ${deadPerSec.toLocaleString('en-US')} per second — ${deadPerDay.toLocaleString('en-US')} per day. So the row fails two ways: writers queue on the lock, and cleanup chases the corpses. The fix is not just "make the database faster"; it is "stop representing independent events as one constantly rewritten row."`,
   };
 }
 
 function* fourDesigns() {
+  const numShards = 16;
+  const totalWrites = 1000;
+  const writesPerShard = Math.round(totalWrites / numShards);
+  const shardRows = 4;
+  const shardCounts = [65537, 65520, 65541, 65498];
+  const shardTotal = shardCounts.reduce((a, b) => a + b, 0);
+
   yield {
     state: matrixState({
-      title: 'Design B — sharded counters: split the line 16 ways',
-      rows: Array.from({ length: 4 }, (_, i) => ({ id: `sh${i}`, label: `views_shard_${i} (of 16)` })),
+      title: `Design B — sharded counters: split the line ${numShards} ways`,
+      rows: Array.from({ length: shardRows }, (_, i) => ({ id: `sh${i}`, label: `views_shard_${i} (of ${numShards})` })),
       columns: [{ id: 'count', label: 'count' }, { id: 'load', label: 'write load' }],
-      values: [[65537, 62], [65520, 63], [65541, 62], [65498, 63]],
+      values: [[shardCounts[0], 62], [shardCounts[1], 63], [shardCounts[2], 62], [shardCounts[3], 63]],
       format: (v) => (v > 1000 ? v.toLocaleString('en-US') : `~${v}/s`),
     }),
     highlight: { compare: ['sh0:load', 'sh1:load'] },
-    explanation: 'Sharded counters keep the same logical value but split the write path. Sixteen counter rows turn 1,000 writes per second into roughly 62 writes per shard. Reads now sum the shards, so the design trades one cheap aggregation for lower lock contention and lower MVCC pressure per row. This is the same instinct as Consistent Hashing and LongAdder: split a contended value into independent lanes, then combine when you read.',
-    invariant: 'N shards divide both the contention and the bloat by N; reads pay one aggregation.',
+    explanation: `Sharded counters keep the same logical value but split the write path. ${numShards} counter rows turn ${totalWrites.toLocaleString('en-US')} writes per second into roughly ${writesPerShard} writes per shard. Reads now sum the ${shardRows} visible shards (total: ${shardTotal.toLocaleString('en-US')}), so the design trades one cheap aggregation for lower lock contention and lower MVCC pressure per row. This is the same instinct as Consistent Hashing and LongAdder: split a contended value into independent lanes, then combine when you read.`,
+    invariant: `${numShards} shards divide both the contention and the bloat by ${numShards}; reads pay one aggregation across all shards.`,
   };
+
+  const pipelineNodes = 4;
+  const pipelineEdges = 3;
+  const aggInterval = 10;
+  const contendedWrites = 10000;
 
   yield {
     state: graphState({
       nodes: [
-        { id: 'app', label: 'APP ×1000/s', x: 1, y: 3.5, note: 'INSERT view_event' },
+        { id: 'app', label: `APP ×${totalWrites}/s`, x: 1, y: 3.5, note: 'INSERT view_event' },
         { id: 'events', label: 'EVENTS TABLE', x: 4.2, y: 3.5, note: 'append-only — no lock fights' },
-        { id: 'agg', label: 'AGGREGATOR', x: 7, y: 5.5, note: 'every 10s: SUM + prune' },
-        { id: 'summary', label: 'SUMMARY ROW', x: 7, y: 1.5, note: 'views = 1,048,572 @ 10s ago' },
+        { id: 'agg', label: 'AGGREGATOR', x: 7, y: 5.5, note: `every ${aggInterval}s: SUM + prune` },
+        { id: 'summary', label: 'SUMMARY ROW', x: 7, y: 1.5, note: `views = ${shardTotal.toLocaleString('en-US')} @ ${aggInterval}s ago` },
       ],
       edges: [
         { id: 'toEvents', from: 'app', to: 'events' },
@@ -100,41 +126,50 @@ function* fourDesigns() {
       ],
     }),
     highlight: { found: ['toEvents', 'events'], active: ['toAgg', 'toSum'] },
-    explanation: 'Append-and-aggregate changes the shape more deeply. Each view becomes an INSERT into an event table, so writers no longer fight over a shared row. A background job periodically folds those events into a summary. You pay with staleness and an aggregation pipeline, but you turn many contended updates into many independent appends plus one batched update. LSM trees, write-back caches, and message queues all use the same absorb-now, consolidate-later move.',
-    invariant: 'Inserts parallelize where updates serialize: append-and-aggregate converts 10,000 contended writes into one.',
+    explanation: `Append-and-aggregate changes the shape more deeply. Each view becomes an INSERT into an event table, so ${pipelineNodes} pipeline stages replace one contended row. A background job folds events into a summary every ${aggInterval}s. You pay with staleness and ${pipelineEdges} edges of aggregation pipeline, but you turn many contended updates into many independent appends plus one batched update. LSM trees, write-back caches, and message queues all use the same absorb-now, consolidate-later move.`,
+    invariant: `Inserts parallelize where updates serialize: append-and-aggregate converts ${contendedWrites.toLocaleString('en-US')} contended writes into one batched update every ${aggInterval}s.`,
   };
+
+  const ramThroughput = 100000;
+  const flushInterval = aggInterval;
+  const ramRows = 3;
 
   yield {
     state: matrixState({
       title: 'Design D — RAM accumulator: speed with a crash window',
       rows: [
         { id: 'incr', label: 'Redis INCR (in memory)' },
-        { id: 'flush', label: 'flush job: every 10s → DB' },
+        { id: 'flush', label: `flush job: every ${flushInterval}s → DB` },
         { id: 'crash', label: '⚡ crash between flushes' },
       ],
       columns: [{ id: 'what', label: '' }],
       values: [[1], [2], [3]],
-      format: (v) => ['', '~100,000/s, no row, no corpse, no lock', 'one UPDATE carries 10s of counts', 'up to 10s of views vanish — acceptable?'][v],
+      format: (v) => ['', `~${ramThroughput.toLocaleString('en-US')}/s, no row, no corpse, no lock`, `one UPDATE carries ${flushInterval}s of counts`, `up to ${flushInterval}s of views vanish — acceptable?`][v],
     }),
     highlight: { found: ['incr:what'], removed: ['crash:what'] },
-    explanation: 'A RAM accumulator moves the hot write path out of the durable database. Redis INCR or an in-process counter can absorb far higher write rates, then flush a batch later. That is write-back caching: fast and simple, with an explicit loss window. The decision depends on the value of exactness. A view counter can lose a few seconds. A bank balance cannot.',
+    explanation: `A RAM accumulator moves the hot write path out of the durable database. Redis INCR or an in-process counter can absorb ~${ramThroughput.toLocaleString('en-US')}/s, then flush a batch every ${flushInterval}s. That is write-back caching: fast and simple, with an explicit ${flushInterval}-second loss window. The decision depends on the value of exactness. A view counter can lose a few seconds. A bank balance cannot.`,
   };
+
+  const designCount = 4;
+  const naiveTput = 900;
+  const shardTput = numShards * naiveTput;
+  const appendTput = 50000;
 
   yield {
     state: matrixState({
-      title: 'The scorecard: one counter, four designs',
+      title: `The scorecard: one counter, ${designCount} designs`,
       rows: [
         { id: 'naive', label: 'A: single row' },
-        { id: 'shard', label: 'B: 16 shards' },
+        { id: 'shard', label: `B: ${numShards} shards` },
         { id: 'append', label: 'C: append + aggregate' },
         { id: 'ram', label: 'D: RAM + flush' },
       ],
       columns: [{ id: 'tput', label: 'sustainable writes/s' }, { id: 'fresh', label: 'read freshness' }, { id: 'loss', label: 'crash loss' }],
-      values: [[900, 1, 2], [14000, 1, 2], [50000, 3, 2], [100000, 3, 4]],
+      values: [[naiveTput, 1, 2], [shardTput, 1, 2], [appendTput, 3, 2], [ramThroughput, 3, 4]],
       format: (v) => (v >= 900 ? `~${v.toLocaleString('en-US')}` : ['', 'exact, instant', 'none (transactional)', 'seconds stale', 'the unflushed window'][v]),
     }),
     highlight: { removed: ['naive:tput'], found: ['append:tput', 'ram:tput'] },
-    explanation: 'The scorecard makes the trade visible. The farther you move from the single row, the more write throughput you get, and the more you manage freshness, durability, or aggregation complexity. The reusable lesson is broad: when many writers converge on one piece of state, ask whether they really need to rewrite it immediately. Often the better shape is independent events first, consolidation later.',
+    explanation: `The scorecard makes the trade visible across ${designCount} designs. The naive row caps at ~${naiveTput}/s; ${numShards} shards reach ~${shardTput.toLocaleString('en-US')}/s; append-and-aggregate pushes to ~${appendTput.toLocaleString('en-US')}/s; and RAM accumulation hits ~${ramThroughput.toLocaleString('en-US')}/s. The farther you move from the single row, the more write throughput you get, and the more you manage freshness, durability, or aggregation complexity. The reusable lesson: when many writers converge on one piece of state, ask whether they really need to rewrite it immediately.`,
   };
 }
 
@@ -154,7 +189,8 @@ export const article = {
         {type: 'callout', text: 'A hot row is not slow because databases are weak; it is slow because independent events were modeled as one serialized mutation.'},
         'The second view walks four designs side by side. Each frame shows one approach to the same counter: sharded rows, append-and-aggregate, RAM accumulator, and a final scorecard comparing throughput, freshness, and crash semantics. Found highlights mark the fast path. Removed highlights mark the risk.',
         'At each frame, read the explanation for the mechanism, then check the invariant line beneath it. The invariant states what the design guarantees. If a later design relaxes that guarantee, the explanation says so and names the tradeoff.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/hot-rows.gif', alt: 'Animated walkthrough of the hot rows visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

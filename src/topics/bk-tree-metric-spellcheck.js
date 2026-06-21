@@ -53,20 +53,26 @@ function bkGraph(title) {
 }
 
 function* metricTree() {
+  const rootWord = 'book';
+  const children = ['books', 'cake'];
+  const distanceType = 'Edit Distance';
   yield {
     state: bkGraph('BK-tree edges are distances from the parent word'),
-    highlight: { active: ['book', 'books', 'cake'], found: ['e-book-books', 'e-book-cake'] },
-    explanation: 'A BK-tree stores objects from a metric space. Each child edge out of a node is labeled by the distance from the parent object. For words, the distance is often Edit Distance.',
-    invariant: 'All descendants behind an edge labeled k are exactly distance k from that edge parent.',
+    highlight: { active: [rootWord, children[0], children[1]], found: ['e-book-books', 'e-book-cake'] },
+    explanation: `A BK-tree stores objects from a metric space. Each child edge out of a node is labeled by the distance from the parent object — ${rootWord} has children ${children.join(' and ')}. For words, the distance is often ${distanceType}.`,
+    invariant: `All descendants behind an edge labeled k are exactly distance k from that edge's parent.`,
   };
 
+  const newWord = 'boon';
+  const insertDistRoot = 2;
+  const insertDistChild = 1;
   yield {
     state: labelMatrix(
       'Insertion by distance',
       [
-        { id: 'start', label: 'new word boon' },
-        { id: 'root', label: 'compare book' },
-        { id: 'child', label: 'compare books' },
+        { id: 'start', label: `new word ${newWord}` },
+        { id: 'root', label: `compare ${rootWord}` },
+        { id: 'child', label: `compare ${children[0]}` },
         { id: 'place', label: 'place' },
       ],
       [
@@ -74,24 +80,25 @@ function* metricTree() {
         { id: 'action', label: 'action' },
       ],
       [
-        ['d=2', 'follow edge 2?'],
-        ['no edge 2? maybe create', 'or continue'],
-        ['d=1', 'follow/create edge 1'],
-        ['child under books', 'store boon'],
+        [`d=${insertDistRoot}`, `follow edge ${insertDistRoot}?`],
+        [`no edge ${insertDistRoot}? maybe create`, 'or continue'],
+        [`d=${insertDistChild}`, `follow/create edge ${insertDistChild}`],
+        [`child under ${children[0]}`, `store ${newWord}`],
       ],
     ),
     highlight: { active: ['root:distance', 'child:distance'], found: ['place:action'] },
-    explanation: 'Insertion is simple: compute distance to the current node, then follow the child with that exact distance. If no such child exists, attach the new item there.',
+    explanation: `Insertion is simple: compute distance to the current node (${rootWord} gives d=${insertDistRoot}), then follow the child with that exact distance. If no such child exists, attach ${newWord} there.`,
   };
 
+  const axioms = ['nonnegative', 'zero iff same', 'symmetric', 'triangle'];
   yield {
     state: labelMatrix(
       'Metric requirements',
       [
-        { id: 'nonneg', label: 'nonnegative' },
-        { id: 'zero', label: 'zero iff same' },
-        { id: 'sym', label: 'symmetric' },
-        { id: 'tri', label: 'triangle' },
+        { id: 'nonneg', label: axioms[0] },
+        { id: 'zero', label: axioms[1] },
+        { id: 'sym', label: axioms[2] },
+        { id: 'tri', label: axioms[3] },
       ],
       [
         { id: 'rule', label: 'rule' },
@@ -105,56 +112,66 @@ function* metricTree() {
       ],
     ),
     highlight: { found: ['tri:why'], active: ['sym:why', 'zero:why'] },
-    explanation: 'The triangle inequality is the whole pruning proof. If a distance function violates it, a BK-tree can skip a subtree that actually contains a valid answer.',
+    explanation: `The ${axioms[3]} inequality is the whole pruning proof — ${axioms.length} axioms are required in total. If a distance function violates it, a BK-tree can skip a subtree that actually contains a valid answer.`,
   };
 }
 
 function* radiusQuery() {
+  const queryWord = 'boon';
+  const radius = 1;
+  const dQueryRoot = 2;
+  const bandLow = dQueryRoot - radius;
+  const bandHigh = dQueryRoot + radius;
   yield {
-    state: bkGraph('Query "boon" within edit distance 1'),
-    highlight: { active: ['query', 'book'], found: ['boon'], compare: ['books', 'boo', 'cook'] },
-    explanation: 'For query q and radius r, compute d(q,node). If d=2 and r=1, only child edges in [1,3] can possibly contain answers. Every other distance bucket is impossible by triangle inequality.',
-    invariant: 'Visit only child edges k where d(q,node)-r <= k <= d(q,node)+r.',
+    state: bkGraph(`Query "${queryWord}" within edit distance ${radius}`),
+    highlight: { active: ['query', 'book'], found: [queryWord], compare: ['books', 'boo', 'cook'] },
+    explanation: `For query q and radius r, compute d(q,node). If d=${dQueryRoot} and r=${radius}, only child edges in [${bandLow},${bandHigh}] can possibly contain answers. Every other distance bucket is impossible by triangle inequality.`,
+    invariant: `Visit only child edges k where d(q,node)-${radius} <= k <= d(q,node)+${radius}.`,
   };
 
+  const cakeEdge = 4;
+  const booksEdge = 1;
   yield {
     state: labelMatrix(
       'Prune by distance band',
       [
         { id: 'root', label: 'at book' },
-        { id: 'edge1', label: 'edge 1' },
-        { id: 'edge4', label: 'edge 4' },
-        { id: 'answer', label: 'boon' },
+        { id: 'edge1', label: `edge ${booksEdge}` },
+        { id: 'edge4', label: `edge ${cakeEdge}` },
+        { id: 'answer', label: queryWord },
       ],
       [
         { id: 'test', label: 'test' },
         { id: 'decision', label: 'decision' },
       ],
       [
-        ['d(query,book)=2', 'keep edges 1..3'],
-        ['1 inside band', 'visit books'],
-        ['4 outside band', 'prune cake'],
+        [`d(query,book)=${dQueryRoot}`, `keep edges ${bandLow}..${bandHigh}`],
+        [`${booksEdge} inside band`, 'visit books'],
+        [`${cakeEdge} outside band`, 'prune cake'],
         ['d=0', 'report'],
       ],
     ),
     highlight: { active: ['root:decision', 'edge1:decision'], removed: ['edge4:decision'], found: ['answer:decision'] },
-    explanation: 'If the edge to cake is distance 4 from book, no descendant behind that edge can be within radius 1 of a query that is distance 2 from book. The subtree is safely skipped.',
+    explanation: `If the edge to cake is distance ${cakeEdge} from book, no descendant behind that edge can be within radius ${radius} of a query that is distance ${dQueryRoot} from book. The subtree is safely skipped.`,
   };
 
+  const visitedNodes = ['book', 'books', queryWord];
+  const prunedNodes = ['cake', 'cape', 'cook'];
   yield {
     state: bkGraph('Triangle inequality turns a tree walk into a filter'),
-    highlight: { active: ['book', 'books', 'boon'], removed: ['cake', 'cape', 'cook'], found: ['boon'] },
-    explanation: 'The search still computes real edit distances for visited nodes. The tree only reduces the number of candidates that need those expensive dynamic-programming computations.',
+    highlight: { active: visitedNodes, removed: prunedNodes, found: [queryWord] },
+    explanation: `The search visits ${visitedNodes.length} nodes and prunes ${prunedNodes.length} — it still computes real edit distances for visited nodes. The tree only reduces the number of candidates that need those expensive dynamic-programming computations.`,
   };
 
+  const scenarios = ['small radius', 'large radius', 'bad metric', 'same distances'];
   yield {
     state: labelMatrix(
       'Performance shape',
       [
-        { id: 'smallr', label: 'small radius' },
-        { id: 'larger', label: 'large radius' },
-        { id: 'badmetric', label: 'bad metric' },
-        { id: 'cluster', label: 'same distances' },
+        { id: 'smallr', label: scenarios[0] },
+        { id: 'larger', label: scenarios[1] },
+        { id: 'badmetric', label: scenarios[2] },
+        { id: 'cluster', label: scenarios[3] },
       ],
       [
         { id: 'effect', label: 'effect' },
@@ -168,19 +185,22 @@ function* radiusQuery() {
       ],
     ),
     highlight: { found: ['smallr:effect'], compare: ['larger:risk', 'cluster:risk'] },
-    explanation: 'BK-trees are workload-sensitive. They shine with small radii and discrete distances that distribute words across useful buckets.',
+    explanation: `BK-trees are workload-sensitive — ${scenarios.length} scenarios shape performance. They shine with ${scenarios[0]} and discrete distances that distribute words across useful buckets.`,
   };
 }
 
 function* spellcheckCaseStudy() {
+  const pipelineStages = ['dictionary', 'edit distance', 'mispelling', 'rank results'];
+  const radiusRange = '1..2';
+  const rankers = ['frequency', 'context'];
   yield {
     state: labelMatrix(
       'Spellcheck pipeline',
       [
-        { id: 'dict', label: 'dictionary' },
-        { id: 'metric', label: 'edit distance' },
-        { id: 'query', label: 'mispelling' },
-        { id: 'rank', label: 'rank results' },
+        { id: 'dict', label: pipelineStages[0] },
+        { id: 'metric', label: pipelineStages[1] },
+        { id: 'query', label: pipelineStages[2] },
+        { id: 'rank', label: pipelineStages[3] },
       ],
       [
         { id: 'role', label: 'role' },
@@ -188,43 +208,46 @@ function* spellcheckCaseStudy() {
       ],
       [
         ['build BK-tree', 'known words'],
-        ['Levenshtein', 'radius 1..2'],
+        ['Levenshtein', `radius ${radiusRange}`],
         ['fuzzy lookup', 'candidates'],
-        ['frequency/context', 'best correction'],
+        [`${rankers.join('/')}/keyboard`, 'best correction'],
       ],
     ),
     highlight: { active: ['query:role', 'metric:data'], found: ['rank:data'] },
-    explanation: 'A complete spellcheck case study does not stop at nearest edit distance. The BK-tree produces candidates; language frequency, keyboard model, and context choose the suggestion.',
+    explanation: `A complete spellcheck pipeline has ${pipelineStages.length} stages and does not stop at nearest ${pipelineStages[1]}. The BK-tree produces candidates; language ${rankers.join(', ')}, keyboard model choose the suggestion.`,
   };
 
+  const candidates = ['book', 'books', 'boon'];
+  const queryTypo = 'boon?';
   yield {
     state: bkGraph('BK-tree narrows candidates before ranking'),
-    highlight: { active: ['query', 'book', 'books', 'boon'], found: ['boon', 'books'], compare: ['cake'] },
-    explanation: 'For a typo like boon?, the tree can return book, books, or boon within the radius. A real system then ranks exact word frequency and context rather than blindly taking the first hit.',
+    highlight: { active: ['query', ...candidates], found: ['boon', 'books'], compare: ['cake'] },
+    explanation: `For a typo like ${queryTypo}, the tree can return ${candidates.join(', ')} within the radius. A real system then ranks by word ${rankers[0]} and ${rankers[1]} rather than blindly taking the first hit.`,
   };
 
+  const domains = [
+    { id: 'spell', label: 'spellcheck', fit: 'strong' },
+    { id: 'dedupe', label: 'dedupe names', fit: 'often useful' },
+    { id: 'vectors', label: 'vectors', fit: 'usually no' },
+    { id: 'substring', label: 'substring', fit: 'not direct' },
+  ];
   yield {
     state: labelMatrix(
       'Where it fits',
-      [
-        { id: 'spell', label: 'spellcheck' },
-        { id: 'dedupe', label: 'dedupe names' },
-        { id: 'vectors', label: 'vectors' },
-        { id: 'substring', label: 'substring' },
-      ],
+      domains.map(d => ({ id: d.id, label: d.label })),
       [
         { id: 'fit', label: 'fit' },
         { id: 'neighbor' },
       ],
       [
-        ['strong', 'Edit Distance'],
-        ['often useful', 'custom metric'],
-        ['usually no', 'HNSW/k-d/ANN'],
-        ['not direct', 'Suffix/Trie'],
+        [domains[0].fit, 'Edit Distance'],
+        [domains[1].fit, 'custom metric'],
+        [domains[2].fit, 'HNSW/k-d/ANN'],
+        [domains[3].fit, 'Suffix/Trie'],
       ],
     ),
     highlight: { found: ['spell:fit', 'dedupe:fit'], compare: ['vectors:neighbor', 'substring:neighbor'] },
-    explanation: 'BK-trees are for metric lookup, not substring search and not high-dimensional vector search. The distance function and query radius decide whether the pruning will be useful.',
+    explanation: `BK-trees are for metric lookup — ${domains[0].label} is ${domains[0].fit}, ${domains[1].label} is ${domains[1].fit}. The distance function and query radius decide whether the pruning will be useful.`,
   };
 }
 
@@ -247,7 +270,8 @@ export const article = {
         'In the spellcheck case-study view, the tree outputs a candidate set, not a final answer. The animation separates generation from ranking because real correction quality depends on word frequency, keyboard adjacency, and context -- none of which are metric-space operations.',
         {type: 'callout', text: 'A BK-tree is useful when distance labels plus the triangle inequality let one expensive comparison rule out whole metric subtrees.'},
         {type: 'note', text: 'Edge labels are distances, not characters. Two words that are alphabetically adjacent (e.g. "book" and "boo") may live far apart in the tree if their distances to earlier pivots differ.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/bk-tree-metric-spellcheck.gif', alt: 'Animated walkthrough of the bk tree metric spellcheck visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -77,57 +77,61 @@ function lifetimeGraph(title) {
 }
 
 function* passDependencyDag() {
+  const activeNodes1 = ['gbuf', 'depth', 'light', 'e-gbuf-light', 'e-depth-light'];
+  const foundNodes1 = ['compose', 'present'];
   yield {
     state: renderGraph('A render graph is a DAG of passes and resources'),
-    highlight: { active: ['gbuf', 'depth', 'light', 'e-gbuf-light', 'e-depth-light'], found: ['compose', 'present'] },
-    explanation: 'A frame graph declares passes and the resources they read or write. Dependencies come from dataflow: Lighting cannot run before GBuffer and Depth are produced.',
+    highlight: { active: activeNodes1, found: foundNodes1 },
+    explanation: `A frame graph declares passes and the resources they read or write. Dependencies come from dataflow: ${activeNodes1.length} active elements show that Lighting cannot run before GBuffer and Depth are produced, while ${foundNodes1.length} downstream nodes (${foundNodes1.join(', ')}) await their turn.`,
     invariant: 'A pass can run only after every resource it reads has been produced in the required state.',
   };
 
+  const passRows = [
+    { id: 'gbuf', label: 'GBuffer' },
+    { id: 'light', label: 'Lighting' },
+    { id: 'bloom', label: 'Bloom' },
+    { id: 'ui', label: 'UI' },
+  ];
+  const passCols = [
+    { id: 'reads', label: 'reads' },
+    { id: 'writes', label: 'writes' },
+  ];
+  const passData = [
+    ['mesh buffers', 'gbuf, depth'],
+    ['gbuf, depth', 'lit color'],
+    ['lit color', 'blur temp'],
+    ['lit color', 'swapchain'],
+  ];
   yield {
-    state: labelMatrix(
-      'Pass declarations',
-      [
-        { id: 'gbuf', label: 'GBuffer' },
-        { id: 'light', label: 'Lighting' },
-        { id: 'bloom', label: 'Bloom' },
-        { id: 'ui', label: 'UI' },
-      ],
-      [
-        { id: 'reads', label: 'reads' },
-        { id: 'writes', label: 'writes' },
-      ],
-      [
-        ['mesh buffers', 'gbuf, depth'],
-        ['gbuf, depth', 'lit color'],
-        ['lit color', 'blur temp'],
-        ['lit color', 'swapchain'],
-      ],
-    ),
+    state: labelMatrix('Pass declarations', passRows, passCols, passData),
     highlight: { active: ['light:reads', 'light:writes'], found: ['ui:writes'] },
-    explanation: 'The application describes intent. The graph compiler derives order, barriers, resource states, and which passes can be skipped if their outputs are unused.',
+    explanation: `The application describes intent for ${passRows.length} passes across ${passCols.length} columns (${passCols.map(c => c.label).join(', ')}). The graph compiler derives order, barriers, resource states, and which passes can be skipped if their outputs are unused.`,
   };
 
+  const topoActive = ['gbuf', 'depth', 'light', 'ssao', 'bloom', 'compose', 'ui', 'present'];
   yield {
     state: renderGraph('Topological order turns dependencies into command recording'),
-    highlight: { active: ['gbuf', 'depth', 'light', 'ssao', 'bloom', 'compose', 'ui', 'present'], found: ['e-ui-present'] },
-    explanation: 'Topological sort schedules the DAG. Independent passes such as SSAO and some post-processing can be reordered or overlapped when resource constraints permit.',
+    highlight: { active: topoActive, found: ['e-ui-present'] },
+    explanation: `Topological sort schedules all ${topoActive.length} passes in the DAG (${topoActive.join(' -> ')}). Independent passes such as SSAO and some post-processing can be reordered or overlapped when resource constraints permit.`,
   };
 
+  const barrierRows = [
+    { id: 'depth', label: 'Depth' },
+    { id: 'color', label: 'Color' },
+    { id: 'temp', label: 'Temp' },
+    { id: 'swap', label: 'Swapchain' },
+  ];
+  const barrierCols = [
+    { id: 'producer', label: 'producer' },
+    { id: 'consumer', label: 'consumer' },
+    { id: 'transition', label: 'transition' },
+  ];
+  const barrierActive = ['color:transition', 'temp:transition'];
   yield {
     state: labelMatrix(
       'Barriers and states',
-      [
-        { id: 'depth', label: 'Depth' },
-        { id: 'color', label: 'Color' },
-        { id: 'temp', label: 'Temp' },
-        { id: 'swap', label: 'Swapchain' },
-      ],
-      [
-        { id: 'producer', label: 'producer' },
-        { id: 'consumer', label: 'consumer' },
-        { id: 'transition', label: 'transition' },
-      ],
+      barrierRows,
+      barrierCols,
       [
         ['depth write', 'sample', 'depth read'],
         ['render target', 'texture read', 'shader read'],
@@ -135,39 +139,47 @@ function* passDependencyDag() {
         ['UI write', 'present', 'present state'],
       ],
     ),
-    highlight: { active: ['color:transition', 'temp:transition'], found: ['swap:transition'] },
-    explanation: 'Explicit APIs make resource state visible. A render graph centralizes those transitions so individual passes can stay focused on their inputs and outputs.',
+    highlight: { active: barrierActive, found: ['swap:transition'] },
+    explanation: `Explicit APIs make resource state visible. ${barrierRows.length} resources each track ${barrierCols.length} columns (${barrierCols.map(c => c.label).join(', ')}), and ${barrierActive.length} transitions (${barrierActive.map(a => a.split(':')[0]).join(', ')}) are highlighted as active barriers that the render graph centralizes.`,
   };
 
+  const deferredActive = ['gbuf', 'depth', 'light', 'bloom', 'compose', 'ui', 'present'];
+  const skippedPass = 'ssao';
   yield {
     state: renderGraph('Complete case: deferred frame to swapchain'),
-    highlight: { active: ['gbuf', 'depth', 'light', 'bloom', 'compose', 'ui', 'present'], found: ['ssao'] },
-    explanation: 'A deferred renderer records geometry, lighting, post effects, UI, and presentation as a dataflow graph. The graph is the frame-level data structure that keeps GPU commands coherent.',
+    highlight: { active: deferredActive, found: [skippedPass] },
+    explanation: `A deferred renderer records ${deferredActive.length} active passes (${deferredActive.join(', ')}) as a dataflow graph while ${skippedPass} is found but currently inactive. The graph is the frame-level data structure that keeps GPU commands coherent.`,
   };
 }
 
 function* resourceLifetimeAliasing() {
+  const lifetimeActive = ['rA', 'pass1', 'pass2', 'freeA', 'e-ra-p1', 'e-p1-p2', 'e-p2-free'];
+  const lifetimeCompare = ['rB', 'pass3'];
   yield {
     state: lifetimeGraph('Resources have lifetimes from first write to last read'),
-    highlight: { active: ['rA', 'pass1', 'pass2', 'freeA', 'e-ra-p1', 'e-p1-p2', 'e-p2-free'], compare: ['rB', 'pass3'] },
-    explanation: 'A transient texture or buffer is live from the pass that creates it until its final consumer. After last use, its memory can be recycled for another compatible resource.',
+    highlight: { active: lifetimeActive, compare: lifetimeCompare },
+    explanation: `A transient texture or buffer is live from the pass that creates it until its final consumer. ${lifetimeActive.length} elements trace R_A's lifetime, while ${lifetimeCompare.length} elements (${lifetimeCompare.join(', ')}) show R_B waiting. After last use, its memory can be recycled for another compatible resource.`,
     invariant: 'Two resources can alias only when their live intervals do not overlap and their memory requirements are compatible.',
   };
 
+  const intervalRows = [
+    { id: 'depthPyr', label: 'depth pyramid' },
+    { id: 'ssaoTemp', label: 'SSAO temp' },
+    { id: 'bloomTemp', label: 'bloom temp' },
+    { id: 'history', label: 'history buffer' },
+  ];
+  const intervalCols = [
+    { id: 'first', label: 'first use' },
+    { id: 'last', label: 'last use' },
+    { id: 'aliasable', label: 'alias?' },
+  ];
+  const aliasActive = ['depthPyr:aliasable', 'bloomTemp:aliasable'];
+  const aliasCompare = ['history:aliasable'];
   yield {
     state: labelMatrix(
       'Live intervals',
-      [
-        { id: 'depthPyr', label: 'depth pyramid' },
-        { id: 'ssaoTemp', label: 'SSAO temp' },
-        { id: 'bloomTemp', label: 'bloom temp' },
-        { id: 'history', label: 'history buffer' },
-      ],
-      [
-        { id: 'first', label: 'first use' },
-        { id: 'last', label: 'last use' },
-        { id: 'aliasable', label: 'alias?' },
-      ],
+      intervalRows,
+      intervalCols,
       [
         ['P1', 'P3', 'yes after P3'],
         ['P2', 'P4', 'yes after P4'],
@@ -175,29 +187,35 @@ function* resourceLifetimeAliasing() {
         ['prev frame', 'next frame', 'no'],
       ],
     ),
-    highlight: { active: ['depthPyr:aliasable', 'bloomTemp:aliasable'], compare: ['history:aliasable'] },
-    explanation: 'Frame-local transient resources are good alias candidates. History buffers, swapchain images, and externally visible resources usually have longer lifetimes and cannot be freely recycled.',
+    highlight: { active: aliasActive, compare: aliasCompare },
+    explanation: `${intervalRows.length} resources are tracked across ${intervalCols.length} columns (${intervalCols.map(c => c.label).join(', ')}). ${aliasActive.length} frame-local transients (${aliasActive.map(a => a.split(':')[0]).join(', ')}) are good alias candidates, while ${aliasCompare[0].split(':')[0]} buffers have longer lifetimes and cannot be freely recycled.`,
   };
 
+  const aliasingActive = ['freeA', 'pass3', 'alias', 'heap', 'e-free-alias', 'e-p3-alias', 'e-alias-heap'];
+  const aliasedResources = ['rA', 'rB'];
   yield {
     state: lifetimeGraph('Aliasing reduces peak memory without changing pass code'),
-    highlight: { active: ['freeA', 'pass3', 'alias', 'heap', 'e-free-alias', 'e-p3-alias', 'e-alias-heap'], found: ['rA', 'rB'] },
-    explanation: 'The graph compiler can place R_A and R_B in the same heap region if R_A is dead before R_B begins. The pass code still talks about logical resources.',
+    highlight: { active: aliasingActive, found: aliasedResources },
+    explanation: `The graph compiler can place ${aliasedResources[0]} and ${aliasedResources[1]} in the same heap region if ${aliasedResources[0]} is dead before ${aliasedResources[1]} begins. ${aliasingActive.length} active nodes trace the aliasing path from free through heap placement, while the pass code still talks about logical resources.`,
   };
 
+  const compilerRows = [
+    { id: 'cull', label: 'pass culling' },
+    { id: 'order', label: 'ordering' },
+    { id: 'barrier', label: 'barriers' },
+    { id: 'memory', label: 'memory aliasing' },
+  ];
+  const compilerCols = [
+    { id: 'input', label: 'input' },
+    { id: 'output', label: 'output' },
+  ];
+  const compilerActive = ['order:output', 'barrier:output', 'memory:output'];
+  const compilerFound = ['cull:output'];
   yield {
     state: labelMatrix(
       'Graph compiler jobs',
-      [
-        { id: 'cull', label: 'pass culling' },
-        { id: 'order', label: 'ordering' },
-        { id: 'barrier', label: 'barriers' },
-        { id: 'memory', label: 'memory aliasing' },
-      ],
-      [
-        { id: 'input', label: 'input' },
-        { id: 'output', label: 'output' },
-      ],
+      compilerRows,
+      compilerCols,
       [
         ['unused outputs', 'drop pass'],
         ['resource edges', 'topo order'],
@@ -205,14 +223,16 @@ function* resourceLifetimeAliasing() {
         ['live ranges', 'heap plan'],
       ],
     ),
-    highlight: { active: ['order:output', 'barrier:output', 'memory:output'], found: ['cull:output'] },
-    explanation: 'A render graph is an optimizing compiler for one frame. It takes pass declarations and emits a command-recording plan with resource lifetimes.',
+    highlight: { active: compilerActive, found: compilerFound },
+    explanation: `A render graph is an optimizing compiler for one frame with ${compilerRows.length} stages (${compilerRows.map(r => r.label).join(', ')}). ${compilerActive.length} outputs are active while ${compilerFound[0].split(':')[0]} emits a command-recording plan with resource lifetimes.`,
   };
 
+  const rebuildActive = ['heap', 'alias', 'pass1', 'pass2', 'pass3'];
+  const rebuildCompare = ['rA', 'rB'];
   yield {
     state: lifetimeGraph('Complete case: resize and hot-reload rebuild the graph safely'),
-    highlight: { active: ['heap', 'alias', 'pass1', 'pass2', 'pass3'], compare: ['rA', 'rB'] },
-    explanation: 'When the window resizes or a post-effect is toggled, the graph can rebuild resources and dependencies from declarations instead of relying on scattered hand-written lifetime code.',
+    highlight: { active: rebuildActive, compare: rebuildCompare },
+    explanation: `When the window resizes or a post-effect is toggled, ${rebuildActive.length} nodes (${rebuildActive.join(', ')}) are rebuilt and ${rebuildCompare.length} resources (${rebuildCompare.join(', ')}) are re-derived from declarations instead of relying on scattered hand-written lifetime code.`,
   };
 }
 
@@ -225,6 +245,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/render-graph-framegraph-resource-lifetimes.gif', alt: 'Animated walkthrough of the render graph framegraph resource lifetimes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why render graphs exist',
       paragraphs: [

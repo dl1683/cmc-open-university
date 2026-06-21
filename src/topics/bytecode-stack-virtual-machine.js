@@ -53,21 +53,25 @@ function vmGraph(title) {
 }
 
 function* stackBytecode() {
+  const compileGraph = vmGraph('A stack VM compiles syntax into a bytecode chunk');
+  const vmNodeCount = compileGraph.graph.nodes.length;
   yield {
-    state: vmGraph('A stack VM compiles syntax into a bytecode chunk'),
+    state: compileGraph,
     highlight: { active: ['ast', 'chunk', 'consts', 'e-ast-chunk', 'e-chunk-consts'], compare: ['dispatch'] },
-    explanation: 'The parser can produce an AST, but the runtime usually wants a compact instruction stream. A bytecode chunk stores opcodes plus a constant pool.',
+    explanation: `The parser can produce an AST, but the runtime usually wants a compact instruction stream. A bytecode chunk stores opcodes plus a constant pool — the full VM pipeline has ${vmNodeCount} stages from source to result.`,
   };
+  const instrRows = [
+    { id: 'i0', label: '0' },
+    { id: 'i1', label: '1' },
+    { id: 'i2', label: '2' },
+    { id: 'i3', label: '3' },
+    { id: 'i4', label: '4' },
+  ];
+  const expression = '1 + 2 * 3';
   yield {
     state: labelMatrix(
-      'Bytecode for 1 + 2 * 3',
-      [
-        { id: 'i0', label: '0' },
-        { id: 'i1', label: '1' },
-        { id: 'i2', label: '2' },
-        { id: 'i3', label: '3' },
-        { id: 'i4', label: '4' },
-      ],
+      `Bytecode for ${expression}`,
+      instrRows,
       [
         { id: 'op', label: 'opcode' },
         { id: 'stack', label: 'stack after' },
@@ -81,31 +85,34 @@ function* stackBytecode() {
       ],
     ),
     highlight: { active: ['i0:stack', 'i1:stack', 'i2:stack'], found: ['i3:stack', 'i4:stack'] },
-    explanation: 'Stack bytecode avoids naming temporary values. Instructions push operands and consume the top stack slots. The order encodes the expression tree.',
+    explanation: `Stack bytecode avoids naming temporary values. The expression ${expression} compiles to ${instrRows.length} instructions that push operands and consume the top stack slots. The order encodes the expression tree.`,
     invariant: 'Every opcode has a stack effect: how many values it pops and pushes.',
   };
+  const dispatchHighlight = { active: ['ip', 'dispatch', 'op', 'stack', 'e-ip-dispatch', 'e-dispatch-op', 'e-op-stack'], found: ['result'] };
   yield {
     state: vmGraph('The dispatch loop advances the instruction pointer'),
-    highlight: { active: ['ip', 'dispatch', 'op', 'stack', 'e-ip-dispatch', 'e-dispatch-op', 'e-op-stack'], found: ['result'] },
-    explanation: 'The interpreter reads the next opcode, advances the instruction pointer, executes the handler, and repeats. The value stack is the central data structure.',
+    highlight: dispatchHighlight,
+    explanation: `The interpreter reads the next opcode, advances the instruction pointer, executes the handler, and repeats. This loop lights up ${dispatchHighlight.active.length} active components — the value stack is the central data structure.`,
   };
 }
 
 function* framesAndCalls() {
+  const frameHighlight = { active: ['stack', 'dispatch', 'ip'], compare: ['consts'], found: ['result'] };
   yield {
     state: vmGraph('Function calls add call frames around the value stack'),
-    highlight: { active: ['stack', 'dispatch', 'ip'], compare: ['consts'], found: ['result'] },
-    explanation: 'A function call needs more than operands. A call frame records the current function, return address, base stack slot, and local slots.',
+    highlight: frameHighlight,
+    explanation: `A function call needs more than operands. With ${frameHighlight.active.length} active components (${frameHighlight.active.join(', ')}), a call frame records the current function, return address, base stack slot, and local slots.`,
   };
+  const frameRows = [
+    { id: 'fn', label: 'function' },
+    { id: 'ret', label: 'return ip' },
+    { id: 'base', label: 'base slot' },
+    { id: 'locals', label: 'locals' },
+  ];
   yield {
     state: labelMatrix(
       'Call frame layout',
-      [
-        { id: 'fn', label: 'function' },
-        { id: 'ret', label: 'return ip' },
-        { id: 'base', label: 'base slot' },
-        { id: 'locals', label: 'locals' },
-      ],
+      frameRows,
       [
         { id: 'stored', label: 'stored value' },
         { id: 'reason', label: 'reason' },
@@ -118,12 +125,13 @@ function* framesAndCalls() {
       ],
     ),
     highlight: { active: ['ret:stored', 'base:stored', 'locals:stored'], found: ['fn:stored'] },
-    explanation: 'The frame makes recursive calls possible without copying the whole stack. Each call sees its own window over the same value-stack array.',
+    explanation: `The frame stores ${frameRows.length} fields (${frameRows.map(r => r.label).join(', ')}) and makes recursive calls possible without copying the whole stack. Each call sees its own window over the same value-stack array.`,
   };
+  const altHighlight = { active: ['chunk', 'stack', 'dispatch'], compare: ['ast'], found: ['result'] };
   yield {
     state: vmGraph('Stack VMs are compact but not the only design'),
-    highlight: { active: ['chunk', 'stack', 'dispatch'], compare: ['ast'], found: ['result'] },
-    explanation: 'Stack bytecode is dense and simple to emit. Register Virtual Machine: Lua Case Study shows the opposite tradeoff: larger instructions but fewer push and pop operations.',
+    highlight: altHighlight,
+    explanation: `Stack bytecode is dense and simple to emit — the core loop touches ${altHighlight.active.length} components (${altHighlight.active.join(', ')}). Register Virtual Machine: Lua Case Study shows the opposite tradeoff: larger instructions but fewer push and pop operations.`,
   };
 }
 
@@ -136,6 +144,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/bytecode-stack-virtual-machine.gif', alt: 'Animated walkthrough of the bytecode stack virtual machine visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

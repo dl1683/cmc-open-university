@@ -80,11 +80,14 @@ function dispatchGraph(title) {
 }
 
 function* cellHierarchy() {
+  const cellFamilies = ['Geohash', 'S2', 'H3'];
+  const pipelineStages = ['point', 'coarse', 'fine', 'id', 'neighbors', 'candidates', 'exact'];
+
   yield {
     state: cellGraph('A geospatial cell index maps a point to a hierarchy of cells'),
     highlight: { active: ['point', 'coarse', 'fine', 'id', 'e-point-coarse', 'e-coarse-fine', 'e-fine-id'], compare: ['exact'] },
-    explanation: 'Geohash, S2, and H3 all discretize geography. A latitude/longitude point becomes a cell ID at a chosen precision. Coarser cells group nearby points; finer cells narrow the candidate set.',
-    invariant: 'Cell IDs are a coarse spatial filter, not the final distance answer.',
+    explanation: `${cellFamilies.join(', ')} all discretize geography through ${pipelineStages.length} pipeline stages. A latitude/longitude point becomes a cell ID at a chosen precision. Coarser cells group nearby points; finer cells narrow the candidate set.`,
+    invariant: `Cell IDs from any of the ${cellFamilies.length} families are a coarse spatial filter, not the final distance answer.`,
   };
 
   yield {
@@ -108,13 +111,13 @@ function* cellHierarchy() {
       ],
     ),
     highlight: { found: ['geohash:indexUse', 's2:indexUse', 'h3:indexUse'], compare: ['rtree:shape'] },
-    explanation: 'These are not the same structure with different branding. Geohash is prefix-friendly, S2 models cells on the sphere, H3 emphasizes hexagonal grid operations, and R-trees group object boxes dynamically.',
+    explanation: `These ${cellFamilies.length} families are not the same structure with different branding. ${cellFamilies[0]} is prefix-friendly, ${cellFamilies[1]} models cells on the sphere, ${cellFamilies[2]} emphasizes hexagonal grid operations, and R-trees group object boxes dynamically.`,
   };
 
   yield {
     state: cellGraph('Neighbor cells repair boundary misses'),
     highlight: { active: ['id', 'neighbors', 'candidates', 'e-id-neighbors', 'e-id-candidates'], found: ['exact'] },
-    explanation: 'A point just across a cell boundary may be closer than a point in the same cell. Production nearby search queries the cell plus neighboring cells, then computes exact distances on the returned candidates.',
+    explanation: `A point just across a cell boundary may be closer than a point in the same cell. Production nearby search queries the cell plus neighboring cells — touching ${pipelineStages.length} pipeline stages — then computes exact distances on the returned candidates.`,
   };
 
   yield {
@@ -138,16 +141,20 @@ function* cellHierarchy() {
       ],
     ),
     highlight: { active: ['fine:good', 'ring:good'], compare: ['coarse:cost'], found: ['exact:good'] },
-    explanation: 'Resolution is a product knob. Too coarse and every query drags back too many candidates. Too fine and the service fans out across many empty cells. The exact pass is mandatory either way.',
+    explanation: `Resolution is a product knob across all ${cellFamilies.length} cell families. Too coarse and every query drags back too many candidates. Too fine and the service fans out across many empty cells. The exact pass at stage ${pipelineStages.indexOf('exact') + 1} of ${pipelineStages.length} is mandatory either way.`,
   };
 }
 
 function* nearbySearchCaseStudy() {
+  const ringLevels = 2;
+  const dispatchStages = ['rider', 'cell', 'ring1', 'ring2', 'drivers', 'route', 'rank'];
+  const cellRes = 9;
+
   yield {
     state: dispatchGraph('Ride matching starts with cells, not every driver'),
     highlight: { active: ['rider', 'cell', 'ring1', 'drivers', 'e-rider-cell', 'e-cell-ring1', 'e-ring1-drivers'], compare: ['ring2'] },
-    explanation: 'A dispatch system maps the rider pickup to a cell, reads available drivers in that cell and nearby cells, and avoids scanning every moving driver in the city.',
-    invariant: 'Cells bound candidate retrieval; routing decides the winner.',
+    explanation: `A dispatch system maps the rider pickup to a resolution-${cellRes} cell, reads available drivers in that cell and up to ${ringLevels} nearby rings, and avoids scanning every moving driver in the city.`,
+    invariant: `Cells bound candidate retrieval across ${dispatchStages.length} dispatch stages; routing decides the winner.`,
   };
 
   yield {
@@ -171,13 +178,13 @@ function* nearbySearchCaseStudy() {
       ],
     ),
     highlight: { found: ['fetch:risk', 'filter:dataMove'], active: ['rank:dataMove'] },
-    explanation: 'The geospatial index is only the candidate generator. Good dispatch ranking considers road ETA, driver state, demand balancing, cancellations, and marketplace policy.',
+    explanation: `The geospatial index at resolution ${cellRes} is only the candidate generator. Good dispatch ranking through all ${dispatchStages.length} stages considers road ETA, driver state, demand balancing, cancellations, and marketplace policy.`,
   };
 
   yield {
     state: dispatchGraph('Expand the ring only when the first ring is sparse'),
     highlight: { active: ['ring1', 'ring2', 'drivers', 'e-cell-ring2', 'e-ring2-drivers'], found: ['rank'] },
-    explanation: 'A dense downtown pickup may need only one ring of cells. A suburban pickup may expand outward until enough candidates are found or the latency budget is exhausted.',
+    explanation: `A dense downtown pickup may need only ring 1 of ${ringLevels} available rings. A suburban pickup may expand outward to ring ${ringLevels} until enough candidates are found or the latency budget is exhausted.`,
   };
 
   yield {
@@ -201,7 +208,7 @@ function* nearbySearchCaseStudy() {
       ],
     ),
     highlight: { active: ['redis:cellUse', 'sql:cellUse'], found: ['lake:lesson'], compare: ['shard:lesson'] },
-    explanation: 'The same cell ID can serve several jobs: low-latency lookup, durable search, analytics aggregation, and shard routing. The query still needs exact geometry before returning user-visible results.',
+    explanation: `The same resolution-${cellRes} cell ID can serve several jobs across ${dispatchStages.length} stages: low-latency lookup, durable search, analytics aggregation, and shard routing. The query still needs exact geometry before returning user-visible results.`,
   };
 }
 
@@ -214,6 +221,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/hierarchical-geospatial-cells-geohash-s2-h3.gif', alt: 'Animated walkthrough of the hierarchical geospatial cells geohash s2 h3 visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

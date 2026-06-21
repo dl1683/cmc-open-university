@@ -130,7 +130,8 @@ export const article = {
         {type: "callout", text: "Focal loss is difficulty-aware weighting: the label chooses the target, but model confidence chooses how much the example can steer the update."},
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/focal-loss.gif', alt: 'Animated walkthrough of the focal loss visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why it exists`,

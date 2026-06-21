@@ -105,7 +105,8 @@ export const article = {
         {type: `callout`, text: `A Fenwick tree is not a pointer tree; it is a responsibility map encoded by the lowest set bit of each index.`},
         `Active (highlighted) cells mark whichever index the current walk is reading or writing. During a prefix-sum query the walk moves left, stripping the lowest set bit at each step. During a point update the walk moves right, adding the lowest set bit. Visited cells are ranges already accumulated (query) or already patched (update). Found cells mark update targets whose stored values changed.`,
         `Watch for one invariant across every frame: the visited cells always cover disjoint, non-overlapping ranges that together tile the exact prefix or the exact set of owners. If two ranges ever overlapped, the answer would double-count. They never do, because the bit trick partitions the index space.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/fenwick-tree.gif', alt: 'Animated walkthrough of the fenwick tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

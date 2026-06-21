@@ -198,7 +198,8 @@ export const article = {
         'The animation plots six data structures on the same axes for one operation at a time. The horizontal axis is input size n. The vertical axis is average operations (comparisons for search, element moves or pointer rewrites for insert and delete). Each frame adds one data structure so you can watch the gaps form.',
         'Use the operation selector to switch between Search, Insert, and Delete. Each operation tells a different story: hash tables dominate search, unsorted arrays dominate insert (append), and no structure dominates delete without a tradeoff. The curves are average-case; worst-case numbers appear in the article below.',
         'The invariant line shows concrete numbers at the current max n so you compare ratios, not just shapes.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/data-structure-comparison.gif', alt: 'Animated walkthrough of the data structure comparison visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

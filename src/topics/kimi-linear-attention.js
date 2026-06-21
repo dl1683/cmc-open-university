@@ -28,6 +28,11 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* kdaFiniteState() {
+  const kdaStages = 6;  // x, gate, delta, state, read, y
+  const memoryModels = 4;  // full, linear, kda, hybrid
+  const kdaBlocksPerCycle = 3;  // 3 KDA blocks before 1 MLA
+  const hybridRatio = '3:1';
+
   yield {
     state: graphState({
       nodes: [
@@ -47,7 +52,7 @@ function* kdaFiniteState() {
       ],
     }, { title: 'KDA uses a learned finite-state memory' }),
     highlight: { active: ['gate', 'delta', 'state'], found: ['read'] },
-    explanation: 'Kimi Delta Attention treats memory like a recurrent finite state. Fine-grained gates decide what to write and keep, so each token can update the state without reading every previous token.',
+    explanation: `Kimi Delta Attention treats memory like a recurrent finite state with ${kdaStages} stages. Fine-grained gates decide what to write and keep, so each token can update the state without reading every previous token.`,
   };
 
   yield {
@@ -72,8 +77,8 @@ function* kdaFiniteState() {
       ],
     ),
     highlight: { active: ['kda:memory', 'hybrid:strength'], compare: ['full:memory'] },
-    explanation: 'KDA improves the finite-state side of linear attention, while the full Kimi Linear architecture keeps periodic global attention through MLA blocks.',
-    invariant: 'Long-context models choose what form memory should take.',
+    explanation: `KDA improves the finite-state side of linear attention across ${memoryModels} memory models, while the full Kimi Linear architecture keeps periodic global attention through MLA blocks.`,
+    invariant: `Long-context models choose what form memory should take — this matrix compares ${memoryModels} approaches.`,
   };
 
   yield {
@@ -93,7 +98,7 @@ function* kdaFiniteState() {
       ],
     }, { title: 'Reported Kimi Linear layer rhythm' }),
     highlight: { active: ['b1', 'b2', 'b3'], found: ['mla'] },
-    explanation: 'The public Kimi Linear materials describe a hybrid rhythm: several KDA blocks for efficient recurrent processing, then an MLA block for global attention capacity.',
+    explanation: `The public Kimi Linear materials describe a ${hybridRatio} hybrid rhythm: ${kdaBlocksPerCycle} KDA blocks for efficient recurrent processing, then 1 MLA block for global attention capacity.`,
   };
 
   yield {
@@ -105,11 +110,15 @@ function* kdaFiniteState() {
       ],
     }),
     highlight: { active: ['kimi'], compare: ['full'] },
-    explanation: 'The shape is the main idea: finite-state layers make decode memory grow much more slowly, while occasional MLA layers retain stronger global access than pure recurrence.',
+    explanation: `The shape is the main idea: finite-state layers make decode memory grow much more slowly, while occasional MLA layers (every ${kdaBlocksPerCycle + 1}th layer in a ${hybridRatio} rhythm) retain stronger global access than pure recurrence.`,
   };
 }
 
 function* longContextEfficiency() {
+  const cacheReduction = 75;  // percent
+  const speedup = 6;  // x factor
+  const checklistItems = 4;
+
   yield {
     state: labelMatrix(
       'Kimi Linear reported case',
@@ -131,7 +140,7 @@ function* longContextEfficiency() {
       ],
     ),
     highlight: { found: ['cache:reported', 'speed:reported'], compare: ['train:lesson'] },
-    explanation: 'Kimi Linear reports a 48B-total, 3B-activated model and frames the result as a fair comparison against full attention and MLA baselines.',
+    explanation: `Kimi Linear reports a 48B-total, 3B-activated model with up to ${cacheReduction}% KV cache reduction and ${speedup}x decode speedup, framed as a fair comparison against full attention and MLA baselines.`,
   };
 
   yield {
@@ -154,7 +163,7 @@ function* longContextEfficiency() {
       ],
     }, { title: 'Why hybrid attention targets agentic workloads' }),
     highlight: { active: ['state', 'global', 'decode'], found: ['cost', 'quality'] },
-    explanation: 'Agentic workloads stress both sides: long context and long outputs. Kimi Linear is a case study in reducing decode cost without giving up too much global recall.',
+    explanation: `Agentic workloads stress both sides: long context and long outputs. Kimi Linear targets up to ${speedup}x decode speedup — a case study in reducing decode cost without giving up too much global recall.`,
   };
 
   yield {
@@ -166,7 +175,7 @@ function* longContextEfficiency() {
       ],
     }),
     highlight: { active: ['kimi'], compare: ['mla'] },
-    explanation: 'The chart encodes the reported direction: at very long context, Kimi Linear claims much lower time per output token than an MLA-heavy baseline.',
+    explanation: `The chart encodes the reported direction: at very long context, Kimi Linear claims up to ${speedup}x lower time per output token than an MLA-heavy baseline.`,
   };
 
   yield {
@@ -190,7 +199,7 @@ function* longContextEfficiency() {
       ],
     ),
     highlight: { found: ['short:question', 'long:question', 'serving:question'] },
-    explanation: 'The responsible teaching point is benchmark discipline. Linear attention must win quality, cost, and implementation readiness, not only asymptotic notation.',
+    explanation: `The responsible teaching point is benchmark discipline: all ${checklistItems} checklist areas must pass. Linear attention must win quality, cost, and implementation readiness, not only asymptotic notation.`,
   };
 }
 
@@ -220,7 +229,8 @@ export const article = {
           type: 'note',
           text: 'The throughput plots show the direction of the reported claims, not verified independent benchmarks. Read them as "this is the shape the authors claim," not "this is ground truth." Always check evaluation methodology before trusting absolute numbers.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/kimi-linear-attention.gif', alt: 'Animated walkthrough of the kimi linear attention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

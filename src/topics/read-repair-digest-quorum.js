@@ -57,55 +57,62 @@ function readGraph(title) {
 }
 
 function* digestMismatch() {
+  const replicaCount = 3;
+  const activeNodes = ['client', 'coord', 'a', 'b', 'c', 'e-client-coord', 'e-coord-a', 'e-coord-b', 'e-coord-c'];
+  const compareNodes = ['resolve'];
   yield {
     state: readGraph('Coordinator reads data plus replica digests'),
-    highlight: { active: ['client', 'coord', 'a', 'b', 'c', 'e-client-coord', 'e-coord-a', 'e-coord-b', 'e-coord-c'], compare: ['resolve'] },
-    explanation: 'A read coordinator can request full data from one replica and cheaper digests from others. If digests match, the coordinator can return quickly. If they differ, at least one touched replica is stale.',
-    invariant: 'A digest is a comparison shortcut; a mismatch requires real data resolution.',
+    highlight: { active: activeNodes, compare: compareNodes },
+    explanation: `A read coordinator contacts ${replicaCount} replicas via ${activeNodes.length} active elements, requesting full data from one and cheaper digests from the other ${replicaCount - 1}. If digests match, the coordinator can return quickly without involving the ${compareNodes[0]} step. If they differ, at least one touched replica is stale.`,
+    invariant: `A digest is a comparison shortcut across ${replicaCount} replicas; a mismatch requires real data resolution.`,
   };
 
+  const rows = [
+    { id: 'a', label: 'replica A' },
+    { id: 'b', label: 'replica B' },
+    { id: 'c', label: 'replica C' },
+  ];
+  const cols = [
+    { id: 'version', label: 'version' },
+    { id: 'digest', label: 'digest' },
+    { id: 'status', label: 'status' },
+  ];
+  const digestData = [
+    ['v3', 'h3', 'fresh'],
+    ['v2', 'h2', 'stale'],
+    ['v3', 'h3', 'fresh'],
+  ];
+  const freshCount = digestData.filter(r => r[2] === 'fresh').length;
+  const staleCount = digestData.filter(r => r[2] === 'stale').length;
   yield {
-    state: labelMatrix(
-      'Digest comparison for key k',
-      [
-        { id: 'a', label: 'replica A' },
-        { id: 'b', label: 'replica B' },
-        { id: 'c', label: 'replica C' },
-      ],
-      [
-        { id: 'version', label: 'version' },
-        { id: 'digest', label: 'digest' },
-        { id: 'status', label: 'status' },
-      ],
-      [
-        ['v3', 'h3', 'fresh'],
-        ['v2', 'h2', 'stale'],
-        ['v3', 'h3', 'fresh'],
-      ],
-    ),
+    state: labelMatrix('Digest comparison for key k', rows, cols, digestData),
     highlight: { active: ['b:digest', 'b:status'], found: ['a:status', 'c:status'] },
-    explanation: 'The mismatch does not by itself tell the whole value. The coordinator fetches enough data to resolve the newest value according to the database timestamp/version rules.',
+    explanation: `Among ${rows.length} replicas compared across ${cols.length} columns, ${freshCount} are fresh and ${staleCount} is stale. The mismatch does not by itself tell the whole value. The coordinator fetches enough data to resolve the newest value according to the database timestamp/version rules.`,
   };
 
+  const resolveActive = ['a', 'b', 'c', 'resolve', 'e-a-resolve', 'e-b-resolve', 'e-c-resolve'];
+  const resolveFound = ['repair', 'e-resolve-repair'];
   yield {
     state: readGraph('Resolve newest value and repair stale touched replica'),
-    highlight: { active: ['a', 'b', 'c', 'resolve', 'e-a-resolve', 'e-b-resolve', 'e-c-resolve'], found: ['repair', 'e-resolve-repair'] },
-    explanation: 'After resolution, the coordinator writes the newest value back to stale replicas involved in the read. In blocking read repair, the client waits until the repair completes.',
+    highlight: { active: resolveActive, found: resolveFound },
+    explanation: `After resolution across ${resolveActive.length} active elements, the coordinator writes the newest value back to the ${staleCount} stale replica involved in the read. In blocking read repair, the client waits for ${resolveFound.length} repair elements to complete before receiving a response.`,
   };
 
+  const outcomeRows = [
+    { id: 'match', label: 'digests match' },
+    { id: 'mismatch', label: 'digests differ' },
+    { id: 'repair', label: 'repair acked' },
+    { id: 'missed', label: 'untouched replica' },
+  ];
+  const outcomeCols = [
+    { id: 'client', label: 'client sees' },
+    { id: 'replicas', label: 'replica effect' },
+  ];
   yield {
     state: labelMatrix(
       'Read-repair outcomes',
-      [
-        { id: 'match', label: 'digests match' },
-        { id: 'mismatch', label: 'digests differ' },
-        { id: 'repair', label: 'repair acked' },
-        { id: 'missed', label: 'untouched replica' },
-      ],
-      [
-        { id: 'client', label: 'client sees' },
-        { id: 'replicas', label: 'replica effect' },
-      ],
+      outcomeRows,
+      outcomeCols,
       [
         ['fast return', 'no touched repair'],
         ['wait for resolve', 'stale touched replica found'],
@@ -114,80 +121,91 @@ function* digestMismatch() {
       ],
     ),
     highlight: { active: ['mismatch:client', 'repair:replicas'], compare: ['missed:replicas'] },
-    explanation: 'Read repair is scoped to the replicas involved in the read. It improves what the coordinator observed; it is not a substitute for full anti-entropy repair across every token range.',
+    explanation: `Read repair covers ${outcomeRows.length} outcome scenarios across ${outcomeCols.length} dimensions. It is scoped to the ${replicaCount} replicas involved in the read; it improves what the coordinator observed but is not a substitute for full anti-entropy repair across every token range.`,
   };
 
+  const finalActive = ['coord', 'resolve', 'repair'];
+  const finalCompare = ['b'];
   yield {
     state: readGraph('The read path becomes a small repair workflow'),
-    highlight: { active: ['coord', 'resolve', 'repair'], found: ['client'], compare: ['b'] },
-    explanation: 'This is why read repair belongs on a data-structures site. A query path becomes a compare-and-repair workflow over digests, versions, quorum responses, and durable writebacks.',
+    highlight: { active: finalActive, found: ['client'], compare: finalCompare },
+    explanation: `This is why read repair belongs on a data-structures site. The ${finalActive.length} active stages (${finalActive.join(', ')}) transform a query path into a compare-and-repair workflow over digests, versions, quorum responses, and durable writebacks targeting stale replica ${finalCompare[0].toUpperCase()}.`,
   };
 }
 
 function* monotonicQuorum() {
+  const replicaCount = 3;
+  const newerVersion = 'v3';
+  const olderVersion = 'v2';
+  const mqRows = [
+    { id: 'a', label: 'replica A' },
+    { id: 'b', label: 'replica B' },
+    { id: 'c', label: 'replica C' },
+  ];
+  const mqCols = [
+    { id: 'before', label: 'before read' },
+    { id: 'after', label: 'after blocking repair' },
+  ];
+  const mqData = [
+    [newerVersion, newerVersion],
+    [olderVersion, newerVersion],
+    [olderVersion, `${olderVersion} if not touched`],
+  ];
+  const freshBefore = mqData.filter(r => r[0] === newerVersion).length;
+  const staleBefore = mqData.filter(r => r[0] === olderVersion).length;
   yield {
-    state: labelMatrix(
-      'Failed quorum write leaves one fresh replica',
-      [
-        { id: 'a', label: 'replica A' },
-        { id: 'b', label: 'replica B' },
-        { id: 'c', label: 'replica C' },
-      ],
-      [
-        { id: 'before', label: 'before read' },
-        { id: 'after', label: 'after blocking repair' },
-      ],
-      [
-        ['v3', 'v3'],
-        ['v2', 'v3'],
-        ['v2', 'v2 if not touched'],
-      ],
-    ),
+    state: labelMatrix('Failed quorum write leaves one fresh replica', mqRows, mqCols, mqData),
     highlight: { active: ['a:before', 'b:before'], found: ['b:after'], compare: ['c:after'] },
-    explanation: 'Cassandra documentation describes blocking read repair as preserving monotonic quorum reads. If a quorum read sees the newer value on one replica, it repairs stale replicas involved in that read before returning.',
-    invariant: 'The next quorum read should not move backward for the repaired replica set.',
+    explanation: `Among ${replicaCount} replicas shown in ${mqCols.length} columns, ${freshBefore} starts at ${newerVersion} and ${staleBefore} remain at ${olderVersion} before the read. Cassandra documentation describes blocking read repair as preserving monotonic quorum reads: if a quorum read sees the newer ${newerVersion} on one replica, it repairs stale replicas involved in that read before returning.`,
+    invariant: `The next quorum read should not move backward from ${newerVersion} to ${olderVersion} for the repaired replica set.`,
   };
 
+  const firstReadActive = ['client', 'coord', 'a', 'b', 'resolve', 'repair'];
+  const untouchedReplica = 'c';
   yield {
     state: readGraph('First quorum read touches A and B'),
-    highlight: { active: ['client', 'coord', 'a', 'b', 'resolve', 'repair'], found: ['e-resolve-repair'], compare: ['c'] },
-    explanation: 'A first quorum read that includes A and B sees v3 from A and stale v2 from B. Blocking repair writes v3 to B before the coordinator returns v3 to the client.',
+    highlight: { active: firstReadActive, compare: [untouchedReplica], found: ['e-resolve-repair'] },
+    explanation: `A first quorum read across ${firstReadActive.length} active elements includes A and B: A returns ${newerVersion} while B has stale ${olderVersion}. Blocking repair writes ${newerVersion} to B before the coordinator returns ${newerVersion} to the client, leaving replica ${untouchedReplica.toUpperCase()} untouched.`,
   };
 
+  const secondRows = [
+    { id: 'with', label: 'with blocking repair' },
+    { id: 'none', label: 'without repair' },
+    { id: 'full', label: 'anti-entropy later' },
+  ];
+  const secondCols = [
+    { id: 'BplusC', label: 'read B+C' },
+    { id: 'client', label: 'client risk' },
+  ];
   yield {
     state: labelMatrix(
       'Second quorum read behavior',
+      secondRows,
+      secondCols,
       [
-        { id: 'with', label: 'with blocking repair' },
-        { id: 'none', label: 'without repair' },
-        { id: 'full', label: 'anti-entropy later' },
-      ],
-      [
-        { id: 'BplusC', label: 'read B+C' },
-        { id: 'client', label: 'client risk' },
-      ],
-      [
-        ['B has v3, C has v2', 'returns v3'],
-        ['B may still be v2', 'can move backward'],
+        [`B has ${newerVersion}, C has ${olderVersion}`, `returns ${newerVersion}`],
+        [`B may still be ${olderVersion}`, 'can move backward'],
         ['range repair fixes C', 'eventual convergence'],
       ],
     ),
     highlight: { active: ['with:BplusC', 'with:client'], compare: ['none:client'] },
-    explanation: 'Blocking repair can make successive quorum reads monotonic for the replicas it touches. It does not instantly repair every replica; background repair still matters for full convergence.',
+    explanation: `Across ${secondRows.length} scenarios and ${secondCols.length} dimensions, blocking repair makes successive quorum reads monotonic for the replicas it touches. Without repair, B may still hold ${olderVersion} and the client can move backward. Background repair still matters for full convergence across all ${replicaCount} replicas.`,
   };
 
+  const tradeoffRows = [
+    { id: 'blocking', label: 'blocking repair' },
+    { id: 'none', label: 'repair none' },
+    { id: 'anti', label: 'anti-entropy' },
+  ];
+  const tradeoffCols = [
+    { id: 'strength', label: 'strength' },
+    { id: 'cost', label: 'cost' },
+  ];
   yield {
     state: labelMatrix(
       'Tradeoff: monotonic reads vs partition-level atomicity',
-      [
-        { id: 'blocking', label: 'blocking repair' },
-        { id: 'none', label: 'repair none' },
-        { id: 'anti', label: 'anti-entropy' },
-      ],
-      [
-        { id: 'strength', label: 'strength' },
-        { id: 'cost', label: 'cost' },
-      ],
+      tradeoffRows,
+      tradeoffCols,
       [
         ['monotonic quorum reads', 'read latency'],
         ['partition atomicity', 'stale quorum risk'],
@@ -195,13 +213,14 @@ function* monotonicQuorum() {
       ],
     ),
     highlight: { active: ['blocking:strength', 'blocking:cost'], found: ['anti:strength'] },
-    explanation: 'Cassandra exposes a real tradeoff. Blocking read repair can preserve monotonic quorum reads, while disabling it can preserve partition-level write atomicity for multi-row operations. The right choice depends on the invariant.',
+    explanation: `Cassandra exposes ${tradeoffRows.length} repair strategies across ${tradeoffCols.length} dimensions. Blocking read repair preserves monotonic quorum reads at the cost of read latency, while disabling it preserves partition-level write atomicity for multi-row operations. The right choice depends on the invariant.`,
   };
 
+  const completeActive = ['coord', 'a', 'b', 'c', 'resolve', 'repair'];
   yield {
     state: readGraph('Complete case: compare, resolve, repair, return'),
-    highlight: { active: ['coord', 'a', 'b', 'c', 'resolve', 'repair'], found: ['client'] },
-    explanation: 'The complete read-repair loop is: gather quorum responses, compare digests or data, fetch enough data to resolve, write the newest value to stale touched replicas, then return the resolved value.',
+    highlight: { active: completeActive, found: ['client'] },
+    explanation: `The complete read-repair loop across ${completeActive.length} active elements and ${replicaCount} replicas is: gather quorum responses, compare digests or data, fetch enough data to resolve from ${olderVersion} to ${newerVersion}, write the newest value to stale touched replicas, then return the resolved value.`,
   };
 }
 
@@ -214,6 +233,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/read-repair-digest-quorum.gif', alt: 'Animated walkthrough of the read repair digest quorum visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -62,14 +62,14 @@ function* exposePath() {
   yield {
     state: representedForest('Start with an ordinary represented forest'),
     highlight: { active: ['r', 'a', 'c', 'd', 'e-r-a', 'e-a-c', 'e-c-d'], compare: ['b', 'e'] },
-    explanation: 'A link-cut tree stores a changing forest. The visible tree edges are the represented forest; the hidden data structure is a set of auxiliary splay trees that store preferred root-to-node paths.',
-    invariant: 'The represented forest is acyclic; auxiliary structure may rotate without changing real parent-child reachability.',
+    explanation: `A ${topic.title} stores a changing forest. The visible tree edges are the represented forest; the hidden data structure is a set of auxiliary splay trees that store preferred root-to-${'d'} paths.`,
+    invariant: `The represented forest is acyclic; auxiliary structure may rotate without changing real parent-child reachability in the ${'r'}-rooted tree.`,
   };
 
   yield {
     state: representedForest('access(d) exposes the root-to-d path'),
     highlight: { active: ['d', 'c', 'a', 'r', 'aux1', 'e-path-aux'], found: ['e-aux-query'], compare: ['aux2'] },
-    explanation: 'The access operation repeatedly splays ancestors and changes which child edge is preferred. After access(d), the path from the represented root to d becomes one auxiliary splay tree.',
+    explanation: `The access operation repeatedly splays ancestors and changes which child edge is preferred. After access(${'d'}), the path from the represented root ${'r'} to ${'d'} becomes one auxiliary splay tree.`,
   };
 
   yield {
@@ -93,7 +93,7 @@ function* exposePath() {
       ],
     ),
     highlight: { active: ['preferred:after', 'aggregate:after'], compare: ['virtual:after'] },
-    explanation: 'Preferred paths are a representation trick. A normal tree path is rearranged into a splay tree so path data can be recomputed after rotations.',
+    explanation: `Preferred paths are a representation trick in ${topic.title}. A normal tree path is rearranged into a splay tree so path data can be recomputed after rotations.`,
   };
 
   yield {
@@ -117,7 +117,7 @@ function* exposePath() {
       ],
     ),
     highlight: { found: ['aux:cost', 'path:cost'], active: ['makeroot:meaning'] },
-    explanation: 'The data structure is best understood as two layers: tree topology for correctness, and splay-maintained path decompositions for speed.',
+    explanation: `The ${topic.title} is best understood as two layers: tree topology for correctness, and splay-maintained path decompositions for amortized O(log n) speed.`,
   };
 }
 
@@ -143,20 +143,20 @@ function* linkCutQuery() {
       ],
     ),
     highlight: { active: ['link:move', 'cut:move', 'query:move'], compare: ['link:guard'] },
-    explanation: 'Link-cut trees support online topology changes. Each public operation is a short recipe built from access, splay, path reversal, and local pointer edits.',
+    explanation: `${topic.title} supports online topology changes. Each public operation (${'findRoot'}, ${'link'}, ${'cut'}, ${'query'}) is a short recipe built from access, splay, path reversal, and local pointer edits.`,
   };
 
   yield {
     state: representedForest('Link operation attaches one tree under another'),
     highlight: { active: ['b', 'e', 'e-b-e'], found: ['r'], compare: ['d'] },
-    explanation: 'To link x under y, first makeRoot(x) so x has no represented parent from the data structure perspective, then set its parent pointer to y. The forest guard prevents cycles.',
-    invariant: 'link(x, y) is legal only when x and y are in different represented trees.',
+    explanation: `To link x under y, first makeRoot(x) so x has no represented parent from the ${topic.title} perspective, then set its parent pointer to y. The forest guard prevents cycles — e.g. ${'b'} can be linked under ${'r'}.`,
+    invariant: `link(x, y) is legal only when x and y are in different represented trees of the ${topic.id} forest.`,
   };
 
   yield {
     state: representedForest('Cut operation removes one represented edge'),
     highlight: { active: ['c', 'd', 'e-c-d'], removed: ['e-r-b'], compare: ['aux1'] },
-    explanation: 'To cut edge (c, d), expose the c-to-d path so the edge is local in an auxiliary tree, then remove the child pointer. The user sees a forest split; the auxiliary paths are rebuilt lazily by future accesses.',
+    explanation: `To cut edge (${'c'}, ${'d'}), expose the ${'c'}-to-${'d'} path so the edge is local in an auxiliary tree, then remove the child pointer. The user sees a forest split; the auxiliary paths are rebuilt lazily by future accesses.`,
   };
 
   yield {
@@ -180,7 +180,7 @@ function* linkCutQuery() {
       ],
     ),
     highlight: { found: ['mst:whyLct', 'contest:whyLct'], compare: ['network:need'] },
-    explanation: 'The complete case-study pattern is dynamic MST maintenance: when an edge is added, find the maximum-weight edge on the existing path and cut it if the new edge is better.',
+    explanation: `The complete ${topic.id} case-study pattern is dynamic MST maintenance: when an edge is added, find the maximum-weight edge on the existing path and cut it if the new edge is better — all in amortized O(log n) per update.`,
   };
 }
 
@@ -201,7 +201,8 @@ export const article = {
         'The matrix frames show what changes before and after each operation. Read them as before/after snapshots of the internal state, not as the final answer.',
         'At each frame, ask: which preferred edges changed, which side branches were detached, and what aggregate is now readable from the auxiliary root.',
         {type: 'callout', text: 'A link-cut tree keeps the represented forest stable while constantly reshaping auxiliary splay trees so the path you need becomes searchable.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/link-cut-tree.gif', alt: 'Animated walkthrough of the link cut tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

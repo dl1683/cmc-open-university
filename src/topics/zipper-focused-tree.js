@@ -59,11 +59,15 @@ function treeGraph(title, focus = 'b') {
 }
 
 function* focusAndBreadcrumbs() {
+  const focusLabel = 'x';
+  const numCrumbs = 2;
+  const treeNodes = 7;
+
   yield {
     state: treeGraph('A zipper is focus plus context'),
     highlight: { found: ['b'], active: ['crumb1', 'crumb2'], compare: ['c', 'd'] },
-    explanation: 'A zipper represents a tree at a current focus. Here the focus is leaf x. The breadcrumbs remember everything needed to rebuild the path back to the root: the parent operator and the siblings not currently in focus.',
-    invariant: 'Zipper = focused subtree + enough context to reconstruct the original tree.',
+    explanation: `A zipper represents a tree at a current focus. Here the focus is leaf ${focusLabel}. The ${numCrumbs} breadcrumbs remember everything needed to rebuild the path back to the root: the parent operator and the siblings not currently in focus.`,
+    invariant: `Zipper = focused subtree + enough context (${numCrumbs} crumbs for ${treeNodes} nodes) to reconstruct the original tree.`,
   };
 
   yield {
@@ -86,7 +90,7 @@ function* focusAndBreadcrumbs() {
       ],
     ),
     highlight: { active: ['top:parent', 'top:rights'], found: ['focus:parent'] },
-    explanation: 'The breadcrumb is not a parent pointer inside the tree. It is a context object outside the focused subtree. Moving down pushes a crumb; moving up pops a crumb and rebuilds one parent node.',
+    explanation: `The breadcrumb is not a parent pointer inside the tree. It is a context object outside the focused subtree of ${focusLabel}. Moving down pushes a crumb; moving up pops one of the ${numCrumbs} crumbs and rebuilds one parent node.`,
   };
 
   yield {
@@ -108,15 +112,20 @@ function* focusAndBreadcrumbs() {
       ],
     }, { title: 'Turn a tree inside out around the cursor' }),
     highlight: { found: ['focus', 'edit'], active: ['left', 'right'], compare: ['whole'] },
-    explanation: 'The mental move is to turn the tree inside out around the cursor. The focused subtree is easy to inspect or replace. The context holds the hole that the focus fits back into.',
+    explanation: `The mental move is to turn the ${treeNodes}-node tree inside out around the cursor. The focused subtree is easy to inspect or replace. The context (${numCrumbs} breadcrumbs) holds the hole that the focus fits back into.`,
   };
 }
 
 function* moveAndEdit() {
+  const fromLabel = 'x';
+  const toLabel = '2';
+  const editedValue = '3';
+  const navOps = 4;
+
   yield {
     state: treeGraph('Move right from x to 2', 'c'),
     highlight: { compare: ['b'], found: ['c'], active: ['crumb1', 'crumb2'] },
-    explanation: 'To move right, rebuild the current local sibling list: x goes into the left-sibling side of the crumb, and 2 becomes the focus. This is O(1) for the local step when the sibling lists are already stored in the crumb.',
+    explanation: `To move right, rebuild the current local sibling list: ${fromLabel} goes into the left-sibling side of the crumb, and ${toLabel} becomes the focus. This is O(1) for the local step when the sibling lists are already stored in the crumb.`,
   };
 
   yield {
@@ -139,8 +148,8 @@ function* moveAndEdit() {
       ],
     ),
     highlight: { active: ['edit:focus'], found: ['after:whole'], compare: ['before:whole'] },
-    explanation: 'A local edit changes only the focus. Zipping up rebuilds ancestors from breadcrumbs. In an immutable implementation, unchanged siblings are shared rather than copied wholesale.',
-    invariant: 'Local replacement plus breadcrumb replay yields a new whole tree.',
+    explanation: `A local edit changes ${toLabel} to ${editedValue} at the focus. Zipping up rebuilds ancestors from breadcrumbs. In an immutable implementation, unchanged siblings are shared rather than copied wholesale.`,
+    invariant: `Local replacement (${toLabel} -> ${editedValue}) plus breadcrumb replay yields a new whole tree.`,
   };
 
   yield {
@@ -164,11 +173,14 @@ function* moveAndEdit() {
       ],
     ),
     highlight: { found: ['down:cost', 'left:cost', 'up:cost'], compare: ['root:cost'] },
-    explanation: 'The zipper makes local movement cheap. Reconstructing the whole tree costs the number of crumbs on the path. That is exactly what you want for cursors, structured editors, and localized transformations.',
+    explanation: `The zipper makes all ${navOps} navigation operations cheap. Reconstructing the whole tree costs the number of crumbs on the path. That is exactly what you want for cursors, structured editors, and localized transformations.`,
   };
 }
 
 function* editorCaseStudy() {
+  const useCases = 4;
+  const bufferTypes = 4;
+
   yield {
     state: labelMatrix(
       'Structured editor case study',
@@ -190,7 +202,7 @@ function* editorCaseStudy() {
       ],
     ),
     highlight: { found: ['cursor:with', 'rename:with', 'rewrite:with'], compare: ['undo:without'] },
-    explanation: 'A structured editor manipulates syntax trees, not raw text. The user has a current expression, field, paragraph, or DOM node. A zipper gives that focus a pure data-structure representation without mutating parent pointers.',
+    explanation: `A structured editor manipulates syntax trees, not raw text. Across all ${useCases} use cases (cursor, rename, rewrite, undo), a zipper gives the focus a pure data-structure representation without mutating parent pointers.`,
   };
 
   yield {
@@ -210,7 +222,7 @@ function* editorCaseStudy() {
       ],
     }, { title: 'Zipper plus structural sharing' }),
     highlight: { active: ['focus', 'rewrite'], found: ['newRoot'], compare: ['oldRoot'] },
-    explanation: 'This mirrors Persistent Segment Tree and RRB Tree Persistent Vector: old roots stay valid, while the new version copies only the path being rebuilt. The zipper is the cursor-shaped version of path copying.',
+    explanation: `This mirrors Persistent Segment Tree and RRB Tree Persistent Vector: old roots stay valid, while the new version copies only the path being rebuilt. The zipper is the cursor-shaped version of path copying across ${useCases} editor operations.`,
   };
 
   yield {
@@ -235,7 +247,7 @@ function* editorCaseStudy() {
       ],
     ),
     highlight: { found: ['zipper:focus', 'zipper:best'], compare: ['gap:focus', 'rope:focus', 'piece:focus'] },
-    explanation: 'A zipper is not a replacement for every editor buffer. It is strongest when the document has recursive structure and one focused location matters: AST editors, proof assistants, outline editors, filesystems, UI trees, or window focus stacks.',
+    explanation: `A zipper is not a replacement for every editor buffer. Compared against ${bufferTypes} buffer types (gap, rope, piece table, zipper), it is strongest when the document has recursive structure and one focused location matters: AST editors, proof assistants, outline editors, filesystems, UI trees, or window focus stacks.`,
   };
 }
 
@@ -249,6 +261,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/zipper-focused-tree.gif', alt: 'Animated walkthrough of the zipper focused tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

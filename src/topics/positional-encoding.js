@@ -81,7 +81,8 @@ export const article = {
         'When a full row lights up, you see that position\'s fingerprint -- the vector that gets added to the token embedding. The numbers are all between -1 and 1. When a full column lights up, you see one frequency across every position: left columns oscillate fast (nearby positions look very different), right columns oscillate slowly (distant positions are still distinguishable).',
         'The comparison view highlights a fast column and a slow column side by side so you can see the multi-scale structure directly. Found markers on the first few rows show positions that have been merged with token embeddings via element-wise addition.',
         'The invariant: every cell stays in [-1, 1]. Position information never overwhelms the content it joins.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/positional-encoding.gif', alt: 'Animated walkthrough of the positional encoding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

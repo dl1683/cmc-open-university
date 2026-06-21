@@ -186,7 +186,8 @@ export const article = {
         'Each frame shows 10 points on a 2D scatter plot. Colors encode cluster membership: gray means unvisited, colored means assigned to a cluster, and red-highlighted points are noise. The active point (yellow outline) is the one currently being queried.',
         'During an epsilon-neighborhood query, visited points (blue outline) show which points fall within the radius. When a core point is found, the cluster expands outward through density-reachable chains. Watch how core points pull their neighbors into the cluster, and how border points join but do not expand further.',
         'The key inference: if a point has enough neighbors within epsilon, it is dense, and all those neighbors are reachable from the same cluster. Isolated points become noise. Try different epsilon values to see clusters merge (large epsilon) or fragment (small epsilon).',
-      ],
+      
+        {type: 'image', src: './assets/gifs/dbscan.gif', alt: 'Animated walkthrough of the dbscan visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -85,23 +85,29 @@ function layerGraph(title) {
 }
 
 function* syscallFilter() {
+  const nodeCount = 8;
+  const edgeCount = 9;
+  const filterInputs = 'syscall number, architecture, and arguments';
+  const actionCount = 6;
+  const actions = 'allow, errno, kill, trap, trace, and log';
+
   yield {
     state: syscallGraph('Every syscall crosses the filter before the kernel action'),
     highlight: { active: ['proc', 'call', 'arch', 'filter', 'e-proc-call', 'e-call-arch', 'e-call-filter', 'e-arch-filter'], compare: ['allow'] },
-    explanation: 'Seccomp-BPF attaches a small filter program to a process. The filter sees syscall number, architecture, and arguments, then returns an action.',
-    invariant: 'Minimize kernel surface; do not pretend this is the whole sandbox.',
+    explanation: `Seccomp-BPF attaches a small filter program to a process. The filter sees ${filterInputs}, then returns one of ${actionCount} possible actions.`,
+    invariant: `Minimize kernel surface across all ${nodeCount} nodes; do not pretend this is the whole sandbox.`,
   };
 
   yield {
     state: syscallGraph('Allowed calls continue; denied calls do not'),
     highlight: { active: ['filter', 'allow', 'errno', 'e-filter-allow', 'e-filter-errno'], removed: ['kill'], found: ['log'] },
-    explanation: 'A policy can allow common calls, return errno for expected denials, kill the process for dangerous calls, trap, trace, notify userspace, or log selected actions.',
+    explanation: `A policy can ${actions}. The graph has ${edgeCount} edges showing how each syscall flows from process to one of these outcomes.`,
   };
 
   yield {
     state: syscallGraph('The architecture check prevents ABI confusion'),
     highlight: { active: ['call', 'arch', 'filter', 'e-call-arch', 'e-arch-filter'], compare: ['allow'] },
-    explanation: 'The filter must check architecture and syscall ABI, not only syscall numbers. The same numeric value can mean different things across ABIs.',
+    explanation: `The filter must check architecture and syscall ABI, not only syscall numbers. The arch node validates the ABI before the BPF program evaluates ${filterInputs}.`,
   };
 
   yield {
@@ -129,21 +135,28 @@ function* syscallFilter() {
       ],
     ),
     highlight: { active: ['kill:effect', 'errno:effect', 'allow:effect'], compare: ['trace:use'] },
-    explanation: 'The return action is part of the data structure. A good profile distinguishes calls that should normally fail from calls that indicate compromise.',
+    explanation: `The return action is part of the data structure. With ${actionCount} distinct actions, a good profile distinguishes calls that should normally fail (errno) from calls that indicate compromise (kill).`,
   };
 }
 
 function* sandboxLayers() {
+  const layerCount = 8;
+  const layerEdgeCount = 8;
+  const isolationMechanisms = 5;
+  const layers = 'namespaces, cgroups, capabilities, LSM, and seccomp';
+  const toolCount = 4;
+  const toolNames = 'read tool, net fetch, build code, and shell';
+
   yield {
     state: layerGraph('Seccomp is one layer in a sandbox stack'),
     highlight: { active: ['workload', 'namespaces', 'cgroups', 'caps', 'seccomp', 'lsm', 'e-workload-namespaces', 'e-workload-cgroups', 'e-caps-seccomp'], compare: ['host'] },
-    explanation: 'The Linux kernel documentation is explicit: syscall filtering is not a complete sandbox. Namespaces, cgroups, Linux capabilities, LSM policy, seccomp, filesystem policy, and network policy must be composed.',
+    explanation: `The Linux kernel documentation is explicit: syscall filtering is not a complete sandbox. All ${layerCount} nodes in the stack — including ${layers} — must be composed to form real isolation.`,
   };
 
   yield {
     state: layerGraph('gVisor moves the syscall surface behind an application kernel'),
     highlight: { active: ['workload', 'seccomp', 'gvisor', 'host', 'e-seccomp-gvisor', 'e-gvisor-host'], compare: ['namespaces', 'cgroups'] },
-    explanation: 'gVisor is not just an allowlist. Its Sentry implements a Linux-like interface in userspace and does not pass application syscalls directly through to the host kernel.',
+    explanation: `gVisor is not just an allowlist. Its Sentry interposes between seccomp and the host kernel across ${layerEdgeCount} edges, implementing a Linux-like interface in userspace rather than passing application syscalls directly through.`,
   };
 
   yield {
@@ -169,7 +182,7 @@ function* sandboxLayers() {
       ],
     ),
     highlight: { active: ['sec:controls', 'gvisor:controls'], compare: ['sec:misses', 'gvisor:misses'] },
-    explanation: 'Each layer controls a different axis. Seccomp narrows kernel entry points; gVisor narrows host-kernel exposure by interposing a user-space kernel; neither replaces authorization or resource policy.',
+    explanation: `Each of the ${isolationMechanisms} mechanisms controls a different axis. Seccomp narrows kernel entry points; gVisor narrows host-kernel exposure by interposing a user-space kernel; neither replaces authorization or resource policy.`,
   };
 
   yield {
@@ -193,7 +206,7 @@ function* sandboxLayers() {
       ],
     ),
     highlight: { active: ['read:profile', 'net:profile', 'build:profile', 'shell:profile'], found: ['shell:proof'] },
-    explanation: 'Agent tools need profiles, not vibes. A read-only file tool, network fetcher, build runner, and shell executor should get different filesystem, network, syscall, and audit constraints.',
+    explanation: `Agent tools need profiles, not vibes. Each of ${toolCount} tool types — ${toolNames} — should get different filesystem, network, syscall, and audit constraints.`,
   };
 }
 
@@ -206,6 +219,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/seccomp-bpf-sandbox-policy.gif', alt: 'Animated walkthrough of the seccomp bpf sandbox policy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

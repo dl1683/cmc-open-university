@@ -34,21 +34,24 @@ const domTree = (activeId, drop = []) =>
   );
 
 function* pageLoad() {
+  const tokens = ['<html>', '<head>', '<style>', '<body>', '<h1>', 'Hello', '<div class="card">', '…'];
   yield {
-    state: arrayState(['<html>', '<head>', '<style>', '<body>', '<h1>', 'Hello', '<div class="card">', '…']),
+    state: arrayState(tokens),
     highlight: { range: ['i0', 'i1', 'i2', 'i3', 'i4', 'i5', 'i6', 'i7'] },
-    explanation: 'A page begins as BYTES streaming over the network (see How DNS Works and TCP Handshake for the journey here). The browser tokenizes the HTML as it arrives — it does not wait for the full file — turning the character stream into a stream of tags and text. Each token feeds the next stage immediately: the pipeline is a conveyor belt, not a series of batch jobs.',
+    explanation: `A page begins as BYTES streaming over the network (see How DNS Works and TCP Handshake for the journey here). The browser tokenizes the HTML as it arrives — it does not wait for the full file — turning the character stream into a stream of ${tokens.length} tags and text tokens. Each token feeds the next stage immediately: the pipeline is a conveyor belt, not a series of batch jobs.`,
   };
 
   for (const step of ['html', 'body', 'card']) {
+    const stepNode = DOM.find((n) => n.id === step);
+    const visibleNodes = DOM.filter((n) => !INVISIBLE.includes(n.id));
     yield {
       state: domTree(step),
       highlight: { active: [step] },
       explanation: step === 'html'
-        ? 'Stage 1 — PARSE: tokens become the DOM, a tree of element nodes (the same parent/child shape as every tree on this site). The parser pushes open tags onto a stack and pops them on close tags — a stack validating nested structure, exactly like balanced parentheses.'
+        ? `Stage 1 — PARSE: ${tokens.length} tokens become the DOM, a tree of ${DOM.length} element nodes (the same parent/child shape as every tree on this site). The parser pushes open tags onto a stack and pops them on close tags — a stack validating nested structure, exactly like balanced parentheses. Active node: ${stepNode.name}.`
         : step === 'body'
-          ? 'Note what is IN the tree: <head> and <style> are real DOM nodes even though they will never produce pixels. The DOM is the document\'s STRUCTURE, not its appearance — JavaScript can query and mutate every one of these nodes via document.querySelector, which is just a tree search.'
-          : 'A wrinkle worth knowing: if the parser hits a <script> tag without async/defer, it STOPS — the script might document.write new HTML, so parsing cannot safely continue. This is why "scripts at the bottom" and `defer` became performance gospel: a blocked parser is a blank page.',
+          ? `Note what is IN the tree: all ${DOM.length} nodes including ${INVISIBLE.map((id) => DOM.find((n) => n.id === id).name).join(', ')} — ${INVISIBLE.length} nodes that will never produce pixels. The DOM is the document's STRUCTURE, not its appearance — JavaScript can query and mutate every one of these ${DOM.length} nodes via document.querySelector, which is just a tree search.`
+          : `A wrinkle worth knowing: the tree now has ${DOM.length} nodes (${visibleNodes.length} visible, ${INVISIBLE.length} invisible: ${INVISIBLE.join(', ')}). If the parser hits a <script> tag without async/defer, it STOPS — the script might document.write new HTML, so parsing cannot safely continue. This is why "scripts at the bottom" and \`defer\` became performance gospel: a blocked parser is a blank page.`,
       invariant: 'The DOM is a tree: every node except the root has exactly one parent.',
     };
   }
@@ -59,22 +62,25 @@ function* pageLoad() {
     { id: 's_card', label: '.card' },
     { id: 's_hidden', label: '.hidden' },
   ];
+  const cssomValues = [[16, 400, 8, 1], [32, 384, 0, 1], [16, 300, 16, 1], [16, 0, 0, 0]];
+  const hiddenRow = cssomValues[3];
   yield {
     state: matrixState({
       title: 'CSSOM: every rule parsed, specificity resolved',
       rows: selectors,
       columns: [{ id: 'fs', label: 'font-size' }, { id: 'w', label: 'width' }, { id: 'pad', label: 'padding' }, { id: 'disp', label: 'display' }],
-      values: [[16, 400, 8, 1], [32, 384, 0, 1], [16, 300, 16, 1], [16, 0, 0, 0]],
+      values: cssomValues,
       format: (v) => (v === 0 ? '—' : v === 1 ? 'yes' : `${v}px`),
     }),
     highlight: { removed: ['s_hidden:disp'] },
-    explanation: 'Stage 2 — STYLE: in parallel, the CSS is parsed into the CSSOM and matched against the DOM. For every element, the browser resolves WHICH rules win (specificity, cascade order) and computes the final value of every property — inherited font sizes, percentage widths made concrete. Spot the landmine in the last row: .hidden carries display:none. That one property decides the element\'s entire fate in the next stage.',
+    explanation: `Stage 2 — STYLE: in parallel, the CSS is parsed into the CSSOM and matched against the DOM. ${selectors.length} rules are resolved — for every element, the browser decides WHICH rules win (specificity, cascade order) and computes the final value of every property — inherited font sizes, percentage widths made concrete. Spot the landmine in the last row: ${selectors[3].label} carries display value ${hiddenRow[3]} (${hiddenRow[3] === 0 ? 'none' : 'block'}). That one property decides the element's entire fate in the next stage.`,
   };
 
+  const visibleCount = DOM.length - INVISIBLE.length;
   yield {
     state: domTree(null),
     highlight: { removed: INVISIBLE },
-    explanation: 'Stage 3a — build the RENDER TREE: walk the DOM, attach computed styles, and DROP everything that produces no pixels — <head>, <style>, and our display:none span. This is the tree the visual stages actually consume. (Contrast: visibility:hidden elements STAY in the render tree — they occupy space, they are just painted invisible. The two "hiding" properties diverge exactly here.)',
+    explanation: `Stage 3a — build the RENDER TREE: walk the DOM's ${DOM.length} nodes, attach computed styles, and DROP the ${INVISIBLE.length} that produce no pixels — ${INVISIBLE.map((id) => DOM.find((n) => n.id === id).name).join(', ')}. ${visibleCount} visible nodes survive into the tree the visual stages actually consume. (Contrast: visibility:hidden elements STAY in the render tree — they occupy space, they are just painted invisible. The two "hiding" properties diverge exactly here.)`,
   };
 
   const boxes = [
@@ -83,45 +89,53 @@ function* pageLoad() {
     { id: 'b_card', label: '<div.card>' },
     { id: 'b_p', label: '<p>' },
   ];
+  const layoutValues = [[0, 0, 400, 138], [8, 8, 384, 40], [8, 56, 300, 66], [24, 72, 268, 34]];
+  const viewportW = layoutValues[0][2];
+  const cardW = layoutValues[2][2];
+  const cardPad = cssomValues[2][2];
+  const paraW = layoutValues[3][2];
   yield {
     state: matrixState({
       title: 'Layout: every box gets exact geometry (viewport 400px wide)',
       rows: boxes,
       columns: [{ id: 'x', label: 'x' }, { id: 'y', label: 'y' }, { id: 'w', label: 'width' }, { id: 'h', label: 'height' }],
-      values: [[0, 0, 400, 138], [8, 8, 384, 40], [8, 56, 300, 66], [24, 72, 268, 34]],
+      values: layoutValues,
       format: (v) => `${v}px`,
     }),
     highlight: { active: ['b_card:w', 'b_p:w'] },
-    explanation: 'Stage 3b — LAYOUT (a.k.a. reflow): solve for the exact position and size of every box. This is a constraint-solving pass over the whole tree: the card\'s 300px width caps the paragraph at 268px (300 − 2×16 padding); the paragraph\'s text then wraps, which sets its height, which pushes everything below it down. Geometry flows DOWN and sizes bubble UP — change one box and the effects ripple. That ripple is why layout is the most expensive stage.',
+    explanation: `Stage 3b — LAYOUT (a.k.a. reflow): solve for the exact position and size of every box. This is a constraint-solving pass over the whole tree: the card's ${cardW}px width caps the paragraph at ${paraW}px (${cardW} − 2×${cardPad} padding); the paragraph's text then wraps, which sets its height, which pushes everything below it down. Viewport is ${viewportW}px wide. Geometry flows DOWN and sizes bubble UP — change one box and the effects ripple. That ripple is why layout is the most expensive stage.`,
     invariant: 'Layout is global: one box\'s size can move every box after it.',
   };
 
+  const paintCmds = ['fill body bg', 'fill card bg + border', 'draw h1 glyphs', 'draw p glyphs'];
   yield {
-    state: arrayState(['fill body bg', 'fill card bg + border', 'draw h1 glyphs', 'draw p glyphs']),
+    state: arrayState(paintCmds),
     highlight: { sorted: ['i0', 'i1'], active: ['i2', 'i3'] },
-    explanation: 'Stage 4 — PAINT: turn each box into actual draw commands — fill this rectangle, stroke this border, rasterize these glyphs — executed back-to-front like a painter layering a canvas (the z-index wars are fought over this ordering). The output is bitmaps in memory, not yet on screen.',
+    explanation: `Stage 4 — PAINT: turn each box into ${paintCmds.length} draw commands — fill this rectangle, stroke this border, rasterize these glyphs — executed back-to-front like a painter layering a canvas (the z-index wars are fought over this ordering). The output is bitmaps in memory, not yet on screen.`,
   };
 
+  const layers = ['layer: page content', 'layer: (future) sticky header', 'GPU: blend layers → screen'];
   yield {
-    state: arrayState(['layer: page content', 'layer: (future) sticky header', 'GPU: blend layers → screen']),
+    state: arrayState(layers),
     highlight: { found: ['i2'] },
-    explanation: 'Stage 5 — COMPOSITE: painted layers are shipped to the GPU and blended into the final frame. Elements with transform or opacity animations get their OWN layer — moving one then costs only re-blending, no layout, no paint. The whole pipeline has a deadline: at 60fps you get 16.7ms per frame for JS + style + layout + paint + composite. Miss it and the page stutters. Every frontend performance technique is a scheme to skip stages — and the next view shows the classic way to accidentally re-run the worst one.',
+    explanation: `Stage 5 — COMPOSITE: ${layers.length - 1} painted layers are shipped to the GPU and blended into the final frame. Elements with transform or opacity animations get their OWN layer — moving one then costs only re-blending, no layout, no paint. The whole pipeline has a deadline: at 60fps you get 16.7ms per frame for JS + style + layout + paint + composite. Miss it and the page stutters. Every frontend performance technique is a scheme to skip stages — and the next view shows the classic way to accidentally re-run the worst one.`,
   };
 }
 
 function* thrash() {
   const reads = [];
   const rows = () => reads.map((r, i) => ({ id: `it${i}`, label: `iteration ${i + 1}` }));
+  const planValues = [[1, 1]];
   yield {
     state: matrixState({
       title: 'The setup: a loop that grows 3 boxes to match a target',
       rows: [{ id: 'plan', label: 'per iteration' }],
       columns: [{ id: 'read', label: 'read offsetHeight' }, { id: 'write', label: 'write style.height' }],
-      values: [[1, 1]],
+      values: planValues,
       format: (v) => `${v}×`,
     }),
     highlight: {},
-    explanation: 'The pipeline is LAZY: when JavaScript writes a style, the browser just marks layout "dirty" and plans to recompute once, before the next frame. But there is a trapdoor — if JS READS a geometry property (offsetHeight, getBoundingClientRect, scrollTop) while layout is dirty, the browser must compute layout RIGHT NOW, synchronously, to give a correct answer. Now watch a loop that alternates read, write, read, write…',
+    explanation: `The pipeline is LAZY: when JavaScript writes a style, the browser just marks layout "dirty" and plans to recompute once, before the next frame. But there is a trapdoor — if JS READS a geometry property (offsetHeight, getBoundingClientRect, scrollTop) while layout is dirty, the browser must compute layout RIGHT NOW, synchronously, to give a correct answer. Each iteration does ${planValues[0][0]} read and ${planValues[0][1]} write. Now watch a loop that alternates read, write, read, write…`,
   };
 
   for (let i = 0; i < 3; i++) {
@@ -136,34 +150,36 @@ function* thrash() {
       }),
       highlight: { swap: [`it${i}:read`], active: [`it${i}:write`] },
       explanation: i === 0
-        ? 'Iteration 1: the read finds layout clean — cheap. Then the write dirties it. The trap is armed.'
-        : `Iteration ${i + 1}: the read arrives with layout DIRTY from the previous write, so the browser stops everything and recomputes layout for the whole tree — synchronously, inside your loop. Write dirties it again. This read-write-read-write rhythm is LAYOUT THRASHING: ${i + 1} full layouts where one would do.`,
+        ? `Iteration ${i + 1}: the read finds layout clean — cheap. Then the write dirties it. The trap is armed. Accumulated reads so far: ${reads.length}.`
+        : `Iteration ${i + 1}: the read arrives with layout DIRTY from the previous write, so the browser stops everything and recomputes layout for the whole tree — synchronously, inside your loop. Write dirties it again. ${reads.length} accumulated reads, ${i + 1} forced layouts where 1 would do — this is LAYOUT THRASHING.`,
       invariant: 'A geometry read while layout is dirty forces a full synchronous layout.',
     };
   }
 
+  const batchValues = [[1], [0]];
   yield {
     state: matrixState({
       title: 'Fix 1 — batch: all reads first, then all writes',
       rows: [{ id: 'reads', label: 'phase 1: 3 reads' }, { id: 'writes', label: 'phase 2: 3 writes' }],
       columns: [{ id: 'forced', label: 'layouts forced' }],
-      values: [[1], [0]],
+      values: batchValues,
       format: (v) => String(v),
     }),
     highlight: { found: ['reads:forced', 'writes:forced'] },
-    explanation: 'The fix is reordering, not less work: do ALL the reads (layout computes once, then stays clean for the remaining reads), then ALL the writes (each just re-dirties the same flag — the browser coalesces them into ONE layout before the next frame). Same operations, 3 layouts → 1. Libraries like FastDOM and React\'s batched DOM updates are this exact idea institutionalized.',
+    explanation: `The fix is reordering, not less work: do ALL the reads (layout computes once — ${batchValues[0][0]} forced layout for the read phase — then stays clean for the remaining reads), then ALL the writes (each just re-dirties the same flag — ${batchValues[1][0]} forced layouts for the write phase, the browser coalesces them into ONE layout before the next frame). Same operations, ${reads.length} layouts → ${batchValues[0][0]}. Libraries like FastDOM and React's batched DOM updates are this exact idea institutionalized.`,
   };
 
+  const skipValues = [[1, 1, 1], [0, 0, 1]];
   yield {
     state: matrixState({
       title: 'Fix 2 — skip layout entirely: animate transform/opacity',
       rows: [{ id: 'height', label: 'animate height' }, { id: 'transform', label: 'animate transform' }],
       columns: [{ id: 'layout', label: 'layout' }, { id: 'paint', label: 'paint' }, { id: 'composite', label: 'composite' }],
-      values: [[1, 1, 1], [0, 0, 1]],
+      values: skipValues,
       format: (v) => (v ? 'runs' : 'skipped'),
     }),
     highlight: { found: ['transform:layout', 'transform:paint'], active: ['transform:composite'] },
-    explanation: 'The deeper win: choose properties that enter the pipeline LATE. Animating height re-runs layout + paint + composite every frame; animating transform: translateY() touches only the compositor — the element already lives on its own GPU layer, so the browser just re-blends. That is why smooth UIs animate transform and opacity and almost nothing else, and why a janky animation is usually a layout property in disguise. DevTools\'s Performance panel paints forced layouts as angry purple — now you know exactly what it is accusing your code of.',
+    explanation: `The deeper win: choose properties that enter the pipeline LATE. Animating height runs ${skipValues[0].filter((v) => v).length} of 3 stages (layout + paint + composite) every frame; animating transform: translateY() runs only ${skipValues[1].filter((v) => v).length} (composite) — layout ${skipValues[1][0] ? 'runs' : 'skipped'}, paint ${skipValues[1][1] ? 'runs' : 'skipped'}. The element already lives on its own GPU layer, so the browser just re-blends. That is why smooth UIs animate transform and opacity and almost nothing else, and why a janky animation is usually a layout property in disguise. DevTools's Performance panel paints forced layouts as angry purple — now you know exactly what it is accusing your code of.`,
   };
 }
 
@@ -233,7 +249,8 @@ export const article = {
       paragraphs: [
         'In the page-load view, read left to right as a pipeline. The first array is the incoming HTML token stream. The tree frames show DOM construction, including nodes that will never paint. The CSS matrix shows computed values, and the removed `display: none` row explains why the render tree is smaller than the DOM. The layout matrix is the first moment where boxes get exact coordinates.',
         'In the layout-thrash view, watch the dirty-layout flag even though it is not drawn as a separate variable. A style write marks layout dirty. A later geometry read such as `offsetHeight` needs a correct answer immediately, so the browser synchronously runs layout inside the JavaScript loop. The fix frames show the two real remedies: batch reads before writes, or choose properties such as `transform` and `opacity` that enter late in the pipeline.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/browser-rendering.gif', alt: 'Animated walkthrough of the browser rendering visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Cost and behavior',

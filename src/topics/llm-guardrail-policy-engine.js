@@ -70,14 +70,14 @@ function* policyPipeline() {
   yield {
     state: policyGraph('Guardrails are a control plane around the model'),
     highlight: { active: ['input', 'trust', 'retrieve', 'prompt', 'model', 'e-input-trust', 'e-input-retrieve', 'e-trust-prompt', 'e-retrieve-prompt', 'e-prompt-model'], compare: ['effect'] },
-    explanation: 'A guardrail policy engine starts before generation. It labels trust, filters retrieval by authorization, and assembles context so untrusted content is treated as evidence rather than instruction.',
+    explanation: `A ${topic.title.toLowerCase()} starts before generation. It labels trust, filters retrieval by authorization, and assembles context so untrusted content is treated as evidence rather than instruction.`,
   };
 
   yield {
     state: policyGraph('The model proposes; external gates decide'),
     highlight: { active: ['model', 'schema', 'policy', 'tool', 'human', 'audit', 'e-model-schema', 'e-model-policy', 'e-model-tool', 'e-policy-human', 'e-tool-audit'], found: ['effect'] },
-    explanation: 'The model output is not the decision boundary. Constrained Decoding can enforce shape, but policy and tool gates decide whether the requested action is authorized, safe, reversible, and worth escalating.',
-    invariant: 'Never make the model the only authority over a privileged side effect.',
+    explanation: `The model output is not the decision boundary in a ${topic.category.toLowerCase()} like ${topic.title}. Constrained Decoding can enforce shape, but policy and tool gates decide whether the requested action is authorized, safe, reversible, and worth escalating.`,
+    invariant: `Never make the model the only authority over a privileged side effect in a ${topic.title.toLowerCase()}.`,
   };
 
   yield {
@@ -105,7 +105,7 @@ function* policyPipeline() {
       ],
     ),
     highlight: { active: ['schema:catches', 'semantic:catches', 'tool:catches', 'audit:catches'], compare: ['schema:misses'] },
-    explanation: 'Each layer catches a different class of failure. A valid JSON object can still request a forbidden transfer. A safe-looking answer can still leak private data. Defense needs multiple gates with different jobs.',
+    explanation: `Each layer in ${topic.title} catches a different class of failure. A valid JSON object can still request a forbidden transfer. A safe-looking answer can still leak private data. Defense needs multiple gates with different jobs.`,
   };
 
   yield {
@@ -131,7 +131,7 @@ function* policyPipeline() {
       ],
     ),
     highlight: { active: ['read:decision', 'private:decision', 'draft:decision'], compare: ['send:decision'], removed: ['delete:decision'] },
-    explanation: 'The control plane should classify effects. Reading a public page, reading private data, drafting text, sending a message, and deleting records are not the same operation, even if the model expresses all of them as tool calls.',
+    explanation: `The ${topic.category.toLowerCase()} control plane should classify effects. Reading a public page, reading private data, drafting text, sending a message, and deleting records are not the same operation, even if the model expresses all of them as tool calls.`,
   };
 }
 
@@ -159,7 +159,7 @@ function* riskControls() {
       ],
     ),
     highlight: { active: ['indirect:control', 'exfil:control', 'tool:control'], found: ['drift:proof'] },
-    explanation: 'Prompt injection defense is not a single classifier. OWASP and NCSC both frame the risk as a systems problem around untrusted instructions, data flow, and privileged actions. The proof artifacts make the review concrete.',
+    explanation: `Prompt injection defense is not a single classifier in ${topic.title}. OWASP and NCSC both frame the risk as a ${topic.category.toLowerCase()} problem around untrusted instructions, data flow, and privileged actions. The proof artifacts make the review concrete.`,
   };
 
   yield {
@@ -174,13 +174,13 @@ function* riskControls() {
       ],
     }),
     highlight: { active: ['risk', 'proof', 'review'] },
-    explanation: 'The more autonomy a system has, the more proof it needs. Summarizing a public doc can be low risk. Sending email, changing permissions, or mutating customer data needs stronger gates and human review.',
+    explanation: `The more autonomy a ${topic.category.toLowerCase()} has, the more proof it needs. Summarizing a public doc can be low risk. Sending email, changing permissions, or mutating customer data needs stronger gates and human review in any ${topic.title.toLowerCase()}.`,
   };
 
   yield {
     state: policyGraph('Audit logs turn attacks into regression tests'),
     highlight: { active: ['policy', 'tool', 'audit', 'human', 'e-policy-audit', 'e-tool-audit', 'e-policy-human'], compare: ['effect'], found: ['schema'] },
-    explanation: 'Every blocked, escalated, and allowed high-risk action should create an audit event. Those events become red-team cases, golden-set regressions, abuse analytics, and incident-response evidence.',
+    explanation: `Every blocked, escalated, and allowed high-risk action in ${topic.title} should create an audit event. Those events become red-team cases, golden-set regressions, abuse analytics, and incident-response evidence.`,
   };
 
   yield {
@@ -206,7 +206,7 @@ function* riskControls() {
       ],
     ),
     highlight: { removed: ['prompt:failure', 'deny:failure', 'global:failure'], active: ['prompt:replacement', 'global:replacement', 'silent:replacement'] },
-    explanation: 'The dangerous pattern is symbolic-looking safety with no control-plane teeth. Real guardrails have permissions, typed effects, evals, logs, and escalation paths.',
+    explanation: `The dangerous pattern in any ${topic.category.toLowerCase()} is symbolic-looking safety with no control-plane teeth. Real guardrails in ${topic.title} have permissions, typed effects, evals, logs, and escalation paths.`,
   };
 }
 
@@ -227,7 +227,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/llm-guardrail-policy-engine.gif', alt: 'Animated walkthrough of the llm guardrail policy engine visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

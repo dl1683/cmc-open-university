@@ -48,6 +48,11 @@ function cdfPlot() {
 }
 
 function* epsilonSearch() {
+  const numKeys = points.length;
+  const minKey = points[0].x;
+  const maxKey = points[points.length - 1].x;
+  const queryKey = 112;
+
   yield {
     state: graphState({
       nodes: [
@@ -65,14 +70,14 @@ function* epsilonSearch() {
       ],
     }, { title: 'PGM predicts position, then verifies locally' }),
     highlight: { active: ['model', 'rank', 'window'], found: ['search'] },
-    explanation: 'A PGM-index does not trust a model blindly. The model predicts where a key should sit in sorted order, and the data structure searches only the guaranteed error window around that prediction.',
-    invariant: 'Prediction narrows the search; comparison preserves exactness.',
+    explanation: `A PGM-index over ${numKeys} sorted keys (${minKey} to ${maxKey}) does not trust a model blindly. The model predicts where key ${queryKey} should sit in sorted order, and the data structure searches only the guaranteed error window around that prediction.`,
+    invariant: `Prediction narrows the search across ${numKeys} keys; comparison preserves exactness.`,
   };
 
   yield {
     state: cdfPlot(),
     highlight: { active: ['seg1', 'seg2'], compare: ['hi', 'lo'], found: ['q'] },
-    explanation: 'Sorted keys form a CDF-like curve: key to rank. The PGM-index covers that curve with the minimum number of linear segments that stay within epsilon error.',
+    explanation: `${numKeys} sorted keys from ${minKey} to ${maxKey} form a CDF-like curve: key to rank. The PGM-index covers that curve with the minimum number of linear segments that stay within epsilon error.`,
   };
 
   yield {
@@ -96,7 +101,7 @@ function* epsilonSearch() {
       ],
     ),
     highlight: { found: ['window:guarantee', 'verify:guarantee'], active: ['predict:operation'] },
-    explanation: 'The error bound is the contract. If epsilon is 64, the correction search never needs to inspect more than a small local window around the predicted position.',
+    explanation: `The error bound is the contract. If epsilon is 64, the correction search for key ${queryKey} among ${numKeys} keys never needs to inspect more than a small local window around the predicted position.`,
   };
 
   yield {
@@ -108,11 +113,15 @@ function* epsilonSearch() {
       ],
     }),
     highlight: { active: ['space'], compare: ['search'] },
-    explanation: 'Epsilon is the main knob. Larger epsilon means fewer segments and less index memory, but a wider correction window. Smaller epsilon spends more model space to search less locally.',
+    explanation: `Epsilon is the main knob. For ${numKeys} keys spanning ${minKey} to ${maxKey}, larger epsilon means fewer segments and less index memory, but a wider correction window. Smaller epsilon spends more model space to search less locally.`,
   };
 }
 
 function* recursiveModel() {
+  const numKeys = points.length;
+  const minKey = points[0].x;
+  const maxKey = points[points.length - 1].x;
+
   yield {
     state: graphState({
       nodes: [
@@ -130,8 +139,8 @@ function* recursiveModel() {
       ],
     }, { title: 'Recursive PGM indexes the segment list too' }),
     highlight: { active: ['root', 's1'], found: ['data'] },
-    explanation: 'The first level stores many segments. A recursive PGM builds another PGM over those segment start keys, producing a compact hierarchy of learned models.',
-    invariant: 'The index can model its own model list.',
+    explanation: `The first level over ${numKeys} keys (${minKey} to ${maxKey}) may need many segments. A recursive PGM builds another PGM over those segment start keys, producing a compact hierarchy of learned models.`,
+    invariant: `The index can model its own model list — segments over ${numKeys} keys become data for the next level.`,
   };
 
   yield {
@@ -155,7 +164,7 @@ function* recursiveModel() {
       ],
     ),
     highlight: { found: ['fit:result', 'query:result'], active: ['recurse:step'] },
-    explanation: 'The PGM-index is geometry plus verification. Fit an error-bounded piecewise-linear approximation, recurse over segment keys, then keep exact search as the final safety net.',
+    explanation: `The PGM-index is geometry plus verification. Fit an error-bounded piecewise-linear approximation over ${numKeys} sorted keys, recurse over segment keys, then keep exact search as the final safety net.`,
   };
 
   yield {
@@ -177,7 +186,7 @@ function* recursiveModel() {
       ],
     ),
     highlight: { found: ['pgm:stores', 'pgm:contract'], compare: ['btree:contract', 'learned:contract'] },
-    explanation: 'PGM is a learned-index member, but the word learned should not distract from the data-structure guarantee: every segment is chosen to stay within an explicit rank error.',
+    explanation: `PGM is a learned-index member, but the word learned should not distract from the data-structure guarantee: every segment over the ${numKeys} keys from ${minKey} to ${maxKey} is chosen to stay within an explicit rank error.`,
   };
 
   yield {
@@ -201,7 +210,7 @@ function* recursiveModel() {
       ],
     ),
     highlight: { active: ['static:fit', 'memory:fit'], compare: ['write:fit'] },
-    explanation: 'A PGM-index is strongest when sorted keys have structure the model can compress. Random keys with no learnable shape look more like traditional index territory.',
+    explanation: `A PGM-index is strongest when sorted keys have structure the model can compress. Our ${numKeys} keys spanning ${minKey} to ${maxKey} have learnable slope changes; random keys with no such shape look more like traditional index territory.`,
   };
 }
 
@@ -214,6 +223,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/pgm-index-piecewise-geometric-model.gif', alt: 'Animated walkthrough of the pgm index piecewise geometric model visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

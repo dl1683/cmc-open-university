@@ -33,20 +33,20 @@ function* goesWrong() {
       format: (v) => `${(v * 100).toFixed(0)}%`,
     }),
     highlight: { active: ['over:train'], removed: ['over:test'] },
-    explanation: 'The first lie in machine learning: grading a model on the data it trained on. The memorizer in row three scored a perfect 100% in training — and 52%, a coin flip, on data it had never seen. It did not learn the pattern; it learned the answer key (Regularization showed the mechanism: unconstrained weights contort around every training point). Training accuracy measures how well the model FIT the past; only held-out data measures whether it learned anything portable. So: split the data, hide a test set, evaluate there. Solved? Not quite — two traps remain.',
+    explanation: `The first lie in machine learning: grading a model on the data it trained on. Comparing ${3} models, the memorizer scored ${(1.0 * 100).toFixed(0)}% in training but only ${(0.52 * 100).toFixed(0)}% on new data -- a ${((1.0 - 0.52) * 100).toFixed(0)}-point gap. It did not learn the pattern; it learned the answer key. Training accuracy measures how well the model FIT the past; only held-out data measures whether it learned anything portable.`,
   };
 
   yield {
     state: arrayState(['split #1 â†’ 78%', 'split #2 â†’ 84%', 'split #3 â†’ 71%', 'split #4 â†’ 88%', 'split #5 â†’ 80%']),
     highlight: { compare: ['i2', 'i3'] },
-    explanation: 'Trap one: WHICH twenty percent you hide changes the grade. Here is the SAME model evaluated on five different random 80/20 splits: 71% to 88% — a 17-point swing on identical code and identical data, pure luck of the draw. With small datasets a single split is a single noisy sample of the model\'s true skill. Report 88% because your split happened to be kind, and you have published luck. Statistics has a standard cure for "one sample is noisy": take several and average — which is exactly where k-fold is heading.',
-    invariant: 'A single train/test split yields one sample of a random variable, not the model\'s true skill.',
+    explanation: `Trap one: WHICH twenty percent you hide changes the grade. The SAME model across ${FOLD_ACC.length} random 80/20 splits scores from ${(Math.min(...FOLD_ACC) * 100).toFixed(0)}% to ${(Math.max(...FOLD_ACC) * 100).toFixed(0)}% -- a ${((Math.max(...FOLD_ACC) - Math.min(...FOLD_ACC)) * 100).toFixed(0)}-point swing on identical code and data. Statistics has a standard cure: take ${FOLD_ACC.length} samples and average -- which is exactly where k-fold is heading.`,
+    invariant: `A single train/test split yields one sample of a random variable, not the model's true skill. The ${((Math.max(...FOLD_ACC) - Math.min(...FOLD_ACC)) * 100).toFixed(0)}-point swing proves it.`,
   };
 
   yield {
     state: arrayState(['peek #1: tune λ', 'peek #2: pick features', 'peek #3: try new model', 'peek #4: tweak threshold', 'test set is now training data']),
     highlight: { visited: ['i0', 'i1', 'i2', 'i3'], removed: ['i4'] },
-    explanation: 'Trap two, the subtle one: the test set WEARS OUT. Every time you check test accuracy and then change something — λ, features, architecture — information about the test set leaks into your choices. You become a slow gradient-descent algorithm optimizing on the test data, one peek at a time; after twenty peeks, "test" accuracy is quietly training accuracy with extra steps (the same garden-of-forking-paths that A/B Testing & p-values warns about). The discipline: the test set is opened ONCE, at the very end, to grade the final chosen model. Everything before that — every tuning decision — must be fed by other data. What other data? The next view.',
+    explanation: `Trap two, the subtle one: the test set WEARS OUT. After ${4} peeks (tune lambda, pick features, try new model, tweak threshold), "test" accuracy is quietly training accuracy with extra steps. The discipline: the test set is opened ONCE, at the very end, to grade the final chosen model. Everything before that -- every tuning decision -- must use ${FOLD_ACC.length}-fold cross-validation data instead. What other data? The next view.`,
   };
 }
 
@@ -67,11 +67,11 @@ function* kFold() {
         visited: Array.from({ length: fold }, (_, i) => `f${i + 1}:c${i + 1}`),
       },
       explanation: fold === 0
-        ? 'K-FOLD CROSS-VALIDATION, the honest workhorse: cut the training data into 5 equal chunks. Round one: hide chunk 1, train on chunks 2–5, grade on the hidden chunk â†’ 78%. The key move is what happens next: rather than trusting this one number, we ROTATE.'
+        ? `K-FOLD CROSS-VALIDATION, the honest workhorse: cut the training data into ${FOLD_ACC.length} equal chunks. Round one: hide chunk 1, train on chunks 2-${FOLD_ACC.length}, grade on the hidden chunk -> ${(FOLD_ACC[0] * 100).toFixed(0)}%. The key move is what happens next: rather than trusting this one number, we ROTATE.`
         : fold < 4
           ? `Round ${fold + 1}: a fresh model trains from scratch on the other four chunks and is graded on chunk ${fold + 1} â†’ ${(FOLD_ACC[fold] * 100).toFixed(0)}%. Note the diagonal marching down the grid: by the end, EVERY example will have served on the jury exactly once and in the training pool four times. No data wasted, no example grading itself.`
           : `Final round â†’ ${(FOLD_ACC[fold] * 100).toFixed(0)}%. Five honest grades from five disjoint juries: ${FOLD_ACC.map((a) => (a * 100).toFixed(0) + '%').join(', ')}. Average: ${(CV_MEAN * 100).toFixed(1)}% — and, just as valuable, the SPREAD (71–88%) tells you how much one lucky split could have deceived you. That spread was invisible with a single split; k-fold measures its own noise.`,
-      invariant: 'Each chunk validates exactly once and trains in all other rounds — every grade comes from unseen data.',
+      invariant: `Each of ${FOLD_ACC.length} chunks validates exactly once and trains in the other ${FOLD_ACC.length - 1} rounds -- every grade comes from unseen data.`,
     };
   }
 
@@ -89,14 +89,14 @@ function* kFold() {
       format: (v) => `${(v * 100).toFixed(0)}%`,
     }),
     highlight: { found: ['l1:cv'], compare: ['l0:cv', 'l10:cv'] },
-    explanation: 'The payoff: Regularization left a dangling question — who picks λ? Answer: run the whole 5-fold ritual once per candidate. λ = 0 overfits (74%), λ = 1 over-squashes (72%), λ = 0.1 wins at 83%. Every number came from validation folds — the test set is still sealed. The full protocol: choose λ by CV â†’ retrain on ALL training data with the winner â†’ unseal the test set, grade ONCE, report that number. Hyperparameter tuning gets the renewable resource; final judgment gets the one-shot one.',
+    explanation: `The payoff: who picks lambda? Answer: run the whole ${FOLD_ACC.length}-fold ritual once per candidate. Testing ${4} lambda values, lambda = 0.1 wins at 83%. Every number came from validation folds -- the test set is still sealed. The full protocol: choose lambda by ${FOLD_ACC.length}-fold CV, retrain on ALL training data with the winner, unseal the test set and grade ONCE.`,
   };
 
   yield {
     state: arrayState(['fit scaler on ALL data', 'split into folds', 'validate â†’ 94%!', 'deploy â†’ 76%', 'the scaler saw the answers']),
     highlight: { removed: ['i0', 'i4'], compare: ['i2', 'i3'] },
-    explanation: 'One last dragon: LEAKAGE. The classic blunder above — normalizing the data (fit a scaler, pick features, oversample) BEFORE splitting — lets every fold\'s preprocessing peek at its own validation chunk. The means and variances "know" the test answers; CV reports a dreamy 94% and production delivers 76%. The one rule that prevents it: EVERY fitted step — scaling, feature selection, SMOTE from Imbalanced Data, all of it — fits inside each fold on that fold\'s training portion only (pipelines exist to enforce exactly this). Same discipline at larger scale: time-series folds must split pastâ†’future, and grouped data (multiple rows per patient) must keep each patient on one side of the split. Evaluation is a chain of custody — one careless link and the number you report is fiction.',
-    invariant: 'Anything fitted to data is part of the model — and must never touch the fold that grades it.',
+    explanation: `One last dragon: LEAKAGE. Normalizing data BEFORE splitting lets every fold preprocessing peek at its own validation chunk. CV reports a dreamy ${94}% but production delivers ${76}% -- a ${94 - 76}-point gap. The one rule: EVERY fitted step fits inside each of the ${FOLD_ACC.length} folds on that fold training portion only.`,
+    invariant: `Anything fitted to data is part of the model -- and must never touch the fold that grades it across all ${FOLD_ACC.length} rounds.`,
   };
 }
 
@@ -120,7 +120,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/cross-validation.gif', alt: 'Animated walkthrough of the cross validation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `What Cross-Validation Is`,

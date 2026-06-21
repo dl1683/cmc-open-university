@@ -28,6 +28,12 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* patternMap() {
+  const designMoves = 5;
+  const moveLinks = 4;
+  const pipelineSteps = 5;
+  const routeCategories = 4;
+  const plotPoints = 5;
+
   yield {
     state: graphState({
       nodes: [
@@ -45,7 +51,7 @@ function* patternMap() {
       ],
     }, { title: 'Five reusable moves behind advanced structures' }),
     highlight: { active: ['locality', 'summary', 'precompute'], found: ['version', 'approx'] },
-    explanation: 'Advanced structures usually come from a reusable move: change layout, summarize state, precompute a query shape, preserve versions, or accept bounded error.',
+    explanation: `Advanced structures usually come from one of ${designMoves} reusable moves connected by ${moveLinks} links: change layout, summarize state, precompute a query shape, preserve versions, or accept bounded error.`,
   };
 
   yield {
@@ -67,7 +73,7 @@ function* patternMap() {
       ],
     ),
     highlight: { active: ['locality:example', 'summary:example'], found: ['precompute:example'] },
-    explanation: 'The same move appears in many topics: SwissTable is a locality lesson, FM-index is a summary lesson, and Pinot star-tree is a precomputation lesson.',
+    explanation: `The same move appears in many topics: SwissTable is a locality lesson, FM-index is a summary lesson, and Pinot star-tree is a precomputation lesson — ${designMoves - 2} of ${designMoves} moves shown here.`,
   };
 
   yield {
@@ -87,8 +93,8 @@ function* patternMap() {
       ],
     }, { title: 'Design starts from workload shape, not names' }),
     highlight: { active: ['shape', 'pattern'], found: ['structure', 'system'] },
-    explanation: 'The question is not "which famous structure do I know?" It is "what shape of work repeats, and what invariant would make that work cheap?"',
-    invariant: 'A data structure is a workload-specific invariant with an update cost.',
+    explanation: `The question is not "which famous structure do I know?" The ${pipelineSteps}-step pipeline asks: "what shape of work repeats, and what invariant would make that work cheap?"`,
+    invariant: `A data structure is a workload-specific invariant with an update cost — each of the ${pipelineSteps} pipeline stages refines that invariant.`,
   };
 
   yield {
@@ -112,7 +118,7 @@ function* patternMap() {
       ],
     ),
     highlight: { found: ['layout:advanced', 'text:advanced', 'cache:advanced'] },
-    explanation: 'This primer is a map through the repo. Each advanced topic is easier if you first name the pattern it amplifies from simpler material.',
+    explanation: `This primer is a map through the repo. Across ${routeCategories} route categories, each advanced topic is easier if you first name the pattern it amplifies from simpler material.`,
   };
 
   yield {
@@ -130,11 +136,17 @@ function* patternMap() {
       ],
     }),
     highlight: { active: ['points'], found: ['pinot', 'swiss', 'filter'] },
-    explanation: 'Every design move buys speed somewhere and pays somewhere else. The engineering question is whether the workload spends more often on the path you made cheap.',
+    explanation: `Every design move buys speed somewhere and pays somewhere else. The ${plotPoints} plotted points show that the engineering question is whether the workload spends more often on the path you made cheap.`,
   };
 }
 
 function* tradeoffAudit() {
+  const auditQuestions = 5;
+  const tradeoffNodes = 6;
+  const tradeoffEdges = 6;
+  const failureModes = 4;
+  const frontierPoints = 5;
+
   yield {
     state: labelMatrix(
       'Before choosing a structure',
@@ -158,7 +170,7 @@ function* tradeoffAudit() {
       ],
     ),
     highlight: { found: ['ops:ask', 'dist:ask', 'bytes:ask', 'error:ask', 'change:ask'] },
-    explanation: 'The practical audit starts before code. Name operation mix, distribution, memory layout, error tolerance, and versioning needs before choosing the structure.',
+    explanation: `The practical audit starts before code. Answer ${auditQuestions} questions — operation mix, distribution, memory layout, error tolerance, and versioning needs — before choosing the structure.`,
   };
 
   yield {
@@ -181,7 +193,7 @@ function* tradeoffAudit() {
       ],
     }, { title: 'Tradeoffs compound across levels' }),
     highlight: { active: ['approx', 'static', 'dynamic'], found: ['local', 'remote'] },
-    explanation: 'A local data-structure choice often becomes a system behavior: false positives affect storage IO, cache policy affects latency, and pre-aggregation affects freshness.',
+    explanation: `A local data-structure choice often becomes a system behavior: ${tradeoffNodes} nodes and ${tradeoffEdges} edges show how false positives affect storage IO, cache policy affects latency, and pre-aggregation affects freshness.`,
   };
 
   yield {
@@ -205,7 +217,7 @@ function* tradeoffAudit() {
       ],
     ),
     highlight: { found: ['index:fix', 'cache:fix', 'text:fix'] },
-    explanation: 'Good design often starts by naming the failure mode of the simple structure, then adding the smallest invariant that removes it.',
+    explanation: `Good design often starts by naming the failure mode of the simple structure. Each of the ${failureModes} failure modes shown here is fixed by adding the smallest invariant that removes it.`,
   };
 
   yield {
@@ -221,7 +233,7 @@ function* tradeoffAudit() {
       ],
     }),
     highlight: { active: ['frontier'], found: ['fit'], compare: ['fancy'] },
-    explanation: 'The best structure is not the cleverest structure. It is the simplest one that makes the dominant workload cheap and leaves enough observability to know when that assumption stops holding.',
+    explanation: `The best structure is not the cleverest structure. The ${frontierPoints} frontier points show that it is the simplest one that makes the dominant workload cheap and leaves enough observability to know when that assumption stops holding.`,
   };
 }
 
@@ -240,7 +252,8 @@ export const article = {
         'The pattern-map view draws five reusable design moves -- augmentation, lazy deletion, amortization, path compression, fractional cascading -- as nodes in a graph. Active nodes (highlighted) are the pattern currently under discussion. Found nodes are patterns already connected to concrete structures.',
         'The tradeoff-audit view is a matrix. Each row is a question you should answer about your workload before choosing a pattern. The plot at the end maps patterns by the speed they buy against the cost they charge. A pattern near the top-right corner buys a lot but charges a lot; one near the bottom-left is cheap but modest.',
         'Watch how patterns compose: union-find appears at the intersection of path compression and union by rank. That composition is the real lesson. Single patterns solve single problems; composed patterns solve systems problems.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/data-structure-design-patterns-primer.gif', alt: 'Animated walkthrough of the data structure design patterns primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

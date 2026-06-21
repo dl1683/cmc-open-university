@@ -187,7 +187,8 @@ export const article = {
         {type: 'callout', text: 'IDDFS buys BFS depth order with DFS memory by proving one depth limit empty before paying for the next.'},
         'Watch the same shallow nodes reappear in every iteration. A appears in iteration 0, then again in iterations 1, 2, and so on. B, C, D appear from iteration 1 onward. This re-expansion is the cost of IDDFS — and the animation makes it visible so you can see why it is acceptable.',
         'When a node is at exactly the depth limit, the algorithm turns back. Its children exist in the tree but are invisible to this pass. The next iteration increases the limit by one and re-explores everything from scratch, reaching one level deeper.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/iddfs.gif', alt: 'Animated walkthrough of the iddfs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

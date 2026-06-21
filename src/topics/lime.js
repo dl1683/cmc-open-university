@@ -182,6 +182,13 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/lime.gif', alt: 'Animated walkthrough of the lime visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: 'Why This Exists',
       paragraphs: [
         `LIME exists for the common case where a model affects a decision but the model itself is sealed. You may have an API that returns a fraud score, a medical risk score, a content decision, or a loan denial, but no weights, no gradients, and no source code. A user still needs a reason: which parts of this input pushed the decision up or down?`,

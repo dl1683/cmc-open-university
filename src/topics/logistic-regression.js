@@ -159,7 +159,8 @@ export const article = {
         {type: 'callout', text: 'A logistic model is a linear evidence score plus one calibrated bend: the boundary is flat, but the output is a probability.'},
         "Watch three things per frame: (1) the boundary angle — it rotates toward the true separating direction as weights update; (2) the per-point probability labels — points far from the boundary approach 0 or 1 while borderline points hover near 0.5; (3) the loss number — it should decrease each epoch. Highlighted dots in the 'compare' color are currently misclassified.",
         "The 'sigmoid up close' view plots the sigmoid curve and the cross-entropy loss curve. The sigmoid shows how raw evidence scores map to probabilities, with saturation in the tails. The loss curve shows why confidently wrong predictions are punished far more than uncertain ones — the penalty is -log(p), which climbs steeply toward infinity as the assigned probability of the true class approaches zero.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/logistic-regression.gif', alt: 'Animated walkthrough of the logistic regression visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

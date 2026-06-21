@@ -103,7 +103,8 @@ export const article = {
         'In the merge phase, two sorted runs are combined into one. The active marker highlights the position currently being written. The range highlight covers the two runs being merged. When a merge finishes, those positions turn to the sorted color, meaning that run is in final order and ready to merge with a neighbor at the next level up.',
         'Watch for the two-pointer pattern during merges: the algorithm compares the front elements of the left and right runs, takes the smaller one, and advances that pointer. On ties, it takes from the left run to preserve stability.',
         {type: 'callout', text: 'Merge sort wins by delaying movement until two sorted runs can be merged in one linear pass.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/merge-sort.gif', alt: 'Animated walkthrough of the merge sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

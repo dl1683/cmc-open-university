@@ -59,10 +59,15 @@ function shapeCacheGraph(title) {
 }
 
 function* cacheLookup() {
+  const cacheNodes = 8;
+  const cacheEdges = 8;
+  const keyFields = 6;
+  const entryFields = 5;
+
   yield {
     state: shapeCacheGraph('Captured CUDA graphs are looked up by shape'),
     highlight: { active: ['request', 'shape', 'cache', 'e-request-shape', 'e-shape-cache'], compare: ['hit', 'miss'] },
-    explanation: 'CUDA graphs reduce launch overhead only when the runtime can replay a previously captured graph. A serving system therefore needs a shape cache: compute a key for the hot decode shape, look it up, and choose replay or fallback.',
+    explanation: `CUDA graphs reduce launch overhead only when the runtime can replay a previously captured graph. The ${cacheNodes}-node pipeline needs a shape cache: compute a key for the hot decode shape, look it up across ${cacheEdges} transitions, and choose replay or fallback.`,
   };
 
   yield {
@@ -90,14 +95,14 @@ function* cacheLookup() {
       ],
     ),
     highlight: { active: ['batch:key part', 'seq:key part', 'pool:breaks replay if'], found: ['device:breaks replay if'] },
-    explanation: 'The key must cover every assumption baked into capture: kernel topology, tensor shapes, dtype, device, and often memory addresses. If those drift, replay can be wrong or impossible.',
-    invariant: 'A CUDA graph cache is only safe when the key includes the replay assumptions.',
+    explanation: `The key must cover all ${keyFields} assumptions baked into capture: kernel topology, tensor shapes, dtype, device, and often memory addresses. If any of the ${keyFields} fields drift, replay can be wrong or impossible.`,
+    invariant: `A CUDA graph cache is only safe when the key covers all ${keyFields} replay assumptions — missing even 1 can corrupt results.`,
   };
 
   yield {
     state: shapeCacheGraph('Hot shapes replay; cold shapes fall back'),
     highlight: { active: ['cache', 'hit', 'replay', 'e-cache-hit', 'e-hit-replay'], compare: ['miss', 'capture'], found: ['lru'] },
-    explanation: 'Most decode traffic often concentrates on a small set of hot shapes. Those shapes should replay from cache. Rare shapes should use eager kernels or a fallback path until they prove they are worth capturing.',
+    explanation: `Most decode traffic concentrates on a small set of hot shapes across the ${cacheNodes} cache nodes. Those shapes should replay from cache. Rare shapes should use eager kernels or a fallback path until they prove worth capturing.`,
   };
 
   yield {
@@ -123,11 +128,16 @@ function* cacheLookup() {
       ],
     ),
     highlight: { found: ['graph:stores', 'buffers:stores', 'fallback:stores'], compare: ['warmup:why'] },
-    explanation: 'A useful entry stores more than a graph handle. It needs the static buffers that make replay legal, hit statistics, capture threshold state, and a fallback for safety.',
+    explanation: `A useful entry stores more than a graph handle. Each of the ${entryFields} fields — static buffers, hit statistics, capture threshold state, fallback — makes replay legal and safe.`,
   };
 }
 
 function* dynamicShapes() {
+  const topShapes = 4;
+  const responseStrategies = 4;
+  const opChecks = 5;
+  const dataPoints = 7;
+
   yield {
     state: plotState({
       axes: { x: { label: 'ranked serving shapes', min: 1, max: 10 }, y: { label: 'traffic share', min: 0, max: 0.5 } },
@@ -139,7 +149,7 @@ function* dynamicShapes() {
       ],
     }),
     highlight: { active: ['share', 'cutoff'] },
-    explanation: 'Shape caching usually follows a heavy tail. Capture the hot prefix of the distribution and let rare shapes fall back. Capturing everything wastes memory and warmup time.',
+    explanation: `Shape caching usually follows a heavy tail. The ${dataPoints} sampled points show why: capture the top ${topShapes} hot shapes and let rare shapes fall back. Capturing everything wastes memory and warmup time.`,
   };
 
   yield {
@@ -163,13 +173,13 @@ function* dynamicShapes() {
       ],
     ),
     highlight: { active: ['pad:helps', 'fallback:helps'], compare: ['pad:cost', 'recapture:cost'] },
-    explanation: 'Dynamic traffic is not one problem. Padding to buckets raises hit rate but burns compute. Recapture helps if the shape becomes hot. Fallback keeps correctness for rare shapes.',
+    explanation: `Dynamic traffic is not one problem — there are ${responseStrategies} distinct strategies. Padding to buckets raises hit rate but burns compute. Recapture helps if a shape becomes hot. Fallback keeps correctness for rare shapes.`,
   };
 
   yield {
     state: shapeCacheGraph('LRU evicts stale graph entries'),
     highlight: { active: ['capture', 'replay', 'lru', 'e-capture-lru', 'e-replay-lru'], compare: ['miss'], found: ['hit'] },
-    explanation: 'Captured graphs consume memory and may pin buffers. The cache needs eviction: remove cold entries, stale model versions, or shapes that no longer match live traffic.',
+    explanation: `Captured graphs consume memory and may pin buffers. With only the top ${topShapes} shapes cached, the LRU policy evicts cold entries, stale model versions, or shapes that no longer match live traffic.`,
   };
 
   yield {
@@ -195,7 +205,7 @@ function* dynamicShapes() {
       ],
     ),
     highlight: { active: ['hit:bad sign', 'fallback:bad sign', 'memory:bad sign', 'correct:bad sign'] },
-    explanation: 'A shape cache needs observability. If hit rate is low, replay latency is unchanged, or memory pressure rises, the cache is not paying for itself.',
+    explanation: `A shape cache needs observability across all ${opChecks} checks. If hit rate is low, replay latency is unchanged, or memory pressure rises, the cache is not paying for itself.`,
   };
 }
 
@@ -208,6 +218,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/cuda-graph-shape-cache.gif', alt: 'Animated walkthrough of the cuda graph shape cache visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

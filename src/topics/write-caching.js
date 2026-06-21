@@ -26,6 +26,11 @@ const writeGraph = ({ cacheNote, diskNote, appNote, edges }) =>
   });
 
 function* threeWays() {
+  const diskLatency = 5;
+  const ramLatency = 0.1;
+  const speedup = diskLatency / ramLatency;
+  const bulkRows = '10M';
+
   yield {
     state: writeGraph({
       appNote: 'ack after BOTH land (~5ms)',
@@ -37,8 +42,8 @@ function* threeWays() {
       ],
     }),
     highlight: { active: ['toCache', 'toDisk'], found: ['cache', 'disk'] },
-    explanation: 'Cache Invalidation handled the READ side: is the copy fresh? Now the harder half: a WRITE arrives — count = 43 — and the cache must decide when to tell the application "done." Policy 1: WRITE-THROUGH. The write lands in the cache AND travels through to disk before the ack. Both copies always agree, a crash can never lose an acknowledged write, and reads after writes are instantly consistent. The bill: every single write pays full disk latency (~5ms against RAM\'s ~0.1ms) — the cache accelerates nothing on the write path. Honest, simple, slow.',
-    invariant: 'Write-through: the ack means BOTH copies hold the data — durability bought with latency.',
+    explanation: `Cache Invalidation handled the READ side: is the copy fresh? Now the harder half: a WRITE arrives — count = 43 — and the cache must decide when to tell the application "done." Policy 1: WRITE-THROUGH. The write lands in the cache AND travels through to disk before the ack. Both copies always agree, a crash can never lose an acknowledged write, and reads after writes are instantly consistent. The bill: every single write pays full disk latency (~${diskLatency}ms against RAM's ~${ramLatency}ms) — the cache accelerates nothing on the write path. Honest, simple, slow.`,
+    invariant: `Write-through: the ack means BOTH copies hold the data — durability bought with ~${diskLatency}ms latency.`,
   };
 
   yield {
@@ -52,8 +57,8 @@ function* threeWays() {
       ],
     }),
     highlight: { active: ['toCache'], compare: ['later'], removed: ['disk'] },
-    explanation: 'Policy 2: WRITE-BACK (write-behind). The write lands in the cache, the entry is stamped DIRTY, and the app gets its ack IMMEDIATELY — disk will hear about it later, when the flusher batches dirty entries out. Fifty times lower write latency, and a subtler superpower: WRITE COALESCING. A hot counter incremented 1,000 times produces 1,000 cache writes but ONE disk write — the flusher only ships the final value. The cache is no longer a copy of the truth; for dirty entries, the cache IS the truth and disk is the stale follower. Hold that sentence for the crash test.',
-    invariant: 'Write-back: the ack means the CACHE holds the data — the dirty window is borrowed durability.',
+    explanation: `Policy 2: WRITE-BACK (write-behind). The write lands in the cache, the entry is stamped DIRTY, and the app gets its ack IMMEDIATELY — disk will hear about it later, when the flusher batches dirty entries out. ${speedup} times lower write latency, and a subtler superpower: WRITE COALESCING. A hot counter incremented 1,000 times produces 1,000 cache writes but ONE disk write — the flusher only ships the final value. The cache is no longer a copy of the truth; for dirty entries, the cache IS the truth and disk is the stale follower. Hold that sentence for the crash test.`,
+    invariant: `Write-back: the ack means the CACHE holds the data — ack at ~${ramLatency}ms, disk flush deferred.`,
   };
 
   yield {
@@ -64,7 +69,7 @@ function* threeWays() {
       edges: [{ id: 'around', from: 'app', to: 'disk' }],
     }),
     highlight: { active: ['around'], visited: ['cache'] },
-    explanation: 'Policy 3: WRITE-AROUND. The write skips the cache entirely and lands on disk; the cache learns about the data only if someone later READS it. Why would you dodge your own cache? Pollution: a 10-million-row bulk import written through the cache would evict every genuinely hot key (the LRU Cache\'s working set) to make room for rows nobody will read this year. Write-around keeps write-once-read-maybe data out of precious RAM. The cost is symmetric: the first read of anything just written is a guaranteed miss.',
+    explanation: `Policy 3: WRITE-AROUND. The write skips the cache entirely and lands on disk; the cache learns about the data only if someone later READS it. Why would you dodge your own cache? Pollution: a ${bulkRows}-row bulk import written through the cache would evict every genuinely hot key (the LRU Cache's working set) to make room for rows nobody will read this year. Write-around keeps write-once-read-maybe data out of precious RAM. The cost is symmetric: the first read of anything just written is a guaranteed miss.`,
   };
 
   yield {
@@ -80,11 +85,17 @@ function* threeWays() {
       format: (v) => (v === 5 ? '~5ms (disk)' : v === 0.1 ? '~0.1ms (RAM)' : ['', 'yes — ack = on disk', 'read-heavy, must-not-lose', 'NO — dirty window', 'write-hot keys, counters', '', 'bulk loads, write-once data'][v]),
     }),
     highlight: { compare: ['through:lat', 'back:lat'], removed: ['back:safe'] },
-    explanation: 'The decision table. Read the latency column against the safety column and the structure of the choice appears: write-back is fifty times faster precisely BECAUSE it acknowledges before durability — the speed is not cleverness, it is borrowed risk. Which raises the only question that matters in production: what exactly happens to those dirty entries when the power dies? The other view runs that experiment.',
+    explanation: `The decision table. Read the latency column against the safety column and the structure of the choice appears: write-back is ${speedup} times faster precisely BECAUSE it acknowledges before durability — the speed is not cleverness, it is borrowed risk. Which raises the only question that matters in production: what exactly happens to those dirty entries when the power dies? The other view runs that experiment.`,
   };
 }
 
 function* crashTest() {
+  const ackTime = 0.1;
+  const crashTime = 40;
+  const walLatency = 0.5;
+  const oldValue = 42;
+  const newValue = 43;
+
   yield {
     state: matrixState({
       title: 'The crash, on a write-back timeline',
@@ -99,8 +110,8 @@ function* crashTest() {
       format: (v) => ['', 'app writes count = 43 â†’ cache (dirty)', 'app receives ACK — "saved!"', 'âš¡ POWER LOSS — flush never ran', 'reboot: disk says count = 42'][v],
     }),
     highlight: { removed: ['t2:event', 't3:event'], compare: ['t1:event'] },
-    explanation: 'The audit arrives as a power cut. At t=0.1ms the application was TOLD the write was saved; at t=40ms the dirty entry was still waiting for the flusher; at reboot, disk holds yesterday\'s value. The application did not crash, did nothing wrong, and lost an acknowledged write — the worst kind of loss, because upstream systems (a user shown "order placed", a Message Queue consumer that already deleted the message) acted on the ack. Write-back\'s dirty window is not a bug; it is the product working as designed. The design just needs one more piece.',
-    invariant: 'An ack that precedes durability is a promise the crash is allowed to break.',
+    explanation: `The audit arrives as a power cut. At t=${ackTime}ms the application was TOLD the write was saved; at t=${crashTime}ms the dirty entry was still waiting for the flusher; at reboot, disk holds yesterday's value (count = ${oldValue} instead of ${newValue}). The application did not crash, did nothing wrong, and lost an acknowledged write — the worst kind of loss, because upstream systems (a user shown "order placed", a Message Queue consumer that already deleted the message) acted on the ack. Write-back's dirty window is not a bug; it is the product working as designed. The design just needs one more piece.`,
+    invariant: `An ack at t=${ackTime}ms that precedes durability is a promise the crash at t=${crashTime}ms is allowed to break.`,
   };
 
   yield {
@@ -114,8 +125,8 @@ function* crashTest() {
       ],
     }),
     highlight: { found: ['toLog', 'disk'], active: ['toCache'] },
-    explanation: 'The rescue you have already studied: pair write-back with a WRITE-AHEAD LOG. Before the ack, append one line — "set count = 43" — to a sequential log file (sequential appends are the one thing disks do nearly as fast as RAM; that asymmetry is the whole WAL topic). THEN let the data structure be lazy: dirty pages flush whenever batching suits them. Crash? Replay the log over the last flushed state and every acknowledged write resurrects. Latency ~0.5ms, durability total: write-back\'s speed with write-through\'s conscience. This is not an exotic trick — it is the literal architecture of PostgreSQL, MySQL\'s InnoDB, and the LSM-Tree\'s memtable+log pairing.',
-    invariant: 'Log the intent sequentially before the ack; batch the expensive structure lazily after it.',
+    explanation: `The rescue you have already studied: pair write-back with a WRITE-AHEAD LOG. Before the ack, append one line — "set count = ${newValue}" — to a sequential log file (sequential appends are the one thing disks do nearly as fast as RAM; that asymmetry is the whole WAL topic). THEN let the data structure be lazy: dirty pages flush whenever batching suits them. Crash? Replay the log over the last flushed state and every acknowledged write resurrects. Latency ~${walLatency}ms, durability total: write-back's speed with write-through's conscience. This is not an exotic trick — it is the literal architecture of PostgreSQL, MySQL's InnoDB, and the LSM-Tree's memtable+log pairing.`,
+    invariant: `Log the intent sequentially before the ack (~${walLatency}ms); batch the expensive structure lazily after it.`,
   };
 
   yield {
@@ -133,7 +144,7 @@ function* crashTest() {
       format: (v) => ['', 'write-back', 'cache coherence (MESI) between cores', 'fsync() forces the flush — databases call it', 'configurable: AOF every write / every second / off', 'you CHOOSE the dirty window', 'WAL before ack (the rescue above)', 'battery-backed RAM rides out the power cut'][v],
     }),
     highlight: { active: ['db:guard'], found: ['raid:guard'] },
-    explanation: 'The census: write-back wins almost everywhere — the latency gap is too valuable to refuse — but NEVER alone; every serious deployment bolts on a safety net matched to its failure model. Your CPU write-backs between cache levels with coherence protocols guarding correctness; your OS write-backs every file save until fsync insists; Redis lets you dial the dirty window per workload; databases log first and relax after; hardware RAID straps a battery to the RAM so the dirty window survives the outage itself. One idea threads every row, and it is the same one from Picking a Threshold with Real Costs: the ack point is a DIAL, not a default — set it by the price of a lost write, and make whoever moves it fast also pay for the net.',
+    explanation: `The census: write-back wins almost everywhere — the latency gap (${ackTime}ms vs ${walLatency}ms vs full disk) is too valuable to refuse — but NEVER alone; every serious deployment bolts on a safety net matched to its failure model. Your CPU write-backs between cache levels with coherence protocols guarding correctness; your OS write-backs every file save until fsync insists; Redis lets you dial the dirty window per workload; databases log first and relax after; hardware RAID straps a battery to the RAM so the dirty window survives the outage itself. One idea threads every row, and it is the same one from Picking a Threshold with Real Costs: the ack point is a DIAL, not a default — set it by the price of a lost write, and make whoever moves it fast also pay for the net.`,
   };
 }
 
@@ -153,7 +164,8 @@ export const article = {
         {type: 'callout', text: 'Write caching is an acknowledgement policy: the moment the system says done defines what a crash is allowed to lose.'},
         'Watch the ack point in each frame. That is the real variable. Everything else -- latency, durability, consistency -- follows from when the system says "done." If the ack fires before the disk confirms, you are inside a dirty window. If the ack waits for disk, you paid full latency. If the ack skips the cache, you traded read warmth for cache protection.',
         'The matrix frames price each policy side by side. Read the latency column against the crash-safety column: the speed difference between write-through and write-back is not cleverness. It is borrowed risk.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/write-caching.gif', alt: 'Animated walkthrough of the write caching visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

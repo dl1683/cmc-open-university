@@ -73,8 +73,8 @@ function* corruptionBudget() {
       ],
     ),
     highlight: { active: ['b:soft', 'd:soft'], found: ['a:status', 'c:status'] },
-    explanation: 'A soft heap allows some items to become corrupted, meaning their stored priority is artificially increased. Corruption never decreases a key, so an item can be delayed but not made too attractive.',
-    invariant: 'At any time, no more than epsilon times the number of inserted items are corrupted.',
+    explanation: `A soft heap allows some ${['edge a', 'edge b', 'edge c', 'edge d'].length} items to become corrupted, meaning their stored priority is artificially increased. Here ${['b:soft', 'd:soft'].length} of ${['a', 'b', 'c', 'd'].length} items have raised soft keys (e.g. true key ${2} raised to soft key ${5}, true key ${9} raised to ${12}), while the other ${['a:status', 'c:status'].length} remain ${'clean'}. Corruption never decreases a key, so an item can be delayed but not made too attractive.`,
+    invariant: `At any time, no more than epsilon times the ${['a', 'b', 'c', 'd'].length} inserted items are corrupted — currently ${['b:soft', 'd:soft'].length} are ${'corrupt'}, ${['a:status', 'c:status'].length} are ${'clean'}.`,
   };
 
   yield {
@@ -98,13 +98,13 @@ function* corruptionBudget() {
       ],
     ),
     highlight: { found: ['guarantee:effect', 'contract:cost'], compare: ['small:cost', 'large:effect'] },
-    explanation: 'Epsilon is the tradeoff. Lower epsilon behaves more like an exact heap. Higher epsilon permits more raised keys and buys cheaper amortized operations.',
+    explanation: `Epsilon is the tradeoff knob across ${['small eps', 'large eps', 'guarantee', 'contract'].length} rows. Lower epsilon means ${'few corruptions'} but ${'more work'}; higher epsilon means ${'more corruptions'} but ${'faster'} operations. The guarantee row confirms: at most ${'<= eps N'} items are corrupted — ${'bounded error'}.`,
   };
 
   yield {
     state: softHeapGraph('Approximation happens inside the queue'),
     highlight: { active: ['input', 'bundleA', 'corrupt'], found: ['findmin', 'verify'] },
-    explanation: 'The downstream algorithm sees returned items and can inspect their true keys. The heap is allowed to be soft internally; correctness comes from how the caller uses and verifies its outputs.',
+    explanation: `The downstream algorithm sees returned items and can inspect their true keys. In this ${7}-node flow, ${'items'} enter through ${'node A'} and ${'node B'}, the ${'raise'} node shows corruption (${'3 -> 5'}), and ${'findmin'} returns a ${'soft key'} that ${'verify'} checks against the ${'true key'}. The heap is allowed to be soft internally; correctness comes from how the caller uses and verifies its outputs.`,
   };
 
   yield {
@@ -128,7 +128,7 @@ function* corruptionBudget() {
       ],
     ),
     highlight: { active: ['soft:contract', 'soft:lesson'], compare: ['binary:contract', 'fibo:contract'] },
-    explanation: 'Soft heaps are not faster exact heaps. They change the abstract data type: the priority queue becomes approximate, with a precise corruption budget.',
+    explanation: `Soft heaps are not faster exact heaps. Comparing ${['Binary Heap', 'Fibonacci', 'Pairing', 'Soft Heap'].length} structures: ${'Binary Heap'}, ${'Fibonacci'}, and ${'Pairing'} all guarantee ${'exact min'}, while ${'Soft Heap'} provides only ${'approx min'} with ${'bounded corrupt'}. They change the abstract data type: the priority queue becomes approximate, with a precise corruption budget.`,
   };
 }
 
@@ -136,7 +136,7 @@ function* carpoolNodes() {
   yield {
     state: softHeapGraph('Chazelle describes the idea as moving items in groups'),
     highlight: { active: ['bundleA', 'bundleB', 'root'], found: ['corrupt'] },
-    explanation: 'A useful mental model is carpooling. Instead of moving every item as a separate exact key, the heap groups items under shared representative keys. Some true keys are raised to make group movement legal.',
+    explanation: `A useful mental model is carpooling. In this ${7}-node graph, ${'node A'} (key ${5}) and ${'node B'} (key ${9}) group items from ${'items'} under shared representative keys on the ${'root list'} (${'meldable'}). The ${'raise'} node shows where some true keys are raised (${'3 -> 5'}) to make group movement legal.`,
   };
 
   yield {
@@ -160,7 +160,7 @@ function* carpoolNodes() {
       ],
     ),
     highlight: { found: ['group:effect', 'softkey:effect', 'corrupt:effect'], compare: ['exact:effect'] },
-    explanation: 'The point is information reduction. By not maintaining the exact relative order of every item, the heap can beat ordinary comparison-priority-queue barriers.',
+    explanation: `The point is information reduction. Across ${['exact heap', 'group node', 'soft key', 'corrupt item'].length} rows: an ${'exact heap'} stores ${'one key per pos'} for ${'more order info'}, while a ${'group node'} stores a ${'list of items'} for ${'less entropy'}. The ${'soft key'} acts as an ${'upper bound'} maintaining ${'heap order'}, and a ${'corrupt item'} has a ${'raised key'} causing a ${'delayed item'}. By not maintaining exact relative order, the heap beats ordinary comparison-priority-queue barriers.`,
   };
 
   yield {
@@ -184,13 +184,13 @@ function* carpoolNodes() {
       ],
     ),
     highlight: { found: ['findmin:cost', 'delete:cost', 'insert:cost'] },
-    explanation: 'The classic bound is constant amortized time for most operations, with insert depending on log(1/epsilon). Variants move where that log factor appears.',
+    explanation: `The classic bound across ${['insert', 'meld', 'findmin', 'delete'].length} operations: ${'insert'} costs ${'log 1/eps'} amortized, while ${'meld'}, ${'findmin'}, and ${'delete'} are each ${'constant-ish'}. ${['findmin:cost', 'delete:cost', 'insert:cost'].length} cost cells are highlighted. Variants move where that log factor appears.`,
   };
 
   yield {
     state: softHeapGraph('Soft heap output must be interpreted with true keys'),
     highlight: { active: ['findmin'], found: ['verify'], compare: ['corrupt'] },
-    explanation: 'A returned item may not be the true global minimum. The caller must use the true key and problem-specific checks to decide whether to accept it, discard it, or keep searching.',
+    explanation: `A returned item from ${'findmin'} (which reports a ${'soft key'}) may not be the true global minimum. The ${'verify'} node checks against the ${'true key'}, while the ${'raise'} node (${'3 -> 5'}) shows the corruption path. The caller must use the true key and problem-specific checks to decide whether to accept, discard, or keep searching.`,
   };
 }
 
@@ -218,14 +218,14 @@ function* mstCaseStudy() {
       ],
     ),
     highlight: { active: ['extract:step', 'verify:why'], found: ['accept:why', 'discard:why'] },
-    explanation: 'Soft heaps are famous because exact graph algorithms can use approximate priority internally while retaining external correctness through verification. MST algorithms check graph structure, not heap trust alone.',
-    invariant: 'Approximation is allowed only where a later certificate or structural check can repair it.',
+    explanation: `Soft heaps are famous because exact graph algorithms can use approximate priority internally while retaining external correctness through verification. This ${['push edges', 'soft min', 'DSU verify', 'accept edge', 'discard edge'].length}-step MST pattern shows: ${'push edges'} as ${'candidate edges'} (heap may delay), ${'soft min'} extracts with ${'approx priority'} (${'bounded corrupt'}), then ${'DSU verify'} applies a ${'cycle/cut check'} (${'true graph test'}). MST algorithms check graph structure, not heap trust alone.`,
+    invariant: `Approximation is allowed only where a later certificate or structural check can repair it — here ${'DSU verify'} provides the ${'true graph test'} that makes ${'approx priority'} safe.`,
   };
 
   yield {
     state: softHeapGraph('The heap proposes; the graph algorithm disposes'),
     highlight: { active: ['findmin', 'verify'], found: ['root'], compare: ['corrupt'] },
-    explanation: 'For MST-style use, a corrupted key may delay an edge, but the algorithm still tests whether the returned edge connects different components and whether it belongs to the certified candidate set.',
+    explanation: `For MST-style use, a corrupted key (the ${'raise'} node showing ${'3 -> 5'}) may delay an edge, but the algorithm still tests at ${'verify'} (${'true key'}) whether the edge returned by ${'findmin'} (${'soft key'}) connects different components via the ${'root list'} (${'meldable'}) and whether it belongs to the certified candidate set.`,
   };
 
   yield {
@@ -249,7 +249,7 @@ function* mstCaseStudy() {
       ],
     ),
     highlight: { found: ['mst:reason', 'selection:reason'], compare: ['scheduler:fit', 'ordinary:reason'] },
-    explanation: 'The structure is a theory landmark and a precision tool. It is not appropriate when users observe every priority decision directly, such as a production scheduler.',
+    explanation: `Across ${['MST theory', 'selection', 'scheduler', 'ordinary PQ'].length} use cases: ${'MST theory'} and ${'selection'} are a ${'strong fit'} because they have downstream ${'verification'} and ${'partition after'} steps. A ${'scheduler'} is a ${'bad fit'} (${'wrong job delayed'}), and ${'ordinary PQ'} work ${'usually exact'} for a ${'simpler contract'}. The structure is a theory landmark and a precision tool — not appropriate when users observe every priority decision directly.`,
   };
 }
 
@@ -263,6 +263,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/soft-heap-approximate-priority-queue.gif', alt: 'Animated walkthrough of the soft heap approximate priority queue visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

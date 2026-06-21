@@ -60,10 +60,16 @@ function mmrGraph(title) {
 }
 
 function* greedySelection() {
+  const candidates = ['A', 'B', 'C', 'D'];
+  const numCandidates = candidates.length;
+  const slots = 3;
+  const topSim = 0.92;
+  const lambda = 0.5;
+
   yield {
     state: mmrGraph('MMR keeps relevance while reducing duplicates'),
     highlight: { active: ['a', 'b', 'e-a-mmr', 'e-b-mmr'], compare: ['b'], found: ['c', 'd', 'context', 'e-mmr-context'] },
-    explanation: 'The animation starts with the naive baseline: sort by similarity and you often get repeated chunks. In a prompt budget, repeated evidence crowds out new facts.',
+    explanation: `The animation starts with the naive baseline: sort ${numCandidates} candidates by similarity and you often get repeated chunks. In a prompt budget of ${slots} slots, repeated evidence crowds out new facts.`,
   };
 
   yield {
@@ -87,7 +93,7 @@ function* greedySelection() {
       ],
     ),
     highlight: { found: ['a:selected'], active: ['a:query_sim'], compare: ['b:query_sim'] },
-    explanation: 'The selected set is the memory of what you already bought with the context budget. Every remaining candidate is judged against both the query and that selected evidence.',
+    explanation: `The selected set is the memory of what you already bought with the context budget. The top candidate scores ${topSim} — every remaining candidate from the ${numCandidates} is judged against both the query and that selected evidence.`,
   };
 
   yield {
@@ -110,8 +116,8 @@ function* greedySelection() {
       ],
     ),
     highlight: { active: ['c:mmr'], compare: ['b:rel', 'b:redundancy'], found: ['c:rel'] },
-    explanation: 'Read the formula as value minus repetition. Candidate B is close to the query, but it overlaps the chosen chunk; C wins because it adds a different piece of evidence.',
-    invariant: 'MMR greedily maximizes relevance to the query while penalizing redundancy against the selected set.',
+    explanation: `Read the formula as value minus repetition. With lambda ${lambda}, candidate B is close to the query but overlaps the chosen chunk; C wins with MMR ${0.62} because it adds a different piece of evidence.`,
+    invariant: `MMR greedily maximizes relevance to the query while penalizing redundancy against the selected set — ${numCandidates - 1} remaining candidates compete for ${slots - 1} open slots.`,
   };
 
   yield {
@@ -135,11 +141,16 @@ function* greedySelection() {
       ],
     ),
     highlight: { found: ['slot1:coverage', 'slot2:coverage', 'slot3:coverage'], removed: ['skip:coverage'] },
-    explanation: 'The final set covers more distinct evidence. MMR does not make the chunks true; it simply prevents one cluster of duplicates from occupying the whole context budget.',
+    explanation: `The final set fills ${slots} slots with distinct evidence from ${numCandidates} candidates. MMR does not make the chunks true; it simply prevents one cluster of duplicates from occupying the whole context budget.`,
   };
 }
 
 function* ragContextCase() {
+  const pipelineStages = ['first-stage search', 'MMR diversify', 'precision rerank', 'prompt context'];
+  const numStages = pipelineStages.length;
+  const lambdaValues = [0.3, 0.7, 0.95];
+  const balancedLambda = lambdaValues[1];
+
   yield {
     state: labelMatrix(
       'Where MMR sits in a retrieval pipeline',
@@ -161,7 +172,7 @@ function* ragContextCase() {
       ],
     ),
     highlight: { active: ['mmr:goal', 'rerank:goal'], compare: ['search:risk', 'prompt:risk'] },
-    explanation: 'MMR is usually a candidate-shaping step. It can run before or after a reranker, depending on whether the system wants diversity in candidates, final context, or both.',
+    explanation: `MMR is usually a candidate-shaping step within a ${numStages}-stage retrieval pipeline. It can run before or after a reranker, depending on whether the system wants diversity in candidates, final context, or both.`,
   };
 
   yield {
@@ -183,7 +194,7 @@ function* ragContextCase() {
       ],
     ),
     highlight: { active: ['mid:behavior'], compare: ['low:failure', 'high:failure'] },
-    explanation: 'The lambda parameter is a product decision. Exploratory search may want more diversity. Legal or support answers may need stricter relevance and a smaller diversity penalty.',
+    explanation: `The lambda parameter is a product decision across ${lambdaValues.length} common regimes. Exploratory search may want lambda ${lambdaValues[0]} for more diversity. Legal or support answers may need lambda ${lambdaValues[2]} for stricter relevance and a smaller diversity penalty.`,
   };
 
   yield {
@@ -207,7 +218,7 @@ function* ragContextCase() {
       ],
     ),
     highlight: { removed: ['dup2:mmr_context'], found: ['alert:mmr_context', 'deploy:mmr_context'], compare: ['alert:similarity_only', 'deploy:similarity_only'] },
-    explanation: 'For "why did payments fail repeatedly?", similarity-only retrieval may return copies of the same incident. MMR gives the answerer one postmortem, one alert timeline, and one deployment note.',
+    explanation: `For "why did payments fail repeatedly?", similarity-only retrieval may return copies of the same incident. At lambda ${balancedLambda}, MMR gives the answerer one postmortem, one alert timeline, and one deployment note — ${numStages} pipeline stages turning duplicates into coverage.`,
   };
 }
 
@@ -220,6 +231,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/maximal-marginal-relevance.gif', alt: 'Animated walkthrough of the maximal marginal relevance visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

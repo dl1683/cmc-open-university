@@ -200,7 +200,8 @@ export const article = {
         {type: 'callout', text: 'Importance sampling changes the question by changing weights: samples from q can answer for p only where q actually gathered evidence.'},
         '"When the weights explode" shows the failure mode: a bad logger that avoids the actions p favors. Tables dissect the weight distribution, ESS collapse, and the practical toolbox (self-normalization, clipping, defensive logging, doubly robust). The final table maps the IS identity to five real domains.',
         'Active cells mark the current focus. Found cells mark quantities that match the exact answer. Compare cells highlight the gap between truth and estimate. Removed cells flag pathological values like collapsed ESS. Watch for the gap between "unbiased" and "reliable" -- it is the central lesson.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/importance-sampling.gif', alt: 'Animated walkthrough of the importance sampling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

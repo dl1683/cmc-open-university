@@ -62,6 +62,17 @@ function matchingGraph(title, matches, proposals, rejection) {
 /* ----------------------------------------------------------- full algorithm */
 
 function* fullAlgorithm() {
+  const men = ['m1', 'm2', 'm3'];
+  const women = ['w1', 'w2', 'w3'];
+  const n = men.length;
+  const menPrefs = { m1: ['w1', 'w2', 'w3'], m2: ['w1', 'w3', 'w2'], m3: ['w2', 'w1', 'w3'] };
+  const womenPrefs = { w1: ['m2', 'm3', 'm1'], w2: ['m1', 'm3', 'm2'], w3: ['m1', 'm2', 'm3'] };
+  const matches = {};
+  const freeList = [...men];
+  const nextProposal = { m1: 0, m2: 0, m3: 0 };
+  let round = 0;
+  let totalProposals = 0;
+
   yield {
     state: prefMatrix(
       'Preference lists: each person ranks the other side',
@@ -84,64 +95,102 @@ function* fullAlgorithm() {
       ],
     ),
     highlight: { active: ['m1:c1', 'm2:c1', 'm3:c1'] },
-    explanation: 'The input is two groups of equal size, each person holding a strict ranking of everyone on the other side. The algorithm finds a matching where no unmatched pair mutually prefer each other over their assigned partners. That property is stability.',
-    invariant: 'Every person appears exactly once in every preference list on the opposing side.',
+    explanation: `The input is ${n} men and ${n} women (${n * 2} people total), each holding a strict ranking of the ${n} people on the other side. The algorithm finds a matching where no unmatched pair mutually prefer each other over their assigned partners. That property is stability. Maximum possible proposals: ${n * n}.`,
+    invariant: `Every person appears exactly once in every preference list on the opposing side (${n} entries per list).`,
   };
 
+  // Round 1: m1->w1, m2->w1, m3->w2
+  round = 1;
+  totalProposals += 3;
   yield {
-    state: matchingGraph('Round 1: all free men propose to their top choice', {}, null, null),
+    state: matchingGraph(`Round ${round}: all free men propose to their top choice`, {}, null, null),
     highlight: { active: ['m1', 'm2', 'm3'] },
-    explanation: 'Every free proposer starts by proposing to the highest-ranked person they have not yet proposed to. m1 and m2 both propose to w1. m3 proposes to w2. When multiple proposers target the same recipient, the recipient chooses.',
+    explanation: `Every free proposer starts by proposing to the highest-ranked person they have not yet proposed to. ${men[0]} and ${men[1]} both propose to ${menPrefs.m1[0]}. ${men[2]} proposes to ${menPrefs.m3[0]}. ${totalProposals} proposals made so far. When multiple proposers target the same recipient, the recipient chooses.`,
   };
 
+  // w1 receives m1, m2 — holds m2 (ranked 1st), rejects m1 (ranked 3rd)
+  const w1Rank_m2 = womenPrefs.w1.indexOf('m2') + 1;
+  const w1Rank_m1 = womenPrefs.w1.indexOf('m1') + 1;
   yield {
-    state: matchingGraph('w1 receives proposals from m1 and m2', {}, { from: 'm1', to: 'w1' }, null),
+    state: matchingGraph(`${women[0]} receives proposals from ${men[0]} and ${men[1]}`, {}, { from: 'm1', to: 'w1' }, null),
     highlight: { active: ['m1', 'm2'], compare: ['w1'] },
-    explanation: 'w1 ranks m2 first and m1 third. She tentatively accepts m2 and rejects m1. The acceptance is tentative: if a better proposer arrives later, she will switch. m1 returns to the free pool.',
+    explanation: `${women[0]} ranks ${men[1]} ${w1Rank_m2}${w1Rank_m2 === 1 ? 'st' : w1Rank_m2 === 2 ? 'nd' : 'rd'} and ${men[0]} ${w1Rank_m1}${w1Rank_m1 === 1 ? 'st' : w1Rank_m1 === 2 ? 'nd' : 'rd'}. She tentatively accepts ${men[1]} and rejects ${men[0]}. The acceptance is tentative: if a better proposer arrives later, she will switch. ${men[0]} returns to the free pool.`,
   };
 
+  matches.m2 = 'w1'; matches.w1 = 'm2'; matches.m3 = 'w2'; matches.w2 = 'm3';
+  nextProposal.m1 = 1;
+  const matchedPairs1 = ['m2-w1', 'm3-w2'];
   yield {
     state: matchingGraph('w1 holds m2; w2 holds m3; m1 is free', { m2: 'w1', w1: 'm2', m3: 'w2', w2: 'm3' }, null, { from: 'w1', to: 'm1' }),
     highlight: { found: ['m2', 'w1', 'm3', 'w2'], active: ['m1'] },
-    explanation: 'After round 1: m2-w1 and m3-w2 are tentatively matched. m1 is free and moves to his second choice. Each rejection pushes a proposer down his list, never to revisit that recipient.',
-    invariant: 'A rejected proposer is never reconsidered by that recipient.',
+    explanation: `After round ${round}: ${matchedPairs1.join(' and ')} are tentatively matched. ${men[0]} is free and moves to his ${nextProposal.m1 + 1}${nextProposal.m1 + 1 === 2 ? 'nd' : 'rd'} choice (${menPrefs.m1[nextProposal.m1]}). Each rejection pushes a proposer down his list, never to revisit that recipient.`,
+    invariant: `A rejected proposer is never reconsidered by that recipient.`,
   };
 
+  // Round 2: m1 proposes to w2
+  round = 2;
+  totalProposals += 1;
+  const w2Rank_m1 = womenPrefs.w2.indexOf('m1') + 1;
+  const w2Rank_m3 = womenPrefs.w2.indexOf('m3') + 1;
+  const target2 = menPrefs.m1[nextProposal.m1];
   yield {
-    state: matchingGraph('Round 2: m1 proposes to w2 (his 2nd choice)', { m2: 'w1', w1: 'm2', m3: 'w2', w2: 'm3' }, { from: 'm1', to: 'w2' }, null),
+    state: matchingGraph(`Round ${round}: ${men[0]} proposes to ${target2} (his 2nd choice)`, { m2: 'w1', w1: 'm2', m3: 'w2', w2: 'm3' }, { from: 'm1', to: 'w2' }, null),
     highlight: { active: ['m1'], compare: ['w2', 'm3'] },
-    explanation: 'w2 currently holds m3. She ranks m1 first and m3 second. m1 is better, so w2 drops m3 and tentatively accepts m1. m3 is now free.',
+    explanation: `${target2} currently holds ${matches[target2]}. She ranks ${men[0]} ${w2Rank_m1}${w2Rank_m1 === 1 ? 'st' : w2Rank_m1 === 2 ? 'nd' : 'rd'} and ${matches[target2]} ${w2Rank_m3}${w2Rank_m3 === 1 ? 'st' : w2Rank_m3 === 2 ? 'nd' : 'rd'}. ${men[0]} is better, so ${target2} drops ${matches[target2]} and tentatively accepts ${men[0]}. ${matches[target2]} is now free.`,
   };
 
+  const ejected1 = matches.w2;
+  matches.m1 = 'w2'; matches.w2 = 'm1'; delete matches.m3;
+  nextProposal.m3 = 1;
   yield {
-    state: matchingGraph('w2 switches to m1; m3 is now free', { m2: 'w1', w1: 'm2', m1: 'w2', w2: 'm1' }, null, { from: 'w2', to: 'm3' }),
+    state: matchingGraph(`${target2} switches to ${men[0]}; ${ejected1} is now free`, { m2: 'w1', w1: 'm2', m1: 'w2', w2: 'm1' }, null, { from: 'w2', to: 'm3' }),
     highlight: { found: ['m1', 'w2', 'm2', 'w1'], active: ['m3'] },
-    explanation: 'This is the propose-reject mechanism in action. A tentative match is not permanent. When a recipient gets a better proposal, she upgrades and the old partner rejoins the free pool. The rejected proposer moves to the next name on his list.',
+    explanation: `This is the propose-reject mechanism in action. A tentative match is not permanent. When a recipient gets a better proposal, she upgrades and the old partner rejoins the free pool. ${ejected1} was dropped from ${target2} and moves to his ${nextProposal.m3 + 1}${nextProposal.m3 + 1 === 2 ? 'nd' : 'rd'} choice (${menPrefs.m3[nextProposal.m3]}). ${totalProposals} proposals so far out of ${n * n} maximum.`,
   };
 
+  // Round 3: m3 proposes to w1
+  round = 3;
+  totalProposals += 1;
+  const target3 = menPrefs.m3[nextProposal.m3];
+  const w1Rank_m2_now = womenPrefs.w1.indexOf('m2') + 1;
+  const w1Rank_m3_now = womenPrefs.w1.indexOf('m3') + 1;
   yield {
-    state: matchingGraph('Round 3: m3 proposes to w1 (his 2nd choice)', { m2: 'w1', w1: 'm2', m1: 'w2', w2: 'm1' }, { from: 'm3', to: 'w1' }, null),
+    state: matchingGraph(`Round ${round}: ${ejected1} proposes to ${target3} (his 2nd choice)`, { m2: 'w1', w1: 'm2', m1: 'w2', w2: 'm1' }, { from: 'm3', to: 'w1' }, null),
     highlight: { active: ['m3'], compare: ['w1', 'm2'] },
-    explanation: 'w1 currently holds m2. She ranks m2 first and m3 second. m2 is better, so w1 rejects m3. m3 stays free and must propose to his last choice.',
+    explanation: `${target3} currently holds m2. She ranks m2 ${w1Rank_m2_now}${w1Rank_m2_now === 1 ? 'st' : w1Rank_m2_now === 2 ? 'nd' : 'rd'} and ${ejected1} ${w1Rank_m3_now}${w1Rank_m3_now === 1 ? 'st' : w1Rank_m3_now === 2 ? 'nd' : 'rd'}. m2 is better, so ${target3} rejects ${ejected1}. ${ejected1} stays free and must propose to his last choice.`,
   };
 
+  // Round 4: m3 proposes to w3
+  round = 4;
+  totalProposals += 1;
+  nextProposal.m3 = 2;
+  const target4 = menPrefs.m3[nextProposal.m3];
   yield {
-    state: matchingGraph('Round 4: m3 proposes to w3 (his 3rd choice)', { m2: 'w1', w1: 'm2', m1: 'w2', w2: 'm1' }, { from: 'm3', to: 'w3' }, null),
+    state: matchingGraph(`Round ${round}: ${ejected1} proposes to ${target4} (his 3rd choice)`, { m2: 'w1', w1: 'm2', m1: 'w2', w2: 'm1' }, { from: 'm3', to: 'w3' }, null),
     highlight: { active: ['m3'], compare: ['w3'] },
-    explanation: 'w3 is free and has no one to compare against. She accepts m3. All men are now matched. The algorithm terminates.',
+    explanation: `${target4} is free and has no one to compare against. She accepts ${ejected1}. All ${n} men are now matched after ${totalProposals} proposals (out of ${n * n} maximum). The algorithm terminates.`,
   };
 
+  matches.m3 = 'w3'; matches.w3 = 'm3';
+  const finalPairs = ['m1-w2', 'm2-w1', 'm3-w3'];
   yield {
     state: matchingGraph('Final stable matching', { m1: 'w2', w2: 'm1', m2: 'w1', w1: 'm2', m3: 'w3', w3: 'm3' }, null, null),
     highlight: { found: ['m1', 'w2', 'm2', 'w1', 'm3', 'w3'] },
-    explanation: 'Stable matching: m1-w2, m2-w1, m3-w3. No unmatched pair would both prefer each other over their current partners. The algorithm always terminates, always produces a perfect matching, and the result is always stable.',
-    invariant: 'No blocking pair exists: for every man-woman pair not matched together, at least one of them prefers their current partner.',
+    explanation: `Stable matching: ${finalPairs.join(', ')}. ${totalProposals} total proposals used out of ${n * n} maximum. No unmatched pair would both prefer each other over their current partners. The algorithm always terminates, always produces a perfect matching, and the result is always stable.`,
+    invariant: `No blocking pair exists: for every man-woman pair not matched together, at least one of them prefers their current partner. ${finalPairs.length} pairs formed from ${n * 2} people.`,
   };
 }
 
 /* -------------------------------------------------------- worked example */
 
 function* workedExample() {
+  const names = { m1: 'Alex', m2: 'Blake', m3: 'Chris', w1: 'Dana', w2: 'Eden', w3: 'Fran' };
+  const menPrefs = { Alex: ['Dana', 'Eden', 'Fran'], Blake: ['Dana', 'Fran', 'Eden'], Chris: ['Eden', 'Dana', 'Fran'] };
+  const womenPrefs = { Dana: ['Blake', 'Chris', 'Alex'], Eden: ['Alex', 'Chris', 'Blake'], Fran: ['Alex', 'Blake', 'Chris'] };
+  const n = 3;
+  let totalProposals = 0;
+  let round = 0;
+
   yield {
     state: prefMatrix(
       'Setup: 3 men, 3 women, each with a strict ranking',
@@ -164,12 +213,16 @@ function* workedExample() {
       ],
     ),
     highlight: { active: ['m1:c1', 'm2:c1', 'm3:c1'] },
-    explanation: 'Men propose in order of their preference lists. Alex wants Dana most, Blake wants Dana most, Chris wants Eden most. Each woman compares competing proposals against her own ranking.',
+    explanation: `Men propose in order of their preference lists. ${names.m1} wants ${menPrefs.Alex[0]} most, ${names.m2} wants ${menPrefs.Blake[0]} most, ${names.m3} wants ${menPrefs.Chris[0]} most. Each woman compares competing proposals against her own ranking. ${n * n} maximum proposals possible.`,
   };
 
+  round = 1;
+  totalProposals = 3;
+  const danaRankAlex = womenPrefs.Dana.indexOf('Alex') + 1;
+  const danaRankBlake = womenPrefs.Dana.indexOf('Blake') + 1;
   yield {
     state: prefMatrix(
-      'Round 1: Alex and Blake both propose to Dana',
+      `Round ${round}: ${names.m1} and ${names.m2} both propose to ${names.w1}`,
       [
         { id: 'a', label: 'Alex -> Dana' },
         { id: 'b', label: 'Blake -> Dana' },
@@ -177,18 +230,22 @@ function* workedExample() {
       ],
       [{ id: 'action', label: 'action' }, { id: 'result', label: 'result' }],
       [
-        ['proposes 1st choice', 'rejected (Dana ranks Alex 3rd)'],
-        ['proposes 1st choice', 'held (Dana ranks Blake 1st)'],
+        ['proposes 1st choice', `rejected (Dana ranks Alex ${danaRankAlex}${danaRankAlex === 3 ? 'rd' : 'th'})`],
+        ['proposes 1st choice', `held (Dana ranks Blake ${danaRankBlake}${danaRankBlake === 1 ? 'st' : 'nd'})`],
         ['proposes 1st choice', 'held (Eden has no one)'],
       ],
     ),
     highlight: { active: ['a:action', 'b:action', 'c:action'], found: ['b:result', 'c:result'], removed: ['a:result'] },
-    explanation: 'Dana gets proposals from Alex and Blake. Her ranking is Blake > Chris > Alex. She holds Blake and rejects Alex. Eden gets only Chris and holds him. Alex is now free and moves to his second choice.',
+    explanation: `${names.w1} gets proposals from ${names.m1} and ${names.m2}. Her ranking is ${womenPrefs.Dana.join(' > ')}. She holds ${names.m2} (ranked ${danaRankBlake}${danaRankBlake === 1 ? 'st' : 'nd'}) and rejects ${names.m1} (ranked ${danaRankAlex}${danaRankAlex === 3 ? 'rd' : 'th'}). ${names.w2} gets only ${names.m3} and holds him. ${names.m1} is now free. ${totalProposals} proposals so far.`,
   };
 
+  round = 2;
+  totalProposals = 4;
+  const edenRankAlex = womenPrefs.Eden.indexOf('Alex') + 1;
+  const edenRankChris = womenPrefs.Eden.indexOf('Chris') + 1;
   yield {
     state: prefMatrix(
-      'Round 2: Alex proposes to Eden (his 2nd choice)',
+      `Round ${round}: ${names.m1} proposes to ${names.w2} (his 2nd choice)`,
       [
         { id: 'a', label: 'Alex -> Eden' },
         { id: 'comp', label: 'Eden compares' },
@@ -196,18 +253,21 @@ function* workedExample() {
       ],
       [{ id: 'action', label: 'action' }, { id: 'result', label: 'result' }],
       [
-        ['proposes 2nd choice', 'Eden ranks Alex 1st'],
-        ['Alex (1st) vs Chris (2nd)', 'prefers Alex'],
+        ['proposes 2nd choice', `Eden ranks Alex ${edenRankAlex}${edenRankAlex === 1 ? 'st' : 'nd'}`],
+        [`Alex (${edenRankAlex}${edenRankAlex === 1 ? 'st' : 'nd'}) vs Chris (${edenRankChris}${edenRankChris === 1 ? 'st' : edenRankChris === 2 ? 'nd' : 'rd'})`, 'prefers Alex'],
         ['freed from Eden', 'moves to 2nd choice'],
       ],
     ),
     highlight: { active: ['a:action'], found: ['comp:result'], removed: ['out:result'] },
-    explanation: 'Eden currently holds Chris. She ranks Alex 1st and Chris 2nd. She drops Chris for Alex. Chris is now free and proposes to his second choice, Dana.',
+    explanation: `${names.w2} currently holds ${names.m3}. She ranks ${names.m1} ${edenRankAlex}${edenRankAlex === 1 ? 'st' : 'nd'} and ${names.m3} ${edenRankChris}${edenRankChris === 1 ? 'st' : edenRankChris === 2 ? 'nd' : 'rd'}. She drops ${names.m3} for ${names.m1}. ${names.m3} is now free and proposes to his 2nd choice, ${menPrefs.Chris[1]}. ${totalProposals} proposals so far.`,
   };
 
+  round = 3;
+  totalProposals = 5;
+  const danaRankChris = womenPrefs.Dana.indexOf('Chris') + 1;
   yield {
     state: prefMatrix(
-      'Round 3: Chris proposes to Dana (his 2nd choice)',
+      `Round ${round}: ${names.m3} proposes to ${names.w1} (his 2nd choice)`,
       [
         { id: 'c', label: 'Chris -> Dana' },
         { id: 'comp', label: 'Dana compares' },
@@ -215,18 +275,21 @@ function* workedExample() {
       ],
       [{ id: 'action', label: 'action' }, { id: 'result', label: 'result' }],
       [
-        ['proposes 2nd choice', 'Dana ranks Chris 2nd'],
-        ['Blake (1st) vs Chris (2nd)', 'prefers Blake'],
+        ['proposes 2nd choice', `Dana ranks Chris ${danaRankChris}${danaRankChris === 2 ? 'nd' : 'rd'}`],
+        [`Blake (${danaRankBlake}${danaRankBlake === 1 ? 'st' : 'nd'}) vs Chris (${danaRankChris}${danaRankChris === 2 ? 'nd' : 'rd'})`, 'prefers Blake'],
         ['Blake still held', 'Chris rejected'],
       ],
     ),
     highlight: { active: ['c:action'], found: ['keep:result'], removed: ['c:result'] },
-    explanation: 'Dana holds Blake (her 1st choice). Chris is her 2nd choice. She keeps Blake. Chris is rejected again and falls to his last choice, Fran.',
+    explanation: `${names.w1} holds ${names.m2} (her ${danaRankBlake}${danaRankBlake === 1 ? 'st' : 'nd'} choice). ${names.m3} is her ${danaRankChris}${danaRankChris === 2 ? 'nd' : 'rd'} choice. She keeps ${names.m2}. ${names.m3} is rejected again and falls to his last choice, ${menPrefs.Chris[2]}. ${totalProposals} proposals so far.`,
   };
 
+  round = 4;
+  totalProposals = 6;
+  const finalPairs = ['Alex-Eden', 'Blake-Dana', 'Chris-Fran'];
   yield {
     state: prefMatrix(
-      'Round 4: Chris proposes to Fran (his 3rd choice)',
+      `Round ${round}: ${names.m3} proposes to ${names.w3} (his 3rd choice)`,
       [
         { id: 'c', label: 'Chris -> Fran' },
         { id: 'result', label: 'Fran accepts' },
@@ -240,9 +303,10 @@ function* workedExample() {
       ],
     ),
     highlight: { active: ['c:action'], found: ['result:result', 'done:result'] },
-    explanation: 'Fran is unmatched and accepts Chris. All men are matched. The algorithm terminates with: Alex-Eden, Blake-Dana, Chris-Fran.',
+    explanation: `${names.w3} is unmatched and accepts ${names.m3}. All ${n} men are matched after ${totalProposals} proposals (out of ${n * n} maximum). The algorithm terminates with: ${finalPairs.join(', ')}.`,
   };
 
+  const blockingChecks = 6;
   yield {
     state: prefMatrix(
       'Stability check: verify no blocking pair exists',
@@ -265,8 +329,8 @@ function* workedExample() {
       ],
     ),
     highlight: { found: ['p1:verdict', 'p2:verdict', 'p3:verdict', 'p4:verdict', 'p5:verdict', 'p6:verdict'] },
-    explanation: 'For every unmatched man-woman pair, at least one of them prefers their current partner. No blocking pair exists. The matching is stable. The proposing side (men) got their best achievable partner under any stable matching; the receiving side (women) got their worst.',
-    invariant: 'Proposer-optimal, recipient-pessimal: the proposing side cannot do better in any stable matching.',
+    explanation: `All ${blockingChecks} unmatched man-woman pairs checked: for every pair, at least one prefers their current partner. 0 blocking pairs found. The matching ${finalPairs.join(', ')} is stable. ${totalProposals} proposals used out of ${n * n} maximum. The proposing side (men) got their best achievable partner under any stable matching; the receiving side (women) got their worst.`,
+    invariant: `Proposer-optimal, recipient-pessimal: the proposing side cannot do better in any stable matching. ${n} pairs, ${totalProposals} proposals, 0 blocking pairs.`,
   };
 }
 
@@ -290,7 +354,8 @@ export const article = {
         {type: 'callout', text: `Stable matching is not the highest-score pairing; it is the pairing where every rejected pair has at least one side that will not leave.`},
         `Active highlights mark the proposer currently making a proposal. Compare highlights mark the recipient evaluating that proposal against her current partner. Found highlights mark edges in the current tentative matching. When a recipient switches partners, the old edge disappears and the rejected proposer returns to the free pool.`,
         `Watch three things at each step: which proposer is free and proposing, which recipient is comparing, and whether the comparison triggers a rejection. Every rejection pushes the proposer one slot down his preference list, and that slot is never revisited. The algorithm ends when no free proposer remains.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/stable-matching-gale-shapley.gif', alt: 'Animated walkthrough of the stable matching gale shapley visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

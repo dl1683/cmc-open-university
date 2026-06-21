@@ -109,7 +109,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: "callout", text: "Traversal order is a dependency contract: it decides whether a node is processed before children, after children, between subtrees, or by depth."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/tree-traversals.gif', alt: 'Animated walkthrough of the tree traversals visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why this exists`,

@@ -157,7 +157,8 @@ export const article = {
         '"The bias-variance anatomy" dissects total error into bias-squared, variance, and noise, then sweeps model complexity to show the classical U-curve and the modern double-descent extension. Active markers highlight the current diagnostic signal. Found markers show conclusions the curve has already proven. Compare markers show the second curve that gives the diagnosis its meaning.',
         'At each frame, ask three questions: which curve moved, what that movement means about the model, and whether the gap grew or shrank. The gap is the entire diagnostic.',
         {type: 'callout', text: 'A learning curve is a budget test: the gap says whether more data, more capacity, or better measurement is the next move.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/learning-curves.gif', alt: 'Animated walkthrough of the learning curves visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

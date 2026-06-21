@@ -79,8 +79,8 @@ function* onlineInsertions() {
       PREFIX_STEPS.map(([, , newSuffix, extendedFrom, distinct]) => [newSuffix, extendedFrom, distinct]),
     ),
     highlight: { found: ['s5:newSuffix', 's5:distinct'], active: ['s3:newSuffix', 's4:newSuffix'] },
-    explanation: 'An eertree is built online. After each appended character, it finds the longest palindromic suffix that can be extended by that character. For ababa, every step creates one new distinct palindrome.',
-    invariant: 'Each non-root node represents one distinct palindrome.',
+    explanation: `An eertree is built online. After each appended character, it finds the longest palindromic suffix that can be extended by that character. For ababa, all ${PREFIX_STEPS.length} steps each create one new distinct palindrome.`,
+    invariant: `Each of the ${PREFIX_STEPS.length} non-root nodes represents one distinct palindrome.`,
   };
 
   yield {
@@ -98,7 +98,7 @@ function* onlineInsertions() {
       ],
     }, { title: 'Append a: extend the longest palindromic suffix' }),
     highlight: { active: ['last', 'check'], found: ['new'] },
-    explanation: 'At prefix abab, the longest palindromic suffix is bab. Appending a checks whether the character before bab is also a. It is, so a + bab + a creates ababa.',
+    explanation: `At prefix abab, the longest palindromic suffix is bab. Appending a checks whether the character before bab is also a. It is, so a + bab + a creates ababa — the ${PREFIX_STEPS.length}th distinct palindrome.`,
   };
 
   yield {
@@ -122,7 +122,7 @@ function* onlineInsertions() {
       ],
     ),
     highlight: { active: ['try2:action'], found: ['done:action'] },
-    explanation: 'Suffix links are the recovery mechanism. If the current longest palindromic suffix cannot be wrapped by the new character, follow suffix links until one can. This is the palindrome version of fallback links in KMP and Aho-Corasick.',
+    explanation: `Suffix links are the recovery mechanism. If the current longest palindromic suffix cannot be wrapped by the new character, follow suffix links until one can — up to ${PREFIX_STEPS.length} fallback attempts in this example. This is the palindrome version of fallback links in KMP and Aho-Corasick.`,
   };
 }
 
@@ -130,14 +130,14 @@ function* rootsAndSuffixLinks() {
   yield {
     state: eertreeGraph('Eertree nodes for ababa'),
     highlight: { active: ['oddRoot', 'evenRoot'], found: ['a', 'b', 'aba', 'bab', 'ababa'] },
-    explanation: 'The two roots are special. The length -1 root makes single-character palindromes easy to create. The length 0 root represents the empty palindrome. Every real node stores a palindrome length and outgoing character-extension edges.',
-    invariant: 'At most n distinct non-empty palindromes exist, so the eertree is linear size.',
+    explanation: `The two roots are special among the ${7} nodes shown. The length -1 root makes single-character palindromes easy to create. The length 0 root represents the empty palindrome. The remaining ${PREFIX_STEPS.length} real nodes each store a palindrome length and outgoing character-extension edges.`,
+    invariant: `At most n distinct non-empty palindromes exist (here ${PREFIX_STEPS.length} for a ${PREFIX_STEPS.length}-character string), so the eertree is linear size.`,
   };
 
   yield {
     state: eertreeGraph('Suffix links connect palindromic suffixes'),
     highlight: { active: ['ababa', 'aba', 'a', 'evenRoot'], compare: ['bab', 'b'] },
-    explanation: 'A suffix link points to the longest proper palindromic suffix. For ababa, the suffix-link chain goes ababa -> aba -> a -> empty. These links power online fallback and also expose nested palindrome structure.',
+    explanation: `A suffix link points to the longest proper palindromic suffix. For ababa, the suffix-link chain goes ababa -> aba -> a -> empty — ${3} hops through ${PREFIX_STEPS.length} palindrome nodes. These links power online fallback and also expose nested palindrome structure.`,
   };
 
   yield {
@@ -162,7 +162,7 @@ function* rootsAndSuffixLinks() {
       ],
     ),
     highlight: { found: ['eertree:stores', 'eertree:link', 'eertree:best'], compare: ['suffix:stores'] },
-    explanation: 'Eertree belongs in the same family as suffix automata and Aho-Corasick: compact states plus fallback links. Its specialty is palindromic substrings, which ordinary suffix indexes can answer but do not expose as directly.',
+    explanation: `Eertree belongs in the same family as suffix automata and Aho-Corasick: compact states plus fallback links. Compared across ${4} structures in the matrix, its specialty is palindromic substrings, which ordinary suffix indexes can answer but do not expose as directly.`,
   };
 }
 
@@ -190,7 +190,7 @@ function* palindromeAnalytics() {
       ],
     ),
     highlight: { active: ['append:state', 'last:state', 'new:state'], found: ['query:product'] },
-    explanation: 'A production-style use case is scanning a stream of text, IDs, or DNA bases while maintaining the inventory of distinct palindromic substrings and the longest palindromic suffix after every append.',
+    explanation: `A production-style use case is scanning a stream of text, IDs, or DNA bases through ${5} pipeline stages while maintaining the inventory of distinct palindromic substrings and the longest palindromic suffix after every append.`,
   };
 
   yield {
@@ -216,7 +216,7 @@ function* palindromeAnalytics() {
       ],
     ),
     highlight: { found: ['distinct:fit', 'occurs:fit'], compare: ['edit:fit'] },
-    explanation: 'Eertree is strongest for append-only or batched strings. Arbitrary middle edits are a different problem; use a Rope, Piece Table, or a rebuilt index when text changes everywhere.',
+    explanation: `Eertree is strongest for append-only or batched strings. The fit matrix scores ${5} use cases from excellent to weaker — arbitrary middle edits are a different problem; use a Rope, Piece Table, or a rebuilt index when text changes everywhere.`,
   };
 
   yield {
@@ -237,7 +237,7 @@ function* palindromeAnalytics() {
       ],
     }, { title: 'Complete case study: palindrome index service' }),
     highlight: { active: ['stream', 'eertree'], found: ['counts', 'longest', 'alerts'] },
-    explanation: 'The eertree is an online index service: append characters, update the current longest palindromic suffix, create a node only for a new distinct palindrome, and answer inventory queries without rescanning the whole text.',
+    explanation: `The eertree is an online index service with ${5} pipeline nodes and ${5} edges: append characters, update the current longest palindromic suffix, create a node only for a new distinct palindrome, and answer inventory queries without rescanning the whole text.`,
   };
 }
 
@@ -261,7 +261,8 @@ export const article = {
         },
         'Active highlights mark the node or link the algorithm is currently testing. Found highlights mark a node that has just been created or a query that has been answered. Compare highlights show a parallel structure worth contrasting, such as the suffix-link chain alongside the extension-edge chain.',
         'Follow the suffix-link arrows carefully. They are the fallback mechanism: when the current longest palindromic suffix cannot be extended by a new character, the algorithm walks suffix links to shorter candidates. This is the same idea as failure links in KMP and Aho-Corasick, applied to palindromes.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/eertree-palindromic-tree.gif', alt: 'Animated walkthrough of the eertree palindromic tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

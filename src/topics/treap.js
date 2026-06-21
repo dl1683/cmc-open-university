@@ -58,11 +58,18 @@ function rotatedTree(title) {
 }
 
 function* bstPlusHeap() {
+  const nodeCount = 7;
+  const rootKey = 5;
+  const rootPriority = 90;
+  const newKey = 6;
+  const newPriority = 95;
+  const expectedComplexity = 'O(log n)';
+
   yield {
     state: treapTree('Each node stores key|priority'),
     highlight: { active: ['n5'], compare: ['n2', 'n8'] },
-    explanation: 'A treap obeys two promises at once. By key, it is a Binary Search Tree: left keys are smaller and right keys are larger. By random priority, it is a heap: parent priority beats child priority.',
-    invariant: 'BST order by key; heap order by priority.',
+    explanation: `A treap with ${nodeCount} nodes obeys two promises at once. By key, it is a Binary Search Tree: left keys are smaller and right keys are larger. By random priority (root ${rootKey} has priority ${rootPriority}), it is a heap: parent priority beats child priority.`,
+    invariant: `BST order by key; heap order by priority across all ${nodeCount} nodes.`,
   };
 
   yield {
@@ -86,13 +93,13 @@ function* bstPlusHeap() {
       ],
     ),
     highlight: { found: ['search:result', 'height:result'], active: ['priority:uses'] },
-    explanation: 'Search ignores priorities. Balance comes from random priorities. The resulting shape is the same as inserting keys in random priority order, regardless of the actual insertion order.',
+    explanation: `Search ignores priorities. Balance comes from random priorities, giving ${expectedComplexity} expected height. The resulting shape is the same as inserting all ${nodeCount} keys in random priority order, regardless of the actual insertion order.`,
   };
 
   yield {
     state: rotatedTree('Insert key 6 with higher priority and rotate up'),
     highlight: { found: ['n6'], compare: ['n5', 'n8'] },
-    explanation: 'If a new node has higher priority than its parent, rotations restore heap order while preserving BST order. The rotations are the same local moves used by AVL and Red-Black trees, but the reason is priority, not height color bookkeeping.',
+    explanation: `Inserting key ${newKey} with priority ${newPriority} (higher than root priority ${rootPriority}) triggers rotations that restore heap order while preserving BST order. The rotations are the same local moves used by AVL and Red-Black trees, but the reason is priority, not height color bookkeeping.`,
   };
 
   yield {
@@ -116,15 +123,24 @@ function* bstPlusHeap() {
       ],
     ),
     highlight: { found: ['find:time', 'insert:time', 'delete:time', 'splitmerge:time'] },
-    explanation: 'Treaps trade deterministic worst-case balancing for simple expected guarantees. They are compact, fast, and especially elegant when split and merge are natural operations.',
+    explanation: `Treaps trade deterministic worst-case balancing for simple expected guarantees. All four core operations (find, insert, delete, split/merge) run in ${expectedComplexity} expected time, making treaps compact, fast, and especially elegant when split and merge are natural operations.`,
   };
 }
 
 function* splitAndMerge() {
+  const nodeCount = 7;
+  const splitKey = 5;
+  const rootKey = 5;
+  const rootPriority = 90;
+  const leftCount = 3;
+  const rightCount = 3;
+  const expectedComplexity = 'O(log n)';
+  const opCount = 4;
+
   yield {
     state: treapTree('Split by key <= 5 and > 5'),
     highlight: { active: ['n5'], found: ['n2', 'n1', 'n4'], compare: ['n8', 'n7', 'n9'] },
-    explanation: 'Treap split partitions a tree into two treaps by key. All keys on the left are <= x, all keys on the right are > x, and both outputs preserve treap invariants.',
+    explanation: `Treap split partitions the ${nodeCount}-node tree at key ${splitKey}, producing a left treap with ${leftCount} nodes (<= ${splitKey}) and a right treap with ${rightCount} nodes (> ${splitKey}). Both outputs preserve treap invariants.`,
   };
 
   yield {
@@ -148,8 +164,8 @@ function* splitAndMerge() {
       ],
     ),
     highlight: { found: ['pre:effect', 'root:effect', 'done:effect'] },
-    explanation: 'Merge is priority-guided. If the left root has higher priority, it remains root and its right child becomes merge(left.right, right). Otherwise the right root wins symmetrically.',
-    invariant: 'Split and merge are structural primitives, not afterthoughts.',
+    explanation: `Merge is priority-guided and runs in ${expectedComplexity} expected time. If the left root has higher priority (e.g., priority ${rootPriority} for key ${rootKey}), it remains root and its right child becomes merge(left.right, right). Otherwise the right root wins symmetrically.`,
+    invariant: `Split and merge are ${expectedComplexity} structural primitives, not afterthoughts.`,
   };
 
   yield {
@@ -173,7 +189,7 @@ function* splitAndMerge() {
       ],
     ),
     highlight: { active: ['insert:recipe', 'delete:recipe', 'rope:recipe'], compare: ['rank:extra'] },
-    explanation: 'Treaps are popular in competitive programming because split and merge make range operations simple. Add subtree sizes and lazy tags, and the same structure becomes an editable sequence.',
+    explanation: `Treaps are popular in competitive programming because split and merge make all ${opCount} listed operations run in ${expectedComplexity}. Add subtree sizes and lazy tags, and the same structure becomes an editable sequence.`,
   };
 
   yield {
@@ -197,7 +213,7 @@ function* splitAndMerge() {
       ],
     ),
     highlight: { found: ['treap:best'], compare: ['library:best', 'avlrb:tradeoff'] },
-    explanation: 'A treap is not always the production default, but it is one of the cleanest ways to understand randomized balancing and composable tree operations.',
+    explanation: `A treap (like our ${nodeCount}-node example rooted at key ${rootKey}) is not always the production default, but it is one of the cleanest ways to understand randomized balancing and composable tree operations.`,
   };
 }
 
@@ -218,7 +234,8 @@ export const article = {
         'In the "bst plus heap" view, watch the insert of key 6 with priority 95. Because 95 outranks every existing priority, the new node rotates upward through two levels. Each rotation swaps a parent-child pair and rewires two pointers, but the left-to-right key order never changes. That single move is the entire balancing mechanism: no colors, no height counters, no case tables.',
         'In the "split and merge" view, follow the partition. Split walks down by key comparisons, rewiring one pointer per level. Merge walks down by priority comparisons and does the same. Both finish in O(height) steps with no array copies and no rebalancing metadata.',
         {type: 'callout', text: 'A treap balances by choosing random priorities once, then letting ordinary rotations enforce the heap rule while BST order stays untouched.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/treap.gif', alt: 'Animated walkthrough of the treap visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

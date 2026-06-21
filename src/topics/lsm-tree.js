@@ -85,7 +85,8 @@ export const article = {
         "Active (highlighted) items mark the key currently being inserted into the memtable. Sorted markers appear when a memtable is frozen and ready to flush. After compaction, the merged result shows the final sorted state on disk.",
         "Watch the memtable grow, flush, and regrow. Each flush is a large sequential write, not a random page update. The merge at the end is the same operation as the merge step of merge sort: two sorted inputs, one sorted output, streaming and cheap.",
         {type: 'callout', text: 'An LSM tree makes the foreground write path cheap by turning random updates into append, flush, and merge work that can be scheduled later.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/lsm-tree.gif', alt: 'Animated walkthrough of the lsm tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why this exists`,

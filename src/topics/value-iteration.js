@@ -110,7 +110,8 @@ export const article = {
         },
         'Each number in a cell is V(s): how much total reward the agent expects to collect from that state onward, assuming it plays optimally. Active (highlighted) cells are the ones whose values changed during the current sweep. The final highlighted path is the greedy policy: from any state, step toward the highest-valued neighbor.',
         'Watch value propagate backward from the terminals. In sweep 1, only cells adjacent to the goal or pit update. Each subsequent sweep carries information one step farther. When no cell changes by more than 0.01, the Bellman equation is satisfied everywhere and the value table has converged.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/value-iteration.gif', alt: 'Animated walkthrough of the value iteration visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

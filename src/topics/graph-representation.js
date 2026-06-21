@@ -84,10 +84,11 @@ function graphSnapshot(title) {
 
 // ---------- Adjacency matrix view ----------
 function* adjacencyMatrixView() {
+  const r2 = (v) => Math.round(v * 100) / 100;
   yield {
     state: graphSnapshot('5-vertex undirected graph'),
     highlight: { active: ['A'] },
-    explanation: 'A graph is vertices and edges. This undirected graph has 5 vertices (A-E) and 7 edges. The first question for any graph algorithm: how do we store this in memory so we can answer "are X and Y connected?" and "who are X\'s neighbors?" efficiently?',
+    explanation: `A graph is vertices and edges. This undirected graph has ${NODES.length} vertices (${VERTEX_IDS.join(', ')}) and ${EDGES.length} edges. The first question for any graph algorithm: how do we store this in memory so we can answer "are X and Y connected?" and "who are X's neighbors?" efficiently?`,
   };
 
   const rows = VERTEX_IDS.map((v) => ({ id: v, label: v }));
@@ -103,7 +104,7 @@ function* adjacencyMatrixView() {
       format: (v) => String(v),
     }),
     highlight: { active: ['A:B', 'B:A'] },
-    explanation: 'An adjacency matrix is a V x V grid. Cell [i][j] is 1 if an edge connects vertex i to vertex j, 0 otherwise. For undirected graphs the matrix is symmetric: [A][B] = [B][A] = 1. Edge lookup is O(1) — just index into the array.',
+    explanation: `An adjacency matrix is a ${VERTEX_IDS.length} x ${VERTEX_IDS.length} grid (V = ${VERTEX_IDS.length}). Cell [i][j] is 1 if an edge connects vertex i to vertex j, 0 otherwise. For undirected graphs the matrix is symmetric: [A][B] = ${vals[0][1]} and [B][A] = ${vals[1][0]}. Edge lookup is O(1) — just index into the array.`,
     invariant: 'For undirected graphs, matrix[i][j] always equals matrix[j][i].',
   };
 
@@ -116,8 +117,11 @@ function* adjacencyMatrixView() {
       format: (v) => String(v),
     }),
     highlight: { active: ['A:A', 'B:B', 'C:C', 'D:D', 'E:E'] },
-    explanation: 'The diagonal is all zeros because no vertex has a self-loop. Every 0 in the matrix costs the same memory as every 1. With 5 vertices we store 25 cells for 7 edges. With 1,000 vertices and 3,000 edges, we store 1,000,000 cells for 3,000 edges — 99.7% wasted zeros.',
+    explanation: `The diagonal is all zeros because no vertex has a self-loop. Every 0 in the matrix costs the same memory as every 1. With ${VERTEX_IDS.length} vertices we store ${VERTEX_IDS.length * VERTEX_IDS.length} cells for ${EDGES.length} edges — ${r2((1 - EDGES.length * 2 / (VERTEX_IDS.length * VERTEX_IDS.length)) * 100)}% of cells are wasted zeros. With 1,000 vertices and 3,000 edges, we store 1,000,000 cells for 3,000 edges — 99.4% wasted zeros.`,
   };
+
+  const cIdx = VERTEX_IDS.indexOf('C');
+  const cNeighbors = vals[cIdx].filter(v => v === 1).length;
 
   yield {
     state: matrixState({
@@ -128,7 +132,7 @@ function* adjacencyMatrixView() {
       format: (v) => String(v),
     }),
     highlight: { active: ['C:A', 'C:B', 'C:C', 'C:D', 'C:E'], found: ['C:A', 'C:B', 'C:D', 'C:E'] },
-    explanation: 'To find all neighbors of C, scan the entire row: check C:A, C:B, C:C, C:D, C:E. That is O(V) work regardless of how many neighbors C has. C has 4 neighbors but we still checked all 5 cells. On a sparse graph with 10,000 vertices where C has 3 neighbors, we check 10,000 cells to find 3.',
+    explanation: `To find all neighbors of C, scan the entire row: check C:A, C:B, C:C, C:D, C:E. That is O(V) work regardless of how many neighbors C has. C has ${cNeighbors} neighbors but we still checked all ${VERTEX_IDS.length} cells. On a sparse graph with 10,000 vertices where C has 3 neighbors, we check 10,000 cells to find 3.`,
   };
 
   yield {
@@ -154,7 +158,7 @@ function* adjacencyMatrixView() {
       ],
     ),
     highlight: { found: ['edge:cost'], compare: ['space:cost', 'neighbors:cost'] },
-    explanation: 'The matrix excels at edge existence checks — O(1), just an array index. But it pays O(V^2) space even when edges are sparse, and scanning neighbors costs O(V) regardless of degree. Dense graphs (where E is close to V^2) pay a fair price; sparse graphs waste most of that memory.',
+    explanation: `The matrix excels at edge existence checks — O(1), just an array index. But it pays O(V^2) space: ${VERTEX_IDS.length}x${VERTEX_IDS.length} = ${VERTEX_IDS.length * VERTEX_IDS.length} cells even when edges are sparse, and scanning neighbors costs O(V) regardless of degree. Dense graphs (where E is close to V^2) pay a fair price; sparse graphs waste most of that memory.`,
   };
 }
 
@@ -163,7 +167,7 @@ function* adjacencyListView() {
   yield {
     state: graphSnapshot('Same 5-vertex graph'),
     highlight: { active: ['C'] },
-    explanation: 'Same graph, different storage question. Instead of a big grid, what if each vertex just keeps a list of its own neighbors? That is the adjacency list: one collection per vertex, containing only the vertices it connects to.',
+    explanation: `Same graph — ${NODES.length} vertices, ${EDGES.length} edges — different storage question. Instead of a big grid, what if each vertex just keeps a list of its own neighbors? That is the adjacency list: one collection per vertex, containing only the vertices it connects to.`,
   };
 
   const adj = adjListMap();
@@ -184,7 +188,7 @@ function* adjacencyListView() {
       }),
     ),
     highlight: { active: ['C:n0', 'C:n1', 'C:n2', 'C:n3'] },
-    explanation: 'Each row stores only actual neighbors. A has [B, C]. C has [A, B, D, E]. No wasted zeros. Total storage across all rows: each edge appears twice (once per endpoint in an undirected graph), so total entries = 2E = 14. Compare that to the matrix\'s 25 cells.',
+    explanation: `Each row stores only actual neighbors. A has [${adj['A'].join(', ')}]. C has [${adj['C'].join(', ')}]. No wasted zeros. Total storage across all rows: each edge appears twice (once per endpoint in an undirected graph), so total entries = 2E = ${EDGES.length * 2}. Compare that to the matrix's ${VERTEX_IDS.length * VERTEX_IDS.length} cells.`,
     invariant: 'In an undirected graph, every edge (u, v) appears in both u\'s list and v\'s list.',
   };
 
@@ -201,7 +205,7 @@ function* adjacencyListView() {
       }),
     ),
     highlight: { found: ['C:n0', 'C:n1', 'C:n2', 'C:n3'] },
-    explanation: 'Neighbors of C? Just read its list: A, B, D, E. Time: O(degree of C) = O(4). No scanning empty cells. For a vertex with 3 neighbors in a 10,000-vertex graph, this reads 3 entries instead of 10,000.',
+    explanation: `Neighbors of C? Just read its list: ${adj['C'].join(', ')}. Time: O(degree of C) = O(${adj['C'].length}). No scanning empty cells. For a vertex with 3 neighbors in a 10,000-vertex graph, this reads 3 entries instead of 10,000.`,
   };
 
   yield {
@@ -217,7 +221,7 @@ function* adjacencyListView() {
       }),
     ),
     highlight: { compare: ['A:n0', 'A:n1'] },
-    explanation: 'Is there an edge between A and D? Scan A\'s list: [B, C]. D is not there. Time: O(degree of A) = O(2). For a vertex with many neighbors, this scan can be slow. The matrix answered the same question in O(1). This is the core tradeoff.',
+    explanation: `Is there an edge between A and D? Scan A's list: [${adj['A'].join(', ')}]. D is not there. Time: O(degree of A) = O(${adj['A'].length}). For a vertex with many neighbors, this scan can be slow. The matrix answered the same question in O(1). This is the core tradeoff.`,
   };
 
   yield {
@@ -243,7 +247,7 @@ function* adjacencyListView() {
       ],
     ),
     highlight: { found: ['space:cost', 'neighbors:cost'], compare: ['edge:cost'] },
-    explanation: 'The adjacency list uses space proportional to the actual graph, not the possible graph. Neighbor iteration costs only O(degree). The price: edge existence checks require scanning a list instead of indexing an array. Most graph algorithms (BFS, DFS, Dijkstra, Kruskal) spend their time iterating neighbors, not checking individual edges, so the list usually wins.',
+    explanation: `The adjacency list uses space proportional to the actual graph: ${VERTEX_IDS.length} lists and ${EDGES.length * 2} entries, not the possible graph. Neighbor iteration costs only O(degree). The price: edge existence checks require scanning a list instead of indexing an array. Most graph algorithms (BFS, DFS, Dijkstra, Kruskal) spend their time iterating neighbors, not checking individual edges, so the list usually wins.`,
   };
 }
 
@@ -252,7 +256,7 @@ function* edgeListView() {
   yield {
     state: graphSnapshot('Same 5-vertex graph'),
     highlight: { active: ['AB', 'CD'] },
-    explanation: 'The simplest representation: just list every edge as a pair of vertices. No indexing, no per-vertex structure. An edge list is what you get when you read a file of connections.',
+    explanation: `The simplest representation: just list every ${EDGES.length} edges as pairs of vertices. No indexing, no per-vertex structure. An edge list is what you get when you read a file of connections.`,
   };
 
   const edgeRows = EDGES.map((e) => ({ id: e.id, label: `${e.from}-${e.to}` }));
@@ -264,9 +268,11 @@ function* edgeListView() {
       EDGES.map((e) => [e.from, e.to]),
     ),
     highlight: { active: ['AB:from', 'AB:to'], found: ['CD:from', 'CD:to'] },
-    explanation: 'Seven edges, seven rows. Each row is a (from, to) pair. Space: O(E). This is compact and easy to build — just append edges as you discover them. Sorting by weight makes this the input format for Kruskal\'s MST algorithm.',
+    explanation: `${EDGES.length} edges, ${EDGES.length} rows. Each row is a (from, to) pair. Space: O(E). This is compact and easy to build — just append edges as you discover them. Sorting by weight makes this the input format for Kruskal's MST algorithm.`,
     invariant: 'Each undirected edge appears exactly once, not twice.',
   };
+
+  const cEdges = EDGES.filter(e => e.from === 'C' || e.to === 'C');
 
   yield {
     state: labelMatrix(
@@ -276,7 +282,7 @@ function* edgeListView() {
       EDGES.map((e) => [e.from, e.to]),
     ),
     highlight: { found: ['AC:from', 'AC:to', 'BC:from', 'BC:to', 'CD:from', 'CD:to', 'CE:from', 'CE:to'] },
-    explanation: 'To find neighbors of C, scan every edge and check if either endpoint is C. Time: O(E) — the entire list. For a graph with millions of edges, this is expensive for a single neighbor query. Edge lists are for building and sorting, not for repeated neighbor lookups.',
+    explanation: `To find neighbors of C, scan every edge and check if either endpoint is C. We check all ${EDGES.length} edges and find ${cEdges.length} that touch C. Time: O(E) — the entire list. For a graph with millions of edges, this is expensive for a single neighbor query. Edge lists are for building and sorting, not for repeated neighbor lookups.`,
   };
 
   yield {
@@ -302,7 +308,7 @@ function* edgeListView() {
       ],
     ),
     highlight: { found: ['space:cost', 'add:cost', 'sort:cost'], compare: ['edge:cost', 'neighbors:cost'] },
-    explanation: 'The edge list is the most compact and the easiest to build, but the worst for queries. Its strength is input and construction: read edges from a file, sort them by weight for Kruskal, or stream them into a better structure. Think of it as the raw material, not the finished index.',
+    explanation: `The edge list is the most compact — just ${EDGES.length} pairs — and the easiest to build, but the worst for queries. Its strength is input and construction: read edges from a file, sort them by weight for Kruskal, or stream them into a better structure. Think of it as the raw material, not the finished index.`,
   };
 
   yield {
@@ -326,7 +332,7 @@ function* edgeListView() {
       ],
     ),
     highlight: { found: ['list:space', 'list:neighb'], compare: ['matrix:space'], active: ['list:best'] },
-    explanation: 'For sparse graphs (most real-world graphs), the adjacency list wins on both space and neighbor iteration. The matrix wins only when edge lookups dominate or the graph is dense. The edge list is a construction format, not a query format. Choose the representation that matches your algorithm\'s access pattern.',
+    explanation: `For sparse graphs (most real-world graphs), the adjacency list wins on both space and neighbor iteration: O(V+E) = O(${VERTEX_IDS.length} + ${EDGES.length}) = ${VERTEX_IDS.length + EDGES.length} vs the matrix's O(V^2) = ${VERTEX_IDS.length * VERTEX_IDS.length}. The matrix wins only when edge lookups dominate or the graph is dense. The edge list is a construction format, not a query format. Choose the representation that matches your algorithm's access pattern.`,
   };
 }
 
@@ -347,7 +353,8 @@ export const article = {
         {type: 'callout', text: 'A graph representation is a query contract: the same edges can be stored to favor neighbor scans, edge-existence checks, or streaming all edges.'},
         'In the matrix view, watch the neighbor query: it scans every cell in a row, including zeros. In the list view, the scan touches only actual neighbors and stops. In the edge list view, every query scans every edge. The cost difference is visible in the number of highlighted cells.',
         'The comparison table at the end of the edge list view summarizes all three representations side by side. One safe inference: if your algorithm iterates neighbors (BFS, DFS, Dijkstra), the adjacency list wins. If it checks individual edge existence (Floyd-Warshall, matrix exponentiation), the matrix wins.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/graph-representation.gif', alt: 'Animated walkthrough of the graph representation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

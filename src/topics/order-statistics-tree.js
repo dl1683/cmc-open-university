@@ -50,11 +50,18 @@ function orderTree(title) {
 }
 
 function* selectByRank() {
+  const nodeCount = 7;
+  const rootSize = nodeCount;
+  const leftChildSize = 3;
+  const rightChildSize = 3;
+  const leafSize = 1;
+  const targetRank = 5;
+  const resultKey = 50;
   yield {
     state: orderTree('Every node stores subtree size'),
     highlight: { active: ['n40', 'n20', 'n60'], found: ['n10', 'n30', 'n50', 'n70'] },
-    explanation: 'An order-statistics tree starts as a balanced search tree, often a red-black tree, and adds one field: size[node] = size[left] + size[right] + 1.',
-    invariant: 'The size field must be correct after every insert, delete, and rotation.',
+    explanation: `An order-statistics tree with ${nodeCount} nodes starts as a balanced search tree, often a red-black tree, and adds one field: size[node] = size[left] + size[right] + ${leafSize}.`,
+    invariant: `The root's size field equals ${rootSize} — the total node count — and must stay correct after every insert, delete, and rotation.`,
   };
 
   yield {
@@ -75,13 +82,13 @@ function* selectByRank() {
       ],
     ),
     highlight: { active: ['root:calculation', 'right:calculation', 'hit:calculation'], found: ['answer:decision'] },
-    explanation: 'To select the kth smallest key, compare k with the rank of the current node inside its subtree. Move left, return current, or move right with k reduced by the left subtree plus one.',
+    explanation: `To select the kth smallest key, compare k with the rank of the current node inside its subtree. At the root, leftSize + 1 = ${leftChildSize} + 1 = ${leftChildSize + 1}, so select(${targetRank}) moves right with target reduced to ${targetRank - (leftChildSize + 1)}.`,
   };
 
   yield {
     state: orderTree('Path for select(5) ends at 50'),
     highlight: { active: ['n40', 'n60', 'n50', 'e-40-60', 'e-60-50'], found: ['n50'], compare: ['n20'] },
-    explanation: 'The tree does not need an inorder array. Subtree sizes let the search skip whole subtrees while still preserving dynamic inserts and deletes.',
+    explanation: `The tree does not need an inorder array. select(${targetRank}) lands on node ${resultKey} by skipping entire subtrees — subtree sizes let the search prune without walking every key.`,
   };
 
   yield {
@@ -102,11 +109,18 @@ function* selectByRank() {
       ],
     ),
     highlight: { found: ['select:cost', 'rank:cost', 'median:cost'] },
-    explanation: 'This is the power of augmentation: one small field turns an ordered map into a dynamic ranking structure.',
+    explanation: `This is the power of augmentation: one small field per node unlocks ${4} operations — select, rank, median, and percentile — all in O(log n).`,
   };
 }
 
 function* rankAfterRotations() {
+  const nodeCount = 7;
+  const edgeCount = 6;
+  const rankTarget = 50;
+  const rankResult = 5;
+  const rootLeftSize = 3;
+  const leaderboardOps = 4;
+  const alternativeCount = 4;
   yield {
     state: labelMatrix(
       'rank(50)',
@@ -125,14 +139,14 @@ function* rankAfterRotations() {
       ],
     ),
     highlight: { active: ['start:add', 'root:add'], found: ['root:running_rank'] },
-    explanation: 'Rank can be computed by walking upward. Start with the node position inside its own subtree. Whenever the path comes from a right child, add the parent and the parents left subtree.',
+    explanation: `Rank of ${rankTarget} is computed by walking upward. Start with rank 1 inside its own subtree, then at root 40 add size(left) + 1 = ${rootLeftSize} + 1 = ${rootLeftSize + 1}, reaching final rank ${rankResult}.`,
   };
 
   yield {
     state: orderTree('Rotations must repair size fields locally'),
     highlight: { active: ['n40', 'n60', 'e-40-60'], compare: ['n50', 'n70'], found: ['n20'] },
-    explanation: 'Balanced trees rotate during inserts and deletes. The order-statistics augmentation survives rotations because only a small local set of size fields changes.',
-    invariant: 'Update child pointers first, then recompute sizes bottom-up for the rotated nodes.',
+    explanation: `Balanced trees rotate during inserts and deletes. Across all ${nodeCount} nodes and ${edgeCount} edges, the order-statistics augmentation survives because only a small local set of size fields changes.`,
+    invariant: `Update child pointers first, then recompute sizes bottom-up for the rotated nodes — the total must still equal ${nodeCount}.`,
   };
 
   yield {
@@ -153,7 +167,7 @@ function* rankAfterRotations() {
       ],
     ),
     highlight: { found: ['rank:why_tree', 'page:why_tree'], active: ['insert:operation'] },
-    explanation: 'A live leaderboard needs both updates and rank queries. A sorted array gives rank but inserts are expensive; a heap gives top values but not arbitrary rank. The augmented tree covers both.',
+    explanation: `A live leaderboard needs all ${leaderboardOps} operations shown — insert, rank, pagination, and median. A sorted array gives rank but inserts are expensive; the augmented tree covers all ${leaderboardOps} in O(log n).`,
   };
 
   yield {
@@ -174,7 +188,7 @@ function* rankAfterRotations() {
       ],
     ),
     highlight: { found: ['ost:best_when'], compare: ['array:limit', 'fenwick:limit'] },
-    explanation: 'Order-statistics trees are not the only ranking tool. They are the natural choice when keys are dynamic and not conveniently mapped into a dense integer range.',
+    explanation: `Among ${alternativeCount} alternatives — Fenwick, segment tree, order-stat tree, and sorted array — the order-statistics tree is the natural choice when keys are dynamic and not mapped into a dense integer range.`,
   };
 }
 
@@ -187,6 +201,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/order-statistics-tree.gif', alt: 'Animated walkthrough of the order statistics tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

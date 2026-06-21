@@ -28,7 +28,13 @@ const pct = (v) => `${(v * 100).toFixed(1)}%`;
 export function* run(input) {
   const logits = parseNumberList(input.logits, { min: 5, max: 5, label: 'logits' });
   const columns = CANDIDATES.map((word, i) => ({ id: `w${i}`, label: word }));
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const r4 = (v) => Math.round(v * 10000) / 10000;
 
+  const logitMax = Math.max(...logits);
+  const logitMin = Math.min(...logits);
+  const topIdx = logits.indexOf(logitMax);
+  const botIdx = logits.indexOf(logitMin);
   yield {
     state: matrixState({
       title: 'Raw logits — the model\'s un-normalized scores',
@@ -36,8 +42,24 @@ export function* run(input) {
       columns,
       values: [logits],
     }),
+    highlight: { active: [`w${topIdx}`] },
+    explanation: `A language model finishing "The cute little ___" outputs a raw SCORE (a logit) for every candidate: ${CANDIDATES.map((c, i) => `"${c}" = ${r2(logits[i])}`).join(', ')}. "${CANDIDATES[topIdx]}" leads at ${r2(logitMax)}, "${CANDIDATES[botIdx]}" trails at ${r2(logitMin)} — a gap of ${r2(logitMax - logitMin)}. But these aren't probabilities: they can be negative, and their sum (${r2(logits.reduce((a, b) => a + b, 0))}) is meaningless. Softmax fixes that.`,
+  };
+
+  // Show the exponentiation step explicitly
+  const shifted = logits.map((x) => x - logitMax);
+  const exps = shifted.map((x) => Math.exp(x));
+  const expSum = exps.reduce((a, b) => a + b, 0);
+  yield {
+    state: matrixState({
+      title: 'exp(logit - max) — exponentiation step',
+      rows: [{ id: 'exps', label: 'exp(z-max)' }],
+      columns,
+      values: [exps],
+    }),
     highlight: {},
-    explanation: 'A language model finishing "The cute little ___" doesn\'t output a word — it outputs a raw SCORE (a logit) for every candidate. Bigger means more plausible, but these aren\'t probabilities: they can be negative, and they don\'t sum to anything meaningful. Softmax fixes that.',
+    explanation: `First, subtract the max (${r2(logitMax)}) for numerical safety: shifted logits = [${shifted.map(r2).join(', ')}]. Then exponentiate: ${CANDIDATES.map((c, i) => `exp(${r2(shifted[i])}) = ${r4(exps[i])}`).join(', ')}. All values are now positive. Their sum = ${r2(expSum)} — dividing each by this sum gives us probabilities.`,
+    invariant: `Subtracting the max changes nothing mathematically — the constant cancels in the ratio — but prevents overflow for large logits.`,
   };
 
   const base = softmax(logits);
@@ -51,21 +73,48 @@ export function* run(input) {
       format: pct,
     }),
     highlight: { active: [`w${argmax}`] },
-    explanation: `Softmax exponentiates every logit and divides by the total: every value becomes positive, and the row sums to exactly 100%. "${CANDIDATES[argmax]}" leads at ${pct(base[argmax])}. Now the model can SAMPLE — roll a weighted die — instead of robotically picking the max.`,
+    explanation: `Dividing each exp by ${r2(expSum)}: ${CANDIDATES.map((c, i) => `"${c}" = ${r4(exps[i])}/${r2(expSum)} = ${pct(base[i])}`).join(', ')}. "${CANDIDATES[argmax]}" leads at ${pct(base[argmax])}. Every value is positive and the row sums to exactly 100%. Now the model can SAMPLE — roll a weighted die — instead of robotically picking the max.`,
     invariant: 'Softmax output always sums to 100%, whatever the logits are.',
   };
 
+  // Entropy at T=1
+  const entropy1 = -base.reduce((s, p) => s + (p > 0 ? p * Math.log2(p) : 0), 0);
+  const maxEntropy = Math.log2(CANDIDATES.length);
+  yield {
+    state: matrixState({
+      title: 'Entropy of the T=1 distribution',
+      rows: [{ id: 't1', label: 'T = 1' }],
+      columns,
+      values: [base],
+      format: pct,
+    }),
+    highlight: {},
+    explanation: `How "spread out" is this distribution? Shannon entropy = -sum(p * log2(p)) = ${r2(entropy1)} bits. Maximum possible entropy for ${CANDIDATES.length} candidates is log2(${CANDIDATES.length}) = ${r2(maxEntropy)} bits (uniform distribution). Ratio: ${r2(entropy1)}/${r2(maxEntropy)} = ${Math.round((entropy1 / maxEntropy) * 100)}% of maximum — the distribution is ${entropy1 / maxEntropy < 0.5 ? 'fairly concentrated' : entropy1 / maxEntropy < 0.8 ? 'moderately spread' : 'quite spread out'}. Temperature reshapes this.`,
+  };
+
   const temps = [
-    { t: 0.5, note: (p) => `Dividing logits by T=0.5 DOUBLES them before softmax — gaps between scores get amplified, so the distribution SHARPENS: "${CANDIDATES[argmax]}" jumps to ${pct(p[argmax])}. Low temperature → confident, repetitive, almost-greedy output. Good for code and facts.` },
-    { t: 2.0, note: (p) => `Dividing by T=2 HALVES the logits — differences shrink, the distribution FLATTENS, and longshots like "banana" become live options (${pct(p[4])}). High temperature → diverse, surprising, riskier output. Good for brainstorming, dangerous for facts.` },
+    { t: 0.5 },
+    { t: 2.0 },
+    { t: 0.1 },
   ];
 
   const rows = [{ id: 't1', label: 'T = 1' }];
   const values = [base];
-  for (const { t, note } of temps) {
-    const probs = softmax(logits.map((x) => x / t));
+  for (const { t } of temps) {
+    const scaled = logits.map((x) => x / t);
+    const probs = softmax(scaled);
+    const probArgmax = probs.indexOf(Math.max(...probs));
+    const entropy = -probs.reduce((s, p) => s + (p > 0 ? p * Math.log2(p) : 0), 0);
     rows.push({ id: `t${String(t).replace('.', '_')}`, label: `T = ${t}` });
     values.push(probs);
+
+    let tempNote;
+    if (t < 1) {
+      tempNote = `Dividing logits by T=${t} ${t === 0.5 ? 'DOUBLES' : `multiplies by ${r2(1 / t)}x`} them: scaled = [${scaled.map(r2).join(', ')}]. The gap between "${CANDIDATES[topIdx]}" and "${CANDIDATES[botIdx]}" widens from ${r2(logitMax - logitMin)} to ${r2(scaled[topIdx] - scaled[botIdx])}. Result: "${CANDIDATES[probArgmax]}" dominates at ${pct(probs[probArgmax])}, entropy drops to ${r2(entropy)} bits (${Math.round((entropy / maxEntropy) * 100)}% of max). ${t <= 0.1 ? 'Nearly greedy — the model always picks its favorite.' : 'Low temperature = confident, repetitive, almost-greedy output.'}`;
+    } else {
+      tempNote = `Dividing by T=${t} HALVES the logits: scaled = [${scaled.map(r2).join(', ')}]. The gap shrinks from ${r2(logitMax - logitMin)} to ${r2(scaled[topIdx] - scaled[botIdx])}. Now "${CANDIDATES[botIdx]}" rises to ${pct(probs[botIdx])} — a live option. Entropy climbs to ${r2(entropy)} bits (${Math.round((entropy / maxEntropy) * 100)}% of max). High temperature = diverse, surprising, riskier output.`;
+    }
+
     yield {
       state: matrixState({
         title: 'softmax(logits / T) at different temperatures',
@@ -75,10 +124,12 @@ export function* run(input) {
         format: pct,
       }),
       highlight: { active: [rows[rows.length - 1].id] },
-      explanation: note(probs),
+      explanation: tempNote,
     };
   }
 
+  // Show all temperatures side by side with entropy comparison
+  const allEntropies = values.map((probs) => -probs.reduce((s, p) => s + (p > 0 ? p * Math.log2(p) : 0), 0));
   yield {
     state: matrixState({
       title: 'softmax(logits / T) at different temperatures',
@@ -88,7 +139,7 @@ export function* run(input) {
       format: pct,
     }),
     highlight: {},
-    explanation: 'Same model, same logits — three different personalities, controlled by one number. The "temperature" slider in every LLM API and playground is EXACTLY this division. T→0 collapses to always-pick-the-max (greedy decoding); T=1 is the model\'s honest distribution; higher T trades reliability for variety. Softmax also appears inside the attention mechanism — same equation, same row-sums-to-100% guarantee.',
+    explanation: `Same logits [${logits.map(r2).join(', ')}], four temperatures, four personalities. Entropy: ${rows.map((r, i) => `${r.label} = ${r2(allEntropies[i])} bits`).join(', ')}. The "temperature" slider in every LLM API is EXACTLY this division. T->0 collapses to argmax (greedy); T=1 is the model's honest distribution; higher T trades reliability for variety. Same equation powers attention's softmax too — same row-sums-to-100% guarantee.`,
   };
 }
 
@@ -100,7 +151,8 @@ export const article = {
         'The first frame shows raw logits -- the model\'s un-normalized scores for five candidate words completing "The cute little ___." Each subsequent frame divides those same logits by a different temperature T and applies softmax, producing a new row of probabilities. The highlighted row is the one just computed; earlier rows remain for side-by-side comparison.',
         {type: 'callout', text: 'Temperature scales logit gaps before exponentiation, so it changes confidence without changing the rank order.'},
         'Watch two things as you step through. First, the percentage values: at T=1 the model\'s preferences pass through directly; at T=0.5 the winner\'s share jumps because halving T doubles the logit gaps before exponentiation; at T=2 the gaps halve and probability leaks toward weaker candidates. Second, the ranking: it never changes. If candidate A has a higher logit than candidate B, A keeps a higher probability at every positive temperature. Temperature controls concentration, not preference.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/softmax-temperature.gif', alt: 'Animated walkthrough of the softmax temperature visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

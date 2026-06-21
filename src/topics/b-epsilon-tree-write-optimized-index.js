@@ -28,15 +28,16 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* bufferedWrites() {
+  const nodes = [
+    { id: 'write', label: 'write', x: 0.8, y: 4.0, note: 'message' },
+    { id: 'rootBuf', label: 'root buf', x: 2.6, y: 4.0, note: 'batch' },
+    { id: 'childBuf', label: 'child buf', x: 4.5, y: 4.0, note: 'flush' },
+    { id: 'leaf', label: 'leaf', x: 6.4, y: 4.0, note: 'sorted' },
+    { id: 'range', label: 'range scan', x: 8.4, y: 4.0, note: 'ordered' },
+  ];
   yield {
     state: graphState({
-      nodes: [
-        { id: 'write', label: 'write', x: 0.8, y: 4.0, note: 'message' },
-        { id: 'rootBuf', label: 'root buf', x: 2.6, y: 4.0, note: 'batch' },
-        { id: 'childBuf', label: 'child buf', x: 4.5, y: 4.0, note: 'flush' },
-        { id: 'leaf', label: 'leaf', x: 6.4, y: 4.0, note: 'sorted' },
-        { id: 'range', label: 'range scan', x: 8.4, y: 4.0, note: 'ordered' },
-      ],
+      nodes,
       edges: [
         { id: 'e-write-root', from: 'write', to: 'rootBuf' },
         { id: 'e-root-child', from: 'rootBuf', to: 'childBuf' },
@@ -45,17 +46,18 @@ function* bufferedWrites() {
       ],
     }, { title: 'A B-Epsilon tree buffers updates inside the search tree' }),
     highlight: { active: ['rootBuf', 'childBuf'], found: ['leaf', 'range'] },
-    explanation: 'The first graph shows the whole idea: keep the ordered search-tree skeleton, but let writes stop in internal buffers as messages. When a buffer fills, many messages flush downward together instead of forcing one leaf write per update.',
+    explanation: `The first graph shows the whole idea across ${nodes.length} stages: keep the ordered search-tree skeleton, but let writes stop in internal buffers as messages. When a buffer fills, many messages flush downward together instead of forcing one leaf write per update.`,
     invariant: 'The tree remains ordered; writes are delayed and batched along the path to the leaf.',
   };
 
+  const opKeys = [52, 17, 31];
   yield {
     state: labelMatrix(
       'Messages in internal nodes',
       [
-        { id: 'insert', label: 'insert k=52' },
-        { id: 'delete', label: 'delete k=17' },
-        { id: 'upsert', label: 'upsert k=31' },
+        { id: 'insert', label: `insert k=${opKeys[0]}` },
+        { id: 'delete', label: `delete k=${opKeys[1]}` },
+        { id: 'upsert', label: `upsert k=${opKeys[2]}` },
         { id: 'flush', label: 'flush batch' },
       ],
       [
@@ -70,17 +72,18 @@ function* bufferedWrites() {
       ],
     ),
     highlight: { active: ['insert:storedAs', 'delete:storedAs', 'upsert:storedAs'], found: ['flush:effect'] },
-    explanation: 'The message table is the key mental shift. Buffers can hold operations, not just final values. Inserts, deletes, and upserts can be delayed, combined, and applied when they reach lower levels.',
+    explanation: `The message table is the key mental shift. Buffers can hold operations on keys like ${opKeys[0]}, ${opKeys[1]}, and ${opKeys[2]} — not just final values. Inserts, deletes, and upserts can be delayed, combined, and applied when they reach lower levels.`,
   };
 
+  const lookupLevels = ['root', 'middle node', 'leaf', 'answer'];
   yield {
     state: labelMatrix(
       'Lookup path',
       [
-        { id: 'root', label: 'root' },
-        { id: 'mid', label: 'middle node' },
-        { id: 'leaf', label: 'leaf' },
-        { id: 'answer', label: 'answer' },
+        { id: 'root', label: lookupLevels[0] },
+        { id: 'mid', label: lookupLevels[1] },
+        { id: 'leaf', label: lookupLevels[2] },
+        { id: 'answer', label: lookupLevels[3] },
       ],
       [
         { id: 'treeKeys', label: 'separator keys' },
@@ -94,30 +97,33 @@ function* bufferedWrites() {
       ],
     ),
     highlight: { active: ['root:messages', 'mid:messages', 'leaf:treeKeys'], found: ['answer:messages'] },
-    explanation: 'The lookup table shows the cost of delayed writes. A search still follows separator keys like a B-tree, but the visible value must include newer messages sitting in buffers along the path.',
+    explanation: `The lookup table shows the cost of delayed writes across ${lookupLevels.length} levels. A search still follows separator keys like a B-tree, but the visible value must include newer messages sitting in buffers along the path from ${lookupLevels[0]} to ${lookupLevels[2]}.`,
   };
 
+  const btreeBaseline = 76;
+  const bepsilonMin = 18;
   yield {
     state: plotState({
       axes: { x: { label: 'buffer size per node', min: 0, max: 100 }, y: { label: 'write cost per update', min: 0, max: 100 } },
       series: [
-        { id: 'btree', label: 'B-tree page update', points: [{ x: 0, y: 76 }, { x: 100, y: 76 }] },
-        { id: 'bepsilon', label: 'B-Epsilon batched flush', points: [{ x: 5, y: 70 }, { x: 35, y: 38 }, { x: 70, y: 24 }, { x: 100, y: 18 }] },
+        { id: 'btree', label: 'B-tree page update', points: [{ x: 0, y: btreeBaseline }, { x: 100, y: btreeBaseline }] },
+        { id: 'bepsilon', label: 'B-Epsilon batched flush', points: [{ x: 5, y: 70 }, { x: 35, y: 38 }, { x: 70, y: 24 }, { x: 100, y: bepsilonMin }] },
       ],
     }),
     highlight: { active: ['bepsilon'], compare: ['btree'] },
-    explanation: 'The plot is conceptual but useful. Bigger buffers make each flush carry more updates, lowering amortized write cost. The price is more buffered state for lookups, range scans, memory management, and recovery.',
+    explanation: `The plot is conceptual but useful. Bigger buffers make each flush carry more updates, lowering amortized write cost from ${btreeBaseline} (B-tree baseline) toward ${bepsilonMin}. The price is more buffered state for lookups, range scans, memory management, and recovery.`,
   };
 }
 
 function* btreeVsLsm() {
+  const storageShapes = ['B-tree', 'B-Epsilon tree', 'LSM tree'];
   yield {
     state: labelMatrix(
       'Three storage shapes',
       [
-        { id: 'btree', label: 'B-tree' },
-        { id: 'beps', label: 'B-Epsilon tree' },
-        { id: 'lsm', label: 'LSM tree' },
+        { id: 'btree', label: storageShapes[0] },
+        { id: 'beps', label: storageShapes[1] },
+        { id: 'lsm', label: storageShapes[2] },
       ],
       [
         { id: 'writes', label: 'writes' },
@@ -131,18 +137,19 @@ function* btreeVsLsm() {
       ],
     ),
     highlight: { found: ['beps:writes', 'beps:range'], compare: ['btree:writes', 'lsm:reads'] },
-    explanation: 'The comparison table places B-Epsilon trees between B-trees and LSMs. They preserve an ordered tree for range access while batching small writes through internal buffers.',
+    explanation: `The comparison table places ${storageShapes[1]}s between ${storageShapes[0]}s and ${storageShapes[2]}s. They preserve an ordered tree for range access while batching small writes through internal buffers.`,
     invariant: 'The design is not "faster B-tree"; it is a different point in the external-memory tradeoff space.',
   };
 
+  const complexityAreas = ['insert', 'lookup', 'crash recovery', 'space use'];
   yield {
     state: labelMatrix(
       'Where the complexity moves',
       [
-        { id: 'insert', label: 'insert' },
-        { id: 'lookup', label: 'lookup' },
-        { id: 'crash', label: 'crash recovery' },
-        { id: 'space', label: 'space use' },
+        { id: 'insert', label: complexityAreas[0] },
+        { id: 'lookup', label: complexityAreas[1] },
+        { id: 'crash', label: complexityAreas[2] },
+        { id: 'space', label: complexityAreas[3] },
       ],
       [
         { id: 'simpleStory', label: 'simple story' },
@@ -156,15 +163,19 @@ function* btreeVsLsm() {
       ],
     ),
     highlight: { active: ['insert:realIssue', 'lookup:realIssue', 'crash:realIssue'], found: ['space:simpleStory'] },
-    explanation: 'The complexity table is the warning. The simple story is "buffer writes"; the real system must define message order, delete visibility, upsert application, splits, compression, and crash recovery.',
+    explanation: `The complexity table is the warning across ${complexityAreas.length} areas. The simple story is "buffer writes"; the real system must define message order, delete visibility, upsert application, splits, compression, and ${complexityAreas[2]}.`,
   };
 
+  const caseStudies = [
+    { id: 'db', label: 'TokuDB', note: 'engine' },
+    { id: 'betrfs', label: 'BetrFS', note: 'file system' },
+  ];
   yield {
     state: graphState({
       nodes: [
-        { id: 'db', label: 'TokuDB', x: 0.8, y: 4.0, note: 'engine' },
+        { id: 'db', label: caseStudies[0].label, x: 0.8, y: 4.0, note: caseStudies[0].note },
         { id: 'fractal', label: 'fractal tree', x: 2.8, y: 4.0, note: 'buffers' },
-        { id: 'betrfs', label: 'BetrFS', x: 4.9, y: 4.0, note: 'file system' },
+        { id: 'betrfs', label: caseStudies[1].label, x: 4.9, y: 4.0, note: caseStudies[1].note },
         { id: 'woi', label: 'write opt', x: 6.9, y: 4.0, note: 'theory' },
         { id: 'lesson', label: 'lesson', x: 8.7, y: 4.0, note: 'batch I/O' },
       ],
@@ -176,18 +187,20 @@ function* btreeVsLsm() {
       ],
     }, { title: 'Case studies: database engine and file-system storage' }),
     highlight: { active: ['fractal', 'betrfs'], found: ['lesson'] },
-    explanation: 'The case-study graph links theory to systems. TokuDB used fractal-tree indexing in a database engine, and BetrFS explored the same write-optimized idea inside a file system: convert small random changes into larger useful I/O.',
+    explanation: `The case-study graph links theory to systems. ${caseStudies[0].label} used fractal-tree indexing in a ${caseStudies[0].note}, and ${caseStudies[1].label} explored the same write-optimized idea inside a ${caseStudies[1].note}: convert small random changes into larger useful I/O.`,
   };
 
+  const fitRows = [
+    { id: 'randomWrites', label: 'random writes', fit: 'strong' },
+    { id: 'rangeQueries', label: 'range queries', fit: 'strong' },
+    { id: 'simpleEngine', label: 'simple engine', fit: 'weak' },
+    { id: 'hotPointReads', label: 'hot point reads', fit: 'mixed' },
+  ];
+  const strongCount = fitRows.filter(r => r.fit === 'strong').length;
   yield {
     state: labelMatrix(
       'When to consider it',
-      [
-        { id: 'randomWrites', label: 'random writes' },
-        { id: 'rangeQueries', label: 'range queries' },
-        { id: 'simpleEngine', label: 'simple engine' },
-        { id: 'hotPointReads', label: 'hot point reads' },
-      ],
+      fitRows.map(r => ({ id: r.id, label: r.label })),
       [
         { id: 'fit', label: 'fit' },
         { id: 'reason', label: 'reason' },
@@ -200,7 +213,7 @@ function* btreeVsLsm() {
       ],
     ),
     highlight: { found: ['randomWrites:fit', 'rangeQueries:fit'], compare: ['simpleEngine:reason', 'hotPointReads:reason'] },
-    explanation: 'The final table is the fit test. B-Epsilon trees are attractive when random writes and ordered range locality both matter. They are less attractive when simple implementation or the leanest possible point lookups matter more.',
+    explanation: `The final table is the fit test with ${fitRows.length} workload types. B-Epsilon trees are attractive for the ${strongCount} strong-fit cases (${fitRows[0].label} and ${fitRows[1].label}) and less attractive when simple implementation or the leanest possible point lookups matter more.`,
   };
 }
 
@@ -213,6 +226,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/b-epsilon-tree-write-optimized-index.gif', alt: 'Animated walkthrough of the b epsilon tree write optimized index visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

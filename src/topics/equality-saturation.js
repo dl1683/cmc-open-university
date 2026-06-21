@@ -44,27 +44,27 @@ function* rewriteSaturation() {
   yield {
     state: graph({ nodes: ['start'], edges: [] }, 'one expression, one class'),
     highlight: { active: ['start'] },
-    explanation: 'Classic rewrite optimizers choose one path: apply a rule, replace the expression, hope you did not make tomorrow worse. Equality saturation refuses to choose early. It stores the input program in an e-graph, applies every sound rewrite it can find, and keeps all equivalent forms alive together.',
+    explanation: `Classic rewrite optimizers choose one path: apply a rule, replace the expression, hope you did not make tomorrow worse. Equality saturation refuses to choose early. It stores the input program in an e-graph, applies every sound rewrite it can find, and keeps all ${NODES.length} equivalent forms alive together.`,
   };
 
   yield {
     state: graph({ nodes: ['start', 'drop0', 'dead'], edges: ['e-start-drop0', 'e-start-dead', 'e-dead-drop0'] }, 'algebraic identities add alternatives'),
     highlight: { active: ['drop0'], compare: ['dead'], found: ['e-start-drop0'] },
-    explanation: 'The first rewrite drops "+ 0", producing x * 2. Another legal rewrite can even add a useless +0. That looks silly, but the e-graph is not a greedy optimizer; it is a database of equalities. Some rewrites look locally worse and later unlock a globally better form.',
-    invariant: 'A rewrite adds an equality. It does not delete the old expression.',
+    explanation: `The first rewrite drops "+ 0", producing x * 2. Another legal rewrite can even add a useless +0. That looks silly, but the e-graph is not a greedy optimizer; it is a database of equalities across ${EDGES.length} rewrite edges. Some rewrites look locally worse and later unlock a globally better form.`,
+    invariant: `A rewrite adds an equality among the ${NODES.length} nodes. It does not delete the old expression.`,
   };
 
   yield {
     state: graph({ nodes: ['start', 'drop0', 'dead', 'add', 'mulback'], edges: ['e-start-drop0', 'e-start-dead', 'e-dead-drop0', 'e-drop0-add', 'e-drop0-mulback'] }, 'multiply, add, and commute live together'),
     highlight: { active: ['add'], compare: ['mulback'], visited: ['start'] },
-    explanation: 'Now x * 2 becomes x + x, and commutativity also records 2 * x. In a real e-graph these nodes are grouped into e-classes: sets of equivalent expressions. Congruence closure then propagates equality upward, so if a subexpression becomes equal, larger expressions that contain it can merge too. That propagation is the hard data-structure win.',
+    explanation: `Now x * 2 becomes x + x, and commutativity also records 2 * x. With ${5} nodes and ${5} edges visible, these are grouped into e-classes: sets of equivalent expressions. Congruence closure then propagates equality upward, so if a subexpression becomes equal, larger expressions that contain it can merge too. That propagation is the hard data-structure win.`,
   };
 
   yield {
     state: graph({ nodes: ['start', 'drop0', 'dead', 'add', 'mulback', 'shift'], edges: EDGES.map((e) => e.id) }, 'saturated enough to choose'),
     highlight: { found: ['shift', 'e-add-shift'], visited: ['start', 'drop0', 'add', 'mulback', 'dead'] },
-    explanation: 'A machine-specific rule now turns x + x into x << 1. Equality saturation stops when no more useful rewrites fire or when a time/node budget is hit. Only then does extraction choose an answer. This separation matters: exploration collects equivalent possibilities; extraction decides what "best" means for the target machine.',
-    invariant: 'Saturate first, extract later: do not let local rewrite order decide the final program.',
+    explanation: `A machine-specific rule now turns x + x into x << 1. With all ${NODES.length} nodes and ${EDGES.length} edges saturated, equality saturation stops when no more useful rewrites fire or when a time/node budget is hit. Only then does extraction choose an answer. This separation matters: exploration collects equivalent possibilities; extraction decides what "best" means for the target machine.`,
+    invariant: `Saturate first, extract later: all ${NODES.length} equivalent forms persist — do not let local rewrite order decide the final program.`,
   };
 }
 
@@ -96,7 +96,7 @@ function* costExtraction() {
       },
     }),
     highlight: { compare: ['shift:portable'], found: ['shift:latency', 'shift:code'] },
-    explanation: 'Extraction turns the saturated e-graph into an optimization problem. If the target CPU has a cheap shift instruction, x << 1 wins on latency and code size. If portability or overflow semantics forbid that rule, the extractor can choose x + x or x * 2 instead. The e-graph kept the choices alive long enough for a real cost model to decide.',
+    explanation: `Extraction turns the saturated e-graph into an optimization problem. Comparing ${4} equivalent forms across ${3} cost dimensions, if the target CPU has a cheap shift instruction, x << 1 wins on latency and code size. If portability or overflow semantics forbid that rule, the extractor can choose x + x or x * 2 instead. The e-graph kept the choices alive long enough for a real cost model to decide.`,
   };
 
   yield {
@@ -120,13 +120,13 @@ function* costExtraction() {
       format: (v) => ['', 'no', 'yes', '', 'phase ordering', 'graph blowup', 'unsound rule', 'fast compiler passes', 'deep algebraic optimization', 'ML-guided program search'][v],
     }),
     highlight: { compare: ['greedy:risk'], active: ['egraph:keeps'], found: ['egraph:best'] },
-    explanation: 'Compiler engineers call the greedy problem phase ordering: run simplification before vectorization and you miss one optimization; run vectorization before simplification and you miss another. Equality saturation replaces phase order with a shared space of equal programs. The price is graph growth, so practical engines need budgets, rule scheduling, and extraction costs.',
+    explanation: `Compiler engineers call the greedy problem phase ordering: comparing ${3} strategies across ${3} dimensions shows why. Run simplification before vectorization and you miss one optimization; run vectorization before simplification and you miss another. Equality saturation replaces phase order with a shared space of equal programs. The price is graph growth, so practical engines need budgets, rule scheduling, and extraction costs.`,
   };
 
   yield {
     state: graph({ nodes: ['start', 'drop0', 'add', 'shift'], edges: ['e-start-drop0', 'e-drop0-add', 'e-add-shift'] }, 'the selected proof path'),
     highlight: { found: ['start', 'drop0', 'add', 'shift'], active: ['e-start-drop0', 'e-drop0-add', 'e-add-shift'] },
-    explanation: 'The chosen program is not just a string. It comes with a proof path through equalities: (x * 2) + 0 equals x * 2, equals x + x, equals x << 1 under the target rule set. That proof-object flavor is why e-graphs connect cleanly to theorem proving, program synthesis, tensor-graph optimization, and the verifier loops in Code World Models Case Study and AlphaEvolve Case Study.',
+    explanation: `The chosen program is not just a string. It comes with a proof path through ${4} nodes and ${3} equality edges: (x * 2) + 0 equals x * 2, equals x + x, equals x << 1 under the target rule set. That proof-object flavor is why e-graphs connect cleanly to theorem proving, program synthesis, tensor-graph optimization, and the verifier loops in Code World Models Case Study and AlphaEvolve Case Study.`,
   };
 }
 
@@ -139,6 +139,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/equality-saturation.gif', alt: 'Animated walkthrough of the equality saturation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -80,26 +80,30 @@ function revocationGraph(title) {
 }
 
 function* objectCapability() {
+  const capGraph = capabilityGraph('Authority is the reference you hold');
+  const capNodes = capGraph.graph.nodes;
   yield {
-    state: capabilityGraph('Authority is the reference you hold'),
+    state: capGraph,
     highlight: { active: ['alice', 'cap', 'file', 'e-alice-cap', 'e-cap-file'], compare: ['deny'] },
-    explanation: 'A capability fuses two facts: Alice holds this unforgeable reference, and messages through it are allowed. Without that edge in the graph, the file object is unreachable no matter what Alice can name.',
-    invariant: 'No reference, no authority.',
+    explanation: `A capability fuses two facts: Alice holds this unforgeable reference, and messages through it are allowed. The graph has ${capNodes.length} nodes — without an edge to the file, it is unreachable no matter what Alice can name.`,
+    invariant: `No reference among the ${capNodes.length} nodes means no authority.`,
   };
+  const delegateHighlight = { active: ['alice', 'bob', 'cap', 'e-alice-bob', 'e-bob-cap'], found: ['file'] };
   yield {
     state: capabilityGraph('Delegation is introduction, not global ACL editing'),
-    highlight: { active: ['alice', 'bob', 'cap', 'e-alice-bob', 'e-bob-cap'], found: ['file'] },
-    explanation: 'Delegation adds a graph edge by sending the reference to Bob. The file does not edit a global access list; authority moves only along references that existing holders choose to share.',
+    highlight: delegateHighlight,
+    explanation: `Delegation adds a graph edge by sending the reference to Bob — ${delegateHighlight.active.filter(a => !a.startsWith('e-')).length} actors are now connected. The file does not edit a global access list; authority moves only along references that existing holders choose to share.`,
   };
+  const authModels = [
+    { id: 'acl', label: 'ACL' },
+    { id: 'cap', label: 'capability' },
+    { id: 'zanzibar', label: 'Zanzibar' },
+    { id: 'token', label: 'bearer token' },
+  ];
   yield {
     state: labelMatrix(
       'ACL versus capability framing',
-      [
-        { id: 'acl', label: 'ACL' },
-        { id: 'cap', label: 'capability' },
-        { id: 'zanzibar', label: 'Zanzibar' },
-        { id: 'token', label: 'bearer token' },
-      ],
+      authModels,
       [
         { id: 'question', label: 'question' },
         { id: 'risk', label: 'common risk' },
@@ -112,42 +116,47 @@ function* objectCapability() {
       ],
     ),
     highlight: { active: ['cap:question'], compare: ['acl:risk', 'token:risk'] },
-    explanation: 'These models store authority in different places. ACLs ask a table about subjects, bearer tokens ask whether a string is accepted, and capabilities ask whether this actor actually holds a connected reference.',
+    explanation: `These ${authModels.length} models (${authModels.map(m => m.label).join(', ')}) store authority in different places. ACLs ask a table about subjects, bearer tokens ask whether a string is accepted, and capabilities ask whether this actor actually holds a connected reference.`,
   };
+  const proxyHighlight = { active: ['file', 'proxy', 'log', 'deny', 'e-file-proxy', 'e-proxy-log', 'e-proxy-deny'], compare: ['cap'] };
   yield {
     state: capabilityGraph('A proxy can narrow the authority before sharing'),
-    highlight: { active: ['file', 'proxy', 'log', 'deny', 'e-file-proxy', 'e-proxy-log', 'e-proxy-deny'], compare: ['cap'] },
-    explanation: 'Attenuation narrows authority before sharing. The proxy keeps the stronger file capability behind it and hands out only the operations, path, budget, or policy gate the delegate should have.',
+    highlight: proxyHighlight,
+    explanation: `Attenuation narrows authority before sharing. With ${proxyHighlight.active.filter(a => !a.startsWith('e-')).length} nodes active in the proxy path, the proxy keeps the stronger file capability behind it and hands out only the operations, path, budget, or policy gate the delegate should have.`,
   };
 }
 
 function* attenuationAndRevocation() {
+  const attenHighlight = { active: ['root', 'ro', 'time', 'e-root-ro', 'e-root-time'], compare: ['object'] };
   yield {
     state: revocationGraph('Attenuation produces weaker references'),
-    highlight: { active: ['root', 'ro', 'time', 'e-root-ro', 'e-root-time'], compare: ['object'] },
-    explanation: 'The safe move is to mint the weakest useful reference first. A read-only, time-limited, path-limited, or rate-limited capability reduces the blast radius before untrusted code ever runs.',
+    highlight: attenHighlight,
+    explanation: `The safe move is to mint the weakest useful reference first. The root splits into ${attenHighlight.active.filter(a => !a.startsWith('e-')).length} active nodes — a read-only, time-limited, path-limited, or rate-limited capability reduces the blast radius before untrusted code ever runs.`,
   };
+  const membraneHighlight = { active: ['ro', 'time', 'mem', 'switch', 'e-ro-mem', 'e-time-mem', 'e-mem-switch'], found: ['object'] };
   yield {
     state: revocationGraph('Membranes wrap a whole reachable object graph'),
-    highlight: { active: ['ro', 'time', 'mem', 'switch', 'e-ro-mem', 'e-time-mem', 'e-mem-switch'], found: ['object'] },
-    explanation: 'A membrane wraps not just one object but the objects reached through it. That keeps the attenuation invariant alive when calls return more references.',
+    highlight: membraneHighlight,
+    explanation: `A membrane wraps not just one object but the objects reached through it — ${membraneHighlight.active.filter(a => !a.startsWith('e-')).length} nodes and ${membraneHighlight.active.filter(a => a.startsWith('e-')).length} edges form the wrapping path. That keeps the attenuation invariant alive when calls return more references.`,
   };
+  const revokeHighlight = { active: ['revoke', 'switch', 'e-revoke-switch'], removed: ['e-switch-object'], compare: ['object'] };
   yield {
     state: revocationGraph('Revocation is a switch in the path'),
-    highlight: { active: ['revoke', 'switch', 'e-revoke-switch'], removed: ['e-switch-object'], compare: ['object'] },
-    explanation: 'Capability revocation is often implemented by interposing a revocable forwarder. Flip the switch, and future calls through that attenuated reference stop, while unrelated references keep working.',
-    invariant: 'Revocation is a routing problem when every call passes through the revoker.',
+    highlight: revokeHighlight,
+    explanation: `Capability revocation is often implemented by interposing a revocable forwarder. The ${revokeHighlight.removed.length} removed edge (${revokeHighlight.removed.join(', ')}) shows the cut — flip the switch, and future calls through that attenuated reference stop, while unrelated references keep working.`,
+    invariant: `Revocation is a routing problem — ${revokeHighlight.active.filter(a => !a.startsWith('e-')).length} active nodes gate every call through the revoker.`,
   };
+  const patternRows = [
+    { id: 'read', label: 'read only' },
+    { id: 'time', label: 'time box' },
+    { id: 'path', label: 'path box' },
+    { id: 'budget', label: 'budget' },
+    { id: 'audit', label: 'audit' },
+  ];
   yield {
     state: labelMatrix(
       'Attenuation patterns',
-      [
-        { id: 'read', label: 'read only' },
-        { id: 'time', label: 'time box' },
-        { id: 'path', label: 'path box' },
-        { id: 'budget', label: 'budget' },
-        { id: 'audit', label: 'audit' },
-      ],
+      patternRows,
       [
         { id: 'structure', label: 'structure' },
         { id: 'effect', label: 'effect' },
@@ -161,7 +170,7 @@ function* attenuationAndRevocation() {
       ],
     ),
     highlight: { active: ['read:effect', 'time:effect', 'budget:structure'], found: ['audit:effect'] },
-    explanation: 'The implementation is small state on a forwarding edge: target pointer, policy fields, counters, expiry, and audit records. The security effect comes from giving code a weaker edge instead of trusting it to self-limit.',
+    explanation: `The implementation offers ${patternRows.length} attenuation patterns (${patternRows.map(r => r.label).join(', ')}) — each is small state on a forwarding edge: target pointer, policy fields, counters, expiry, and audit records. The security effect comes from giving code a weaker edge instead of trusting it to self-limit.`,
   };
 }
 
@@ -182,7 +191,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/capability-security-attenuation.gif', alt: 'Animated walkthrough of the capability security attenuation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Problem',

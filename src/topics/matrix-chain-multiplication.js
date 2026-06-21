@@ -156,7 +156,8 @@ export const article = {
         'Each diagonal pass fills cells for chains of a given length. Active cells are being computed now. Visited cells are the subproblems the current cell depends on -- for m[i][j], those are every pair m[i][k] and m[k+1][j] for each candidate split k. When a diagonal finishes, every chain of that length has its optimal cost locked in.',
         'The found marker on the top-right cell is the final answer: the cheapest way to multiply the entire chain. The split table s[i][j] (shown in the step explanations) records which k achieved that minimum, so you can reconstruct the optimal parenthesization by recursing on s.',
         {type: 'callout', text: 'Matrix-chain DP works because every full parenthesization is one split plus two smaller optimal chains.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/matrix-chain-multiplication.gif', alt: 'Animated walkthrough of the matrix chain multiplication visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

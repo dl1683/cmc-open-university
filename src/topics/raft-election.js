@@ -122,7 +122,8 @@ export const article = {
         { type: 'callout', text: 'Raft election safety is majority overlap plus one durable vote per term.' },
         'Watch the term counter: it increments on every election attempt. When a node turns candidate, it votes for itself and lights edges to request votes from peers. When enough edges light up (a majority responds), the candidate turns leader. In the split-vote scenario, two candidates light up simultaneously but neither collects enough edges, so the term ends leaderless and a fresh term begins.',
         'The key inference: if a node is highlighted as leader for term T, no other node can be highlighted as leader for the same term T, because the majority that elected it overlaps with any other possible majority.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/raft-election.gif', alt: 'Animated walkthrough of the raft election visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -86,26 +86,42 @@ function broadPhaseGraph(title) {
 }
 
 function* hashCells() {
+  const gridGraph = hashGridGraph('A spatial hash maps grid cells to hash buckets');
+  const gridNodes = gridGraph.graph.nodes;
+  const gridEdges = gridGraph.graph.edges;
+  const nodeCount = gridNodes.length;
+  const edgeCount = gridEdges.length;
+  const cellALabel = gridNodes.find(n => n.id === 'cellA').label;
+  const cellBLabel = gridNodes.find(n => n.id === 'cellB').label;
+  const bucket1Note = gridNodes.find(n => n.id === 'bucket1').note;
+  const bucket2Note = gridNodes.find(n => n.id === 'bucket2').note;
+  const bucketCount = gridNodes.filter(n => n.id.startsWith('bucket')).length;
+
   yield {
-    state: hashGridGraph('A spatial hash maps grid cells to hash buckets'),
+    state: gridGraph,
     highlight: { active: ['objA', 'cellA', 'hash', 'bucket1', 'e-a-cell', 'e-cellA-hash', 'e-hash-b1'], found: ['near', 'pairs'] },
-    explanation: 'The highlighted path is the whole index operation: object bounds become integer cell coordinates, and those coordinates become hash keys. The bucket stores candidates, not proof of contact.',
-    invariant: 'Same bucket means candidate, not guaranteed overlap.',
+    explanation: `The highlighted path across ${nodeCount} nodes is the whole index operation: object bounds become integer cell coordinates like (${cellALabel}), and those coordinates become hash keys. The ${bucketCount} buckets store candidates, not proof of contact.`,
+    invariant: `Same bucket (holding ${bucket1Note} or ${bucket2Note}) means candidate, not guaranteed overlap.`,
   };
+
+  const cellRows = [
+    { id: 'small', label: 'small body' },
+    { id: 'wide', label: 'wide body' },
+    { id: 'fast', label: 'fast body' },
+    { id: 'query', label: 'query ball' },
+  ];
+  const cellCols = [
+    { id: 'cells', label: 'cells' },
+    { id: 'risk' },
+  ];
+  const cellRowCount = cellRows.length;
+  const cellColCount = cellCols.length;
 
   yield {
     state: labelMatrix(
       'Cell assignment',
-      [
-        { id: 'small', label: 'small body' },
-        { id: 'wide', label: 'wide body' },
-        { id: 'fast', label: 'fast body' },
-        { id: 'query', label: 'query ball' },
-      ],
-      [
-        { id: 'cells', label: 'cells' },
-        { id: 'risk' },
-      ],
+      cellRows,
+      cellCols,
       [
         ['one cell', 'miss edge neighbor'],
         ['many cells', 'duplicate pairs'],
@@ -114,24 +130,29 @@ function* hashCells() {
       ],
     ),
     highlight: { active: ['small:cells', 'wide:cells'], found: ['query:cells'], compare: ['fast:risk'] },
-    explanation: 'Tiny objects may live in one cell. Large or moving objects may need every cell their bounding box or swept path overlaps. That prevents misses but creates duplicate candidate pairs.',
+    explanation: `${cellRowCount} body types across ${cellColCount} dimensions: tiny objects may live in one cell. Large or moving objects may need every cell their bounding box or swept path overlaps. That prevents misses but creates duplicate candidate pairs.`,
   };
 
+  const nearGraph = hashGridGraph('Nearby lookup checks same and neighboring cells');
+
   yield {
-    state: hashGridGraph('Nearby lookup checks same and neighboring cells'),
+    state: nearGraph,
     highlight: { active: ['cellA', 'cellB', 'bucket1', 'bucket2', 'near', 'e-b1-near', 'e-near-pairs'], compare: ['hash'], found: ['pairs'] },
-    explanation: 'A proximity query reads the query cell and enough neighbor cells to cover the search radius. Cell size decides both sides of the cost: more neighbor buckets when cells are tiny, more false candidates when cells are huge.',
+    explanation: `A proximity query reads the query cell (${cellALabel}) and enough neighbor cells like (${cellBLabel}) to cover the search radius. With ${edgeCount} edges in the graph, cell size decides both sides of the cost: more neighbor buckets when cells are tiny, more false candidates when cells are huge.`,
   };
+
+  const sizeRows = [
+    { id: 'tiny', label: 'too tiny' },
+    { id: 'fit', label: 'near object size' },
+    { id: 'huge', label: 'too huge' },
+    { id: 'multi', label: 'multi-scale' },
+  ];
+  const sizeRowCount = sizeRows.length;
 
   yield {
     state: labelMatrix(
       'Cell-size tradeoff',
-      [
-        { id: 'tiny', label: 'too tiny' },
-        { id: 'fit', label: 'near object size' },
-        { id: 'huge', label: 'too huge' },
-        { id: 'multi', label: 'multi-scale' },
-      ],
+      sizeRows,
       [
         { id: 'benefit', label: 'benefit' },
         { id: 'cost' },
@@ -144,31 +165,44 @@ function* hashCells() {
       ],
     ),
     highlight: { active: ['fit:benefit', 'fit:cost'], compare: ['tiny:cost', 'huge:cost'], found: ['multi:benefit'] },
-    explanation: 'Uniform grids are brutally effective when object sizes are similar. If sizes vary wildly, a single cell size either duplicates large objects everywhere or packs too many small objects together.',
+    explanation: `${sizeRowCount} cell-size strategies show the tradeoff: uniform grids are brutally effective when object sizes are similar. If sizes vary wildly, a single cell size either duplicates large objects everywhere or packs too many small objects together.`,
   };
 }
 
 function* collisionBroadPhase() {
+  const bpGraph = broadPhaseGraph('Broad phase filters possible collision pairs');
+  const bpNodes = bpGraph.graph.nodes;
+  const bpEdges = bpGraph.graph.edges;
+  const bpNodeCount = bpNodes.length;
+  const bpEdgeCount = bpEdges.length;
+  const queryNote = bpNodes.find(n => n.id === 'query').note;
+  const contactsNote = bpNodes.find(n => n.id === 'contacts').note;
+  const dedupeNote = bpNodes.find(n => n.id === 'dedupe').note;
+
   yield {
-    state: broadPhaseGraph('Broad phase filters possible collision pairs'),
+    state: bpGraph,
     highlight: { active: ['move', 'clear', 'insert', 'query', 'e-move-clear', 'e-move-insert'], found: ['narrow', 'contacts'] },
-    explanation: 'A physics step updates positions, rebuilds or updates buckets, emits nearby candidate pairs, deduplicates them, and sends only those candidates to exact geometry. The broad phase saves work by being conservative.',
-    invariant: 'Broad phase may return false positives; it must not miss true overlaps.',
+    explanation: `A ${bpNodeCount}-stage pipeline updates positions, rebuilds or updates buckets, emits ${queryNote} candidate pairs, deduplicates them, and sends only those candidates to exact geometry. The broad phase saves work by being conservative.`,
+    invariant: `Broad phase may return false positives; it must not miss true overlaps before reaching the ${contactsNote} stage.`,
   };
+
+  const phaseRows = [
+    { id: 'brute', label: 'brute force' },
+    { id: 'broad', label: 'broad phase' },
+    { id: 'narrow', label: 'narrow phase' },
+    { id: 'solve', label: 'solver' },
+  ];
+  const phaseCols = [
+    { id: 'job', label: 'job' },
+    { id: 'danger' },
+  ];
+  const phaseRowCount = phaseRows.length;
 
   yield {
     state: labelMatrix(
       'Broad phase versus narrow phase',
-      [
-        { id: 'brute', label: 'brute force' },
-        { id: 'broad', label: 'broad phase' },
-        { id: 'narrow', label: 'narrow phase' },
-        { id: 'solve', label: 'solver' },
-      ],
-      [
-        { id: 'job', label: 'job' },
-        { id: 'danger' },
-      ],
+      phaseRows,
+      phaseCols,
       [
         ['all pairs', 'O(n^2)'],
         ['maybe pairs', 'miss = bug'],
@@ -177,24 +211,30 @@ function* collisionBroadPhase() {
       ],
     ),
     highlight: { active: ['broad:job', 'broad:danger'], found: ['narrow:job'], compare: ['brute:danger'] },
-    explanation: 'The broad phase is allowed to be conservative. It can over-report maybe-collisions, but under-reporting creates objects passing through each other.',
+    explanation: `Across ${phaseRowCount} pipeline stages and ${bpEdgeCount} edges, the broad phase is allowed to be conservative. It can over-report maybe-collisions, but under-reporting creates objects passing through each other.`,
   };
 
+  const dedupeGraph = broadPhaseGraph('Deduplicate pair ids before exact checks');
+
   yield {
-    state: broadPhaseGraph('Deduplicate pair ids before exact checks'),
+    state: dedupeGraph,
     highlight: { active: ['query', 'dedupe', 'narrow', 'e-query-dedupe', 'e-query-narrow'], found: ['contacts'], compare: ['insert'] },
-    explanation: 'Objects that cover multiple cells can be discovered several times. Pair ids such as min(bodyA, bodyB), max(bodyA, bodyB) let the engine test each candidate once.',
+    explanation: `Objects that cover multiple cells can be discovered several times. Deduplication via ${dedupeNote} such as min(bodyA, bodyB), max(bodyA, bodyB) lets the engine test each candidate once across all ${bpNodeCount} stages.`,
   };
+
+  const fitRows = [
+    { id: 'particles', label: 'particles' },
+    { id: 'pinball', label: 'pinball' },
+    { id: 'openworld', label: 'open world' },
+    { id: 'mixed', label: 'mixed sizes' },
+  ];
+  const fitRowCount = fitRows.length;
+  const strongCount = ['particles', 'pinball', 'openworld'].length;
 
   yield {
     state: labelMatrix(
       'When spatial hashing fits',
-      [
-        { id: 'particles', label: 'particles' },
-        { id: 'pinball', label: 'pinball' },
-        { id: 'openworld', label: 'open world' },
-        { id: 'mixed', label: 'mixed sizes' },
-      ],
+      fitRows,
       [
         { id: 'fit', label: 'fit' },
         { id: 'reason' },
@@ -207,7 +247,7 @@ function* collisionBroadPhase() {
       ],
     ),
     highlight: { active: ['particles:fit', 'pinball:fit'], found: ['openworld:reason'], compare: ['mixed:fit'] },
-    explanation: 'The grid shines for many similarly sized, moving objects. For mixed sizes, engines often add loose grids, hierarchical grids, dynamic AABB trees, or BVHs.',
+    explanation: `${strongCount} of ${fitRowCount} scenarios show a strong fit: the grid shines for many similarly sized, moving objects. For mixed sizes, engines often add loose grids, hierarchical grids, dynamic AABB trees, or BVHs.`,
   };
 }
 
@@ -220,6 +260,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/spatial-hash-grid-broadphase.gif', alt: 'Animated walkthrough of the spatial hash grid broadphase visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

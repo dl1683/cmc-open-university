@@ -478,7 +478,8 @@ export const article = {
         'The animation unrolls a recurrent network across time steps. Each column is one moment in a sequence. The top row shows inputs arriving one at a time. The bottom row shows hidden states — the network\'s memory after processing each input.',
         'Arrows labeled Wₓ carry the current input into the hidden state. Arrows labeled Wₕ carry the previous hidden state forward. In LSTM views, the four gates (forget, input, candidate, output) appear as separate nodes. Active markers highlight the gate currently being computed. Found markers show the resulting cell state and hidden state after all gates fire.',
         'In the vanishing gradient view, two curves compare how gradient magnitude decays across time steps for a simple RNN versus an LSTM. The gap between them is the reason LSTM exists.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/rnn-lstm.gif', alt: 'Animated walkthrough of the rnn lstm visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

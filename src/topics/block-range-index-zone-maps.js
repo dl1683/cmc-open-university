@@ -53,164 +53,179 @@ function pruningFlow(title) {
 }
 
 function* rangePruning() {
+  const flowTitle = 'Summaries prune whole physical ranges';
+  const flowState = pruningFlow(flowTitle);
+  const activeNodes = ['summary', 'decision'];
+  const foundNodes = ['skip'];
+  const compareNodes = ['scan'];
   yield {
-    state: pruningFlow('Summaries prune whole physical ranges'),
-    highlight: { active: ['summary', 'decision'], found: ['skip'], compare: ['scan'] },
-    explanation: 'A block-range index does not point to exact rows. It stores a compact summary for each physical range, then uses the summary to prove whether the range can be skipped.',
-    invariant: 'A skipped range is guaranteed not to match; a kept range still needs an exact scan.',
+    state: flowState,
+    highlight: { active: activeNodes, found: foundNodes, compare: compareNodes },
+    explanation: `A block-range index does not point to exact rows. It stores a compact ${activeNodes[0]} for each physical range, then uses the ${activeNodes[1]} step to prove whether the range can be ${foundNodes[0]}ped.`,
+    invariant: `A ${foundNodes[0]}ped range is guaranteed not to match; a kept range still needs an exact ${compareNodes[0]}.`,
   };
 
+  const ranges = [
+    { id: 'r0', label: 'range 0' },
+    { id: 'r1', label: 'range 1' },
+    { id: 'r2', label: 'range 2' },
+    { id: 'r3', label: 'range 3' },
+  ];
+  const queryCol = 'x=250';
+  const rangeValues = [
+    ['10..99', 'skip'],
+    ['100..199', 'skip'],
+    ['200..299', 'read'],
+    ['300..399', 'skip'],
+  ];
+  const matchIdx = rangeValues.findIndex(r => r[1] === 'read');
+  const skippedCount = rangeValues.filter(r => r[1] === 'skip').length;
   yield {
     state: labelMatrix(
       'Min/max pruning',
-      [
-        { id: 'r0', label: 'range 0' },
-        { id: 'r1', label: 'range 1' },
-        { id: 'r2', label: 'range 2' },
-        { id: 'r3', label: 'range 3' },
-      ],
+      ranges,
       [
         { id: 'minmax', label: 'min..max' },
-        { id: 'action', label: 'x=250' },
+        { id: 'action', label: queryCol },
       ],
-      [
-        ['10..99', 'skip'],
-        ['100..199', 'skip'],
-        ['200..299', 'read'],
-        ['300..399', 'skip'],
-      ],
+      rangeValues,
     ),
-    highlight: { found: ['r2:action'], removed: ['r0:action', 'r1:action', 'r3:action'] },
-    explanation: 'For x = 250, only range 2 can contain a match. The index avoids reading three ranges, but range 2 is only a maybe. Rows inside it still need the normal predicate check.',
+    highlight: { found: [`${ranges[matchIdx].id}:action`], removed: ranges.filter((_, i) => i !== matchIdx).map(r => `${r.id}:action`) },
+    explanation: `For ${queryCol}, only ${ranges[matchIdx].label} (${rangeValues[matchIdx][0]}) can contain a match. The index avoids reading ${skippedCount} ranges, but ${ranges[matchIdx].label} is only a maybe. Rows inside it still need the normal predicate check.`,
   };
 
+  const corrRows = [
+    { id: 'ordered', label: 'ordered time' },
+    { id: 'random', label: 'random uuid' },
+    { id: 'clustered', label: 'clustered id' },
+    { id: 'mixed', label: 'mixed status' },
+  ];
+  const corrValues = [
+    ['narrow', 'strong'],
+    ['huge', 'weak'],
+    ['narrow', 'strong'],
+    ['wide', 'weak'],
+  ];
+  const strongRows = corrRows.filter((_, i) => corrValues[i][1] === 'strong');
+  const weakRows = corrRows.filter((_, i) => corrValues[i][1] === 'weak');
   yield {
     state: labelMatrix(
       'Correlation matters',
-      [
-        { id: 'ordered', label: 'ordered time' },
-        { id: 'random', label: 'random uuid' },
-        { id: 'clustered', label: 'clustered id' },
-        { id: 'mixed', label: 'mixed status' },
-      ],
+      corrRows,
       [
         { id: 'range', label: 'range width' },
         { id: 'pruning', label: 'pruning' },
       ],
-      [
-        ['narrow', 'strong'],
-        ['huge', 'weak'],
-        ['narrow', 'strong'],
-        ['wide', 'weak'],
-      ],
+      corrValues,
     ),
-    highlight: { found: ['ordered:pruning', 'clustered:pruning'], compare: ['random:pruning', 'mixed:pruning'] },
-    explanation: 'BRIN and zone maps work when values are correlated with physical layout. Time-series tables, append-only ids, and sorted columnar parts are natural fits. Randomized keys defeat pruning.',
+    highlight: { found: strongRows.map(r => `${r.id}:pruning`), compare: weakRows.map(r => `${r.id}:pruning`) },
+    explanation: `BRIN and zone maps work when values are correlated with physical layout. ${strongRows.map(r => r.label).join(' and ')} have ${corrValues[0][0]} ranges and ${corrValues[0][1]} pruning. ${weakRows[0].label} has a ${corrValues[1][0]} range, defeating pruning.`,
   };
 
+  const indexRows = [
+    { id: 'btree', label: 'B-tree' },
+    { id: 'brin', label: 'BRIN' },
+    { id: 'zone', label: 'zone map' },
+    { id: 'bloom', label: 'skip Bloom' },
+  ];
+  const indexValues = [
+    ['keys -> rows', 'exact path'],
+    ['range summary', 'maybe range'],
+    ['chunk stats', 'maybe chunk'],
+    ['membership bits', 'maybe range'],
+  ];
   yield {
     state: labelMatrix(
       'Exact versus pruning indexes',
-      [
-        { id: 'btree', label: 'B-tree' },
-        { id: 'brin', label: 'BRIN' },
-        { id: 'zone', label: 'zone map' },
-        { id: 'bloom', label: 'skip Bloom' },
-      ],
+      indexRows,
       [
         { id: 'stores', label: 'stores' },
         { id: 'answer', label: 'answer' },
       ],
-      [
-        ['keys -> rows', 'exact path'],
-        ['range summary', 'maybe range'],
-        ['chunk stats', 'maybe chunk'],
-        ['membership bits', 'maybe range'],
-      ],
+      indexValues,
     ),
-    highlight: { active: ['brin:stores', 'zone:stores'], compare: ['btree:answer'], found: ['brin:answer', 'zone:answer'] },
-    explanation: 'A B-tree finds row locations. A BRIN or zone map mostly removes work. That makes it tiny and cheap to maintain, but it cannot avoid the final scan inside surviving ranges.',
+    highlight: { active: [`${indexRows[1].id}:stores`, `${indexRows[2].id}:stores`], compare: [`${indexRows[0].id}:answer`], found: [`${indexRows[1].id}:answer`, `${indexRows[2].id}:answer`] },
+    explanation: `A ${indexRows[0].label} stores ${indexValues[0][0]} and gives an ${indexValues[0][1]}. A ${indexRows[1].label} or ${indexRows[2].label} stores ${indexValues[1][0]} or ${indexValues[2][0]}, mostly removing work. That makes it tiny and cheap to maintain, but it cannot avoid the final scan inside surviving ranges.`,
   };
 }
 
 function* systemsCaseStudies() {
+  const brinTitle = 'PostgreSQL BRIN is a block-range summary';
+  const brinFlow = pruningFlow(brinTitle);
+  const brinActive = ['summary', 'decision'];
+  const brinFound = ['skip', 'scan'];
   yield {
-    state: pruningFlow('PostgreSQL BRIN is a block-range summary'),
-    highlight: { active: ['summary', 'decision'], found: ['skip', 'scan'] },
-    explanation: 'PostgreSQL BRIN stores summaries over consecutive heap block ranges. For physically correlated columns, the planner can skip most of a huge table with a tiny index.',
-    invariant: 'BRIN is lossy: it identifies page ranges to recheck, not exact matching rows.',
+    state: brinFlow,
+    highlight: { active: brinActive, found: brinFound },
+    explanation: `PostgreSQL BRIN stores ${brinActive[0]} data over consecutive heap block ranges. For physically correlated columns, the planner uses the ${brinActive[1]} step to ${brinFound[0]} most of a huge table with a tiny index.`,
+    invariant: `BRIN is lossy: it identifies page ranges to ${brinFound[1]}, not exact matching rows — the ${brinActive[0]} step proves absence, not presence.`,
   };
 
+  const sysRows = [
+    { id: 'postgres', label: 'Postgres BRIN' },
+    { id: 'clickhouse', label: 'ClickHouse' },
+    { id: 'parquet', label: 'Parquet' },
+    { id: 'druid', label: 'Druid/OLAP' },
+  ];
+  const sysCols = [
+    { id: 'unit', label: 'unit' },
+    { id: 'summary', label: 'summary' },
+  ];
+  const sysValues = [
+    ['block range', 'min/max'],
+    ['granule/part', 'sparse marks'],
+    ['row group/page', 'stats'],
+    ['segment', 'column stats'],
+  ];
   yield {
-    state: labelMatrix(
-      'System patterns',
-      [
-        { id: 'postgres', label: 'Postgres BRIN' },
-        { id: 'clickhouse', label: 'ClickHouse' },
-        { id: 'parquet', label: 'Parquet' },
-        { id: 'druid', label: 'Druid/OLAP' },
-      ],
-      [
-        { id: 'unit', label: 'unit' },
-        { id: 'summary', label: 'summary' },
-      ],
-      [
-        ['block range', 'min/max'],
-        ['granule/part', 'sparse marks'],
-        ['row group/page', 'stats'],
-        ['segment', 'column stats'],
-      ],
-    ),
-    highlight: { found: ['postgres:summary', 'clickhouse:summary', 'parquet:summary'], active: ['postgres:unit'] },
-    explanation: 'Different systems name the unit differently: block ranges, granules, row groups, pages, or segments. The shape is the same: summarize a chunk, then skip chunks that cannot match.',
+    state: labelMatrix('System patterns', sysRows, sysCols, sysValues),
+    highlight: { found: sysRows.slice(0, 3).map(r => `${r.id}:${sysCols[1].id}`), active: [`${sysRows[0].id}:${sysCols[0].id}`] },
+    explanation: `Different systems name the ${sysCols[0].label} differently: ${sysValues.map(v => v[0]).join(', ')}. The shape is the same: summarize a chunk with ${sysCols[1].label} data, then skip chunks that cannot match.`,
   };
 
+  const tuneRows = [
+    { id: 'small', label: 'small ranges' },
+    { id: 'large', label: 'large ranges' },
+    { id: 'sorted', label: 'sorted load' },
+    { id: 'drift', label: 'layout drift' },
+  ];
+  const tuneCols = [
+    { id: 'benefit', label: 'benefit' },
+    { id: 'cost', label: 'cost' },
+  ];
+  const tuneValues = [
+    ['precise', 'more metadata'],
+    ['tiny index', 'more false keeps'],
+    ['strong skip', 'load discipline'],
+    ['weak skip', 'recluster/vacuum'],
+  ];
   yield {
-    state: labelMatrix(
-      'Tuning knobs',
-      [
-        { id: 'small', label: 'small ranges' },
-        { id: 'large', label: 'large ranges' },
-        { id: 'sorted', label: 'sorted load' },
-        { id: 'drift', label: 'layout drift' },
-      ],
-      [
-        { id: 'benefit', label: 'benefit' },
-        { id: 'cost', label: 'cost' },
-      ],
-      [
-        ['precise', 'more metadata'],
-        ['tiny index', 'more false keeps'],
-        ['strong skip', 'load discipline'],
-        ['weak skip', 'recluster/vacuum'],
-      ],
-    ),
-    highlight: { active: ['small:benefit', 'large:cost'], found: ['sorted:benefit'], compare: ['drift:benefit'] },
-    explanation: 'The range size is a tradeoff. Smaller ranges prune more precisely but store more summaries. Larger ranges are cheaper but keep more blocks for recheck.',
+    state: labelMatrix('Tuning knobs', tuneRows, tuneCols, tuneValues),
+    highlight: { active: [`${tuneRows[0].id}:${tuneCols[0].id}`, `${tuneRows[1].id}:${tuneCols[1].id}`], found: [`${tuneRows[2].id}:${tuneCols[0].id}`], compare: [`${tuneRows[3].id}:${tuneCols[0].id}`] },
+    explanation: `The range size is a tradeoff. ${tuneRows[0].label} prune with ${tuneValues[0][0]} ${tuneCols[0].label} but pay ${tuneValues[0][1]}. ${tuneRows[1].label} yield a ${tuneValues[1][0]} but suffer ${tuneValues[1][1]}.`,
   };
 
+  const winRows = [
+    { id: 'appendTime', label: 'append time' },
+    { id: 'geo', label: 'clustered geo' },
+    { id: 'uuid', label: 'random uuid' },
+    { id: 'oltp', label: 'OLTP point' },
+  ];
+  const winCols = [
+    { id: 'fit', label: 'fit' },
+    { id: 'why', label: 'why' },
+  ];
+  const winValues = [
+    ['strong', 'physical order'],
+    ['good', 'local ranges'],
+    ['weak', 'wide summaries'],
+    ['usually B-tree', 'exact row needed'],
+  ];
+  const strongFits = winRows.filter((_, i) => winValues[i][0] === 'strong' || winValues[i][0] === 'good');
   yield {
-    state: labelMatrix(
-      'When it wins',
-      [
-        { id: 'appendTime', label: 'append time' },
-        { id: 'geo', label: 'clustered geo' },
-        { id: 'uuid', label: 'random uuid' },
-        { id: 'oltp', label: 'OLTP point' },
-      ],
-      [
-        { id: 'fit', label: 'fit' },
-        { id: 'why', label: 'why' },
-      ],
-      [
-        ['strong', 'physical order'],
-        ['good', 'local ranges'],
-        ['weak', 'wide summaries'],
-        ['usually B-tree', 'exact row needed'],
-      ],
-    ),
-    highlight: { found: ['appendTime:fit', 'geo:fit'], compare: ['uuid:why', 'oltp:fit'] },
-    explanation: 'Use range summaries when physical layout predicts values. Use B-trees or hash indexes when every point lookup needs an exact row address.',
+    state: labelMatrix('When it wins', winRows, winCols, winValues),
+    highlight: { found: strongFits.map(r => `${r.id}:${winCols[0].id}`), compare: [`${winRows[2].id}:${winCols[1].id}`, `${winRows[3].id}:${winCols[0].id}`] },
+    explanation: `${strongFits.map(r => r.label).join(' and ')} are ${strongFits.map((_, i) => winValues[i][0]).join('/')} fits because of ${strongFits.map((_, i) => winValues[i][1]).join(' and ')}. ${winRows[2].label} is ${winValues[2][0]} due to ${winValues[2][1]}, and ${winRows[3].label} usually needs a ${winValues[3][0].replace('usually ', '')}.`,
   };
 }
 
@@ -223,6 +238,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/block-range-index-zone-maps.gif', alt: 'Animated walkthrough of the block range index zone maps visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

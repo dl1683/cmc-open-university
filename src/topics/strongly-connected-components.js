@@ -226,7 +226,8 @@ export const article = {
         {type: 'callout', text: 'Tarjan works because low-link turns cycle discovery into one local test: if no child can reach above a node, that node closes a component.'},
         'The active node (highlighted) is where DFS is currently working. Visited nodes sitting on the SCC stack are candidates for the current component. When a back edge lands on a node still on the stack, that target gets a swap highlight — the edge proves those nodes share a cycle.',
         'The critical moment: when a node finishes processing all its neighbors and its low-link still equals its own discovery time, no descendant found a path back above it. That node is the root of its SCC. The algorithm pops every node above it off the stack, and they all light up as found — one complete strongly connected component. Watch the low-link values ripple upward as DFS returns from subtrees: that propagation is the algorithm learning which nodes share cycles.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/strongly-connected-components.gif', alt: 'Animated walkthrough of the strongly connected components visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -170,7 +170,8 @@ export const article = {
         'Active highlights show the cell currently being tested. Found highlights mark queens that are safely placed so far. Removed highlights mark queens being taken off the board during a backtrack.',
         'Watch the algorithm work row by row, left to right within each row. When it places a queen and moves down, the search tree is going deeper. When it removes a queen and tries the next column, it is backtracking. The node count in each step shows how much work pruning saved compared to brute force.',
         {type: 'callout', text: 'Backtracking is depth-first search over partial assignments where every failed constraint deletes an entire subtree.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/backtracking-n-queens.gif', alt: 'Animated walkthrough of the backtracking n queens visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

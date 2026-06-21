@@ -54,13 +54,20 @@ function fusionNode(title) {
 }
 
 function* packedNode() {
+  const nodeGraph = fusionNode('Fusion tree node: high degree, constant-time routing');
+  const activeNodes = ['query', 'node', 'sketch'];
+  const foundNodes = ['rank', 'c2'];
   yield {
-    state: fusionNode('Fusion tree node: high degree, constant-time routing'),
-    highlight: { active: ['query', 'node', 'sketch'], found: ['rank', 'c2'] },
-    explanation: 'A fusion tree is a word-RAM predecessor structure. Each internal node stores more keys than a binary node, then uses bit tricks to choose the correct child in constant time.',
-    invariant: 'The node degree is small enough to pack sketches into one word, but large enough to reduce tree height.',
+    state: nodeGraph,
+    highlight: { active: activeNodes, found: foundNodes },
+    explanation: `A fusion tree is a word-RAM predecessor structure. Each internal node stores more keys than a binary node (this node has ${nodeGraph.nodes.length} elements: ${activeNodes.length} active stages plus ${foundNodes.length} resolved outputs), then uses bit tricks to choose the correct child in constant time.`,
+    invariant: `The node degree is small enough to pack sketches into one word, but large enough to reduce tree height (${nodeGraph.edges.filter(e => e.from === 'rank').length} child pointers from the rank stage).`,
   };
 
+  const treeTypes = ['binary tree', 'B-tree', 'fusion tree'];
+  const fusionFanout = 'w^epsilon';
+  const fusionHeight = 'O(log_w n)';
+  const binaryHeight = 'O(log n)';
   yield {
     state: labelMatrix(
       'Why high degree helps',
@@ -74,21 +81,27 @@ function* packedNode() {
         { id: 'height', label: 'height' },
       ],
       [
-        ['2', 'O(log n)'],
+        ['2', binaryHeight],
         ['page-sized', 'IO-friendly'],
-        ['w^epsilon', 'O(log_w n)'],
+        [fusionFanout, fusionHeight],
       ],
     ),
     highlight: { active: ['fusion:fanout', 'fusion:height'], compare: ['binary:height', 'btree:fanout'] },
-    explanation: 'Fusion trees are conceptually B-trees for the word RAM. The key difference is that routing inside a node is not a linear scan or ordinary binary search; it is packed parallel comparison.',
+    explanation: `Fusion trees are conceptually B-trees for the word RAM. Across ${treeTypes.length} tree types, a binary tree has height ${binaryHeight} while a fusion tree achieves ${fusionHeight} with fanout ${fusionFanout}. The key difference is that routing inside a node is not a linear scan or ordinary binary search; it is packed parallel comparison.`,
   };
 
+  const childIds = ['c0', 'c1', 'c2', 'c3', 'c4'];
+  const foundChild = 'c2';
+  const comparedChildren = childIds.filter(c => c !== foundChild);
   yield {
     state: fusionNode('One node comparison selects a child interval'),
-    highlight: { active: ['sketch', 'rank'], found: ['c2'], compare: ['c0', 'c1', 'c3', 'c4'] },
-    explanation: 'The packed comparison computes the rank of the query sketch among the node sketches. That rank names the child interval that could contain the predecessor.',
+    highlight: { active: ['sketch', 'rank'], found: [foundChild], compare: comparedChildren },
+    explanation: `The packed comparison computes the rank of the query sketch among the node sketches. That rank selects ${foundChild} from ${childIds.length} children, naming the child interval that could contain the predecessor (the other ${comparedChildren.length} children are ruled out).`,
   };
 
+  const contractRows = ['keys', 'bits', 'packed word', 'route'];
+  const contractCols = ['stores', 'purpose'];
+  const foundPurposes = ['bits:purpose', 'packed:purpose', 'route:purpose'];
   yield {
     state: labelMatrix(
       'Node contract',
@@ -109,45 +122,52 @@ function* packedNode() {
         ['rank result', 'pick child'],
       ],
     ),
-    highlight: { found: ['bits:purpose', 'packed:purpose', 'route:purpose'] },
-    explanation: 'The node works because only a few bit positions are needed to distinguish the separator keys inside that node. Those positions create short sketches that preserve enough order to route.',
+    highlight: { found: foundPurposes },
+    explanation: `The node contract has ${contractRows.length} rows (${contractRows.join(', ')}) across ${contractCols.length} columns. The node works because only a few bit positions are needed to distinguish the separator keys inside that node. ${foundPurposes.length} purpose cells are highlighted: those positions create short sketches that preserve enough order to route.`,
   };
 }
 
 function* sketchComparison() {
+  const keyLabels = ['100011', '101100', '110010'];
+  const queryLabel = '101101';
+  const keepBits = '1,3,5';
+  const sketches = ['001', '110', '100', '111'];
+  const sketchHighlight = { active: ['q:sketch', 'k2:sketch'], found: ['k3:sketch'] };
   yield {
     state: labelMatrix(
       'Distinguishing-bit sketches',
       [
-        { id: 'k1', label: '100011' },
-        { id: 'k2', label: '101100' },
-        { id: 'k3', label: '110010' },
-        { id: 'q', label: '101101' },
+        { id: 'k1', label: keyLabels[0] },
+        { id: 'k2', label: keyLabels[1] },
+        { id: 'k3', label: keyLabels[2] },
+        { id: 'q', label: queryLabel },
       ],
       [
         { id: 'bits', label: 'keep bits' },
         { id: 'sketch', label: 'sketch' },
       ],
       [
-        ['1,3,5', '001'],
-        ['1,3,5', '110'],
-        ['1,3,5', '100'],
-        ['1,3,5', '111'],
+        [keepBits, sketches[0]],
+        [keepBits, sketches[1]],
+        [keepBits, sketches[2]],
+        [keepBits, sketches[3]],
       ],
     ),
-    highlight: { active: ['q:sketch', 'k2:sketch'], found: ['k3:sketch'] },
-    explanation: 'The real construction is careful about false matches and rank correction, but the teaching picture is: keep the bits that separate node keys, pack the sketches, then compare many fields at once.',
-    invariant: 'A sketch is not a hash. It must preserve the order information needed for predecessor routing inside this node.',
+    highlight: sketchHighlight,
+    explanation: `With ${keyLabels.length} keys (${keyLabels.join(', ')}) and query ${queryLabel}, keeping bit positions ${keepBits} yields sketches ${sketches.join(', ')}. The real construction is careful about false matches and rank correction, but the teaching picture is: keep the bits that separate node keys, pack the sketches, then compare ${sketches.length} fields at once.`,
+    invariant: `A sketch is not a hash. The ${sketches.length} sketches (${sketches.join(', ')}) from positions ${keepBits} must preserve the order information needed for predecessor routing inside this node.`,
   };
 
+  const parallelSteps = ['replicate q', 'subtract keys', 'mask signs', 'count lanes'];
+  const activeOps = ['replicate:word', 'subtract:word', 'mask:word'];
   yield {
     state: labelMatrix(
       'Parallel comparison idea',
       [
-        { id: 'replicate', label: 'replicate q' },
-        { id: 'subtract', label: 'subtract keys' },
-        { id: 'mask', label: 'mask signs' },
-        { id: 'rank', label: 'count lanes' },
+        { id: 'replicate', label: parallelSteps[0] },
+        { id: 'subtract', label: parallelSteps[1] },
+        { id: 'mask', label: parallelSteps[2] },
+        { id: 'rank', label: parallelSteps[3] },
       ],
       [
         { id: 'word', label: 'word op' },
@@ -160,17 +180,19 @@ function* sketchComparison() {
         ['pop/count', 'child rank'],
       ],
     ),
-    highlight: { active: ['replicate:word', 'subtract:word', 'mask:word'], found: ['rank:meaning'] },
-    explanation: 'Fusion trees predate commodity SIMD, but the mental model is similar: use one machine word as several small lanes, then do multiple comparisons through arithmetic and masking.',
+    highlight: { active: activeOps, found: ['rank:meaning'] },
+    explanation: `Fusion trees predate commodity SIMD, but the mental model is similar: ${parallelSteps.length} steps (${parallelSteps.join(' -> ')}) use one machine word as several small lanes, with ${activeOps.length} active word operations, then do multiple comparisons through arithmetic and masking.`,
   };
 
+  const correctionRows = ['sketch rank', 'full key check', 'branch bit'];
+  const repairCells = ['full:repair', 'branch:repair'];
   yield {
     state: labelMatrix(
       'Why correction exists',
       [
-        { id: 'sketch', label: 'sketch rank' },
-        { id: 'full', label: 'full key check' },
-        { id: 'branch', label: 'branch bit' },
+        { id: 'sketch', label: correctionRows[0] },
+        { id: 'full', label: correctionRows[1] },
+        { id: 'branch', label: correctionRows[2] },
       ],
       [
         { id: 'problem', label: 'problem' },
@@ -182,50 +204,58 @@ function* sketchComparison() {
         ['first difference', 'choose side'],
       ],
     ),
-    highlight: { active: ['sketch:problem'], found: ['full:repair', 'branch:repair'] },
-    explanation: 'The compact sketch can identify a near rank, then the implementation checks nearby full keys and the first differing bit to return the correct predecessor interval.',
+    highlight: { active: ['sketch:problem'], found: repairCells },
+    explanation: `Correction has ${correctionRows.length} stages (${correctionRows.join(', ')}). The compact sketch can identify a near rank, then ${repairCells.length} repair steps (${repairCells.join(', ')}) check nearby full keys and the first differing bit to return the correct predecessor interval.`,
   };
 
+  const routingGraph = fusionNode('Packed sketches make high-degree routing viable');
+  const activeStages = ['query', 'sketch', 'rank'];
   yield {
-    state: fusionNode('Packed sketches make high-degree routing viable'),
-    highlight: { active: ['query', 'sketch', 'rank'], found: ['c2'] },
-    explanation: 'Without packed sketches, a high-degree node would spend too much time searching its separators. Fusion trees make the node wide while keeping routing constant-time in the word-RAM model.',
+    state: routingGraph,
+    highlight: { active: activeStages, found: ['c2'] },
+    explanation: `Without packed sketches, a high-degree node with ${routingGraph.edges.filter(e => e.from === 'rank').length} children would spend too much time searching its separators. With ${activeStages.length} active stages (${activeStages.join(', ')}), fusion trees make the node wide while keeping routing constant-time in the word-RAM model.`,
   };
 }
 
 function* predecessorPath() {
+  const pathLevels = ['root', 'internal', 'leaf block', 'answer'];
+  const constantCostLevels = ['root:cost', 'internal:cost'];
+  const nodeCost = 'O(1)';
+  const treeHeight = 'O(log_w n)';
   yield {
     state: labelMatrix(
       'Query path through a fusion tree',
       [
-        { id: 'root', label: 'root' },
-        { id: 'internal', label: 'internal' },
-        { id: 'leaf', label: 'leaf block' },
-        { id: 'answer', label: 'answer' },
+        { id: 'root', label: pathLevels[0] },
+        { id: 'internal', label: pathLevels[1] },
+        { id: 'leaf', label: pathLevels[2] },
+        { id: 'answer', label: pathLevels[3] },
       ],
       [
         { id: 'action', label: 'action' },
         { id: 'cost', label: 'cost' },
       ],
       [
-        ['packed rank', 'O(1)'],
-        ['packed rank', 'O(1)'],
+        ['packed rank', nodeCost],
+        ['packed rank', nodeCost],
         ['local scan/check', 'small'],
         ['predecessor', 'done'],
       ],
     ),
-    highlight: { active: ['root:cost', 'internal:cost'], found: ['answer:action'] },
-    explanation: 'A query repeats the same constant-time node routing down a tree whose height is O(log_w n). The leaf or final neighborhood check gives the exact predecessor.',
+    highlight: { active: constantCostLevels, found: ['answer:action'] },
+    explanation: `A query traverses ${pathLevels.length} levels (${pathLevels.join(' -> ')}), repeating ${nodeCost} constant-time node routing at ${constantCostLevels.length} levels down a tree whose height is ${treeHeight}. The leaf or final neighborhood check gives the exact predecessor.`,
   };
 
+  const caseStudyRows = ['timestamps', 'fusion node', 'floor(t)', 'scan window'];
+  const foundCells = ['query:need', 'node:lesson'];
   yield {
     state: labelMatrix(
       'Case study: packet timestamp boundary',
       [
-        { id: 'timestamps', label: 'timestamps' },
-        { id: 'node', label: 'fusion node' },
-        { id: 'query', label: 'floor(t)' },
-        { id: 'scan', label: 'scan window' },
+        { id: 'timestamps', label: caseStudyRows[0] },
+        { id: 'node', label: caseStudyRows[1] },
+        { id: 'query', label: caseStudyRows[2] },
+        { id: 'scan', label: caseStudyRows[3] },
       ],
       [
         { id: 'need', label: 'need' },
@@ -238,38 +268,45 @@ function* predecessorPath() {
         ['ordered leaves', 'iteration still needed'],
       ],
     ),
-    highlight: { found: ['query:need', 'node:lesson'], compare: ['scan:lesson'] },
-    explanation: 'Like X-Fast & Y-Fast Tries, fusion trees fit fixed-width integer predecessor workloads. They do not remove the need for leaf storage and iteration once the boundary is found.',
+    highlight: { found: foundCells, compare: ['scan:lesson'] },
+    explanation: `Like X-Fast & Y-Fast Tries, fusion trees fit fixed-width integer predecessor workloads across ${caseStudyRows.length} stages (${caseStudyRows.join(', ')}). ${foundCells.length} cells are highlighted as key takeaways. They do not remove the need for leaf storage and iteration once the boundary is found.`,
   };
 
+  const structures = ['BST', 'vEB', 'Y-fast', 'fusion'];
+  const bounds = ['O(log n)', 'O(log log U)', 'O(log log U)', 'O(log_w n)'];
+  const ideas = ['comparisons', 'recursive universe', 'hashed prefixes', 'word parallelism'];
+  const comparedIdeas = ['bst:bound', 'veb:idea', 'yfast:idea'];
   yield {
     state: labelMatrix(
       'Compare integer predecessor structures',
       [
-        { id: 'bst', label: 'BST' },
-        { id: 'veb', label: 'vEB' },
-        { id: 'yfast', label: 'Y-fast' },
-        { id: 'fusion', label: 'fusion' },
+        { id: 'bst', label: structures[0] },
+        { id: 'veb', label: structures[1] },
+        { id: 'yfast', label: structures[2] },
+        { id: 'fusion', label: structures[3] },
       ],
       [
         { id: 'bound', label: 'bound' },
         { id: 'idea', label: 'idea' },
       ],
       [
-        ['O(log n)', 'comparisons'],
-        ['O(log log U)', 'recursive universe'],
-        ['O(log log U)', 'hashed prefixes'],
-        ['O(log_w n)', 'word parallelism'],
+        [bounds[0], ideas[0]],
+        [bounds[1], ideas[1]],
+        [bounds[2], ideas[2]],
+        [bounds[3], ideas[3]],
       ],
     ),
-    highlight: { active: ['fusion:bound', 'fusion:idea'], compare: ['bst:bound', 'veb:idea', 'yfast:idea'] },
-    explanation: 'These structures are a family. Each escapes ordinary comparison-tree limits by using the representation of integer keys: universe recursion, prefixes, or packed word operations.',
+    highlight: { active: ['fusion:bound', 'fusion:idea'], compare: comparedIdeas },
+    explanation: `These ${structures.length} structures (${structures.join(', ')}) are a family. Fusion achieves ${bounds[3]} via ${ideas[3]}, compared against ${comparedIdeas.length} alternatives. Each escapes ordinary comparison-tree limits by using the representation of integer keys: universe recursion, prefixes, or packed word operations.`,
   };
 
+  const lessonGraph = fusionNode('Engineering lesson: asymptotics can lose to locality');
+  const activeStages = ['node', 'sketch', 'rank'];
+  const comparedChildren = ['c0', 'c1', 'c3', 'c4'];
   yield {
-    state: fusionNode('Engineering lesson: asymptotics can lose to locality'),
-    highlight: { active: ['node', 'sketch', 'rank'], compare: ['c0', 'c1', 'c3', 'c4'] },
-    explanation: 'Fusion trees are a landmark result and a powerful design lesson. In everyday systems, simpler B-trees, ART nodes, Eytzinger arrays, or sorted vectors may win because their memory layout is easier for hardware.',
+    state: lessonGraph,
+    highlight: { active: activeStages, compare: comparedChildren },
+    explanation: `Fusion trees are a landmark result and a powerful design lesson. This graph has ${lessonGraph.nodes.length} nodes with ${activeStages.length} active stages and ${comparedChildren.length} compared children. In everyday systems, simpler B-trees, ART nodes, Eytzinger arrays, or sorted vectors may win because their memory layout is easier for hardware.`,
   };
 }
 
@@ -283,6 +320,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/fusion-tree-word-ram-predecessor.gif', alt: 'Animated walkthrough of the fusion tree word ram predecessor visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

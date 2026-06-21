@@ -57,8 +57,13 @@ function dequeGraph(title, slots, notes = {}) {
 }
 
 function* twoEndedOperations() {
+  const initSlots = ['A', 'B', 'C', '_', '_', '_'];
+  const initSize = initSlots.filter(s => s !== '_').length;
+  const capacity = initSlots.length;
+  const numOps = 4;
+
   yield {
-    state: dequeGraph('A deque exposes both ends of the sequence', ['A', 'B', 'C', '_', '_', '_'], {
+    state: dequeGraph('A deque exposes both ends of the sequence', initSlots, {
       s0: 'first',
       s2: 'last',
       frontSlot: 's0',
@@ -68,12 +73,16 @@ function* twoEndedOperations() {
       cap: 'ring slots',
     }),
     highlight: { active: ['front', 'back', 's0', 's2'], compare: ['cap'] },
-    explanation: 'A double-ended queue supports insertion and removal at both ends. It keeps queue order, but unlike a plain FIFO queue it lets algorithms treat the back as a stack-like editing point.',
-    invariant: 'pushFront, popFront, pushBack, and popBack should be O(1) amortized.',
+    explanation: `A double-ended queue with ${initSize} elements in ${capacity} slots supports insertion and removal at both ends. It keeps queue order, but unlike a plain FIFO queue it lets algorithms treat the back as a stack-like editing point. All ${numOps} operations (pushFront, popFront, pushBack, popBack) are O(1) amortized.`,
+    invariant: `pushFront, popFront, pushBack, and popBack should be O(1) amortized.`,
   };
 
+  const afterPushBack = ['A', 'B', 'C', 'D', '_', '_'];
+  const pushBackSize = afterPushBack.filter(s => s !== '_').length;
+  const pushBackVal = 'D';
+
   yield {
-    state: dequeGraph('pushBack appends after the current back', ['A', 'B', 'C', 'D', '_', '_'], {
+    state: dequeGraph('pushBack appends after the current back', afterPushBack, {
       s0: 'first',
       s3: 'new last',
       frontSlot: 's0',
@@ -83,11 +92,16 @@ function* twoEndedOperations() {
       cap: 'ring slots',
     }),
     highlight: { active: ['back', 's3', 'e-back-s'], found: ['s0', 's1', 's2'] },
-    explanation: 'pushBack writes into the free slot after the old last element and moves the back pointer. This is the familiar queue enqueue direction.',
+    explanation: `pushBack writes "${pushBackVal}" into slot 3, the free slot after the old last element, and moves the back pointer. Size grows from ${initSize} to ${pushBackSize}. This is the familiar queue enqueue direction.`,
   };
 
+  const afterPushFront = ['A', 'B', 'C', 'D', '_', 'Z'];
+  const pushFrontVal = 'Z';
+  const pushFrontSize = afterPushFront.filter(s => s !== '_').length;
+  const logicalOrder = ['Z', 'A', 'B', 'C', 'D'];
+
   yield {
-    state: dequeGraph('pushFront prepends before the current front', ['A', 'B', 'C', 'D', '_', 'Z'], {
+    state: dequeGraph('pushFront prepends before the current front', afterPushFront, {
       s5: 'new first',
       s3: 'last',
       frontSlot: 's5',
@@ -97,11 +111,15 @@ function* twoEndedOperations() {
       cap: 'wrap',
     }),
     highlight: { active: ['front', 's5', 'e-front-s', 'cap'], compare: ['s0'] },
-    explanation: 'In a circular-buffer implementation, pushing at the front can wrap to the physical end of the array. Logical order is Z, A, B, C, D even though the storage wraps.',
+    explanation: `In a circular-buffer implementation, pushFront("${pushFrontVal}") wraps front from slot 0 to slot ${capacity - 1} (the physical end of the ${capacity}-slot array). Size is now ${pushFrontSize}. Logical order is ${logicalOrder.join(', ')} even though the storage wraps.`,
   };
 
+  const afterPops = ['_', 'B', 'C', '_', '_', 'Z'];
+  const popsSize = afterPops.filter(s => s !== '_').length;
+  const removedCount = pushFrontSize - popsSize;
+
   yield {
-    state: dequeGraph('popFront and popBack remove from opposite ends', ['_', 'B', 'C', '_', '_', 'Z'], {
+    state: dequeGraph('popFront and popBack remove from opposite ends', afterPops, {
       s5: 'first',
       s2: 'last',
       frontSlot: 's5',
@@ -111,18 +129,21 @@ function* twoEndedOperations() {
       cap: 'holes ok',
     }),
     highlight: { active: ['front', 'back', 's5', 's2'], removed: ['s0', 's3'] },
-    explanation: 'Removing from either side only advances one pointer and optionally clears a slot. The implementation does not shift the middle elements.',
+    explanation: `Removing from either side only advances one pointer and optionally clears a slot. ${removedCount} elements removed, ${popsSize} remain (${afterPops.filter(s => s !== '_').join(', ')}). The implementation does not shift the middle elements.`,
   };
 }
 
 function* slidingWindowCaseStudy() {
+  const windowSteps = 4;
+  const windowValues = [8, 3, 9];
+
   yield {
     state: labelMatrix(
       'Sliding-window maximum uses a deque of candidates',
       [
-        { id: 'step1', label: 'read 8' },
-        { id: 'step2', label: 'read 3' },
-        { id: 'step3', label: 'read 9' },
+        { id: 'step1', label: `read ${windowValues[0]}` },
+        { id: 'step2', label: `read ${windowValues[1]}` },
+        { id: 'step3', label: `read ${windowValues[2]}` },
         { id: 'step4', label: 'slide' },
       ],
       [
@@ -131,18 +152,23 @@ function* slidingWindowCaseStudy() {
         { id: 'max', label: 'max' },
       ],
       [
-        ['push back', '[8]', '8'],
-        ['keep smaller behind', '[8,3]', '8'],
-        ['pop smaller back, push 9', '[9]', '9'],
-        ['drop expired front', '[9,...]', '9'],
+        ['push back', `[${windowValues[0]}]`, `${windowValues[0]}`],
+        ['keep smaller behind', `[${windowValues[0]},${windowValues[1]}]`, `${windowValues[0]}`],
+        [`pop smaller back, push ${windowValues[2]}`, `[${windowValues[2]}]`, `${windowValues[2]}`],
+        ['drop expired front', `[${windowValues[2]},...]`, `${windowValues[2]}`],
       ],
     ),
     highlight: { active: ['step3:operation', 'step3:deque'], found: ['step3:max', 'step4:max'] },
-    explanation: 'Monotonic Queue is built from deque operations. New values enter at the back, dominated candidates are popped from the back, and expired indices leave from the front.',
+    explanation: `Monotonic Queue is built from deque operations across ${windowSteps} steps. New values (${windowValues.join(', ')}) enter at the back, dominated candidates are popped from the back (${windowValues[1]} < ${windowValues[2]} so ${windowValues[1]} is evicted), and expired indices leave from the front.`,
   };
 
+  const candidates = ['9', '7', '4'];
+  const candidateCount = candidates.length;
+  const frontVal = candidates[0];
+  const backVal = candidates[candidates.length - 1];
+
   yield {
-    state: dequeGraph('The front is the answer; the back is the editing surface', ['9', '7', '4', '_', '_', '_'], {
+    state: dequeGraph('The front is the answer; the back is the editing surface', [...candidates, '_', '_', '_'], {
       s0: 'max',
       s2: 'weakest',
       frontSlot: 's0',
@@ -152,8 +178,11 @@ function* slidingWindowCaseStudy() {
       cap: 'window',
     }),
     highlight: { active: ['front', 's0'], compare: ['back', 's2'] },
-    explanation: 'The front holds the current best candidate. The back is where new arrivals remove weaker candidates before joining. That is why both ends matter.',
+    explanation: `The front holds the current best candidate (${frontVal}). The back (${backVal}, weakest of ${candidateCount} candidates) is where new arrivals remove weaker candidates before joining. That is why both ends matter.`,
   };
+
+  const numImpls = 3;
+  const implNames = ['ring buffer', 'block deque', 'linked list'];
 
   yield {
     state: labelMatrix(
@@ -174,7 +203,7 @@ function* slidingWindowCaseStudy() {
       ],
     ),
     highlight: { active: ['ring:strength', 'blocks:strength'], compare: ['list:cost'] },
-    explanation: 'A deque is an interface, not one storage layout. Circular buffers are common for bounded queues; block deques avoid moving everything when growth happens at both ends.',
+    explanation: `A deque is an interface, not one storage layout. ${numImpls} common implementations (${implNames.join(', ')}): circular buffers are common for bounded queues; block deques avoid moving everything when growth happens at both ends.`,
   };
 }
 
@@ -194,7 +223,8 @@ export const article = {
         {type: 'callout', text: 'A deque wins by making both ends cheap while keeping the middle untouched.'},
         'Active highlights mark the slot and pointer involved in the current operation. Found highlights mark slots whose contents are confirmed unchanged. Removed highlights mark slots freed by a pop. The cap node shows the buffer capacity and signals when wrapping occurs.',
         'In the sliding-window view, the deque stores candidate values. The front holds the current maximum; the back is the editing surface where new arrivals evict weaker candidates. Watch how the monotone invariant -- every value decreases from front to back -- is preserved after each insertion.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/double-ended-queue-deque.gif', alt: 'Animated walkthrough of the double ended queue deque visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

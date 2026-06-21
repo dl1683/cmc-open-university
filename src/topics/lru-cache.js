@@ -85,7 +85,8 @@ export const article = {
         {type: "callout", text: "LRU is two data structures acting as one: a map finds nodes, and a list makes eviction order explicit."},
         "Green nodes are cache hits: the hash map found them in O(1) and they are about to move to the head. Red nodes are eviction victims: they sit at the tail when the cache is full and a new entry needs space. Highlighted nodes are freshly inserted or just promoted.",
         "The key moment is the move-to-front after a hit. One access changes the entire eviction order. Watch which node ends up at the tail after each promotion -- that node is now closest to death, even if it was safe a moment ago.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/lru-cache.gif', alt: 'Animated walkthrough of the lru cache visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

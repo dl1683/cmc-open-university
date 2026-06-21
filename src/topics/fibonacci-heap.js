@@ -59,21 +59,26 @@ function heapGraph(title, variant = 'root-list') {
 }
 
 function* lazyRootList() {
+  const rootNodes = ['min', 'r7', 'r18', 'r24'];
+  const childNodes = ['c26', 'c35', 'c41'];
+  const totalNodes = rootNodes.length + childNodes.length;
   yield {
     state: heapGraph('A Fibonacci heap is a forest plus a min pointer'),
     highlight: { found: ['min'], active: ['r7', 'r18', 'r24'], compare: ['e-min-r7', 'e-r7-r18'] },
-    explanation: 'Unlike a binary heap, a Fibonacci heap is not one compact tree. It is a root list of heap-ordered trees plus a pointer to the minimum root. Laziness is the design feature.',
+    explanation: `Unlike a binary heap, a Fibonacci heap is not one compact tree. These ${totalNodes} nodes form a root list of ${rootNodes.length} heap-ordered trees plus a pointer to the minimum root. Laziness is the design feature.`,
   };
 
+  const ops = [
+    { id: 'insert', label: 'insert', cost: 'O(1)' },
+    { id: 'meld', label: 'meld', cost: 'O(1)' },
+    { id: 'find', label: 'find-min', cost: 'O(1)' },
+    { id: 'cleanup', label: 'cleanup', cost: 'O(log n)' },
+  ];
+  const cheapOps = ops.filter(o => o.cost === 'O(1)');
   yield {
     state: labelMatrix(
       'Cheap operations defer structure',
-      [
-        { id: 'insert', label: 'insert' },
-        { id: 'meld', label: 'meld' },
-        { id: 'find', label: 'find-min' },
-        { id: 'cleanup', label: 'cleanup' },
-      ],
+      ops.map(({ id, label }) => ({ id, label })),
       [
         { id: 'action', label: 'action' },
         { id: 'cost', label: 'amortized cost' },
@@ -86,25 +91,26 @@ function* lazyRootList() {
       ],
     ),
     highlight: { found: ['insert:cost', 'meld:cost', 'find:cost'], compare: ['cleanup:cost'] },
-    explanation: 'Fibonacci heaps make the common priority-queue updates cheap by postponing consolidation. The bill comes due when the minimum is extracted.',
-    invariant: 'Every tree still obeys heap order: parent key <= child key.',
+    explanation: `${cheapOps.length} of ${ops.length} operations run in O(1) by postponing consolidation. The bill comes due when the minimum is extracted at O(log n).`,
+    invariant: `Every tree across the ${rootNodes.length}-root forest still obeys heap order: parent key <= child key.`,
   };
 
   yield {
     state: heapGraph('Extract-min links roots by degree', 'consolidated'),
     highlight: { removed: ['min'], active: ['r7', 'r18', 'r24', 'e-r18-r24'], found: ['r7'] },
-    explanation: 'During extract-min, the old minimum is removed, its children become roots, and roots with equal degree are linked until no two root trees share a degree. This restores a logarithmic bound on root-list size.',
+    explanation: `During extract-min, the old minimum is removed, its ${childNodes.length} children become roots, and roots with equal degree are linked until no two root trees share a degree. This restores a logarithmic bound on root-list size.`,
   };
 
+  const heapVariants = [
+    { id: 'binary', label: 'binary heap' },
+    { id: 'binomial', label: 'binomial heap' },
+    { id: 'fib', label: 'Fibonacci heap' },
+    { id: 'pairing', label: 'pairing heap' },
+  ];
   yield {
     state: labelMatrix(
       'Priority queues compared',
-      [
-        { id: 'binary', label: 'binary heap' },
-        { id: 'binomial', label: 'binomial heap' },
-        { id: 'fib', label: 'Fibonacci heap' },
-        { id: 'pairing', label: 'pairing heap' },
-      ],
+      heapVariants,
       [
         { id: 'decrease', label: 'decrease-key' },
         { id: 'extract', label: 'extract-min' },
@@ -118,32 +124,37 @@ function* lazyRootList() {
       ],
     ),
     highlight: { active: ['fib:decrease', 'fib:fit'], compare: ['binary:fit'] },
-    explanation: 'Fibonacci heaps are famous because decrease-key becomes O(1) amortized. That changes theoretical bounds for shortest paths and other graph algorithms with many key decreases.',
+    explanation: `Among ${heapVariants.length} priority queues compared, Fibonacci heaps are the only one with O(1) amortized decrease-key. That changes theoretical bounds for shortest paths and other graph algorithms with many key decreases.`,
   };
 }
 
 function* decreaseKeyCascade() {
+  const oldKey = 35;
+  const newKey = 2;
+  const parentKey = 26;
   yield {
     state: heapGraph('Decrease-key may violate heap order', 'marked'),
     highlight: { active: ['c35'], compare: ['c26', 'e-c26-c35'] },
-    explanation: 'Suppose node 35 is decreased to 2. It is now smaller than its parent 26, violating heap order. Instead of bubbling through the tree, Fibonacci heaps cut the node out.',
+    explanation: `Suppose node ${oldKey} is decreased to ${newKey}. It is now smaller than its parent ${parentKey}, violating heap order. Instead of bubbling through the tree, Fibonacci heaps cut the node out.`,
   };
 
   yield {
     state: heapGraph('Cut the decreased node to the root list', 'cut'),
     highlight: { active: ['c35', 'min'], compare: ['c26'], found: ['c35'] },
-    explanation: 'The decreased node is cut from its parent and moved to the root list. The min pointer updates to the new value. This is why decrease-key is cheap: one local cut can finish the operation.',
+    explanation: `The decreased node (now key ${newKey}) is cut from its parent ${parentKey} and moved to the root list. The min pointer updates to ${newKey}. This is why decrease-key is cheap: one local cut can finish the operation.`,
   };
 
+  const cascadeRules = [
+    { id: 'parent0', label: 'parent lost no child before' },
+    { id: 'parent1', label: 'parent already marked' },
+    { id: 'root', label: 'parent is root' },
+    { id: 'potential', label: 'potential accounting' },
+  ];
+  const maxChildLoss = 1;
   yield {
     state: labelMatrix(
       'Cascading cut rule',
-      [
-        { id: 'parent0', label: 'parent lost no child before' },
-        { id: 'parent1', label: 'parent already marked' },
-        { id: 'root', label: 'parent is root' },
-        { id: 'potential', label: 'potential accounting' },
-      ],
+      cascadeRules,
       [
         { id: 'action', label: 'action' },
         { id: 'why', label: 'why' },
@@ -156,18 +167,20 @@ function* decreaseKeyCascade() {
       ],
     ),
     highlight: { found: ['parent1:action', 'potential:why'], compare: ['parent0:action'] },
-    explanation: 'If a non-root node loses one child, mark it. If it later loses another, cut it too. Cascading cuts keep tree degrees controlled without eager rebalancing.',
+    explanation: `The ${cascadeRules.length} cascading-cut rules: if a non-root node loses ${maxChildLoss} child, mark it. If it later loses another (exceeding the ${maxChildLoss}-loss tolerance), cut it too. Cascading cuts keep tree degrees controlled without eager rebalancing.`,
   };
 
+  const algorithms = [
+    { id: 'dijkstra', label: 'Dijkstra' },
+    { id: 'prim', label: 'Prim MST' },
+    { id: 'edmonds', label: 'branching' },
+    { id: 'practice', label: 'production code' },
+  ];
+  const decreaseKeyUsers = algorithms.filter(a => a.id !== 'practice');
   yield {
     state: labelMatrix(
       'Algorithmic consequences',
-      [
-        { id: 'dijkstra', label: 'Dijkstra' },
-        { id: 'prim', label: 'Prim MST' },
-        { id: 'edmonds', label: 'branching' },
-        { id: 'practice', label: 'production code' },
-      ],
+      algorithms,
       [
         { id: 'operation', label: 'dominant operation' },
         { id: 'lesson', label: 'lesson' },
@@ -180,7 +193,7 @@ function* decreaseKeyCascade() {
       ],
     ),
     highlight: { active: ['dijkstra:lesson', 'prim:lesson'], compare: ['practice:lesson'] },
-    explanation: 'The right lesson is not that every program should use Fibonacci heaps. The lesson is how amortized data-structure design changes the shape of graph algorithm bounds.',
+    explanation: `${decreaseKeyUsers.length} of ${algorithms.length} algorithms benefit from O(1) decrease-key. The right lesson is not that every program should use Fibonacci heaps — the lesson is how amortized data-structure design changes the shape of graph algorithm bounds.`,
   };
 }
 
@@ -201,7 +214,8 @@ export const article = {
         'Nodes labeled "marked" have already lost one child since becoming a non-root. If a marked node loses a second child, it gets cut to the root list and unmarked. This is the cascading cut, and it is the mechanism that keeps tree degrees small.',
         'In the "lazy root list" view, watch how insert just splices a new singleton into the root list (no restructuring), and how extract-min pays for all that deferred work by linking roots of equal degree until no two share a degree. In the "decrease-key cascade" view, watch a node get cut from its parent and appear in the root list, then check whether the parent was already marked and triggers a cascade.',
         'At each step, ask two questions: what deferred work was just created, and what deferred work was just paid off. That tension between laziness and cleanup is the entire design.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/fibonacci-heap.gif', alt: 'Animated walkthrough of the fibonacci heap visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

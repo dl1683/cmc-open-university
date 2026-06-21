@@ -77,22 +77,26 @@ function twoBitGraph(title) {
 }
 
 function* rangeAddPointQuery() {
+  const diffNodes = ['update', 'l', 'r1', 'diff', 'prefix', 'value'];
+  const diffEdges = ['e-update-l', 'e-update-r1', 'e-l-diff', 'e-r1-diff', 'e-diff-prefix', 'e-prefix-value'];
+  const pointUpdatesPerRange = 2;
   yield {
     state: diffGraph('Range add becomes two point updates on a difference BIT'),
     highlight: { active: ['update', 'l', 'r1', 'diff', 'e-update-l', 'e-update-r1', 'e-l-diff', 'e-r1-diff'], found: ['value'] },
-    explanation: 'A range add [l, r] += x can be stored in a difference array: add +x at l and -x at r+1. A Fenwick tree stores that difference array compactly.',
-    invariant: 'The point value a[i] is the prefix sum of all difference updates up to i.',
+    explanation: `A range add [l, r] += x becomes ${pointUpdatesPerRange} point updates on a difference array: +x at l and -x at r+1. The ${diffNodes.length}-node graph shows how a Fenwick tree stores that difference array compactly.`,
+    invariant: `The point value a[i] equals the prefix sum of all difference updates up to i — recovered by walking ${diffEdges.length} edges through the BIT.`,
   };
 
+  const diffOps = [
+    { id: 'start', label: 'at l' },
+    { id: 'after', label: 'at r+1' },
+    { id: 'inside', label: 'query inside' },
+    { id: 'outside', label: 'query outside' },
+  ];
   yield {
     state: labelMatrix(
       'Range add as difference updates',
-      [
-        { id: 'start', label: 'at l' },
-        { id: 'after', label: 'at r+1' },
-        { id: 'inside', label: 'query inside' },
-        { id: 'outside', label: 'query outside' },
-      ],
+      diffOps,
       [
         { id: 'operation', label: 'operation' },
         { id: 'effect' },
@@ -105,24 +109,25 @@ function* rangeAddPointQuery() {
       ],
     ),
     highlight: { active: ['start:operation', 'after:operation'], found: ['inside:effect'], compare: ['outside:effect'] },
-    explanation: 'The prefix sum is a switch. It turns the addition on at l and turns it off just after r.',
+    explanation: `The prefix sum is a switch across ${diffOps.length} cases. The first ${pointUpdatesPerRange} rows show how it turns the addition on at l and off just after r; the remaining ${diffOps.length - pointUpdatesPerRange} show query behavior inside and outside the range.`,
   };
 
   yield {
     state: diffGraph('Point query asks the Fenwick tree for the diff prefix'),
     highlight: { active: ['diff', 'prefix', 'value', 'e-diff-prefix', 'e-prefix-value'], compare: ['l', 'r1'] },
-    explanation: 'After many range updates, pointQuery(i) is just sumDiff(1..i). That makes range-update point-query workloads O(log n) per operation with one Fenwick tree.',
+    explanation: `After many range updates, pointQuery(i) is just sumDiff(1..i). That makes range-update point-query workloads O(log n) per operation with just ${1} Fenwick tree — ${pointUpdatesPerRange} point updates per range add, one prefix read per point query.`,
   };
 
+  const variants = [
+    { id: 'classic', label: 'classic BIT' },
+    { id: 'diff', label: 'diff BIT' },
+    { id: 'two', label: 'two BITs' },
+    { id: 'segment', label: 'segment tree' },
+  ];
   yield {
     state: labelMatrix(
       'Which Fenwick variant?',
-      [
-        { id: 'classic', label: 'classic BIT' },
-        { id: 'diff', label: 'diff BIT' },
-        { id: 'two', label: 'two BITs' },
-        { id: 'segment', label: 'segment tree' },
-      ],
+      variants,
       [
         { id: 'updates', label: 'updates' },
         { id: 'queries' },
@@ -135,27 +140,30 @@ function* rangeAddPointQuery() {
       ],
     ),
     highlight: { active: ['diff:updates', 'diff:queries'], found: ['two:updates', 'two:queries'], compare: ['segment:queries'] },
-    explanation: 'The family is small but important: one BIT for point updates, one BIT over differences for range-add point-query, two BITs for range-add range-sum.',
+    explanation: `The family has ${variants.length} variants: ${variants.map(v => v.label).join(', ')}. One BIT for point updates, one BIT over differences for range-add point-query, two BITs for range-add range-sum.`,
   };
 }
 
 function* twoBitRangeSum() {
+  const numBITs = 2;
+  const updatesPerRange = 4;
   yield {
     state: twoBitGraph('Two Fenwick trees preserve prefix sums under range adds'),
     highlight: { active: ['range', 'b1', 'b2', 'e-range-b1', 'e-range-b2'], found: ['formula', 'sum'] },
-    explanation: 'For range-add range-sum, one difference BIT is not enough because a prefix sum needs the accumulated area under those differences. Two BITs store slope and offset terms.',
-    invariant: 'prefixSum(i) = sum(B1, i) * i - sum(B2, i).',
+    explanation: `For range-add range-sum, 1 difference BIT is not enough because a prefix sum needs the accumulated area under those differences. ${numBITs} BITs store slope (B1) and offset (B2) terms, requiring ${updatesPerRange} point updates per range add.`,
+    invariant: `prefixSum(i) = sum(B1, i) * i - sum(B2, i) — combining both ${numBITs} trees at query time.`,
   };
 
+  const updateEntries = [
+    { id: 'b1l', label: 'B1 at l' },
+    { id: 'b1r', label: 'B1 at r+1' },
+    { id: 'b2l', label: 'B2 at l' },
+    { id: 'b2r', label: 'B2 at r+1' },
+  ];
   yield {
     state: labelMatrix(
       'Update [l, r] by x',
-      [
-        { id: 'b1l', label: 'B1 at l' },
-        { id: 'b1r', label: 'B1 at r+1' },
-        { id: 'b2l', label: 'B2 at l' },
-        { id: 'b2r', label: 'B2 at r+1' },
-      ],
+      updateEntries,
       [
         { id: 'operation', label: 'operation' },
         { id: 'why' },
@@ -168,24 +176,26 @@ function* twoBitRangeSum() {
       ],
     ),
     highlight: { active: ['b1l:operation', 'b1r:operation'], found: ['b2l:operation', 'b2r:operation'] },
-    explanation: 'B1 tracks how much slope is active at prefix i. B2 subtracts the offset so the prefix formula counts exactly the cells inside the updated range.',
+    explanation: `Each range add writes ${updateEntries.length} boundary events — ${updateEntries.filter(e => e.id.startsWith('b1')).length} into B1 (slope) and ${updateEntries.filter(e => e.id.startsWith('b2')).length} into B2 (offset). B1 tracks how much slope is active at prefix i; B2 subtracts the offset so the prefix formula counts exactly the cells inside the updated range.`,
   };
 
   yield {
     state: twoBitGraph('Range sum is prefix(r) minus prefix(l-1)'),
     highlight: { active: ['i', 'formula', 'sum', 'e-i-formula', 'e-formula-sum'], compare: ['b1', 'b2'] },
-    explanation: 'Once prefixSum(i) is available, rangeSum(l, r) is prefixSum(r) - prefixSum(l - 1), just like ordinary prefix sums.',
+    explanation: `Once prefixSum(i) is available from ${numBITs} trees, rangeSum(l, r) is prefixSum(r) - prefixSum(l - 1), just like ordinary prefix sums.`,
   };
 
+  const limits = [
+    { id: 'sum', label: 'range sum', fit: 'excellent' },
+    { id: 'min', label: 'range min', fit: 'poor' },
+    { id: 'assign', label: 'range assign', fit: 'poor alone' },
+    { id: 'multi', label: '2D BIT', fit: 'possible' },
+  ];
+  const goodFits = limits.filter(l => l.fit === 'excellent');
   yield {
     state: labelMatrix(
       'Limits of the trick',
-      [
-        { id: 'sum', label: 'range sum' },
-        { id: 'min', label: 'range min' },
-        { id: 'assign', label: 'range assign' },
-        { id: 'multi', label: '2D BIT' },
-      ],
+      limits.map(({ id, label }) => ({ id, label })),
       [
         { id: 'fit', label: 'fit' },
         { id: 'reason' },
@@ -198,7 +208,7 @@ function* twoBitRangeSum() {
       ],
     ),
     highlight: { active: ['sum:fit', 'sum:reason'], compare: ['min:reason', 'assign:reason'], found: ['multi:fit'] },
-    explanation: 'Fenwick range tricks rely on addition, subtraction, and prefix algebra. For non-invertible operations or complex lazy tags, a segment tree is usually clearer.',
+    explanation: `Of ${limits.length} operations tested, only ${goodFits.length} (${goodFits.map(g => g.label).join(', ')}) fits excellently. Fenwick range tricks rely on addition, subtraction, and prefix algebra — for non-invertible operations or complex lazy tags, a segment tree is usually clearer.`,
   };
 }
 
@@ -211,6 +221,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/fenwick-range-update-range-query.gif', alt: 'Animated walkthrough of the fenwick range update range query visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

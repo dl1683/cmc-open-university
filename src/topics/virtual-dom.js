@@ -29,10 +29,15 @@ const tree = (frames, statuses = {}) =>
   callTreeState(frames.map(([id, parentId, name, args]) => ({ id, parentId, name, args, status: statuses[id] ?? 'returned' })));
 
 function* rerender() {
+  const oldNodeCount = OLD_TREE.length;
+  const oldHeaderText = OLD_TREE[1][3];
+  const oldListChildren = OLD_TREE.filter(n => n[1] === 'list');
+  const oldBtnTag = OLD_TREE[5][2];
+
   yield {
     state: tree(OLD_TREE),
     highlight: {},
-    explanation: 'The core bargain is UI = f(state). On a state change, the framework rebuilds a cheap JavaScript description of the whole UI, then compares it with the previous description before touching the real DOM. The todo tree starts with a header, two rows, and an Add button; the next state will add a row and change the button type.',
+    explanation: `The core bargain is UI = f(state). On a state change, the framework rebuilds a cheap JavaScript description of the whole UI, then compares it with the previous description before touching the real DOM. The todo tree has ${oldNodeCount} nodes: a ${OLD_TREE[1][2]} header showing ${oldHeaderText}, ${oldListChildren.length} list items, and a ${oldBtnTag} button; the next state will add a row and change the button type.`,
   };
 
   const NEW_TREE = [
@@ -45,88 +50,118 @@ function* rerender() {
     ['btnNew', 'app', '<a>', '"Add"'],
   ];
 
+  const newRootTag = NEW_TREE[0][2];
+  const oldRootTag = OLD_TREE[0][2];
+
   yield {
     state: tree(NEW_TREE, { app: 'active' }),
     highlight: { active: ['app'] },
-    explanation: 'Render produces a fresh tree, not a patch. Reconciliation starts at the root: old <App> and new <App> have the same type, so the real node can be reused while props and children are checked.',
+    explanation: `Render produces a fresh tree, not a patch. Reconciliation starts at the root: old ${oldRootTag} and new ${newRootTag} have the same type (${oldRootTag === newRootTag ? 'match' : 'mismatch'}), so the real node can be reused while props and children are checked.`,
   };
+
+  const oldHeaderArgs = OLD_TREE[1][3];
+  const newHeaderArgs = NEW_TREE[1][3];
+  const headerTag = NEW_TREE[1][2];
 
   yield {
     state: tree(NEW_TREE, { header: 'active' }),
     highlight: { compare: ['header'] },
-    explanation: 'Old <h1> "Todos (2)" vs new <h1> "Todos (3)": same type, different text. Verdict: keep the element, emit one surgical patch — setText. No new node, no re-mount, and the browser does one tiny paint instead of a subtree rebuild. This is the common case in a real app: most re-renders change almost nothing, and the diff proves it cheaply.',
+    explanation: `Old ${headerTag} ${oldHeaderArgs} vs new ${headerTag} ${newHeaderArgs}: same type, different text. Verdict: keep the element, emit one surgical patch — setText. No new node, no re-mount, and the browser does one tiny paint instead of a subtree rebuild. This is the common case in a real app: most re-renders change almost nothing, and the diff proves it cheaply.`,
   };
+
+  const newListChildren = NEW_TREE.filter(n => n[1] === 'list');
+  const newChildText = NEW_TREE[5][3];
+  const newChildTag = NEW_TREE[5][2];
 
   yield {
     state: tree(NEW_TREE, { liShip: 'active' }),
     highlight: { found: ['liShip'], visited: ['liMilk', 'liDog'] },
-    explanation: 'The <ul>: old has 2 children, new has 3. Children are compared pairwise — "Buy milk" matches, "Walk dog" matches, and the third has no old partner â†’ emit createElement(<li>"Ship code") + append. (Appending at the END is the easy case; the other view shows what happens when you insert at the front.)',
+    explanation: `The <ul>: old has ${oldListChildren.length} children, new has ${newListChildren.length}. Children are compared pairwise — ${OLD_TREE[3][3]} matches, ${OLD_TREE[4][3]} matches, and the third has no old partner → emit createElement(${newChildTag}${newChildText}) + append. (Appending at the END is the easy case; the other view shows what happens when you insert at the front.)`,
   };
+
+  const newBtnTag = NEW_TREE[6][2];
 
   yield {
     state: tree(NEW_TREE, { btnNew: 'active' }),
     highlight: { removed: ['btnNew'] },
-    explanation: 'Old <button> and new <a> have different types, so the heuristic replaces the subtree instead of trying a costly optimal tree edit. That can be wasteful, but it keeps common UI diffs linear rather than solving an expensive general problem on every update.',
-    invariant: 'Same type â†’ diff in place; different type â†’ replace the whole subtree. One pass, O(n).',
+    explanation: `Old ${oldBtnTag} and new ${newBtnTag} have different types, so the heuristic replaces the subtree instead of trying a costly optimal tree edit. That can be wasteful, but it keeps common UI diffs linear rather than solving an expensive general problem on every update.`,
+    invariant: 'Same type → diff in place; different type → replace the whole subtree. One pass, O(n).',
   };
 
+  const patches = [`setText(${headerTag}, ${newHeaderArgs})`, `createElement(${newChildTag}) + append`, `replace(${oldBtnTag} → ${newBtnTag})`];
+
   yield {
-    state: arrayState(['setText(h1, "Todos (3)")', 'createElement(li) + append', 'replace(button â†’ a)']),
+    state: arrayState(patches),
     highlight: { found: ['i0', 'i1', 'i2'] },
-    explanation: 'The diff emits only three real-DOM operations: update the header text, append one row, and replace the button with a link. The lesson is not that virtual DOM beats perfect manual DOM; it beats naive full rebuilds while preserving a declarative programming model.',
+    explanation: `The diff emits only ${patches.length} real-DOM operations: update the header text to ${newHeaderArgs}, append one ${newChildTag} row, and replace the ${oldBtnTag} with ${newBtnTag}. The lesson is not that virtual DOM beats perfect manual DOM; it beats naive full rebuilds while preserving a declarative programming model.`,
   };
 }
 
 function* keyedList() {
   const OLD = [
     ['list', null, '<ul>', ''],
-    ['r0', 'list', '<li>', '"Buy milk" â˜'],
-    ['r1', 'list', '<li>', '"Walk dog" â˜‘'],
-    ['r2', 'list', '<li>', '"Ship code" â˜'],
+    ['r0', 'list', '<li>', '"Buy milk" ☐'],
+    ['r1', 'list', '<li>', '"Walk dog" ☑'],
+    ['r2', 'list', '<li>', '"Ship code" ☐'],
   ];
+  const oldItems = OLD.filter(n => n[1] === 'list');
+  const checkedItem = OLD.find(n => n[3].includes('☑'));
+
   yield {
     state: tree(OLD),
     highlight: { visited: ['r1'] },
-    explanation: 'Lists are where identity matters. "Walk dog" is checked, and that checkmark lives in the existing DOM row. When a new item is inserted at the top, the animation asks whether the diff tracks rows by position or by stable identity.',
+    explanation: `Lists are where identity matters. The list has ${oldItems.length} items. ${checkedItem ? checkedItem[3] : 'One item'} is checked, and that checkmark lives in the existing DOM row. When a new item is inserted at the top, the animation asks whether the diff tracks rows by position or by stable identity.`,
   };
 
   const NEW_UNKEYED = [
     ['list', null, '<ul>', ''],
-    ['r0', 'list', '<li>', '"Pay rent" â˜'],
-    ['r1', 'list', '<li>', '"Buy milk" â˜'],
-    ['r2', 'list', '<li>', '"Walk dog" â˜‘'],
-    ['r3', 'list', '<li>', '"Ship code" â˜'],
+    ['r0', 'list', '<li>', '"Pay rent" ☐'],
+    ['r1', 'list', '<li>', '"Buy milk" ☐'],
+    ['r2', 'list', '<li>', '"Walk dog" ☑'],
+    ['r3', 'list', '<li>', '"Ship code" ☐'],
   ];
+  const unkeyedItems = NEW_UNKEYED.filter(n => n[1] === 'list');
+  const positionChanges = unkeyedItems.length - 1;
+
   yield {
     state: tree(NEW_UNKEYED, { r0: 'active' }),
     highlight: { compare: ['r0', 'r1', 'r2'], active: ['r3'] },
-    explanation: 'Without keys, rows are matched by position. One front insertion looks like several text changes plus an append, and DOM state such as checkbox value, focus, or input text can stay on the wrong row.',
+    explanation: `Without keys, rows are matched by position. The list grew from ${oldItems.length} to ${unkeyedItems.length} items, and one front insertion looks like ${positionChanges} text changes plus an append. DOM state such as checkbox value, focus, or input text can stay on the wrong row.`,
   };
 
   const NEW_KEYED = [
     ['list', null, '<ul>', ''],
-    ['kRent', 'list', '<li>', 'key=rent "Pay rent" â˜'],
-    ['kMilk', 'list', '<li>', 'key=milk "Buy milk" â˜'],
-    ['kDog', 'list', '<li>', 'key=dog "Walk dog" â˜‘'],
-    ['kShip', 'list', '<li>', 'key=ship "Ship code" â˜'],
+    ['kRent', 'list', '<li>', 'key=rent "Pay rent" ☐'],
+    ['kMilk', 'list', '<li>', 'key=milk "Buy milk" ☐'],
+    ['kDog', 'list', '<li>', 'key=dog "Walk dog" ☑'],
+    ['kShip', 'list', '<li>', 'key=ship "Ship code" ☐'],
   ];
+  const keyedItems = NEW_KEYED.filter(n => n[1] === 'list');
+  const matchedKeys = keyedItems.filter(n => !n[3].includes('rent'));
+  const newKeyItem = keyedItems.find(n => n[3].includes('rent'));
+
   yield {
     state: tree(NEW_KEYED, { kRent: 'active' }),
     highlight: { found: ['kRent'], visited: ['kMilk', 'kDog', 'kShip'] },
-    explanation: 'Stable keys turn positions into identities. The diff can match milk, dog, and ship to their previous rows wherever they move, then create only the new rent row. DOM state stays attached to the item, not the index.',
+    explanation: `Stable keys turn positions into identities. The diff can match ${matchedKeys.length} existing items to their previous rows wherever they move, then create only the new ${newKeyItem[0]} row (${newKeyItem[3]}). DOM state stays attached to the item, not the index.`,
     invariant: 'Keys give list items identity across renders: matched by key, not by index.',
   };
+
+  const matrixValues = [[4, 0], [1, 2], [4, 0]];
+  const unkeyedOps = matrixValues[0][0];
+  const keyedOps = matrixValues[1][0];
+  const indexKeyOps = matrixValues[2][0];
 
   yield {
     state: matrixState({
       title: 'One insertion at the front of an n-row list',
       rows: [{ id: 'unkeyed', label: 'no keys (by index)' }, { id: 'keyed', label: 'stable keys' }, { id: 'indexkey', label: 'key={index}' }],
       columns: [{ id: 'ops', label: 'DOM mutations' }, { id: 'state', label: 'row state survives?' }],
-      values: [[4, 0], [1, 2], [4, 0]],
+      values: matrixValues,
       format: (v) => (v === 0 ? 'NO' : v === 2 ? 'YES' : String(v)),
     }),
     highlight: { found: ['keyed:ops', 'keyed:state'], removed: ['indexkey:state'] },
-    explanation: 'The scorecard shows why key={index} is not a fix for reorderable lists: the key still changes with position. Random keys are worse because they force remounts. Reconciliation runs inside an event-loop task, so a slow diff can still block input; keys fix identity, not all CPU cost.',
+    explanation: `The scorecard: unkeyed needs ${unkeyedOps} DOM mutations, stable keys need only ${keyedOps}, and key={index} needs ${indexKeyOps} — no better than no keys at all. key={index} is not a fix for reorderable lists because the key still changes with position. Random keys are worse because they force remounts. Reconciliation runs inside an event-loop task, so a slow diff can still block input; keys fix identity, not all CPU cost.`,
   };
 }
 
@@ -152,7 +187,8 @@ export const article = {
         ]},
         {type: 'note', text: 'Watch the patch list that appears at the end of the re-render view. Each entry is one real DOM call the framework will execute. The count of those entries -- not the size of the tree -- is the actual cost of the update.'},
         'At each frame, ask: did the type match? If yes, the real node survives and only changed props are patched. If no, the entire subtree is replaced. That single rule drives every decision in the animation.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/virtual-dom.gif', alt: 'Animated walkthrough of the virtual dom visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

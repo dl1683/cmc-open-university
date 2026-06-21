@@ -52,26 +52,30 @@ function fingerShape(title) {
 }
 
 function* digitsAndSpine() {
+  const hl1 = { active: ['prefix', 'middle', 'suffix'], found: ['left', 'right'] };
   yield {
     state: fingerShape('Deep node: prefix digit, recursive middle, suffix digit'),
-    highlight: { active: ['prefix', 'middle', 'suffix'], found: ['left', 'right'] },
-    explanation: 'A finger tree is a persistent sequence shaped as Empty, Single, or Deep. In Deep, small prefix and suffix digits expose the two ends, while the middle recursively stores groups of 2 or 3 items.',
+    highlight: hl1,
+    explanation: `A finger tree is a persistent sequence shaped as Empty, Single, or Deep. In Deep, ${hl1.active.length} components (${hl1.active.join(', ')}) form the structure, with ${hl1.found.length} fast-access ends (${hl1.found.join(', ')}). The 7-node graph shows all parts of a Deep finger tree connected by 8 edges.`,
     invariant: 'Digits stay small, so pushing or popping at either end touches only a constant-size edge before occasional recursive repair.',
   };
 
+  const hl2Rows = [
+    { id: 'prefix', label: 'prefix digit' },
+    { id: 'middle', label: 'middle tree' },
+    { id: 'suffix', label: 'suffix digit' },
+    { id: 'node', label: 'Node2/3' },
+  ];
+  const hl2Cols = [
+    { id: 'contains', label: 'contains' },
+    { id: 'role', label: 'role' },
+  ];
+  const hl2 = { active: ['prefix:role', 'suffix:role'], found: ['middle:role', 'node:role'] };
   yield {
     state: labelMatrix(
       'Shape of a Deep node',
-      [
-        { id: 'prefix', label: 'prefix digit' },
-        { id: 'middle', label: 'middle tree' },
-        { id: 'suffix', label: 'suffix digit' },
-        { id: 'node', label: 'Node2/3' },
-      ],
-      [
-        { id: 'contains', label: 'contains' },
-        { id: 'role', label: 'role' },
-      ],
+      hl2Rows,
+      hl2Cols,
       [
         ['1..4 values', 'fast left'],
         ['nodes', 'recursion'],
@@ -79,19 +83,21 @@ function* digitsAndSpine() {
         ['2 or 3 children', 'balance'],
       ],
     ),
-    highlight: { active: ['prefix:role', 'suffix:role'], found: ['middle:role', 'node:role'] },
-    explanation: 'The recursive middle does not hold raw elements at the next level. It holds Node2 and Node3 packets. That keeps the underlying 2-3-tree balance while making the ends cheap.',
+    highlight: hl2,
+    explanation: `The recursive middle does not hold raw elements at the next level. It holds Node2 and Node3 packets. This ${hl2Rows.length}-row by ${hl2Cols.length}-column breakdown shows ${hl2.active.length} active roles (${hl2.active.join(', ')}) and ${hl2.found.length} found roles (${hl2.found.join(', ')}). That keeps the underlying 2-3-tree balance while making the ends cheap.`,
   };
 
+  const hl3Rows = [
+    { id: 'cons', label: 'push left' },
+    { id: 'snoc', label: 'push right' },
+    { id: 'viewl', label: 'pop left' },
+    { id: 'viewr', label: 'pop right' },
+  ];
+  const hl3 = { found: ['cons:amortized', 'snoc:amortized', 'viewl:amortized', 'viewr:amortized'] };
   yield {
     state: labelMatrix(
       'Deque operations',
-      [
-        { id: 'cons', label: 'push left' },
-        { id: 'snoc', label: 'push right' },
-        { id: 'viewl', label: 'pop left' },
-        { id: 'viewr', label: 'pop right' },
-      ],
+      hl3Rows,
       [
         { id: 'usual', label: 'usual touch' },
         { id: 'amortized', label: 'amortized' },
@@ -103,32 +109,36 @@ function* digitsAndSpine() {
         ['one digit', 'O(1)'],
       ],
     ),
-    highlight: { found: ['cons:amortized', 'snoc:amortized', 'viewl:amortized', 'viewr:amortized'] },
-    explanation: 'The name "finger" means the structure gives efficient access near distinguished positions. For the standard sequence, those fingers are the left and right ends.',
+    highlight: hl3,
+    explanation: `The name "finger" means the structure gives efficient access near distinguished positions. All ${hl3.found.length} operations (${hl3Rows.map(r => r.label).join(', ')}) are amortized O(1), reflecting the ${hl3.found.length} highlighted cells. For the standard sequence, those fingers are the left and right ends.`,
   };
 
+  const hl4 = { active: ['prefix', 'suffix', 'split'], compare: ['middle'], found: ['measure'] };
   yield {
     state: fingerShape('Persistence comes from path copying and sharing'),
-    highlight: { active: ['prefix', 'suffix', 'split'], compare: ['middle'], found: ['measure'] },
-    explanation: 'Like RRB Tree Persistent Vector and Zipper Focused Tree, updates return a new root and share old pieces. The old sequence stays valid for undo, snapshots, or concurrent readers.',
+    highlight: hl4,
+    explanation: `Like RRB Tree Persistent Vector and Zipper Focused Tree, updates return a new root and share old pieces. ${hl4.active.length} active nodes (${hl4.active.join(', ')}) are path-copied, ${hl4.compare.length} node (${hl4.compare.join(', ')}) is compared for recursion, and ${hl4.found.length} node (${hl4.found.join(', ')}) anchors the cached summary. The old sequence stays valid for undo, snapshots, or concurrent readers.`,
   };
 }
 
 function* measuredSplit() {
+  const ms1Rows = [
+    { id: 'a', label: 'a' },
+    { id: 'b', label: 'b' },
+    { id: 'c', label: 'c' },
+    { id: 'd', label: 'd' },
+    { id: 'e', label: 'e' },
+  ];
+  const ms1Cols = [
+    { id: 'size', label: 'size' },
+    { id: 'prefix', label: 'prefix sum' },
+  ];
+  const ms1Hl = { active: ['c:prefix'], found: ['d:prefix'] };
   yield {
     state: labelMatrix(
       'Measure each element by size',
-      [
-        { id: 'a', label: 'a' },
-        { id: 'b', label: 'b' },
-        { id: 'c', label: 'c' },
-        { id: 'd', label: 'd' },
-        { id: 'e', label: 'e' },
-      ],
-      [
-        { id: 'size', label: 'size' },
-        { id: 'prefix', label: 'prefix sum' },
-      ],
+      ms1Rows,
+      ms1Cols,
       [
         ['1', '1'],
         ['1', '2'],
@@ -137,26 +147,29 @@ function* measuredSplit() {
         ['1', '5'],
       ],
     ),
-    highlight: { active: ['c:prefix'], found: ['d:prefix'] },
-    explanation: 'A measure is an associative summary. If every element has size 1, internal summaries are counts. Split at index 3 becomes: find the first place where the accumulated count crosses 3.',
+    highlight: ms1Hl,
+    explanation: `A measure is an associative summary. This ${ms1Rows.length}-element by ${ms1Cols.length}-column table shows ${ms1Hl.active.length} active cell (${ms1Hl.active.join(', ')}) and ${ms1Hl.found.length} found cell (${ms1Hl.found.join(', ')}). If every element has size 1, internal summaries are counts. Split at index 3 becomes: find the first place where the accumulated count crosses 3.`,
     invariant: 'Measures must combine associatively so summaries can be cached at internal nodes and recomputed locally after updates.',
   };
 
+  const ms2Hl = { active: ['measure', 'middle', 'split'], found: ['prefix', 'suffix'] };
   yield {
     state: fingerShape('Split follows cached measures down the tree'),
-    highlight: { active: ['measure', 'middle', 'split'], found: ['prefix', 'suffix'] },
-    explanation: 'The split operation does not scan the whole sequence. It walks by comparing the target predicate with cached measures, descends into one child, and rebuilds the two sides around the split point.',
+    highlight: ms2Hl,
+    explanation: `The split operation does not scan the whole sequence. It walks ${ms2Hl.active.length} active nodes (${ms2Hl.active.join(', ')}) by comparing the target predicate with cached measures, descends into one child, and rebuilds the ${ms2Hl.found.length} sides (${ms2Hl.found.join(', ')}) around the split point.`,
   };
 
+  const ms3Rows = [
+    { id: 'seq', label: 'sequence' },
+    { id: 'prio', label: 'priority q' },
+    { id: 'interval', label: 'intervals' },
+    { id: 'search', label: 'ordered search' },
+  ];
+  const ms3Hl = { found: ['seq:query', 'prio:query', 'interval:query'], active: ['seq:measure'] };
   yield {
     state: labelMatrix(
       'Swap the measure, get a different structure',
-      [
-        { id: 'seq', label: 'sequence' },
-        { id: 'prio', label: 'priority q' },
-        { id: 'interval', label: 'intervals' },
-        { id: 'search', label: 'ordered search' },
-      ],
+      ms3Rows,
       [
         { id: 'measure', label: 'measure' },
         { id: 'query', label: 'query' },
@@ -168,19 +181,21 @@ function* measuredSplit() {
         ['ordered key summary', 'split by key'],
       ],
     ),
-    highlight: { found: ['seq:query', 'prio:query', 'interval:query'], active: ['seq:measure'] },
-    explanation: 'This is why finger trees are called general-purpose. The tree shape is stable; the measure decides what question can be routed quickly.',
+    highlight: ms3Hl,
+    explanation: `This is why finger trees are called general-purpose. ${ms3Rows.length} use-cases (${ms3Rows.map(r => r.label).join(', ')}) share the same tree shape, with ${ms3Hl.found.length} query cells highlighted (${ms3Hl.found.join(', ')}) and ${ms3Hl.active.length} active measure (${ms3Hl.active.join(', ')}). The measure decides what question can be routed quickly.`,
   };
 
+  const ms4Rows = [
+    { id: 'ends', label: 'ends' },
+    { id: 'concat', label: 'concat' },
+    { id: 'split', label: 'split' },
+    { id: 'index', label: 'index' },
+  ];
+  const ms4Hl = { found: ['ends:cost', 'concat:cost', 'split:cost'], compare: ['index:reason'] };
   yield {
     state: labelMatrix(
       'Complexities',
-      [
-        { id: 'ends', label: 'ends' },
-        { id: 'concat', label: 'concat' },
-        { id: 'split', label: 'split' },
-        { id: 'index', label: 'index' },
-      ],
+      ms4Rows,
       [
         { id: 'cost', label: 'cost' },
         { id: 'reason', label: 'reason' },
@@ -192,21 +207,23 @@ function* measuredSplit() {
         ['O(log n)', 'count measure'],
       ],
     ),
-    highlight: { found: ['ends:cost', 'concat:cost', 'split:cost'], compare: ['index:reason'] },
-    explanation: 'Finger trees are not flat arrays. They trade tight cache locality for persistent structure, fast ends, efficient concatenation, and flexible measured search.',
+    highlight: ms4Hl,
+    explanation: `Finger trees are not flat arrays. Across ${ms4Rows.length} operations (${ms4Rows.map(r => r.label).join(', ')}), ${ms4Hl.found.length} cost cells (${ms4Hl.found.join(', ')}) are highlighted and ${ms4Hl.compare.length} reason cell (${ms4Hl.compare.join(', ')}) is compared. They trade tight cache locality for persistent structure, fast ends, efficient concatenation, and flexible measured search.`,
   };
 }
 
 function* caseStudies() {
+  const cs1Rows = [
+    { id: 'haskell', label: 'Data.Sequence' },
+    { id: 'rope', label: 'rope/editor' },
+    { id: 'prio', label: 'priority queue' },
+    { id: 'interval', label: 'interval index' },
+  ];
+  const cs1Hl = { active: ['haskell:need', 'haskell:measure'], found: ['rope:measure', 'interval:measure'] };
   yield {
     state: labelMatrix(
       'Complete case-study routes',
-      [
-        { id: 'haskell', label: 'Data.Sequence' },
-        { id: 'rope', label: 'rope/editor' },
-        { id: 'prio', label: 'priority queue' },
-        { id: 'interval', label: 'interval index' },
-      ],
+      cs1Rows,
       [
         { id: 'need', label: 'need' },
         { id: 'measure', label: 'measure' },
@@ -218,25 +235,28 @@ function* caseStudies() {
         ['overlap query', 'max endpoint'],
       ],
     ),
-    highlight: { active: ['haskell:need', 'haskell:measure'], found: ['rope:measure', 'interval:measure'] },
-    explanation: 'Haskell Data.Sequence is the canonical production-facing case study: a persistent finite sequence built on finger-tree ideas. The same measured-tree recipe adapts to text, priority, and interval workloads.',
+    highlight: cs1Hl,
+    explanation: `Haskell Data.Sequence is the canonical production-facing case study: a persistent finite sequence built on finger-tree ideas. ${cs1Rows.length} case studies (${cs1Rows.map(r => r.label).join(', ')}) are listed, with ${cs1Hl.active.length} active cells (${cs1Hl.active.join(', ')}) and ${cs1Hl.found.length} found measure cells (${cs1Hl.found.join(', ')}). The same measured-tree recipe adapts to text, priority, and interval workloads.`,
   };
 
+  const cs2Hl = { active: ['split', 'measure'], found: ['prefix', 'suffix'], compare: ['middle'] };
   yield {
     state: fingerShape('Editor case study: split and rejoin persistent text chunks'),
-    highlight: { active: ['split', 'measure'], found: ['prefix', 'suffix'], compare: ['middle'] },
-    explanation: 'A rope-like editor can store chunks in a measured finger tree where the measure is character count. Cursor movement and split-at-position use cached sizes, while edits share most unchanged chunks.',
+    highlight: cs2Hl,
+    explanation: `A rope-like editor can store chunks in a measured finger tree where the measure is character count. ${cs2Hl.active.length} active nodes (${cs2Hl.active.join(', ')}) drive the split, ${cs2Hl.found.length} found nodes (${cs2Hl.found.join(', ')}) form the result sides, and ${cs2Hl.compare.length} compared node (${cs2Hl.compare.join(', ')}) holds the recursive spine. Cursor movement and split-at-position use cached sizes, while edits share most unchanged chunks.`,
   };
 
+  const cs3Rows = [
+    { id: 'versions', label: 'versions' },
+    { id: 'ends', label: 'two ends' },
+    { id: 'splits', label: 'split/join' },
+    { id: 'arrays', label: 'tight arrays' },
+  ];
+  const cs3Hl = { found: ['versions:decision', 'ends:decision', 'splits:decision'], compare: ['arrays:decision'] };
   yield {
     state: labelMatrix(
       'When to choose it',
-      [
-        { id: 'versions', label: 'versions' },
-        { id: 'ends', label: 'two ends' },
-        { id: 'splits', label: 'split/join' },
-        { id: 'arrays', label: 'tight arrays' },
-      ],
+      cs3Rows,
       [
         { id: 'signal', label: 'signal' },
         { id: 'decision', label: 'decision' },
@@ -248,8 +268,8 @@ function* caseStudies() {
         ['numeric loops', 'bad fit'],
       ],
     ),
-    highlight: { found: ['versions:decision', 'ends:decision', 'splits:decision'], compare: ['arrays:decision'] },
-    explanation: 'The practical rule is conservative. Use a finger tree when persistence plus measured split/join are first-class operations. Do not use it to replace a simple array in hot numeric code.',
+    highlight: cs3Hl,
+    explanation: `The practical rule is conservative. ${cs3Hl.found.length} scenarios (${cs3Hl.found.join(', ')}) are good fits, while ${cs3Hl.compare.length} scenario (${cs3Hl.compare.join(', ')}) is a bad fit among ${cs3Rows.length} total use-cases (${cs3Rows.map(r => r.label).join(', ')}). Use a finger tree when persistence plus measured split/join are first-class operations. Do not use it to replace a simple array in hot numeric code.`,
   };
 }
 
@@ -263,6 +283,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/finger-tree-measured-sequence.gif', alt: 'Animated walkthrough of the finger tree measured sequence visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

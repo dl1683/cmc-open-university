@@ -63,11 +63,15 @@ function basisGraph(title) {
 }
 
 function* axisSplits() {
+  const transforms = ['raw cols', 'rotate', 'ratios', 'noise'];
+  const modelFamilies = ['tree', 'net'];
+  const cutPoint = 4;
+
   yield {
     state: basisGraph('Raw column orientation is part of the model'),
     highlight: { active: ['raw', 'ratio', 'tree', 'e-raw-ratio', 'e-ratio-tree'], compare: ['rotate', 'net'], found: ['score'] },
-    explanation: 'Tabular columns often already mean something: age, balance, utilization, claims count, lab value, days since signup. A tree split can use those axes directly. A rotation mixes columns into synthetic directions, which may remove the threshold shape the tree was exploiting.',
-    invariant: 'The feature basis is not neutral when the model uses axis-aligned splits.',
+    explanation: `Tabular columns often already mean something: age, balance, utilization, claims count, lab value, days since signup. With ${transforms.length} transform paths and ${modelFamilies.length} model families, a tree split can use those axes directly. A rotation mixes columns into synthetic directions, which may remove the threshold shape the tree was exploiting.`,
+    invariant: `The feature basis is not neutral when the model uses axis-aligned splits.`,
   };
 
   yield {
@@ -82,7 +86,7 @@ function* axisSplits() {
       ],
     }),
     highlight: { active: ['tree', 'cut'], compare: ['smooth'] },
-    explanation: 'The simplest table signal is a threshold. A decision tree gets a cheap discontinuity. A smooth neural fit can approximate it, but usually needs more data, more capacity, or more tuning.',
+    explanation: `The simplest table signal is a threshold at x=${cutPoint}. A decision tree gets a cheap discontinuity. A smooth neural fit can approximate it, but usually needs more data, more capacity, or more tuning.`,
   };
 
   yield {
@@ -97,9 +101,10 @@ function* axisSplits() {
       ],
     }),
     highlight: { active: ['mixed', 'mix'], compare: ['tree'] },
-    explanation: 'After rotation, one original threshold may be smeared across several coordinates. This is why a representation that helps one model family can hurt another. PCA-like transforms are useful tools, but they are not harmless preprocessing.',
+    explanation: `After rotation, the original threshold at x=${cutPoint} may be smeared across several coordinates. This is why a representation that helps one of the ${modelFamilies.length} model families can hurt the other. PCA-like transforms are useful tools, but they are not harmless preprocessing.`,
   };
 
+  const basisChoices = ['raw cols', 'scaled', 'rotated', 'ratios', 'embeds'];
   yield {
     state: labelMatrix(
       'Feature-basis choices',
@@ -123,17 +128,20 @@ function* axisSplits() {
       ],
     ),
     highlight: { active: ['raw:helps', 'ratio:helps', 'scaled:helps'], compare: ['rotated:hurts'] },
-    explanation: 'Preprocessing has model-specific consequences. Scaling is often required for neural nets. Rotation can help linear or neural models but harm tree axes. Ratios can expose domain rules, but only if they are leakage-safe.',
+    explanation: `This table compares ${basisChoices.length} basis choices (${basisChoices.join(', ')}). Preprocessing has model-specific consequences. Scaling is often required for neural nets. Rotation can help linear or neural models but harm tree axes.`,
   };
 
   yield {
     state: basisGraph('Noise columns test whether the model can ignore junk'),
     highlight: { active: ['noise', 'tree', 'net', 'score', 'e-noise-tree', 'e-noise-net'], compare: ['ratio'] },
-    explanation: 'The local notes emphasize uninformative features: adding random columns often hurts MLP-like neural nets more than trees. The useful diagnostic is controlled noise injection: add junk columns, tune both models fairly, then plot degradation by model family.',
+    explanation: `The local notes emphasize uninformative features: adding random columns often hurts MLP-like neural nets more than ${modelFamilies[0]}s. The useful diagnostic is controlled noise injection: add junk columns, tune both ${modelFamilies.length} model families fairly, then plot degradation.`,
   };
 }
 
 function* diagnosticProtocol() {
+  const diagnosticArms = ['raw', 'scaled', 'rotated', 'noise add', 'drop weak'];
+  const noiseColCounts = [0, 20, 50, 100];
+
   yield {
     state: labelMatrix(
       'Orientation diagnostics',
@@ -157,10 +165,12 @@ function* diagnosticProtocol() {
       ],
     ),
     highlight: { active: ['raw:test', 'rotated:test', 'noise:test', 'drop:test'], found: ['scaled:learns'] },
-    explanation: 'The protocol is a small experiment grid. Compare raw, scaled, rotated, noise-injected, and feature-trimmed versions under the same tuning budget. The result tells you whether the model needs the original basis, clean features, scaling, or representation learning.',
-    invariant: 'A preprocessing step is not neutral until the benchmark proves it.',
+    explanation: `The protocol is a ${diagnosticArms.length}-arm experiment grid: ${diagnosticArms.join(', ')}. Compare under the same tuning budget. The result tells you whether the model needs the original basis, clean features, scaling, or representation learning.`,
+    invariant: `A preprocessing step is not neutral until the benchmark proves it.`,
   };
 
+  const gbdtDrop = 90 - 82;
+  const mlpDrop = 88 - 48;
   yield {
     state: plotState({
       axes: { x: { label: 'random noise cols', min: 0, max: 100 }, y: { label: 'relative score', min: 0, max: 100 } },
@@ -173,15 +183,17 @@ function* diagnosticProtocol() {
       ],
     }),
     highlight: { active: ['gbdt', 'mlp', 'gap'] },
-    explanation: 'This conceptual plot mirrors the paper lesson. Trees can skip bad features at split time. MLP-like nets still receive every input coordinate and may spend capacity learning around irrelevant or noisy columns.',
+    explanation: `This plot tests ${noiseColCounts.length} noise levels (${noiseColCounts.join(', ')} columns). GBDT drops only ${gbdtDrop} points while MLP drops ${mlpDrop}. Trees can skip bad features at split time. MLP-like nets still receive every input coordinate and may spend capacity learning around irrelevant or noisy columns.`,
   };
 
+  const recordFields = ['dataset version', 'split policy', 'preprocessing transform', 'tuning budget', 'model family', 'slice metrics', 'cost'];
   yield {
     state: basisGraph('A basis audit becomes a model-selection record'),
     highlight: { active: ['raw', 'rotate', 'ratio', 'noise', 'score', 'diag', 'e-score-diag'], found: ['tree', 'net'] },
-    explanation: 'Store the result like a model-selection record: dataset version, split policy, preprocessing transform, tuning budget, model family, slice metrics, and cost. Otherwise the team only remembers that one model won, not why it won.',
+    explanation: `Store the result like a model-selection record with ${recordFields.length} fields: ${recordFields.join(', ')}. Otherwise the team only remembers that one model won, not why it won.`,
   };
 
+  const outcomes = ['tree wins', 'net wins', 'tie', 'unstable'];
   yield {
     state: labelMatrix(
       'Actionable outcomes',
@@ -203,7 +215,7 @@ function* diagnosticProtocol() {
       ],
     ),
     highlight: { active: ['treewin:move', 'netwin:move', 'tie:move', 'unstable:move'] },
-    explanation: 'A diagnostic is useful only when it changes the decision. If tree wins on raw and loses after rotation, preserve the raw basis. If neural wins only after heavy tuning, include cost. If the result is unstable, fix splits and leakage before arguing architecture.',
+    explanation: `A diagnostic has ${outcomes.length} possible outcomes (${outcomes.join(', ')}). It is useful only when it changes the decision. If tree wins on raw and loses after rotation, preserve the raw basis. If the result is unstable, fix splits and leakage before arguing architecture.`,
   };
 }
 
@@ -231,7 +243,8 @@ export const article = {
           text: '  raw cols -----> rotate -----> tree -----> score -----> diagnose\n             +--> ratios -----> net  -----+\n             +--> noise  -------+----------+',
           label: 'Simplified flow: each transform path changes which model family looks strong',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/tabular-feature-basis-orientation-primer.gif', alt: 'Animated walkthrough of the tabular feature basis orientation primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

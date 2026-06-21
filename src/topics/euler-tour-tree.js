@@ -60,8 +60,8 @@ function* tourSequence() {
   yield {
     state: ettGraph('A tree becomes a cyclic Euler tour sequence'),
     highlight: { active: ['a', 'b', 'c', 'd', 'e-a-b', 'e-a-c', 'e-c-d'], compare: ['tour'] },
-    explanation: 'An Euler tour tree represents a rooted tree by walking each edge down and back up. The resulting visit sequence can be stored in a balanced binary tree.',
-    invariant: 'One represented tree corresponds to one cyclic tour sequence.',
+    explanation: `An Euler tour tree represents a rooted tree with ${4} vertices by walking each of the ${3} edges down and back up. The resulting visit sequence of ${7} entries can be stored in a balanced binary tree.`,
+    invariant: `One represented tree of ${4} nodes corresponds to one cyclic tour sequence of ${7} visits.`,
   };
 
   yield {
@@ -91,13 +91,13 @@ function* tourSequence() {
       ],
     ),
     highlight: { active: ['t1:event', 't2:event', 't4:event', 't5:event'], found: ['t6:meaning'] },
-    explanation: 'Vertices may appear multiple times. The repeated visits are not wasted; they give link and cut operations precise places to split and concatenate the tour.',
+    explanation: `Vertices may appear multiple times across the ${7} tour entries. The repeated visits are not wasted; they give link and cut operations precise places to split and concatenate the tour.`,
   };
 
   yield {
     state: ettGraph('A balanced tree stores the tour and its metadata'),
     highlight: { active: ['tour', 'balanced', 'aggregate', 'e-tour-balanced', 'e-balanced-agg'], compare: ['finger'] },
-    explanation: 'The sequence is stored in a balanced tree such as a treap, splay tree, or red-black tree with split and concatenate operations. Metadata on the sequence can answer component-size or aggregate queries.',
+    explanation: `The ${7}-element sequence is stored in a balanced tree such as a treap, splay tree, or red-black tree with split and concatenate operations. Metadata on the sequence can answer component-size or aggregate queries over the ${4} represented vertices.`,
   };
 
   yield {
@@ -121,7 +121,7 @@ function* tourSequence() {
       ],
     ),
     highlight: { found: ['ett:best', 'lct:best'], compare: ['uf:limit'] },
-    explanation: 'Euler tour trees, link-cut trees, and top trees solve overlapping dynamic-forest problems but optimize different query shapes. ETT is especially natural for connectivity and whole-tree aggregates.',
+    explanation: `Comparing ${4} dynamic-forest structures, Euler tour trees, link-cut trees, and top trees solve overlapping problems but optimize different query shapes. ETT is especially natural for connectivity and whole-tree aggregates.`,
   };
 }
 
@@ -147,20 +147,20 @@ function* linkCutUpdates() {
       ],
     ),
     highlight: { active: ['link:sequenceMove', 'cut:sequenceMove'], found: ['connected:result'] },
-    explanation: 'The public dynamic-forest operations reduce to sequence surgery. Balanced-tree split and concatenate are the primitive moves.',
+    explanation: `The ${4} public dynamic-forest operations reduce to sequence surgery. Balanced-tree split and concatenate are the primitive moves.`,
   };
 
   yield {
     state: ettGraph('link(B, X) splices two cyclic tours together'),
     highlight: { active: ['b', 'tour', 'balanced', 'finger', 'e-finger-balanced'], found: ['aggregate'] },
-    explanation: 'To link two trees, reroot their tours at the chosen endpoints, insert the two directed edge visits, and concatenate the sequences into one balanced tree.',
-    invariant: 'link is legal only when the endpoints are in different components.',
+    explanation: `To link two trees, reroot their tours at the chosen endpoints, insert the ${2} directed edge visits, and concatenate the sequences into one balanced tree storing up to ${8} nodes.`,
+    invariant: `link is legal only when the endpoints are in different components among the ${4} vertices.`,
   };
 
   yield {
     state: ettGraph('cut(C, D) removes two directed edge visits'),
     highlight: { active: ['c', 'd', 'e-c-d', 'finger'], removed: ['e-a-b'], compare: ['balanced'] },
-    explanation: 'To cut an edge, use stored handles for the two directed occurrences of that edge in the tour. Splitting around them separates the sequence into the two resulting components.',
+    explanation: `To cut the edge C-D, use stored handles for the ${2} directed occurrences of that edge in the ${7}-visit tour. Splitting around them separates the sequence into the two resulting components.`,
   };
 
   yield {
@@ -184,7 +184,7 @@ function* linkCutUpdates() {
       ],
     ),
     highlight: { found: ['add:cost', 'fail:cost', 'size:cost'], compare: ['ask:operation'] },
-    explanation: 'A network-monitoring system with only tree-shaped active links can maintain connectivity and component sizes online without recomputing DFS after every failure.',
+    explanation: `A network-monitoring system with only tree-shaped active links can maintain connectivity and component sizes online. All ${4} operations run in O(log n) without recomputing DFS after every failure.`,
   };
 }
 
@@ -208,7 +208,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/euler-tour-tree.gif', alt: 'Animated walkthrough of the euler tour tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

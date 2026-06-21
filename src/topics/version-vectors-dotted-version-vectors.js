@@ -76,11 +76,19 @@ function dottedGraph(title) {
 }
 
 function* versionVectors() {
+  const actors = ['A', 'B', 'C'];
+  const numActors = actors.length;
+  const ops = { read: 'read', put: 'put', descends: 'descends?', concurrent: 'concurrent', resolve: 'resolve', newVV: 'new VV' };
+  const oldVector = 'A:2 B:1 C:0';
+  const descVector = 'A:2 B:2 C:0';
+  const concVector = 'A:2 B:1 C:1';
+  const mergedVector = 'A:2 B:2 C:1';
+
   yield {
     state: metadataGraph('Version vectors carry causal context with values'),
     highlight: { active: ['client', 'context', 'replica', 'e-client-context', 'e-context-replica'], compare: ['siblings'] },
-    explanation: 'A replicated key-value store returns a value with a causal context. The client sends that context back on PUT, so the replica can tell whether the new write replaces older state or conflicts with it.',
-    invariant: 'The metadata answers a narrow question: did this write observe that previous value?',
+    explanation: `A replicated key-value store returns a value with a causal context. The client sends that context back on ${ops.put.toUpperCase()}, so the replica can tell whether the new write ${ops.descends} from older state or is ${ops.concurrent} with it.`,
+    invariant: `The metadata answers a narrow question for ${numActors} actors: did this write observe that previous value?`,
   };
 
   yield {
@@ -104,14 +112,14 @@ function* versionVectors() {
       ],
     ),
     highlight: { found: ['desc:decision', 'merge:decision'], compare: ['conc:decision'] },
-    explanation: 'Componentwise comparison gives the decision. If the incoming vector is greater-or-equal in every slot and larger somewhere, it descends from the old version. If neither vector dominates, the writes are concurrent and both values must survive as siblings.',
+    explanation: `Componentwise comparison across ${numActors} actors (${actors.join(', ')}) gives the decision. If the incoming vector like ${descVector} is greater-or-equal in every slot than ${oldVector} and larger somewhere, it descends. If neither dominates, as with ${concVector}, the writes are ${ops.concurrent} and both survive as siblings.`,
   };
 
   yield {
     state: metadataGraph('Concurrent versions become siblings, not automatic truth'),
     highlight: { active: ['replica', 'siblings', 'app', 'e-replica-siblings', 'e-siblings-app'], found: ['stored'] },
-    explanation: 'Version vectors detect the conflict; they do not solve the business problem. A shopping cart can union item additions. A profile name, ledger entry, or permission rule may need a human policy or consensus instead.',
-    invariant: 'Causality metadata separates systems conflict from product semantics.',
+    explanation: `Version vectors detect the conflict via the ${ops.concurrent} edge; they do not ${ops.resolve} the business problem. A shopping cart can union item additions. A profile name, ledger entry, or permission rule may need a human policy — the ${ops.newVV} edge only records the merged outcome.`,
+    invariant: `Causality metadata separates systems conflict from product semantics — the ${ops.resolve} step is always application-owned.`,
   };
 
   yield {
@@ -135,11 +143,15 @@ function* versionVectors() {
       ],
     ),
     highlight: { active: ['put1:context', 'put2:context'], compare: ['read:result'] },
-    explanation: 'This is the Dynamo/Riak shape: writes stay available during partitions, reads may later return siblings, and application reconciliation creates a new value with context that dominates the siblings it intentionally replaces.',
+    explanation: `This is the Dynamo/Riak shape: writes stay available during partitions, reads may later return siblings. When the merged result ${mergedVector} dominates both ${descVector} and ${concVector}, application reconciliation has intentionally replaced the siblings it observed.`,
   };
 }
 
 function* dottedVectors() {
+  const dots = { bob: 'a:1', sue: 'a:2', rita: 'a:3' };
+  const ctx = `ctx ${dots.bob}`;
+  const numDots = Object.keys(dots).length;
+
   yield {
     state: labelMatrix(
       'Where plain server vectors lose precision',
@@ -161,14 +173,14 @@ function* dottedVectors() {
       ],
     ),
     highlight: { removed: ['bad:outcome'], active: ['rita:metadata'] },
-    explanation: 'If one server id summarizes multiple client writes, a merged vector can forget which exact event created each sibling. A later write may have seen Bob but not Sue, yet the server cannot tell and keeps too many siblings.',
+    explanation: `If one server id summarizes multiple client writes, a merged vector can forget which exact event (${dots.bob}, ${dots.sue}) created each sibling. A later write with ${ctx} may have seen Bob but not Sue, yet the server cannot tell and keeps too many siblings.`,
   };
 
   yield {
     state: dottedGraph('A dot names the one event that created a value'),
     highlight: { active: ['dot1', 'dot2', 'ctx', 'dot3'], found: ['keep'], compare: ['vv'] },
-    explanation: 'A dotted version vector separates the causal past from the latest event. The vector summarizes the past; the dot, such as a:2, names the exact update that introduced one value.',
-    invariant: 'A dot is one event, not the whole prefix summarized by a vector entry.',
+    explanation: `A dotted version vector separates the causal past from the latest event. The vector summarizes the past; the dot, such as ${dots.sue}, names the exact update that introduced one value. With ${numDots} dots tracked, each sibling keeps its individual event identity.`,
+    invariant: `A dot like ${dots.bob} is one event, not the whole prefix summarized by a vector entry.`,
   };
 
   yield {
@@ -192,7 +204,7 @@ function* dottedVectors() {
       ],
     ),
     highlight: { found: ['bob:decision', 'final:decision'], compare: ['sue:decision'] },
-    explanation: "The incoming context a:1 covers Bob's dot, so Bob is obsolete. It does not cover Sue's dot a:2, so Sue is a true concurrent sibling. Rita receives the fresh dot a:3.",
+    explanation: `The incoming ${ctx} covers Bob's dot ${dots.bob}, so Bob is obsolete. It does not cover Sue's dot ${dots.sue}, so Sue is a true concurrent sibling. Rita receives the fresh dot ${dots.rita}.`,
   };
 
   yield {
@@ -216,7 +228,7 @@ function* dottedVectors() {
       ],
     ),
     highlight: { found: ['dvv:good'], compare: ['server:risk', 'prune:risk'] },
-    explanation: 'Dotted vectors were designed for the production compromise. They keep server-sized metadata while retaining enough event precision to avoid sibling explosions and unsafe pruning behavior.',
+    explanation: `Dotted vectors were designed for the production compromise. With ${numDots} dots (${dots.bob}, ${dots.sue}, ${dots.rita}), they keep server-sized metadata while retaining enough event precision to avoid sibling explosions and unsafe pruning behavior.`,
   };
 }
 
@@ -229,6 +241,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/version-vectors-dotted-version-vectors.gif', alt: 'Animated walkthrough of the version vectors dotted version vectors visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

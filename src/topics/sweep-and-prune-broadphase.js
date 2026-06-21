@@ -85,11 +85,14 @@ function engineGraph(title) {
 }
 
 function* sweepAxis() {
+  const objects = ['A', 'B', 'C'];
+  const events = ['A-', 'B-', 'A+', 'C-'];
+
   yield {
     state: sweepGraph('Sort endpoints and sweep from left to right'),
     highlight: { active: ['a0', 'b0', 'a1', 'e-a0-b0', 'e-b0-a1'], found: ['active', 'pairs'] },
-    explanation: 'Sweep-and-prune projects each bounding box onto an axis. Sort every interval start and end. As the sweep line moves, starts add objects to the active set and ends remove them.',
-    invariant: 'Two boxes cannot overlap if their intervals are disjoint on any tested axis.',
+    explanation: `Sweep-and-prune projects each bounding box onto an axis. With ${objects.length} objects (${objects.join(', ')}), the sweep processes ${events.length} events. As the sweep line moves, starts add objects to the active set and ends remove them.`,
+    invariant: `Two boxes cannot overlap if their intervals are disjoint on any tested axis.`,
   };
 
   yield {
@@ -114,15 +117,16 @@ function* sweepAxis() {
       ],
     ),
     highlight: { active: ['b0:active', 'b0:emit'], found: ['c0:emit'], compare: ['a1:active'] },
-    explanation: 'When B starts while A is active, their x intervals overlap and A-B becomes a candidate. When A ends, it leaves the active set and cannot overlap later starts on this axis.',
+    explanation: `When ${objects[1]} starts while ${objects[0]} is active, their x intervals overlap and ${objects[0]}-${objects[1]} becomes a candidate. When ${objects[0]} ends, it leaves the active set and cannot overlap later starts on this axis.`,
   };
 
   yield {
     state: sweepGraph('Multiple axes prune false positives'),
     highlight: { active: ['pairs', 'narrow', 'e-pairs-narrow'], compare: ['active'], removed: ['c0'] },
-    explanation: 'In 2D or 3D, intervals must overlap on every axis for AABBs to overlap. A pair discovered on x can still be rejected if y or z intervals are disjoint.',
+    explanation: `In 2D or 3D, intervals must overlap on every axis for AABBs to overlap. With ${objects.length} objects, a pair discovered on x can still be rejected if y or z intervals are disjoint.`,
   };
 
+  const motionTypes = ['static scene', 'small motion', 'chaotic motion', 'GPU sort'];
   yield {
     state: labelMatrix(
       'Why insertion sort appears',
@@ -144,16 +148,19 @@ function* sweepAxis() {
       ],
     ),
     highlight: { active: ['coherent:order', 'coherent:choice'], found: ['gpu:choice'], compare: ['chaotic:choice'] },
-    explanation: 'Physics frames are often temporally coherent: objects move only a little, so endpoint lists stay almost sorted. That is why insertion sort can be excellent here despite its bad worst-case label.',
+    explanation: `Physics frames are often temporally coherent: this table covers ${motionTypes.length} motion scenarios. Objects move only a little, so endpoint lists stay almost sorted. That is why insertion sort can be excellent here despite its bad worst-case label.`,
   };
 }
 
 function* physicsEngineCaseStudy() {
+  const pipelineStages = ['AABB', 'sort X', 'sort Y', 'sweep', 'axes', 'dedupe', 'narrow'];
+  const axisOptions = ['one axis', 'two axes', 'three axes', 'grid + SAP'];
+
   yield {
     state: engineGraph('Physics broad phase starts from updated AABBs'),
     highlight: { active: ['aabb', 'sortx', 'sorty', 'e-aabb-sortx', 'e-aabb-sorty'], found: ['sweep'] },
-    explanation: 'Each frame, a physics engine updates world-space AABBs for shapes. Sweep-and-prune sorts interval endpoints, sweeps active sets, intersects axis results, and sends candidates to narrow phase.',
-    invariant: 'Broad phase can over-report, but it cannot under-report true overlaps.',
+    explanation: `Each frame, a physics engine pushes AABBs through a ${pipelineStages.length}-stage pipeline: ${pipelineStages.join(' -> ')}. Sweep-and-prune sorts interval endpoints, sweeps active sets, intersects axis results, and sends candidates to narrow phase.`,
+    invariant: `Broad phase can over-report, but it cannot under-report true overlaps.`,
   };
 
   yield {
@@ -177,15 +184,16 @@ function* physicsEngineCaseStudy() {
       ],
     ),
     highlight: { active: ['two:helps', 'three:helps'], compare: ['one:cost'], found: ['gridSap:helps'] },
-    explanation: 'A single axis is cheap but weak. Multiple axes remove false positives. Engines may also partition a large flat world into regions and run sweep-and-prune inside each region.',
+    explanation: `This table compares ${axisOptions.length} axis strategies: ${axisOptions.join(', ')}. A single axis is cheap but weak. Multiple axes remove false positives. Engines may also partition a large flat world into regions and run sweep-and-prune inside each region.`,
   };
 
   yield {
     state: engineGraph('Temporal coherence keeps endpoint updates cheap'),
     highlight: { active: ['sortx', 'sorty', 'sweep', 'e-sortx-sweep', 'e-sorty-sweep'], compare: ['dedupe'], found: ['narrow'] },
-    explanation: 'When objects move smoothly, only nearby endpoints swap order. The engine can update lists incrementally, emit pair add/remove events, and avoid a complete rebuild every frame.',
+    explanation: `When objects move smoothly, only nearby endpoints swap order. The ${pipelineStages.length}-stage pipeline can update lists incrementally, emit pair add/remove events, and avoid a complete rebuild every frame.`,
   };
 
+  const broadPhases = ['SAP', 'hash grid', 'dynamic tree', 'BVH'];
   yield {
     state: labelMatrix(
       'Compare broad-phase choices',
@@ -207,7 +215,7 @@ function* physicsEngineCaseStudy() {
       ],
     ),
     highlight: { active: ['sap:fits', 'grid:fits'], compare: ['tree:weakness', 'bvh:weakness'] },
-    explanation: 'No broad phase wins everywhere. Sweep-and-prune is strong when motion is coherent and a small number of axes give good separation. Hash grids win for uniform local density. Trees and BVHs handle more irregular geometry.',
+    explanation: `No broad phase wins everywhere — this table compares ${broadPhases.length} strategies: ${broadPhases.join(', ')}. Sweep-and-prune is strong when motion is coherent and a small number of axes give good separation.`,
   };
 }
 
@@ -220,6 +228,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/sweep-and-prune-broadphase.gif', alt: 'Animated walkthrough of the sweep and prune broadphase visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

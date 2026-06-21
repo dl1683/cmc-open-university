@@ -28,6 +28,10 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* probeGroups() {
+  const lookupStages = ['key', 'hash64', 'H1/H2', 'ctrl', 'mask', 'equals'];
+  const groupSize = 16;
+  const h2Target = '7a';
+
   yield {
     state: graphState({
       nodes: [
@@ -47,21 +51,23 @@ function* probeGroups() {
       ],
     }, { title: 'Lookup filters a probe group before touching keys' }),
     highlight: { active: ['split', 'ctrl', 'mask'], found: ['eq'] },
-    explanation: 'SwissTable splits the hash. H1 chooses where probing starts; H2 is stored in a compact control byte. A group scan finds only slots whose H2 tag could match, so expensive key equality checks are rare.',
+    explanation: `SwissTable splits the hash across ${lookupStages.length} stages: ${lookupStages.join(' -> ')}. H1 chooses where probing starts; H2 is stored in a compact control byte. A group scan finds only slots whose H2 tag could match, so expensive key equality checks are rare.`,
   };
 
+  const h2Candidates = [1, 5, 10];
   yield {
     state: labelMatrix(
       'One 16-byte control group',
       [{ id: 'ctrl', label: 'ctrl' }],
-      Array.from({ length: 16 }, (_, i) => ({ id: `c${i}`, label: String(i) })),
+      Array.from({ length: groupSize }, (_, i) => ({ id: `c${i}`, label: String(i) })),
       [['E', '7a', '11', 'D', '2f', '7a', '80', '01', 'E', '9c', '7a', '44', 'D', '32', '10', 'E']],
     ),
     highlight: { active: ['ctrl:c1', 'ctrl:c5', 'ctrl:c10'], compare: ['ctrl:c0', 'ctrl:c8', 'ctrl:c15'] },
-    explanation: 'The control array stores tiny metadata beside the slots: empty, deleted, or a 7-bit H2 tag. A lookup for H2=7a creates a mask for candidate slots 1, 5, and 10, then checks only those actual keys.',
-    invariant: 'Control bytes are a fast prefilter; the real key comparison still decides equality.',
+    explanation: `The control array stores ${groupSize} tiny metadata bytes beside the slots: empty, deleted, or a 7-bit H2 tag. A lookup for H2=${h2Target} creates a mask for ${h2Candidates.length} candidate slots (${h2Candidates.join(', ')}), then checks only those actual keys.`,
+    invariant: `Control bytes are a fast prefilter; the real key comparison still decides equality.`,
   };
 
+  const probeOutcomes = ['candidate', 'empty', 'deleted', 'next group'];
   yield {
     state: labelMatrix(
       'Probe decision',
@@ -83,7 +89,7 @@ function* probeGroups() {
       ],
     ),
     highlight: { found: ['hit:action', 'empty:action', 'deleted:action'] },
-    explanation: 'Deleted slots cannot terminate a probe chain, but an empty slot can. That rule preserves correctness while keeping open addressing compact.',
+    explanation: `Each slot in a ${groupSize}-byte group falls into one of ${probeOutcomes.length} outcomes: ${probeOutcomes.join(', ')}. Deleted slots cannot terminate a probe chain, but an empty slot can. That rule preserves correctness while keeping open addressing compact.`,
   };
 
   yield {
@@ -95,11 +101,14 @@ function* probeGroups() {
       ],
     }),
     highlight: { active: ['swiss'], compare: ['classic'] },
-    explanation: 'The exact curve depends on data and hashing, but the design goal is clear: scan metadata cheaply, avoid cache misses, and delay real key comparisons until a compact filter says they are plausible.',
+    explanation: `The exact curve depends on data and hashing, but the design goal is clear: scan ${groupSize} metadata bytes cheaply, avoid cache misses, and delay real key comparisons until a compact filter says they are plausible.`,
   };
 }
 
 function* flatTableTradeoffs() {
+  const layouts = ['flat', 'node', 'std chain'];
+  const maxLoadFactor = 7 / 8;
+
   yield {
     state: labelMatrix(
       'Flat vs node hash maps',
@@ -120,9 +129,10 @@ function* flatTableTradeoffs() {
       ],
     ),
     highlight: { active: ['flat:layout', 'flat:good'], compare: ['node:risk', 'std:risk'] },
-    explanation: 'Abseil flat_hash_map stores values inline in the slot array. That is cache friendly, but rehashing can move values and invalidate pointers. Node variants trade memory and indirection for address stability.',
+    explanation: `Abseil flat_hash_map stores values inline in the slot array, comparing ${layouts.length} layout strategies. That is cache friendly, but rehashing at ${(maxLoadFactor * 100).toFixed(1)}% load can move values and invalidate pointers. Node variants trade memory and indirection for address stability.`,
   };
 
+  const migrationConcerns = ['layout', 'pointers', 'perf', 'bugs'];
   yield {
     state: graphState({
       nodes: [
@@ -143,9 +153,10 @@ function* flatTableTradeoffs() {
       ],
     }, { title: 'Container migration is a contract audit' }),
     highlight: { active: ['layout', 'ptr', 'perf'], found: ['bugs'] },
-    explanation: 'SwissTable is a systems lesson: a faster container changes memory layout, pointer stability, erase behavior, and iteration order assumptions.',
+    explanation: `SwissTable is a systems lesson: a faster container changes ${migrationConcerns.length} concerns — ${migrationConcerns.join(', ')}. Memory layout, pointer stability, erase behavior, and iteration order assumptions all shift.`,
   };
 
+  const checklistItems = ['hash', 'order', 'addr', 'erase'];
   yield {
     state: labelMatrix(
       'Migration checklist',
@@ -167,7 +178,7 @@ function* flatTableTradeoffs() {
       ],
     ),
     highlight: { found: ['hash:question', 'order:question', 'addr:question', 'erase:question'] },
-    explanation: 'The right migration review is not "is SwissTable faster?" It is "which contracts did the old table accidentally provide, and does the new table intentionally provide them?"',
+    explanation: `The right migration review asks ${checklistItems.length} questions (${checklistItems.join(', ')}): not "is SwissTable faster?" but "which contracts did the old table accidentally provide, and does the new table intentionally provide them?"`,
   };
 
   yield {
@@ -179,7 +190,7 @@ function* flatTableTradeoffs() {
       ],
     }),
     highlight: { active: ['flat'], compare: ['node'] },
-    explanation: 'Flat layout and metadata scanning reduce pointer chasing. The lesson generalizes beyond C++: data layout is often the difference between theoretical O(1) and practical throughput.',
+    explanation: `Flat layout and metadata scanning reduce pointer chasing. With a max load of ${(maxLoadFactor * 100).toFixed(1)}%, the lesson generalizes beyond C++: data layout is often the difference between theoretical O(1) and practical throughput.`,
   };
 }
 
@@ -200,7 +211,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/swisstable-hash-map.gif', alt: 'Animated walkthrough of the swisstable hash map visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

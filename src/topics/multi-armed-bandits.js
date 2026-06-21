@@ -104,7 +104,8 @@ export const article = {
           type: 'note',
           text: 'The true conversion rates (A=4%, B=6%, C=5%) are hidden from the algorithm. The animation uses deterministic rounding for reproducibility, so estimates converge cleanly. Real traffic would show more noise, which is exactly why exploration must never stop completely.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/multi-armed-bandits.gif', alt: 'Animated walkthrough of the multi armed bandits visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

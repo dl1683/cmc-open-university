@@ -107,7 +107,7 @@ function* louvainPass() {
   yield {
     state: communityGraph('A weighted graph has denser internal regions'),
     highlight: { active: ['a', 'b', 'c', 'd', 'e', 'f'], compare: ['g'], found: ['e-a-b', 'e-d-e', 'e-d-f'] },
-    explanation: 'Read the graph as a compression problem. Community detection tries to replace many related nodes with groups that have dense internal edges and fewer outside connections.',
+    explanation: `Read the graph as a compression problem. ${topic.title} tries to replace many related nodes with groups that have dense internal edges and fewer outside connections.`,
   };
 
   yield {
@@ -130,20 +130,20 @@ function* louvainPass() {
       ],
     ),
     highlight: { active: ['orange:gain', 'orange:internal'], compare: ['blue:gain'], removed: ['stay:gain'] },
-    explanation: 'Louvain greedily tries moving one node into neighboring communities. A move is kept when it improves modularity: more weight inside communities than expected under a degree-preserving null model.',
-    invariant: 'The algorithm is heuristic: it optimizes a score greedily, not by checking every possible partition.',
+    explanation: `Louvain greedily tries moving one node into each of the ${3} neighboring communities. A move is kept when it improves modularity — the best delta here is ${'+0.16'}, so node C joins the orange cluster.`,
+    invariant: `${topic.title} is heuristic: it optimizes a score greedily, not by checking every possible partition.`,
   };
 
   yield {
     state: pipelineGraph('Louvain alternates local moves and aggregation'),
     highlight: { active: ['singletons', 'move', 'partition', 'e-singletons-move', 'e-move-partition'], compare: ['aggregate'] },
-    explanation: 'The first phase starts with every node in its own community and repeatedly moves nodes when modularity improves. Once local moves stop helping, the current communities become the partition for this level.',
+    explanation: `The first phase starts with every node in its own community and repeatedly moves nodes when modularity improves. The pipeline graph shows ${6} stages — once local moves stop helping, the current communities become the partition for this level.`,
   };
 
   yield {
     state: pipelineGraph('Aggregation turns communities into supernodes'),
     highlight: { active: ['partition', 'aggregate', 'next', 'e-partition-aggregate', 'e-aggregate-next'], found: ['move'] },
-    explanation: 'The aggregation frame is why Louvain creates a hierarchy. Communities become supernodes, edge weights are rolled up, and the same local-move game repeats on a smaller graph.',
+    explanation: `The aggregation frame is why Louvain creates a hierarchy. Communities become supernodes, edge weights are rolled up, and the same local-move game repeats on a smaller graph — this is the core loop in ${topic.title}.`,
   };
 
   yield {
@@ -167,7 +167,7 @@ function* louvainPass() {
       ],
     ),
     highlight: { active: ['level0:action', 'level1:action', 'level2:action'], found: ['stop:action'] },
-    explanation: 'The result is naturally hierarchical. That hierarchy is why community detection is useful for graph indexes: each level gives a different compression of the same relationship structure.',
+    explanation: `The result is naturally hierarchical across ${4} rows — level 0 through the stop condition. That hierarchy is why ${topic.category.toLowerCase()} like community partitions are useful for graph indexes: each level gives a different compression of the same relationship structure.`,
   };
 }
 
@@ -175,7 +175,7 @@ function* leidenRefinement() {
   yield {
     state: leidenGraph('Leiden fixes a Louvain failure mode'),
     highlight: { active: ['louvain', 'check', 'bad', 'e-louvain-check', 'e-check-bad'], compare: ['good'] },
-    explanation: 'Louvain can produce communities that score well by modularity but are weakly connected internally, or even disconnected after repeated aggregation. Leiden inserts a refinement step before aggregation.',
+    explanation: `Louvain can produce communities that score well by modularity but are weakly connected internally, or even disconnected after repeated aggregation. The Leiden half of ${topic.title} inserts a refinement step among the ${7} pipeline nodes before aggregation.`,
   };
 
   yield {
@@ -199,14 +199,14 @@ function* leidenRefinement() {
       ],
     ),
     highlight: { active: ['louvain:risk'], found: ['final:internal shape'], compare: ['refined1:internal shape', 'refined2:internal shape'] },
-    explanation: 'The failure frame matters for GraphRAG. A weakly connected community may still score well, but it becomes a bad summary unit because unrelated entities are forced into one report.',
-    invariant: 'Leiden refines communities before constructing the next aggregated graph.',
+    explanation: `The failure frame matters for GraphRAG. A weakly connected community may still score well, but it becomes a bad summary unit because unrelated entities are forced into one report — this is why ${topic.title} matters in practice.`,
+    invariant: `Leiden refines communities before constructing the next aggregated graph, a guarantee that plain Louvain in the ${topic.category} toolbox does not provide.`,
   };
 
   yield {
     state: leidenGraph('Refined communities become the next graph'),
     highlight: { active: ['split', 'good', 'aggregate', 'repeat', 'e-split-good', 'e-good-aggregate', 'e-aggregate-repeat'], compare: ['bad'] },
-    explanation: 'After refinement, Leiden aggregates the refined partition and repeats. The paper proves stronger guarantees than Louvain: communities are connected, and iterative Leiden converges toward local optimality for subsets inside communities.',
+    explanation: `After refinement, Leiden aggregates the refined partition and repeats through ${7} pipeline stages. The paper proves stronger guarantees than Louvain: communities are connected, and iterative Leiden converges toward local optimality for subsets inside communities.`,
   };
 
   yield {
@@ -230,7 +230,7 @@ function* leidenRefinement() {
       ],
     ),
     highlight: { active: ['cluster:artifact', 'cluster:quality gate'], found: ['summary:quality gate'], compare: ['edges:quality gate'] },
-    explanation: 'GraphRAG uses community detection as an indexing primitive. The graph algorithm decides which entities get summarized together, so cluster quality directly affects global-search answer quality.',
+    explanation: `GraphRAG uses ${topic.title} as an indexing primitive. The graph algorithm decides which entities get summarized together across the ${4} rows shown, so cluster quality directly affects global-search answer quality.`,
   };
 }
 
@@ -250,7 +250,8 @@ export const article = {
         'In the matrix frames, rows are candidate moves and columns are the quantities that determine whether a move improves modularity. The highlighted cell is the winning option. Follow the delta-modularity column: a positive value means the move is accepted, zero means no improvement, and the algorithm moves on.',
         'At each frame, ask three things: what partition exists right now, what move is being tested, and whether the move improved the objective or exposed a structural flaw.',
         {type: 'callout', text: 'Leiden adds a repair step to a greedy compression loop, so communities are not allowed to become permanent supernodes while internally broken.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/leiden-louvain-community-detection.gif', alt: 'Animated walkthrough of the leiden louvain community detection visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

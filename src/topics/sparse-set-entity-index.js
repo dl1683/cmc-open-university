@@ -73,143 +73,190 @@ function joinGraph(title) {
 }
 
 function* denseSparseMapping() {
-  yield {
-    state: sparseSetGraph('Sparse array points into dense arrays'),
-    highlight: { active: ['entity', 'sparse', 'row', 'e-entity-sparse', 'e-sparse-row'], found: ['denseIds', 'denseVals'] },
-    explanation: 'A sparse set splits membership from iteration. The sparse array is indexed by entity id and stores the dense row. The dense arrays store only live members.',
-    invariant: 'Entity e is present when denseEntities[sparse[e]] equals e.',
-  };
+  {
+    const highlight = { active: ['entity', 'sparse', 'row', 'e-entity-sparse', 'e-sparse-row'], found: ['denseIds', 'denseVals'] };
+    const activeNodes = highlight.active.filter(id => !id.startsWith('e-'));
+    const foundNodes = highlight.found;
+    yield {
+      state: sparseSetGraph('Sparse array points into dense arrays'),
+      highlight,
+      explanation: `A sparse set splits membership from iteration. The ${activeNodes.length} lookup nodes (${activeNodes.join(', ')}) trace the path from entity id to dense row, while the ${foundNodes.length} found nodes (${foundNodes.join(', ')}) store only live members.`,
+      invariant: 'Entity e is present when denseEntities[sparse[e]] equals e.',
+    };
+  }
 
-  yield {
-    state: labelMatrix(
-      'Membership check',
-      [
-        { id: 'e3', label: 'entity 3' },
-        { id: 'e7', label: 'entity 7' },
-        { id: 'e42', label: 'entity 42' },
-        { id: 'e99', label: 'entity 99' },
-      ],
-      [
-        { id: 'sparse', label: 'sparse[id]' },
-        { id: 'dense', label: 'dense[row]' },
-        { id: 'present', label: 'present?' },
-      ],
-      [
-        ['0', '3', 'yes'],
-        ['2', '7', 'yes'],
-        ['3', '42', 'yes'],
-        ['3', '42', 'no'],
-      ],
-    ),
-    highlight: { active: ['e42:sparse', 'e42:dense', 'e42:present'], removed: ['e99:present'] },
-    explanation: 'The final equality check matters. Sparse entries can contain old row numbers or default values. The dense entity id confirms that the row actually belongs to the queried entity.',
-  };
+  {
+    const rows = [
+      { id: 'e3', label: 'entity 3' },
+      { id: 'e7', label: 'entity 7' },
+      { id: 'e42', label: 'entity 42' },
+      { id: 'e99', label: 'entity 99' },
+    ];
+    const columns = [
+      { id: 'sparse', label: 'sparse[id]' },
+      { id: 'dense', label: 'dense[row]' },
+      { id: 'present', label: 'present?' },
+    ];
+    const highlight = { active: ['e42:sparse', 'e42:dense', 'e42:present'], removed: ['e99:present'] };
+    const removedCell = highlight.removed[0];
+    yield {
+      state: labelMatrix(
+        'Membership check',
+        rows,
+        columns,
+        [
+          ['0', '3', 'yes'],
+          ['2', '7', 'yes'],
+          ['3', '42', 'yes'],
+          ['3', '42', 'no'],
+        ],
+      ),
+      highlight,
+      explanation: `Across ${rows.length} entities and ${columns.length} columns, the final equality check matters. The ${highlight.active.length} active cells confirm entity 42, while ${removedCell} shows entity 99 fails the dense confirmation because the row does not actually belong to it.`,
+    };
+  }
 
-  yield {
-    state: sparseSetGraph('Iteration ignores holes by scanning only the dense side'),
-    highlight: { active: ['denseIds', 'denseVals', 'iter', 'e-ids-iter', 'e-values-iter'], compare: ['sparse'], found: ['row'] },
-    explanation: 'Dense iteration is the reason sparse sets are useful in ECS systems. The loop walks packed component values rather than scanning the entire possible entity-id range.',
-  };
+  {
+    const highlight = { active: ['denseIds', 'denseVals', 'iter', 'e-ids-iter', 'e-values-iter'], compare: ['sparse'], found: ['row'] };
+    const activeNodes = highlight.active.filter(id => !id.startsWith('e-'));
+    const activeEdges = highlight.active.filter(id => id.startsWith('e-'));
+    yield {
+      state: sparseSetGraph('Iteration ignores holes by scanning only the dense side'),
+      highlight,
+      explanation: `Dense iteration walks ${activeNodes.length} packed nodes (${activeNodes.join(', ')}) connected by ${activeEdges.length} edges. The ${highlight.compare[0]} array fades to a supporting role because the loop scans only packed component values rather than the entire entity-id range.`,
+    };
+  }
 
-  yield {
-    state: labelMatrix(
-      'Sparse set fields',
-      [
-        { id: 'sparse', label: 'sparse index' },
-        { id: 'packed', label: 'packed ids' },
-        { id: 'values', label: 'component values' },
-        { id: 'ticks', label: 'change ticks' },
-      ],
-      [
-        { id: 'job', label: 'job' },
-        { id: 'tradeoff', label: 'tradeoff' },
-      ],
-      [
-        ['membership', 'big id space'],
-        ['iteration order', 'swap changes order'],
-        ['payload storage', 'component specific'],
-        ['change detection', 'metadata bytes'],
-      ],
-    ),
-    highlight: { active: ['sparse:job', 'packed:job', 'values:job'], found: ['ticks:job'], compare: ['packed:tradeoff'] },
-    explanation: 'Production ECS pools often add change ticks, tombstones, page allocation, sorting hooks, or pointer-stability policies around the same sparse/dense core.',
-  };
+  {
+    const rows = [
+      { id: 'sparse', label: 'sparse index' },
+      { id: 'packed', label: 'packed ids' },
+      { id: 'values', label: 'component values' },
+      { id: 'ticks', label: 'change ticks' },
+    ];
+    const columns = [
+      { id: 'job', label: 'job' },
+      { id: 'tradeoff', label: 'tradeoff' },
+    ];
+    const highlight = { active: ['sparse:job', 'packed:job', 'values:job'], found: ['ticks:job'], compare: ['packed:tradeoff'] };
+    const foundLabel = rows.find(r => highlight.found[0].startsWith(r.id)).label;
+    yield {
+      state: labelMatrix(
+        'Sparse set fields',
+        rows,
+        columns,
+        [
+          ['membership', 'big id space'],
+          ['iteration order', 'swap changes order'],
+          ['payload storage', 'component specific'],
+          ['change detection', 'metadata bytes'],
+        ],
+      ),
+      highlight,
+      explanation: `A ${rows.length}-row by ${columns.length}-column breakdown shows ${highlight.active.length} core fields and 1 extension (${foundLabel}). Production ECS pools often add ${foundLabel}, tombstones, page allocation, sorting hooks, or pointer-stability policies around the same sparse/dense core.`,
+    };
+  }
 
-  yield {
-    state: sparseSetGraph('Complete case: component pool for renderable entities'),
-    highlight: { active: ['sparse', 'denseIds', 'denseVals', 'iter'], found: ['entity', 'row'] },
-    explanation: 'A Renderable component pool can answer "does entity 42 render?" in constant time while the render loop scans a compact array of only renderable entities.',
-  };
+  {
+    const highlight = { active: ['sparse', 'denseIds', 'denseVals', 'iter'], found: ['entity', 'row'] };
+    yield {
+      state: sparseSetGraph('Complete case: component pool for renderable entities'),
+      highlight,
+      explanation: `With ${highlight.active.length} active nodes (${highlight.active.join(', ')}) and ${highlight.found.length} found nodes (${highlight.found.join(', ')}), a Renderable component pool answers "does entity 42 render?" in constant time while the render loop scans a compact array of only renderable entities.`,
+    };
+  }
 }
 
 function* swapRemoveAndJoin() {
-  yield {
-    state: sparseSetGraph('Removal swaps the last dense row into the hole'),
-    highlight: { active: ['denseIds', 'denseVals', 'remove', 'e-values-remove'], found: ['sparse'], compare: ['row'] },
-    explanation: 'To remove an entity, swap the last dense entity/value into the removed row, update that moved entity sparse entry, and pop the last row. This keeps dense arrays compact.',
-    invariant: 'After a swap remove, update sparse[movedEntity] to the moved row.',
-  };
+  {
+    const highlight = { active: ['denseIds', 'denseVals', 'remove', 'e-values-remove'], found: ['sparse'], compare: ['row'] };
+    const activeNodes = highlight.active.filter(id => !id.startsWith('e-'));
+    yield {
+      state: sparseSetGraph('Removal swaps the last dense row into the hole'),
+      highlight,
+      explanation: `To remove an entity, the ${activeNodes.length} active nodes (${activeNodes.join(', ')}) participate in the swap: copy the last dense entity/value into the ${highlight.compare[0]} being removed, update ${highlight.found[0]}[movedEntity], and pop the last row to keep dense arrays compact.`,
+      invariant: 'After a swap remove, update sparse[movedEntity] to the moved row.',
+    };
+  }
 
-  yield {
-    state: labelMatrix(
-      'Swap-remove trace',
-      [
-        { id: 'before', label: 'before' },
-        { id: 'hole', label: 'remove e7' },
-        { id: 'move', label: 'move e42' },
-        { id: 'after', label: 'after' },
-      ],
-      [
-        { id: 'row1', label: 'row 1' },
-        { id: 'row3', label: 'last row' },
-        { id: 'sparse', label: 'sparse fix' },
-      ],
-      [
-        ['e7', 'e42', ''],
-        ['hole', 'e42', ''],
-        ['e42', 'old last', 'sparse[42]=1'],
-        ['e42', 'pop', 'e7 absent'],
-      ],
-    ),
-    highlight: { active: ['move:row1', 'move:sparse'], found: ['after:row1'], removed: ['after:row3'] },
-    explanation: 'The price is unstable order. If order matters, a sparse set needs a separate ordering layer or a slower stable delete policy.',
-  };
+  {
+    const rows = [
+      { id: 'before', label: 'before' },
+      { id: 'hole', label: 'remove e7' },
+      { id: 'move', label: 'move e42' },
+      { id: 'after', label: 'after' },
+    ];
+    const columns = [
+      { id: 'row1', label: 'row 1' },
+      { id: 'row3', label: 'last row' },
+      { id: 'sparse', label: 'sparse fix' },
+    ];
+    const highlight = { active: ['move:row1', 'move:sparse'], found: ['after:row1'], removed: ['after:row3'] };
+    yield {
+      state: labelMatrix(
+        'Swap-remove trace',
+        rows,
+        columns,
+        [
+          ['e7', 'e42', ''],
+          ['hole', 'e42', ''],
+          ['e42', 'old last', 'sparse[42]=1'],
+          ['e42', 'pop', 'e7 absent'],
+        ],
+      ),
+      highlight,
+      explanation: `Across ${rows.length} trace steps and ${columns.length} columns, the ${highlight.active.length} active cells show the move, the ${highlight.removed.length} removed cell (${highlight.removed[0]}) is popped. The price is unstable order; if order matters, a sparse set needs a separate ordering layer.`,
+    };
+  }
 
-  yield {
-    state: joinGraph('A multi-component query iterates one pool and probes the others'),
-    highlight: { active: ['driver', 'probe', 'system', 'e-driver-probe', 'e-probe-system'], found: ['hit'], removed: ['miss'] },
-    explanation: 'To run a movement system needing Position and Velocity, iterate one dense pool, usually the smaller one, and use O(1) sparse membership checks against the other pools.',
-  };
+  {
+    const highlight = { active: ['driver', 'probe', 'system', 'e-driver-probe', 'e-probe-system'], found: ['hit'], removed: ['miss'] };
+    const activeNodes = highlight.active.filter(id => !id.startsWith('e-'));
+    yield {
+      state: joinGraph('A multi-component query iterates one pool and probes the others'),
+      highlight,
+      explanation: `The join path flows through ${activeNodes.length} nodes (${activeNodes.join(', ')}): iterate one dense pool, usually the smaller one, probe with O(1) membership. Entities reaching ${highlight.found[0]} have both components; those at ${highlight.removed[0]} are skipped.`,
+    };
+  }
 
-  yield {
-    state: labelMatrix(
-      'Storage choices',
-      [
-        { id: 'sparse', label: 'sparse set' },
-        { id: 'archetype', label: 'archetype' },
-        { id: 'bitset', label: 'bitset' },
-        { id: 'hash', label: 'hash map' },
-      ],
-      [
-        { id: 'wins', label: 'wins at' },
-        { id: 'loses', label: 'loses at' },
-      ],
-      [
-        ['add/remove', 'joined scans'],
-        ['wide scans', 'structural move'],
-        ['membership', 'payload access'],
-        ['sparse ids', 'iteration locality'],
-      ],
-    ),
-    highlight: { active: ['sparse:wins', 'archetype:wins'], compare: ['sparse:loses'], found: ['hash:loses'] },
-    explanation: 'Sparse sets and archetypes are complementary. Sparse sets make component churn cheap. Archetypes make repeated multi-component scans faster when composition is stable.',
-  };
+  {
+    const rows = [
+      { id: 'sparse', label: 'sparse set' },
+      { id: 'archetype', label: 'archetype' },
+      { id: 'bitset', label: 'bitset' },
+      { id: 'hash', label: 'hash map' },
+    ];
+    const columns = [
+      { id: 'wins', label: 'wins at' },
+      { id: 'loses', label: 'loses at' },
+    ];
+    const highlight = { active: ['sparse:wins', 'archetype:wins'], compare: ['sparse:loses'], found: ['hash:loses'] };
+    const activeLabels = highlight.active.map(cell => rows.find(r => cell.startsWith(r.id)).label);
+    yield {
+      state: labelMatrix(
+        'Storage choices',
+        rows,
+        columns,
+        [
+          ['add/remove', 'joined scans'],
+          ['wide scans', 'structural move'],
+          ['membership', 'payload access'],
+          ['sparse ids', 'iteration locality'],
+        ],
+      ),
+      highlight,
+      explanation: `Comparing ${rows.length} storage strategies across ${columns.length} dimensions, ${activeLabels.join(' and ')} are highlighted as complementary winners. Sparse sets make component churn cheap; archetypes make repeated multi-component scans faster when composition is stable.`,
+    };
+  }
 
-  yield {
-    state: joinGraph('Complete case: EnTT-style sparse component pools'),
-    highlight: { active: ['pos', 'vel', 'driver', 'probe', 'hit'], compare: ['miss'] },
-    explanation: 'EnTT popularized a sparse-set-centered ECS design. Each component type can own an independent sparse set, and views join those pools without needing a global bitset of every component combination.',
-  };
+  {
+    const highlight = { active: ['pos', 'vel', 'driver', 'probe', 'hit'], compare: ['miss'] };
+    yield {
+      state: joinGraph('Complete case: EnTT-style sparse component pools'),
+      highlight,
+      explanation: `EnTT popularized a sparse-set-centered ECS design with ${highlight.active.length} active nodes (${highlight.active.join(', ')}) forming the join pipeline. Each component type owns an independent sparse set, and views join those ${highlight.active.length} pools without a global bitset, skipping entities at ${highlight.compare[0]}.`,
+    };
+  }
 }
 
 export function* run(input) {
@@ -229,7 +276,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/sparse-set-entity-index.gif', alt: 'Animated walkthrough of the sparse set entity index visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

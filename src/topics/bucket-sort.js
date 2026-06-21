@@ -116,7 +116,8 @@ export const article = {
         'Phase 2 sorts each non-trivial bucket using insertion sort. Highlighted elements show which bucket is being sorted. Most buckets contain only one or two elements when input is uniform, so these sorts finish instantly.',
         'Phase 3 concatenates all buckets left to right. Because each bucket covers a higher sub-range than the previous one, the concatenation is already in sorted order. The final sorted highlight confirms every position is correct.',
         'The key visual: if elements spread evenly across buckets, each bucket stays tiny and the per-bucket sorts are trivially cheap. If elements cluster into a few buckets, those buckets grow and insertion sort gets expensive. The distribution quality drives the total cost.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/bucket-sort.gif', alt: 'Animated walkthrough of the bucket sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

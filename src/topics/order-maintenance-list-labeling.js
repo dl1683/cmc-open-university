@@ -58,11 +58,15 @@ function orderGraph(title) {
 }
 
 function* labelComparisons() {
+  const elementCount = 4;  // A, B, X, C
+  const labelA = 10, labelB = 20, labelX = 25, labelC = 30;
+  const operations = ['insert', 'delete', 'order', 'label'];
+
   yield {
     state: orderGraph('Labels make precedence a comparison'),
     highlight: { active: ['a', 'b', 'x', 'c', 'order'], found: ['e-b-order', 'e-x-order'] },
-    explanation: 'Order maintenance keeps a mutable total order. Each element has a label, and order(x, y) is answered by comparing labels instead of walking the list.',
-    invariant: 'If X precedes Y, then label(X) is less than label(Y).',
+    explanation: `Order maintenance keeps a mutable total order across ${elementCount} elements. Each element has a label — A=${labelA}, B=${labelB}, X=${labelX}, C=${labelC} — and order(x, y) is answered by comparing labels instead of walking the list.`,
+    invariant: `If X precedes Y, then label(X) < label(Y). Here B=${labelB} < X=${labelX} confirms B precedes X.`,
   };
 
   yield {
@@ -86,7 +90,7 @@ function* labelComparisons() {
       ],
     ),
     highlight: { active: ['b:after', 'c:after'], found: ['x:after'], compare: ['x:before'] },
-    explanation: 'If there is numeric space between neighboring labels, insertion is just choosing a label in the gap. Here X gets 25 between B=20 and C=30.',
+    explanation: `If there is numeric space between neighboring labels, insertion is just choosing a label in the gap of ${labelC - labelB}. Here X gets ${Math.floor((labelB + labelC) / 2)} between B=${labelB} and C=${labelC}.`,
   };
 
   yield {
@@ -110,17 +114,25 @@ function* labelComparisons() {
       ],
     ),
     highlight: { found: ['order:goal', 'label:mechanism'], active: ['insert:mechanism'] },
-    explanation: 'The order-maintenance problem is small but fundamental: keep insert, delete, and precedence queries fast while the sequence changes.',
+    explanation: `The order-maintenance problem defines ${operations.length} core operations — ${operations.join(', ')} — each of which must stay fast while the sequence changes.`,
   };
 
   yield {
     state: orderGraph('When a gap exists, no relabel is needed'),
     highlight: { active: ['b', 'x', 'c', 'e-b-x', 'e-x-c'], compare: ['relabel'], found: ['order'] },
-    explanation: 'The best case is cheap and common if labels have room. The hard part is guaranteeing good behavior when many inserts target the same narrow interval.',
+    explanation: `The best case is cheap: B=${labelB} and C=${labelC} leave a gap of ${labelC - labelB}, so insertion needs no relabeling. The hard part is guaranteeing good behavior when many inserts target the same narrow interval.`,
   };
 }
 
 function* relabelWindows() {
+  const oldLabels = [20, 21, 22, 23];
+  const newLabels = [20, 30, 40, 50];
+  const oldGap = oldLabels[1] - oldLabels[0];
+  const newGap = newLabels[1] - newLabels[0];
+  const windowSize = oldLabels.length;
+  const relatedStructures = ['Packed Memory Array', 'Linked List', 'Topological Sort', 'Sequence CRDT'];
+  const useCases = ['cards', 'drag insert', 'render sort', 'relabel'];
+
   yield {
     state: labelMatrix(
       'No label gap remains',
@@ -142,14 +154,14 @@ function* relabelWindows() {
       ],
     ),
     highlight: { active: ['b:old', 'c:old', 'd:old'], found: ['b:new', 'c:new', 'd:new'] },
-    explanation: 'Repeated inserts can exhaust label space in a local window. The repair is to relabel a window with wider gaps, not to renumber the entire list every time.',
-    invariant: 'Relabeling preserves relative order while restoring slack.',
+    explanation: `Repeated inserts can exhaust label space — old gaps of ${oldGap} between ${windowSize} elements leave no room. The repair relabels the window to gaps of ${newGap} (${oldLabels.join(',')} becomes ${newLabels.join(',')}), not renumbering the entire list.`,
+    invariant: `Relabeling preserves relative order while widening gaps from ${oldGap} to ${newGap}.`,
   };
 
   yield {
     state: orderGraph('Relabel a local window, then insert'),
     highlight: { active: ['insert', 'relabel', 'e-insert-relabel'], found: ['x'], compare: ['a', 'c'] },
-    explanation: 'Order-maintenance structures choose relabel windows carefully so the occasional repair cost is paid for by many cheap inserts.',
+    explanation: `Order-maintenance structures choose relabel windows of ${windowSize} elements carefully so the occasional O(${windowSize}) repair cost is amortized across many cheap inserts.`,
   };
 
   yield {
@@ -173,7 +185,7 @@ function* relabelWindows() {
       ],
     ),
     highlight: { active: ['pma:shared_problem', 'linked:shared_problem'], found: ['topo:shared_problem'], compare: ['crdt:difference'] },
-    explanation: 'List labeling is the abstract order layer. PMA is a physical sparse-array layout. CRDTs solve a distributed version where multiple replicas create positions concurrently.',
+    explanation: `List labeling connects to ${relatedStructures.length} related structures: ${relatedStructures.join(', ')}. PMA is a physical sparse-array layout. CRDTs solve a distributed version where multiple replicas create positions concurrently.`,
   };
 
   yield {
@@ -197,7 +209,7 @@ function* relabelWindows() {
       ],
     ),
     highlight: { active: ['drag:operation', 'compare:reason'], found: ['repair:reason'], compare: ['cards:reason'] },
-    explanation: 'A product board, playlist, or outline can store order labels. Moving an item inserts a label between neighbors. Occasional local relabeling prevents labels from becoming too crowded.',
+    explanation: `A UI ordering system involves ${useCases.length} concerns — ${useCases.join(', ')}. Moving an item inserts a label between neighbors. Occasional local relabeling (restoring gaps of ~${newGap}) prevents labels from becoming too crowded.`,
   };
 }
 
@@ -217,7 +229,8 @@ export const article = {
         'In the relabel-windows view, the matrix shows old labels on the left and new labels on the right. The highlighted window is not being reordered; it is being renamed. Elements keep their relative sequence, but their labels spread apart so future inserts find room again. Watch the "before" column shrink to consecutive integers, then the "after" column restore wide gaps.',
         {type: 'callout', text: 'Order maintenance separates identity from position: nodes keep their links, while labels carry the fast order proof.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list structure with nodes connected by pointers', caption: 'The physical list gives cheap local insertion, but labels provide the global order comparison that links alone cannot answer quickly. Source: Wikimedia Commons, Lasindi, public domain.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/order-maintenance-list-labeling.gif', alt: 'Animated walkthrough of the order maintenance list labeling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

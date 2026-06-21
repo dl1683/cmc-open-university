@@ -80,35 +80,37 @@ function checkpointGraph(title) {
 }
 
 function* markerAlgorithm() {
+  const processes = ['p1', 'p2', 'p3'];
   yield {
     state: snapshotGraph('A snapshot begins by recording one local state'),
-    highlight: { active: ['p1'], found: ['marker'], compare: ['p2', 'p3'] },
-    explanation: 'The initiating process records its own local state first. Then it sends a marker on every outgoing channel before sending any more ordinary messages on those channels.',
-    invariant: 'A snapshot is not a pause-the-world copy; it is a protocol that lets processes keep running.',
+    highlight: { active: [processes[0]], found: ['marker'], compare: [processes[1], processes[2]] },
+    explanation: `The initiating process "${processes[0]}" records its own local state first. Then it sends a marker on every outgoing channel before sending any more ordinary messages to the remaining ${processes.length - 1} processes.`,
+    invariant: `A snapshot across ${processes.length} processes is not a pause-the-world copy; it is a protocol that lets processes keep running.`,
   };
 
   yield {
     state: snapshotGraph('The first marker at each process freezes its local side of the cut'),
-    highlight: { active: ['marker', 'p2', 'e-p1-marker', 'e-marker-p2'], compare: ['channel'] },
-    explanation: 'When a process receives its first marker, it records its local state immediately. The incoming channel that carried the marker is empty in the snapshot, because the marker separates before-snapshot messages from after-snapshot messages.',
+    highlight: { active: ['marker', processes[1], 'e-p1-marker', 'e-marker-p2'], compare: ['channel'] },
+    explanation: `When process "${processes[1]}" receives its first marker, it records its local state immediately. The incoming channel from "${processes[0]}" that carried the marker is empty in the snapshot, because the marker separates before-snapshot messages from after-snapshot messages.`,
   };
 
   yield {
     state: snapshotGraph('Other channels are recorded until their markers arrive'),
-    highlight: { active: ['channel', 'e-p2-channel', 'e-channel-p3'], found: ['p3'], compare: ['p1'] },
-    explanation: 'For every other incoming channel, the process records ordinary messages that arrive after its local snapshot but before the marker for that channel. Those messages were in flight across the cut.',
-    invariant: 'Channel state is the missing piece that turns local snapshots into one global snapshot.',
+    highlight: { active: ['channel', 'e-p2-channel', 'e-channel-p3'], found: [processes[2]], compare: [processes[0]] },
+    explanation: `For every other incoming channel, process "${processes[2]}" records ordinary messages that arrive after its local snapshot but before the marker for that channel. Those messages were in flight across the cut.`,
+    invariant: `Channel state is the missing piece that turns ${processes.length} local snapshots into one global snapshot.`,
   };
 
+  const cutRows = [
+    { id: 'sent', label: 'send before cut' },
+    { id: 'recv', label: 'receive before cut' },
+    { id: 'flight', label: 'in flight' },
+    { id: 'bad', label: 'bad cut' },
+  ];
   yield {
     state: labelMatrix(
       'Consistent cut rule',
-      [
-        { id: 'sent', label: 'send before cut' },
-        { id: 'recv', label: 'receive before cut' },
-        { id: 'flight', label: 'in flight' },
-        { id: 'bad', label: 'bad cut' },
-      ],
+      cutRows,
       [
         { id: 'allowed', label: 'allowed?' },
         { id: 'meaning' },
@@ -121,33 +123,36 @@ function* markerAlgorithm() {
       ],
     ),
     highlight: { found: ['sent:meaning', 'flight:meaning'], removed: ['bad:allowed', 'bad:meaning'] },
-    explanation: 'A consistent cut is closed under causality. If the snapshot contains a receive event, it must also contain the corresponding send event. Otherwise the snapshot describes an impossible history.',
+    explanation: `A consistent cut across ${processes.length} processes has ${cutRows.length} rules (${cutRows.map(r => r.label).join(', ')}). If the snapshot contains a receive event, it must also contain the corresponding send event. Otherwise the snapshot describes an impossible history.`,
   };
 }
 
 function* streamingCheckpoints() {
+  const streamNodes = ['source', 'barrier', 'op'];
   yield {
     state: checkpointGraph('Streaming checkpoints reuse the marker idea'),
-    highlight: { active: ['source', 'barrier', 'op', 'e-source-barrier', 'e-barrier-op'], compare: ['sink'] },
-    explanation: 'Flink-style checkpoint barriers are the streaming descendant of Chandy-Lamport markers. Barriers flow with records and divide the stream into before-checkpoint and after-checkpoint regions.',
+    highlight: { active: [...streamNodes, 'e-source-barrier', 'e-barrier-op'], compare: ['sink'] },
+    explanation: `Flink-style checkpoint barriers are the streaming descendant of Chandy-Lamport markers. A "${streamNodes[1]}" flows with records from "${streamNodes[0]}" through "${streamNodes[2]}" and divides the stream into before-checkpoint and after-checkpoint regions.`,
   };
 
+  const checkpointNodes = ['op', 'state', 'store', 'source'];
   yield {
     state: checkpointGraph('A completed checkpoint is state plus replay position'),
-    highlight: { active: ['op', 'state', 'store', 'source', 'e-op-state', 'e-state-store'], found: ['restore'] },
-    explanation: 'A useful streaming checkpoint records operator state and source positions that agree on the same logical cut. Recovery restores state, seeks sources, and replays from the recorded boundary.',
-    invariant: 'Fault tolerance is a snapshot of memory plus a replay contract for input.',
+    highlight: { active: [...checkpointNodes, 'e-op-state', 'e-state-store'], found: ['restore'] },
+    explanation: `A useful streaming checkpoint records ${checkpointNodes.length} components ("${checkpointNodes.join('", "')}") that agree on the same logical cut. Recovery restores state, seeks sources, and replays from the recorded boundary.`,
+    invariant: `Fault tolerance across ${checkpointNodes.length} components is a snapshot of memory plus a replay contract for input.`,
   };
 
+  const lineageRows = [
+    { id: 'cl', label: 'Chandy-Lamport' },
+    { id: 'flink', label: 'Flink' },
+    { id: 'mill', label: 'MillWheel' },
+    { id: 'db', label: 'database' },
+  ];
   yield {
     state: labelMatrix(
       'Snapshot lineage',
-      [
-        { id: 'cl', label: 'Chandy-Lamport' },
-        { id: 'flink', label: 'Flink' },
-        { id: 'mill', label: 'MillWheel' },
-        { id: 'db', label: 'database' },
-      ],
+      lineageRows,
       [
         { id: 'marker', label: 'marker' },
         { id: 'state', label: 'state captured' },
@@ -160,18 +165,19 @@ function* streamingCheckpoints() {
       ],
     ),
     highlight: { found: ['cl:marker', 'flink:marker', 'mill:state'], compare: ['db:marker'] },
-    explanation: 'The same shape appears across systems: choose a boundary, make every participant agree which side of the boundary it is on, and record enough state to resume or reason from that boundary.',
+    explanation: `The same shape appears across ${lineageRows.length} systems (${lineageRows.map(r => r.label).join(', ')}): choose a boundary, make every participant agree which side of the boundary it is on, and record enough state to resume or reason from that boundary.`,
   };
 
+  const fraudRows = [
+    { id: 'cards', label: 'card events' },
+    { id: 'barrier', label: 'barrier N' },
+    { id: 'state', label: 'window state' },
+    { id: 'recover', label: 'worker crash' },
+  ];
   yield {
     state: labelMatrix(
       'Case study: rolling fraud windows',
-      [
-        { id: 'cards', label: 'card events' },
-        { id: 'barrier', label: 'barrier N' },
-        { id: 'state', label: 'window state' },
-        { id: 'recover', label: 'worker crash' },
-      ],
+      fraudRows,
       [
         { id: 'snapshotRole', label: 'snapshot role' },
         { id: 'lesson' },
@@ -184,7 +190,7 @@ function* streamingCheckpoints() {
       ],
     ),
     highlight: { active: ['barrier:snapshotRole', 'state:snapshotRole'], found: ['recover:lesson'], compare: ['cards:lesson'] },
-    explanation: 'A fraud detector that keeps per-card rolling windows needs the same principle. The checkpoint must agree about the Kafka offsets, window counters, timers, and any externally visible alerts.',
+    explanation: `A fraud detector with ${fraudRows.length} checkpoint components (${fraudRows.map(r => r.label).join(', ')}) needs the same principle. The checkpoint must agree about the Kafka offsets, window counters, timers, and any externally visible alerts.`,
   };
 }
 
@@ -197,6 +203,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/distributed-snapshot-consistent-cut.gif', alt: 'Animated walkthrough of the distributed snapshot consistent cut visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

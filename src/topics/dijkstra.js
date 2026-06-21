@@ -114,7 +114,8 @@ export const article = {
         'The active node (highlighted) is the unsettled node with the smallest tentative distance. This is what a priority queue (min-heap) would return. Visited nodes (dimmed) are settled: their distances are final and will never change. When an edge flashes, a relaxation check is happening: the algorithm tests whether routing through the active node gives the neighbor a cheaper path.',
         'The relaxation arithmetic is shown explicitly: dist[active] + edge weight versus the neighbor\'s current distance. If the new value wins, the neighbor\'s label updates. If not, nothing changes. This is the only operation that improves the algorithm\'s knowledge.',
         'At the end, the green path traces parent pointers from target back to source. The cost along that path equals the target\'s settled distance. Watch for the moment the short two-hop route through B (cost 12) loses to the longer four-hop route through C, D, E (cost 9). That moment is the reason Dijkstra exists.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/dijkstra.gif', alt: 'Animated walkthrough of the dijkstra visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

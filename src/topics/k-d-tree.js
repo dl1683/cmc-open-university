@@ -59,6 +59,10 @@ function tree(title) {
 }
 
 function* buildPointTree() {
+  const dimensions = 2;  // 2D points
+  const pointCount = 5;  // points A through E
+  const indexTypes = 4;  // BST, k-d tree, R-tree, HNSW
+
   yield {
     state: labelMatrix(
       'Points in two dimensions',
@@ -83,20 +87,20 @@ function* buildPointTree() {
       ],
     ),
     highlight: { active: ['a:point', 'b:point', 'c:point'], found: ['a:axis0', 'b:axis1'] },
-    explanation: 'A k-d tree stores points in k dimensions. In 2D, each level alternates split axes: x, then y, then x again. The tree is a Binary Search Tree generalized from one coordinate to many.',
+    explanation: `A k-d tree stores points in k dimensions. In ${dimensions}D, each level alternates split axes: x, then y, then x again. The tree is a Binary Search Tree generalized from one coordinate to ${dimensions}.`,
   };
 
   yield {
     state: tree('Root splits space by x'),
     highlight: { active: ['p7', 'e-7-5', 'e-7-9'], found: ['p5', 'p9'] },
-    explanation: 'The root chooses a point and splits the plane by its x coordinate. Points left of x=7 go into the left subtree; points right of x=7 go into the right subtree.',
-    invariant: 'At depth d, compare coordinate d mod k.',
+    explanation: `The root chooses a point and splits the plane by its x coordinate. With ${pointCount} points to place, points left of x=7 go into the left subtree; points right of x=7 go into the right subtree.`,
+    invariant: `At depth d, compare coordinate d mod ${dimensions}.`,
   };
 
   yield {
     state: tree('Next level splits by y'),
     highlight: { active: ['p5', 'p9', 'e-5-2', 'e-5-4', 'e-9-8', 'e-9-10'], compare: ['p7'] },
-    explanation: 'At the next depth, the split axis changes to y. This recursive partitioning creates rectangular regions, which makes range search and nearest-neighbor pruning possible.',
+    explanation: `At the next depth, the split axis changes to y. This recursive partitioning in ${dimensions} dimensions creates rectangular regions, which makes range search and nearest-neighbor pruning possible.`,
   };
 
   yield {
@@ -120,15 +124,19 @@ function* buildPointTree() {
       ],
     ),
     highlight: { found: ['kd:data', 'kd:query'], compare: ['rtree:query', 'hnsw:query'] },
-    explanation: 'k-d trees work best for moderate dimensions. As dimensionality rises, pruning weakens; vector databases usually move to approximate graph or quantization methods.',
+    explanation: `Comparing ${indexTypes} index types, k-d trees work best for moderate dimensions. As dimensionality rises, pruning weakens; vector databases usually move to approximate graph or quantization methods.`,
   };
 }
 
 function* nearestNeighborSearch() {
+  const queryPoint = '(6,3)';
+  const candidateCount = 4;  // points checked during search
+  const dimensions = 2;
+
   yield {
     state: tree('Search query (6,3): descend like a BST'),
     highlight: { active: ['q', 'p7', 'p5', 'e-q-7', 'e-q-5'], compare: ['p9'] },
-    explanation: 'Nearest-neighbor search first descends to the side that contains the query. For query (6,3), compare x at the root, then y at the next node. The first candidate is often not final.',
+    explanation: `Nearest-neighbor search first descends to the side that contains the query. For query ${queryPoint}, compare x at the root, then y at the next node. The first candidate is often not final.`,
   };
 
   yield {
@@ -153,13 +161,13 @@ function* nearestNeighborSearch() {
       ],
     ),
     highlight: { active: ['p5:distance', 'p7:distance'], found: ['p5:best'], compare: ['p9:prune'] },
-    explanation: 'After finding a candidate, compare the best distance with the distance to the splitting plane. If the other side of the split cannot contain a closer point, prune it. Otherwise, search both sides.',
+    explanation: `After finding a candidate among ${candidateCount} points checked, compare the best distance with the distance to the splitting plane. If the other side of the split cannot contain a closer point, prune it. Otherwise, search both sides.`,
   };
 
   yield {
     state: tree('Prune subtrees whose regions cannot beat the best point'),
     highlight: { found: ['p5', 'p7'], removed: ['p2', 'p9', 'p10'], active: ['q'] },
-    explanation: 'The performance comes from region pruning. But the guarantee weakens in high dimensions because most regions are near the query in at least one coordinate.',
+    explanation: `The performance comes from region pruning in ${dimensions}D space. But the guarantee weakens in high dimensions because most regions are near the query in at least one coordinate.`,
   };
 
   yield {
@@ -183,7 +191,7 @@ function* nearestNeighborSearch() {
       ],
     ),
     highlight: { found: ['lowd:fit'], compare: ['highd:reason'], active: ['medium:fit'] },
-    explanation: 'k-d trees are excellent for geometric teaching and some practical low-dimensional searches. For embedding search, study HNSW and Product Quantization instead.',
+    explanation: `k-d trees are excellent for geometric teaching and some practical low-${dimensions}D searches. For embedding search, study HNSW and Product Quantization instead.`,
   };
 }
 
@@ -203,7 +211,8 @@ export const article = {
         { type: 'callout', text: 'A k-d tree turns multidimensional search into recursive region exclusion: skip a subtree only after the split geometry proves it cannot improve the best answer.' },
         'The nearest-neighbor view traces a query through the finished tree. Active edges show the descent path. The found node is the current best candidate. Removed nodes are subtrees the algorithm proved it could skip -- their closest possible point is farther than the best distance so far. When a node stays active instead of being removed, the split-plane distance was too small to prune: both sides had to be searched.',
         'In the distance matrix, the column "prune other side?" is the key decision. It compares two numbers: the perpendicular distance from the query to the splitting plane, and the best Euclidean distance found so far. When the split distance exceeds the best, the entire opposing subtree is eliminated. When it does not, backtracking is required.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/k-d-tree.gif', alt: 'Animated walkthrough of the k d tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

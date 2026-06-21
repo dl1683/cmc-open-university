@@ -34,6 +34,10 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* varianceSources() {
+  const seedCount = 4;
+  const splitCount = 3;
+  const worstScore = '77.6';
+  const bestScore = '85.2';
   yield {
     state: labelMatrix(
       'Same algorithm, different benchmark luck',
@@ -51,35 +55,38 @@ function* varianceSources() {
       [
         ['82.1', '79.8', '84.0'],
         ['80.7', '78.9', '83.1'],
-        ['83.4', '80.2', '85.2'],
-        ['81.5', '77.6', '82.8'],
+        ['83.4', '80.2', bestScore],
+        ['81.5', worstScore, '82.8'],
       ],
     ),
     highlight: { active: ['seed4:split B'], found: ['seed3:split C'] },
-    explanation: 'A benchmark score is not a fixed property of the algorithm. It moves with train/test sampling, random initialization, minibatch order, augmentation, hardware nondeterminism, and hyperparameter choices.',
+    explanation: `A benchmark score is not a fixed property of the algorithm. Across ${seedCount} seeds and ${splitCount} splits, scores range from ${worstScore} to ${bestScore} — moved by train/test sampling, random initialization, minibatch order, augmentation, hardware nondeterminism, and hyperparameter choices.`,
   };
 
+  const luckyA = 85;
+  const badB = 79;
   yield {
     state: plotState({
       axes: { x: { label: 'accuracy', min: 76, max: 88 }, y: { label: 'trial density', min: 0, max: 1.0 } },
       series: [
         { id: 'modelA', label: 'model A trials', points: [
-          { x: 77, y: 0.10 }, { x: 79, y: 0.35 }, { x: 81, y: 0.82 }, { x: 83, y: 0.63 }, { x: 85, y: 0.20 },
+          { x: 77, y: 0.10 }, { x: 79, y: 0.35 }, { x: 81, y: 0.82 }, { x: 83, y: 0.63 }, { x: luckyA, y: 0.20 },
         ] },
         { id: 'modelB', label: 'model B trials', points: [
-          { x: 79, y: 0.08 }, { x: 81, y: 0.42 }, { x: 83, y: 0.88 }, { x: 85, y: 0.58 }, { x: 87, y: 0.16 },
+          { x: badB, y: 0.08 }, { x: 81, y: 0.42 }, { x: 83, y: 0.88 }, { x: 85, y: 0.58 }, { x: 87, y: 0.16 },
         ] },
       ],
       markers: [
-        { id: 'luckyA', x: 85, y: 0.2, label: 'lucky A' },
-        { id: 'badB', x: 79, y: 0.08, label: 'bad B' },
+        { id: 'luckyA', x: luckyA, y: 0.2, label: 'lucky A' },
+        { id: 'badB', x: badB, y: 0.08, label: 'bad B' },
       ],
     }),
     highlight: { active: ['modelA', 'modelB'], compare: ['luckyA', 'badB'] },
-    explanation: 'With overlapping score distributions, a single run can reverse the conclusion. Reporting one lucky A against one unlucky B is not model comparison; it is sampling noise with a table around it.',
+    explanation: `With overlapping score distributions, a single run can reverse the conclusion. Reporting one lucky A at ${luckyA} against one unlucky B at ${badB} is not model comparison; it is sampling noise with a table around it.`,
     invariant: 'The comparison is a distribution before it is a headline number.',
   };
 
+  const varianceNodes = ['data', 'aug', 'init', 'hpo', 'train', 'score'];
   yield {
     state: graphState({
       nodes: [
@@ -100,17 +107,18 @@ function* varianceSources() {
       ],
     }, { title: 'Where variance enters an ML benchmark' }),
     highlight: { active: ['data', 'aug', 'init', 'hpo'], found: ['score'] },
-    explanation: 'The MLSys variance paper models the whole benchmarking process, including hyperparameter optimization. The score is downstream of several random variables, not only the model architecture.',
+    explanation: `The MLSys variance paper models the whole benchmarking process across ${varianceNodes.length} stages, including hyperparameter optimization. The ${varianceNodes[varianceNodes.length - 1]} is downstream of several random variables, not only the model architecture.`,
   };
 
+  const reportSources = ['data', 'init', 'HPO', 'metric'];
   yield {
     state: labelMatrix(
       'Report the sources, not only the winner',
       [
-        { id: 'data', label: 'data' },
-        { id: 'init', label: 'init' },
-        { id: 'hpo', label: 'HPO' },
-        { id: 'metric', label: 'metric' },
+        { id: 'data', label: reportSources[0] },
+        { id: 'init', label: reportSources[1] },
+        { id: 'hpo', label: reportSources[2] },
+        { id: 'metric', label: reportSources[3] },
       ],
       [
         { id: 'bad report', label: 'bad report' },
@@ -124,19 +132,20 @@ function* varianceSources() {
       ],
     ),
     highlight: { found: ['data:better report', 'init:better report', 'hpo:better report', 'metric:better report'] },
-    explanation: 'Good benchmark writing makes the random variables visible. If the claimed gain is smaller than ordinary run-to-run variation, the result should be treated as tentative.',
+    explanation: `Good benchmark writing makes all ${reportSources.length} random variables visible — ${reportSources.join(', ')}. If the claimed gain is smaller than ordinary run-to-run variation, the result should be treated as tentative.`,
   };
 }
 
 function* estimatorDiscipline() {
+  const estimators = ['single run', 'multi seed', 'fixed HPO', 'nested HPO'];
   yield {
     state: labelMatrix(
       'Estimator choices',
       [
-        { id: 'single', label: 'single run' },
-        { id: 'multi', label: 'multi seed' },
-        { id: 'fixed', label: 'fixed HPO' },
-        { id: 'nested', label: 'nested HPO' },
+        { id: 'single', label: estimators[0] },
+        { id: 'multi', label: estimators[1] },
+        { id: 'fixed', label: estimators[2] },
+        { id: 'nested', label: estimators[3] },
       ],
       [
         { id: 'cost', label: 'cost' },
@@ -151,34 +160,38 @@ function* estimatorDiscipline() {
       ],
     ),
     highlight: { active: ['single:risk'], found: ['nested:risk'] },
-    explanation: 'The ideal estimator retrains and retunes the whole pipeline across sources of variation. That is expensive, so most work uses approximations. The right question is which approximation is honest enough for the claim.',
+    explanation: `The ideal estimator (${estimators[3]}) retrains and retunes the whole pipeline across sources of variation. That is expensive, so most work uses approximations like ${estimators[0]} or ${estimators[1]}. The right question is which approximation is honest enough for the claim.`,
   };
 
+  const maxBudget = 60;
+  const idealFinalError = 0.12;
+  const practicalFinalError = 0.18;
   yield {
     state: plotState({
-      axes: { x: { label: 'compute budget multiplier', min: 1, max: 60 }, y: { label: 'estimation error', min: 0, max: 1.0 } },
+      axes: { x: { label: 'compute budget multiplier', min: 1, max: maxBudget }, y: { label: 'estimation error', min: 0, max: 1.0 } },
       series: [
         { id: 'perfect', label: 'full ideal', points: [
-          { x: 1, y: 0.95 }, { x: 10, y: 0.45 }, { x: 30, y: 0.22 }, { x: 60, y: 0.12 },
+          { x: 1, y: 0.95 }, { x: 10, y: 0.45 }, { x: 30, y: 0.22 }, { x: maxBudget, y: idealFinalError },
         ] },
         { id: 'practical', label: 'practical estimator', points: [
-          { x: 1, y: 0.80 }, { x: 5, y: 0.38 }, { x: 12, y: 0.24 }, { x: 20, y: 0.18 },
+          { x: 1, y: 0.80 }, { x: 5, y: 0.38 }, { x: 12, y: 0.24 }, { x: 20, y: practicalFinalError },
         ] },
       ],
     }),
     highlight: { active: ['practical'], compare: ['perfect'] },
-    explanation: 'The MLSys paper highlights a counterintuitive result: adding more sources of variation to an imperfect estimator can get closer to the ideal comparison at much lower compute. The animation shows the shape, not an exact reproduction of their experiment.',
+    explanation: `The MLSys paper highlights a counterintuitive result: a practical estimator reaches ${practicalFinalError} error at 20x budget while the ideal needs ${maxBudget}x to reach ${idealFinalError}. Adding more sources of variation to an imperfect estimator can get closer to the ideal at much lower compute.`,
     invariant: 'A biased estimator with the right variation can be more useful than a narrow estimator that ignores how models are actually selected.',
   };
 
+  const claimLevels = ['demo', 'ablation', 'paper', 'production'];
   yield {
     state: labelMatrix(
       'Claim-strength ladder',
       [
-        { id: 'demo', label: 'demo' },
-        { id: 'ablation', label: 'ablation' },
-        { id: 'paper', label: 'paper' },
-        { id: 'production', label: 'production' },
+        { id: 'demo', label: claimLevels[0] },
+        { id: 'ablation', label: claimLevels[1] },
+        { id: 'paper', label: claimLevels[2] },
+        { id: 'production', label: claimLevels[3] },
       ],
       [
         { id: 'minimum evidence', label: 'minimum evidence' },
@@ -192,17 +205,18 @@ function* estimatorDiscipline() {
       ],
     ),
     highlight: { found: ['paper:minimum evidence', 'production:minimum evidence'] },
-    explanation: 'The evidence should match the consequence. A demo can be a single run. A paper claim needs uncertainty. A production rollout needs online validation because offline benchmark variance is not the only uncertainty.',
+    explanation: `The evidence should match the consequence across ${claimLevels.length} levels. A ${claimLevels[0]} can be a single run. A ${claimLevels[2]} claim needs uncertainty. A ${claimLevels[3]} rollout needs online validation because offline benchmark variance is not the only uncertainty.`,
   };
 
+  const evalParts = ['cross-val', 'HPO', 'bootstrap CI', 'leakage audit', 'A/B test'];
   yield {
     state: graphState({
       nodes: [
-        { id: 'cv', label: 'cross-val', x: 0.8, y: 3.8, note: 'honest folds' },
-        { id: 'hpo', label: 'HPO', x: 2.8, y: 2.4, note: 'search budget' },
-        { id: 'ci', label: 'bootstrap CI', x: 2.8, y: 5.2, note: 'error bars' },
-        { id: 'leak', label: 'leakage audit', x: 5.0, y: 2.4, note: 'chain' },
-        { id: 'ab', label: 'A/B test', x: 5.0, y: 5.2, note: 'online' },
+        { id: 'cv', label: evalParts[0], x: 0.8, y: 3.8, note: 'honest folds' },
+        { id: 'hpo', label: evalParts[1], x: 2.8, y: 2.4, note: 'search budget' },
+        { id: 'ci', label: evalParts[2], x: 2.8, y: 5.2, note: 'error bars' },
+        { id: 'leak', label: evalParts[3], x: 5.0, y: 2.4, note: 'chain' },
+        { id: 'ab', label: evalParts[4], x: 5.0, y: 5.2, note: 'online' },
         { id: 'claim', label: 'model claim', x: 7.4, y: 3.8, note: 'defensible' },
       ],
       edges: [
@@ -215,7 +229,7 @@ function* estimatorDiscipline() {
       ],
     }, { title: 'Benchmark variance ties the evaluation stack together' }),
     highlight: { active: ['cv', 'hpo', 'ci', 'leak', 'ab'], found: ['claim'] },
-    explanation: 'This topic is the connective tissue between Cross-Validation, Hyperparameter Search, Bootstrap CIs, Data Leakage, and A/B Testing. The result is not just a score; it is a defensible claim.',
+    explanation: `This topic is the connective tissue between ${evalParts.join(', ')}. The result is not just a score; it is a defensible claim built from ${evalParts.length} evaluation components.`,
   };
 }
 
@@ -228,6 +242,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/benchmark-variance-model-selection.gif', alt: 'Animated walkthrough of the benchmark variance model selection visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'The problem',
       paragraphs: [

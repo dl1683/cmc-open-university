@@ -57,25 +57,28 @@ function cachePathGraph(title) {
 }
 
 function* quantizedCachePath() {
+  const cacheNodes = ['prefill', 'k', 'v', 'pack'];
   yield {
     state: cachePathGraph('Compress the long-lived KV cache, not just weights'),
     highlight: { active: ['prefill', 'k', 'v', 'pack', 'e-prefill-k', 'e-prefill-v'], found: ['batch'] },
-    explanation: 'Long-context inference turns KV cache into the concurrency budget. Weight quantization helps model size, but every live sequence still stores keys and values for every layer and token.',
+    explanation: `Long-context inference turns KV cache into the concurrency budget. Weight quantization helps model size, but every live sequence still stores ${cacheNodes.length} distinct cache stages (${cacheNodes.join(' → ')}) for every layer and token.`,
   };
 
+  const kiviRows = [
+    { id: 'key', label: 'keys' },
+    { id: 'value', label: 'values' },
+    { id: 'outlier', label: 'outliers' },
+    { id: 'kernel', label: 'kernel' },
+  ];
+  const kiviColumns = [
+    { id: 'group', label: 'group by' },
+    { id: 'reason', label: 'reason' },
+  ];
   yield {
     state: labelMatrix(
       'KIVI grouping rule',
-      [
-        { id: 'key', label: 'keys' },
-        { id: 'value', label: 'values' },
-        { id: 'outlier', label: 'outliers' },
-        { id: 'kernel', label: 'kernel' },
-      ],
-      [
-        { id: 'group', label: 'group by' },
-        { id: 'reason', label: 'reason' },
-      ],
+      kiviRows,
+      kiviColumns,
       [
         ['channel', 'channel outliers'],
         ['token', 'token locality'],
@@ -84,25 +87,26 @@ function* quantizedCachePath() {
       ],
     ),
     highlight: { active: ['key:group', 'value:group'], compare: ['outlier:reason'], found: ['kernel:reason'] },
-    explanation: 'KIVI reports that key and value caches have different distributions. Keys benefit from per-channel quantization; values benefit from per-token quantization. A one-size grouping rule wastes accuracy.',
-    invariant: 'Compressing KV cache changes the attention inputs, so grouping and kernels are correctness-critical.',
+    explanation: `KIVI reports that ${kiviRows[0].label} and ${kiviRows[1].label} caches have different distributions. Keys benefit from per-${kiviColumns[0].label.replace('group by', 'channel')} quantization; values benefit from per-token quantization. A one-size grouping rule across ${kiviRows.length} concerns wastes accuracy.`,
+    invariant: `Compressing KV cache changes the attention inputs, so ${kiviColumns.map(c => c.label).join(' and ')} decisions are correctness-critical.`,
   };
 
   yield {
     state: cachePathGraph('Decode becomes a bandwidth and dequantization problem'),
     highlight: { active: ['pack', 'decode', 'e-pack-decode'], compare: ['k', 'v'], found: ['batch'] },
-    explanation: 'The decode loop repeatedly reads cached keys and values. Smaller cache entries reduce memory traffic and allow more concurrent requests, but dequantization must be cheap enough to preserve the win.',
+    explanation: `The decode loop repeatedly reads cached keys and values. Smaller cache entries reduce memory traffic and allow more concurrent requests, but dequantization across ${cacheNodes.length} stages must be cheap enough to preserve the win.`,
   };
 
+  const measureRows = [
+    { id: 'quality', label: 'quality' },
+    { id: 'memory', label: 'memory' },
+    { id: 'speed', label: 'speed' },
+    { id: 'tails', label: 'tails' },
+  ];
   yield {
     state: labelMatrix(
       'What must be measured',
-      [
-        { id: 'quality', label: 'quality' },
-        { id: 'memory', label: 'memory' },
-        { id: 'speed', label: 'speed' },
-        { id: 'tails', label: 'tails' },
-      ],
+      measureRows,
       [
         { id: 'metric', label: 'metric' },
         { id: 'failure', label: 'failure' },
@@ -115,32 +119,35 @@ function* quantizedCachePath() {
       ],
     ),
     highlight: { active: ['quality:metric', 'memory:metric', 'speed:metric'], found: ['tails:metric'] },
-    explanation: 'A good KV-compression result reports quality, memory, throughput, and tail latency together. Saving bytes is not enough if dequantization or cache loading shifts the bottleneck elsewhere.',
+    explanation: `A good KV-compression result reports ${measureRows.map(r => r.label).join(', ')} together. Saving bytes is not enough if dequantization or cache loading shifts the bottleneck among those ${measureRows.length} dimensions.`,
   };
 }
 
 function* compressionTradeoffs() {
+  const bitRange = { min: 2, max: 16 };
+  const seriesCount = 2;
   yield {
     state: plotState({
-      axes: { x: { label: 'bits per value', min: 2, max: 16 }, y: { label: 'relative KV bytes', min: 0, max: 1.0 } },
+      axes: { x: { label: 'bits per value', min: bitRange.min, max: bitRange.max }, y: { label: 'relative KV bytes', min: 0, max: 1.0 } },
       series: [
         { id: 'bytes', label: 'cache bytes', points: [{ x: 16, y: 1.0 }, { x: 8, y: 0.50 }, { x: 4, y: 0.25 }, { x: 3, y: 0.19 }, { x: 2, y: 0.13 }] },
         { id: 'risk', label: 'quality risk', points: [{ x: 16, y: 0.04 }, { x: 8, y: 0.08 }, { x: 4, y: 0.18 }, { x: 3, y: 0.31 }, { x: 2, y: 0.48 }] },
       ],
     }),
     highlight: { active: ['bytes'], compare: ['risk'] },
-    explanation: 'Lower precision shrinks cache bytes roughly linearly, but quality risk is not linear. Low-bit KV cache needs distribution-aware grouping, outlier handling, and kernels that do not erase the bandwidth win.',
+    explanation: `Lower precision shrinks cache bytes roughly linearly from ${bitRange.max} bits down to ${bitRange.min}, but quality risk is not linear. The ${seriesCount} curves diverge because low-bit KV cache needs distribution-aware grouping, outlier handling, and kernels that do not erase the bandwidth win.`,
   };
 
+  const approaches = [
+    { id: 'kivi', label: 'KIVI' },
+    { id: 'kvquant', label: 'KVQuant' },
+    { id: 'cachegen', label: 'CacheGen' },
+    { id: 'flexgen', label: 'FlexGen' },
+  ];
   yield {
     state: labelMatrix(
       'Representative approaches',
-      [
-        { id: 'kivi', label: 'KIVI' },
-        { id: 'kvquant', label: 'KVQuant' },
-        { id: 'cachegen', label: 'CacheGen' },
-        { id: 'flexgen', label: 'FlexGen' },
-      ],
+      approaches,
       [
         { id: 'move', label: 'main move' },
         { id: 'target', label: 'target' },
@@ -153,24 +160,26 @@ function* compressionTradeoffs() {
       ],
     ),
     highlight: { active: ['kivi:move', 'kvquant:move', 'cachegen:move'], compare: ['flexgen:target'] },
-    explanation: 'The family is broader than one trick. Some methods quantize tensors kept near the GPU. CacheGen compresses KV cache for loading and streaming. FlexGen combines compression with offloading for throughput-oriented inference.',
+    explanation: `The family of ${approaches.length} approaches (${approaches.map(a => a.label).join(', ')}) is broader than one trick. Some methods quantize tensors kept near the GPU. CacheGen compresses KV cache for loading and streaming. FlexGen combines compression with offloading for throughput-oriented inference.`,
   };
 
+  const composesWith = ['PagedAttention', 'disaggregation'];
   yield {
     state: cachePathGraph('Compression composes with PagedAttention and disaggregation'),
     highlight: { active: ['pack', 'decode', 'batch'], found: ['k', 'v'], compare: ['prefill'] },
-    explanation: 'PagedAttention manages where cache blocks live. Prefill/decode disaggregation decides where phases run. KV quantization and compression change how many bytes each cache block costs.',
+    explanation: `Compression composes with ${composesWith.join(' and ')}. ${composesWith[0]} manages where cache blocks live. Prefill/decode ${composesWith[1]} decides where phases run. KV quantization changes how many bytes each cache block costs.`,
   };
 
+  const skipRows = [
+    { id: 'short', label: 'short context' },
+    { id: 'small', label: 'small model' },
+    { id: 'fragile', label: 'fragile task' },
+    { id: 'unsupported', label: 'no kernel' },
+  ];
   yield {
     state: labelMatrix(
       'When not to use it',
-      [
-        { id: 'short', label: 'short context' },
-        { id: 'small', label: 'small model' },
-        { id: 'fragile', label: 'fragile task' },
-        { id: 'unsupported', label: 'no kernel' },
-      ],
+      skipRows,
       [
         { id: 'why', label: 'why' },
         { id: 'fallback', label: 'fallback' },
@@ -183,7 +192,7 @@ function* compressionTradeoffs() {
       ],
     ),
     highlight: { removed: ['fragile:why', 'unsupported:why'], active: ['short:fallback', 'small:fallback'] },
-    explanation: 'KV compression is most attractive when context length and concurrency make cache bytes the bottleneck. If the workload is short, accuracy-critical, or lacks efficient kernels, the simpler path may win.',
+    explanation: `KV compression is most attractive when context length and concurrency make cache bytes the bottleneck. There are ${skipRows.length} situations to watch — ${skipRows.map(r => r.label).join(', ')} — where the simpler path may win.`,
   };
 }
 
@@ -196,6 +205,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/kv-cache-quantization-compression.gif', alt: 'Animated walkthrough of the kv cache quantization compression visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why KV Compression Exists',
       paragraphs: [

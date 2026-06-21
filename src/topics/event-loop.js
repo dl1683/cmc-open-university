@@ -33,113 +33,145 @@ function runtime({ stack = [], micro = [], macro = [], out = [], renderNote = ''
 }
 
 function* orderABCD() {
+  const stackMain = { id: 'fMain', label: 'script()' };
   yield {
-    state: runtime({ stack: [{ id: 'fMain', label: 'script()' }] }),
+    state: runtime({ stack: [stackMain] }),
     highlight: { active: ['fMain'] },
-    explanation: "The example has four operations: log A, schedule timer D, schedule promise microtask C, log B. The animation separates the call stack from two queues. The whole script starts as one task on the stack, so nothing queued can run until it finishes.",
+    explanation: `The example has four operations: log A, schedule timer D, schedule promise microtask C, log B. The animation separates the call stack from two queues. The whole script starts as ${stackMain.label} on the stack, so nothing queued can run until it finishes — both queues are empty.`,
   };
 
+  const logA = { id: 'fLog', label: "log('A')" };
+  const out1 = ['A'];
   yield {
-    state: runtime({ stack: [{ id: 'fMain', label: 'script()' }, { id: 'fLog', label: "log('A')" }], out: ['A'] }),
+    state: runtime({ stack: [stackMain, logA], out: out1 }),
     highlight: { active: ['fLog'], found: ['oA'] },
-    explanation: "Line 1: console.log('A') is pushed, prints, pops. Synchronous code is just stack discipline — nothing exotic yet. Output so far: A.",
+    explanation: `Line 1: ${logA.label} is pushed, prints, pops. Synchronous code is just stack discipline — nothing exotic yet. Output so far: ${out1.join(', ')}.`,
   };
 
+  const setCall = { id: 'fSet', label: 'setTimeout(→D, 0)' };
+  const timerCb = { id: 'tD', label: "→ log('D')", note: 'timer done' };
+  const macro2 = [timerCb];
   yield {
     state: runtime({
-      stack: [{ id: 'fMain', label: 'script()' }, { id: 'fSet', label: 'setTimeout(→D, 0)' }],
-      macro: [{ id: 'tD', label: "→ log('D')", note: 'timer done' }],
-      out: ['A'],
+      stack: [stackMain, setCall],
+      macro: macro2,
+      out: out1,
     }),
     highlight: { active: ['fSet'], visited: ['tD'] },
-    explanation: "Line 2: setTimeout(..., 0) hands a callback to the host timer system. When the timer is ready, the callback enters the task queue. It still waits for the current stack to empty and for earlier tasks to finish; zero delay means eligible soon, not interrupt now.",
+    explanation: `Line 2: ${setCall.label} hands a callback to the host timer system. When the timer is ready, the callback ${timerCb.label} enters the task queue (now ${macro2.length} task queued). It still waits for the current stack to empty and for earlier tasks to finish; zero delay means eligible soon, not interrupt now.`,
     invariant: 'Queued work never interrupts running code — a task waits for an empty call stack.',
   };
 
+  const thenCall = { id: 'fThen', label: '.then(→C)' };
+  const microC = { id: 'mC', label: "→ log('C')" };
+  const micro3 = [microC];
+  const macro3 = [{ id: 'tD', label: "→ log('D')" }];
   yield {
     state: runtime({
-      stack: [{ id: 'fMain', label: 'script()' }, { id: 'fThen', label: '.then(→C)' }],
-      micro: [{ id: 'mC', label: "→ log('C')" }],
-      macro: [{ id: 'tD', label: "→ log('D')" }],
-      out: ['A'],
+      stack: [stackMain, thenCall],
+      micro: micro3,
+      macro: macro3,
+      out: out1,
     }),
     highlight: { active: ['fThen'], visited: ['mC'] },
-    explanation: "Line 3: Promise.then schedules a microtask once the promise is resolved. This callback also cannot interrupt the current script, but it will run before the next task when the stack becomes empty.",
+    explanation: `Line 3: ${thenCall.label} schedules a microtask once the promise is resolved. The microtask ${microC.label} enters the microtask queue (${micro3.length} microtask, ${macro3.length} task waiting). This callback also cannot interrupt the current script, but it will run before the next task when the stack becomes empty.`,
   };
 
+  const logB = { id: 'fLogB', label: "log('B')" };
+  const micro4 = [{ id: 'mC', label: "→ log('C')" }];
+  const macro4 = [{ id: 'tD', label: "→ log('D')" }];
+  const out4 = ['A', 'B'];
   yield {
     state: runtime({
-      stack: [{ id: 'fMain', label: 'script()' }, { id: 'fLogB', label: "log('B')" }],
-      micro: [{ id: 'mC', label: "→ log('C')" }],
-      macro: [{ id: 'tD', label: "→ log('D')" }],
-      out: ['A', 'B'],
+      stack: [stackMain, logB],
+      micro: micro4,
+      macro: macro4,
+      out: out4,
     }),
     highlight: { active: ['fLogB'], found: ['oB'] },
-    explanation: "Line 4: console.log('B') prints. Note the running tally — A, then B — while both queued callbacks watch from the sidelines. The script is done; script() pops; the stack is about to hit empty. NOW the event loop wakes up.",
+    explanation: `Line 4: ${logB.label} prints. Note the running tally — ${out4.join(', ')} — while ${micro4.length} microtask and ${macro4.length} task watch from the sidelines. The script is done; ${stackMain.label} pops; the stack is about to hit empty. NOW the event loop wakes up.`,
   };
 
+  const runC = { id: 'fC', label: "log('C')" };
+  const macro5 = [{ id: 'tD', label: "→ log('D')" }];
+  const out5 = ['A', 'B', 'C'];
   yield {
     state: runtime({
-      stack: [{ id: 'fC', label: "log('C')" }],
-      macro: [{ id: 'tD', label: "→ log('D')" }],
-      out: ['A', 'B', 'C'],
+      stack: [runC],
+      macro: macro5,
+      out: out5,
     }),
     highlight: { active: ['fC'], found: ['oC'] },
-    explanation: "When the stack empties, the runtime drains microtasks before taking another task. That priority is why C prints before the ready timer D. Microtasks are for immediate consistency work, not for long-running loops.",
+    explanation: `When the stack empties, the runtime drains microtasks before taking another task. ${runC.label} runs now — that priority is why C prints before the ready timer (${macro5.length} task still waiting). Output so far: ${out5.join(', ')}. Microtasks are for immediate consistency work, not for long-running loops.`,
     invariant: 'Between tasks, the microtask queue is drained to empty — every microtask, plus any it spawns.',
   };
 
+  const runD = { id: 'fD', label: "log('D')" };
+  const outFinal = ['A', 'B', 'C', 'D'];
+  const renderDone = 'got a turn ✓';
   yield {
     state: runtime({
-      stack: [{ id: 'fD', label: "log('D')" }],
-      out: ['A', 'B', 'C', 'D'],
-      renderNote: 'got a turn ✓',
+      stack: [runD],
+      out: outFinal,
+      renderNote: renderDone,
     }),
     highlight: { active: ['fD'], found: ['oD'] },
-    explanation: "After microtasks drain, the browser may render, then the event loop takes one task. The timer finally runs and prints D. The final order is synchronous work first, microtasks at the checkpoint, then later tasks.",
+    explanation: `After microtasks drain, the browser may render, then the event loop takes one task. ${runD.label} finally runs — the final output is ${outFinal.join(', ')}. Render: ${renderDone}. The order is synchronous work first, microtasks at the checkpoint, then later tasks.`,
   };
 }
 
 function* starvation() {
+  const s1stack = { id: 'c1', label: 'chain() #1' };
+  const s1micro = { id: 'c2', label: '→ chain() #2' };
+  const s1render = 'waiting…';
   yield {
     state: runtime({
-      stack: [{ id: 'c1', label: 'chain() #1' }],
-      micro: [{ id: 'c2', label: '→ chain() #2' }],
-      renderNote: 'waiting…',
+      stack: [s1stack],
+      micro: [s1micro],
+      renderNote: s1render,
     }),
     highlight: { active: ['c1'], visited: ['c2'] },
-    explanation: "The starvation view shows a common bug: each microtask queues the next microtask before returning. Each callback is small, but the queue never reaches empty, so the browser never gets to rendering or input tasks.",
+    explanation: `The starvation view shows a common bug: ${s1stack.label} is on the stack and queues ${s1micro.label} as a microtask before returning. Each callback is small, but the queue never reaches empty — render status: ${s1render}. The browser never gets to rendering or input tasks.`,
   };
 
+  const s2stack = { id: 'c2', label: 'chain() #2' };
+  const s2micro = { id: 'c3', label: '→ chain() #3' };
+  const s2render = '1 frame missed';
   yield {
     state: runtime({
-      stack: [{ id: 'c2', label: 'chain() #2' }],
-      micro: [{ id: 'c3', label: '→ chain() #3' }],
-      renderNote: '1 frame missed',
+      stack: [s2stack],
+      micro: [s2micro],
+      renderNote: s2render,
     }),
     highlight: { active: ['c2'], visited: ['c3'] },
-    explanation: "The render slot waits because microtask checkpoints must drain to empty. A self-refilling microtask queue keeps the runtime in the same priority lane forever.",
+    explanation: `Now ${s2stack.label} runs and queues ${s2micro.label} — the render slot reports ${s2render} because microtask checkpoints must drain to empty. A self-refilling microtask queue keeps the runtime in the same priority lane forever.`,
   };
 
+  const s3stack = { id: 'c3', label: 'chain() #3' };
+  const s3micro = { id: 'c4', label: '→ chain() #4' };
+  const s3render = 'STARVED — page frozen';
   yield {
     state: runtime({
-      stack: [{ id: 'c3', label: 'chain() #3' }],
-      micro: [{ id: 'c4', label: '→ chain() #4' }],
-      renderNote: 'STARVED — page frozen',
+      stack: [s3stack],
+      micro: [s3micro],
+      renderNote: s3render,
     }),
     highlight: { active: ['c3'], compare: ['render'] },
-    explanation: "By the third generation, the page is effectively frozen: no paints, no click handlers, no timer tasks. Async syntax did not create a yield point; it created more high-priority work.",
+    explanation: `${s3stack.label} runs, ${s3micro.label} is queued — render status: ${s3render}. The page is effectively frozen: no paints, no click handlers, no timer tasks. Async syntax did not create a yield point; it created more high-priority work.`,
     invariant: 'Rendering and tasks wait for an empty microtask queue — a self-refilling one blocks them forever.',
   };
 
+  const s4stack = { id: 'c1', label: 'chain() #1' };
+  const s4macro = { id: 'c2', label: '→ chain() #2', note: 'timer' };
+  const s4render = 'runs every gap ✓';
   yield {
     state: runtime({
-      stack: [{ id: 'c1', label: 'chain() #1' }],
-      macro: [{ id: 'c2', label: '→ chain() #2', note: 'timer' }],
-      renderNote: 'runs every gap ✓',
+      stack: [s4stack],
+      macro: [s4macro],
+      renderNote: s4render,
     }),
     highlight: { active: ['c1'], found: ['render'] },
-    explanation: "Moving the next chunk to setTimeout puts it in the task queue, so rendering and input can interleave between chunks. For visual work use requestAnimationFrame; for CPU-heavy work use a worker. The practical skill is choosing the right queue.",
+    explanation: `The fix: ${s4stack.label} schedules ${s4macro.label} into the task queue (via ${s4macro.note}) instead of as a microtask. Render status: ${s4render}. Rendering and input can interleave between chunks. For visual work use requestAnimationFrame; for CPU-heavy work use a worker. The practical skill is choosing the right queue.`,
   };
 }
 
@@ -162,7 +194,8 @@ export const article = {
         },
         'In the A B C D view, follow the stack as it executes the script, then empties. The microtask column drains before the task column gets a turn. That ordering is the entire lesson: synchronous code first, microtasks at the checkpoint, tasks after.',
         'In the starvation view, watch the RENDER note. It never clears because each microtask schedules another before the queue can empty. The bug is not a slow function; it is a scheduling pattern that denies the browser a checkpoint.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/event-loop.gif', alt: 'Animated walkthrough of the event loop visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

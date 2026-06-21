@@ -94,41 +94,40 @@ function researchGraph(title) {
 }
 
 function* classicBlackboard() {
+  const knowledgeSources = ['acoustic', 'lexical', 'semantic'];
   yield {
     state: classicGraph('A blackboard is shared working memory'),
-    highlight: { active: ['signal', 'acoustic', 'lexical', 'board', 'e-signal-acoustic', 'e-signal-lexical', 'e-acoustic-board', 'e-lexical-board'], compare: ['semantic'] },
-    explanation: 'The board replaces direct chatter between specialists. Each knowledge source reads the same working memory, adds a typed hypothesis or update, and leaves enough provenance for the control shell to decide what deserves attention next.',
+    highlight: { active: ['signal', knowledgeSources[0], knowledgeSources[1], 'board', 'e-signal-acoustic', 'e-signal-lexical', 'e-acoustic-board', 'e-lexical-board'], compare: [knowledgeSources[2]] },
+    explanation: `The board replaces direct chatter between ${knowledgeSources.length} specialists (${knowledgeSources.join(', ')}). Each knowledge source reads the same working memory, adds a typed hypothesis or update, and leaves enough provenance for the control shell to decide what deserves attention next.`,
   };
 
+  const triggeredKS = knowledgeSources[2];
   yield {
     state: classicGraph('Knowledge sources react to board changes'),
-    highlight: { active: ['board', 'agenda', 'control', 'semantic', 'e-board-agenda', 'e-agenda-control', 'e-control-semantic', 'e-semantic-board'], found: ['merge'] },
-    explanation: 'The control shell watches the board and chooses which knowledge source should run next. A new word hypothesis can wake the semantic source; a contradiction can wake a verifier.',
-    invariant: 'Agents communicate through the board, not through hidden side channels.',
+    highlight: { active: ['board', 'agenda', 'control', triggeredKS, 'e-board-agenda', 'e-agenda-control', 'e-control-semantic', 'e-semantic-board'], found: ['merge'] },
+    explanation: `The control shell watches the board and chooses which knowledge source should run next. A new word hypothesis can wake the ${triggeredKS} source; a contradiction can wake a verifier.`,
+    invariant: `Agents communicate through the board, not through hidden side channels — all ${knowledgeSources.length} KS share one memory.`,
   };
 
+  const agendaInputs = ['board events', 'confidence deltas', 'coverage gaps', 'deadline pressure'];
   yield {
     state: classicGraph('The agenda solves focus of attention'),
-    highlight: { active: ['board', 'agenda', 'control', 'e-board-agenda', 'e-agenda-control'], compare: ['acoustic', 'lexical', 'semantic'] },
-    explanation: 'The hard problem is not only storing hypotheses. It is deciding which partial hypothesis is worth more compute. The agenda is a priority queue over board events, confidence deltas, coverage gaps, and deadline pressure.',
+    highlight: { active: ['board', 'agenda', 'control', 'e-board-agenda', 'e-agenda-control'], compare: knowledgeSources },
+    explanation: `The hard problem is not only storing hypotheses. It is deciding which partial hypothesis is worth more compute. The agenda is a priority queue over ${agendaInputs.join(', ')}.`,
   };
 
+  const mergeRequirements = ['conflict rules', 'confidence calibration', 'provenance'];
   yield {
     state: classicGraph('Merge resolves competing hypotheses'),
     highlight: { active: ['board', 'merge', 'answer', 'e-board-merge', 'e-merge-answer'], found: ['agenda'] },
-    explanation: 'The final answer is not just the last write. It is a selected path through competing hypotheses. The merge step needs conflict rules, confidence calibration, and enough provenance to explain why one path won.',
+    explanation: `The final answer is not just the last write. It is a selected path through competing hypotheses. The merge step needs ${mergeRequirements.join(', ')} to explain why one path won.`,
   };
 
+  const schemaFields = ['hypothesis', 'support', 'conflict', 'freshness', 'status'];
   yield {
     state: labelMatrix(
       'Blackboard record schema',
-      [
-        { id: 'h1', label: 'hypothesis' },
-        { id: 'h2', label: 'support' },
-        { id: 'h3', label: 'conflict' },
-        { id: 'h4', label: 'freshness' },
-        { id: 'h5', label: 'status' },
-      ],
+      schemaFields.map((f, i) => ({ id: `h${i + 1}`, label: f })),
       [
         { id: 'field', label: 'field' },
         { id: 'purpose', label: 'purpose' },
@@ -142,59 +141,60 @@ function* classicBlackboard() {
       ],
     ),
     highlight: { active: ['h1:field', 'h2:purpose', 'h3:purpose', 'h5:field'] },
-    explanation: 'A board is useful only when each entry has a schema. A pile of notes is not a blackboard; a structured table of hypotheses, support, conflicts, freshness, and status is.',
+    explanation: `A board is useful only when each entry has a schema with ${schemaFields.length} fields. A pile of notes is not a blackboard; a structured table of ${schemaFields.join(', ')} is.`,
   };
 }
 
 function* researchBlackboard() {
+  const stores = ['ledger', 'board'];
   yield {
     state: researchGraph('Research agents need a claim board'),
-    highlight: { active: ['question', 'search', 'ledger', 'board', 'e-question-search', 'e-search-ledger', 'e-search-board', 'e-ledger-board'], compare: ['synth'] },
-    explanation: 'The animation separates durable evidence from live hypotheses. Search writes source records to the ledger and candidate claims to the board. The final writer should inherit provenance, not invent it at the end.',
+    highlight: { active: ['question', 'search', stores[0], stores[1], 'e-question-search', 'e-search-ledger', 'e-search-board', 'e-ledger-board'], compare: ['synth'] },
+    explanation: `The animation separates durable evidence from live hypotheses. Search writes source records to the ${stores[0]} and candidate claims to the ${stores[1]}. The final writer should inherit provenance, not invent it at the end.`,
   };
 
+  const extractFields = ['claim text', 'entity', 'date', 'source id', 'evidence span', 'confidence'];
   yield {
     state: researchGraph('Extraction turns sources into structured claims'),
     highlight: { active: ['ledger', 'extract', 'board', 'e-ledger-board', 'e-extract-board'], compare: ['critic'] },
-    explanation: 'Extraction agents translate documents into board records: claim text, entity, date, source id, evidence span, confidence, and whether the claim supports or contradicts the current answer.',
+    explanation: `Extraction agents translate documents into board records with ${extractFields.length} fields: ${extractFields.join(', ')}, and whether the claim supports or contradicts the current answer.`,
   };
 
+  const criticOutputs = ['contradiction', 'missing source', 'stale date', 'unsupported generalization', 'scope violation'];
   yield {
     state: researchGraph('Critics write conflicts, not vibes'),
     highlight: { active: ['critic', 'board', 'agenda', 'e-critic-board', 'e-board-agenda'], found: ['search'] },
-    explanation: 'A critic is useful when its output mutates the board: contradiction, missing source, stale date, unsupported generalization, or scope violation. That mutation creates a new agenda item.',
-    invariant: 'Critique must create a record the next agent can act on.',
+    explanation: `A critic is useful when its output mutates the board: ${criticOutputs.join(', ')}. That mutation creates a new agenda item.`,
+    invariant: `Critique must create a record the next agent can act on — ${criticOutputs.length} mutation types are recognized.`,
   };
 
+  const cellTypes = ['claim A', 'claim B', 'gap', 'conflict'];
+  const nextActions = ['cite', 'verify', 'search', 'resolve'];
   yield {
     state: labelMatrix(
       'Research blackboard cells',
-      [
-        { id: 'c1', label: 'claim A' },
-        { id: 'c2', label: 'claim B' },
-        { id: 'c3', label: 'gap' },
-        { id: 'c4', label: 'conflict' },
-      ],
+      cellTypes.map((c, i) => ({ id: `c${i + 1}`, label: c })),
       [
         { id: 'source', label: 'source' },
         { id: 'confidence', label: 'confidence' },
         { id: 'next', label: 'next action' },
       ],
       [
-        ['S12, S18', 'high', 'cite'],
-        ['S21 only', 'medium', 'verify'],
-        ['none', 'unknown', 'search'],
-        ['S03 vs S09', 'unsettled', 'resolve'],
+        ['S12, S18', 'high', nextActions[0]],
+        ['S21 only', 'medium', nextActions[1]],
+        ['none', 'unknown', nextActions[2]],
+        ['S03 vs S09', 'unsettled', nextActions[3]],
       ],
     ),
     highlight: { active: ['c1:source', 'c1:next', 'c3:next', 'c4:next'], compare: ['c2:confidence'] },
-    explanation: 'The board doubles as a work queue. Strong claims can move to synthesis; weak claims ask for verification; gaps ask for search; conflicts ask for resolution.',
+    explanation: `The board doubles as a work queue with ${cellTypes.length} cell types. Strong claims ${nextActions[0]}; weak claims ${nextActions[1]}; ${cellTypes[2]}s ${nextActions[2]}; ${cellTypes[3]}s ${nextActions[3]}.`,
   };
 
+  const synthInputs = ['claim board', 'source ledger'];
   yield {
     state: researchGraph('Synthesis reads the board and the ledger together'),
     highlight: { active: ['board', 'ledger', 'synth', 'gate', 'e-board-synth', 'e-ledger-synth', 'e-synth-gate'], compare: ['agenda'] },
-    explanation: 'The synthesizer should read both the claim board and the source ledger. The board says what may be true; the ledger says where it came from. The gate rejects unsupported or contradiction-blind prose.',
+    explanation: `The synthesizer should read both the ${synthInputs[0]} and the ${synthInputs[1]}. The ${synthInputs[0]} says what may be true; the ${synthInputs[1]} says where it came from. The gate rejects unsupported or contradiction-blind prose.`,
   };
 }
 
@@ -225,7 +225,8 @@ export const article = {
           type: 'note',
           text: 'At each frame, identify which agent wrote to the board and what changed. The board is the single source of truth. If two agents appear to coordinate without a board write between them, the animation is hiding a step.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/blackboard-architecture-agent-coordination.gif', alt: 'Animated walkthrough of the blackboard architecture agent coordination visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

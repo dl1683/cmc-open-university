@@ -170,7 +170,8 @@ export const article = {
         'The vertical edge is the descent. It does not move to a different vector; it moves to the same vector in a denser layer. That state change matters because the algorithm is trading stride length for precision.',
         'The bottom row is the base graph where every vector lives. The animation shows a single greedy route so the navigation idea is easy to see. Real HNSW uses a candidate set on the base layer, controlled by efSearch or ef, so it can explore more than one promising local path before returning top-k results.',
         'The visited nodes are the cost you paid. The found node is the best answer along this route, not a mathematical proof that every other vector is farther away. HNSW is fast because it avoids most comparisons; it is approximate because avoided comparisons can hide a better point.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/hnsw-search.gif', alt: 'Animated walkthrough of the hnsw search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'How it works',

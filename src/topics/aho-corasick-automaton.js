@@ -64,17 +64,26 @@ function automaton(title) {
 }
 
 function* trieFailureLinks() {
+  const dictionary = ['he', 'she', 'his', 'hers'];
+  const patternCount = dictionary.length;
+  const nodeLabels = ['root', 'h', 'he', 'her', 'hers', 'hi', 'his', 's', 'sh', 'she'];
+  const nodeCount = nodeLabels.length;
+  const outputNodes = ['he', 'hers', 'his', 'she'];
+  const edgeCount = 12;
+  const buildSteps = ['insert patterns', 'BFS from root', 'compute fail links', 'merge outputs'];
+  const storageFields = ['goto edge', 'failure edge', 'output set', 'current state'];
+
   yield {
     state: automaton('Dictionary: he, she, his, hers'),
     highlight: { active: ['root', 'h', 's'], found: ['he', 'she', 'his', 'hers'] },
-    explanation: 'Aho-Corasick starts with a trie of all patterns. Every prefix is a state. Output states record which keywords end there.',
+    explanation: `Aho-Corasick starts with a trie of all ${patternCount} patterns. Every prefix is one of ${nodeCount} states. The ${outputNodes.length} output states (${outputNodes.join(', ')}) record which keywords end there.`,
   };
 
   yield {
     state: automaton('Failure links jump to the longest suffix state'),
     highlight: { active: ['she', 'f-she-he', 'he'], compare: ['hers', 'f-hers-s'] },
-    explanation: 'Failure links are the multi-pattern version of KMP fallback. If the automaton cannot follow the next character, it jumps to the longest suffix that is also a trie prefix.',
-    invariant: 'A failure link preserves the longest useful suffix of the current text suffix.',
+    explanation: `Failure links are the multi-pattern version of KMP fallback. If the automaton cannot follow the next character among ${edgeCount} edges, it jumps to the longest suffix that is also a trie prefix — e.g. "${'she'}" fails to "${'he'}".`,
+    invariant: `A failure link preserves the longest useful suffix; the ${nodeCount}-node automaton has ${edgeCount - 9} dedicated failure edges connecting suffix states.`,
   };
 
   yield {
@@ -98,7 +107,7 @@ function* trieFailureLinks() {
       ],
     ),
     highlight: { found: ['fail:structure', 'output:structure'], active: ['bfs:cost'] },
-    explanation: 'Failure links are built breadth-first so a parent failure link is known before its children need it. Output links ensure that matching she also reports he.',
+    explanation: `Failure links are built in ${buildSteps.length} phases breadth-first so a parent failure link is known before its children need it. Output links ensure that matching ${'she'} also reports ${'he'}.`,
   };
 
   yield {
@@ -122,11 +131,19 @@ function* trieFailureLinks() {
       ],
     ),
     highlight: { active: ['fail:neighbor', 'state:meaning'], found: ['out:meaning'] },
-    explanation: 'Aho-Corasick is best read as a finite-state machine compiled from a dictionary. Each text character causes transitions until the machine reaches the right suffix state.',
+    explanation: `Aho-Corasick is best read as a finite-state machine compiled from ${patternCount} dictionary entries into ${storageFields.length} per-node fields. Each text character causes transitions until the machine reaches the right suffix state.`,
   };
 }
 
 function* streamMatches() {
+  const scanText = 'ushers';
+  const textLen = scanText.length;
+  const scanChars = scanText.split('');
+  const matchesFound = ['she', 'he', 'hers'];
+  const matchCount = matchesFound.length;
+  const runtimeRows = ['text chars', 'failure traversals', 'outputs', 'total'];
+  const useCases = ['intrusion signatures', 'content filter', 'DNA motifs', 'bibliographic search'];
+
   yield {
     state: labelMatrix(
       'Scan text: ushers',
@@ -152,13 +169,13 @@ function* streamMatches() {
       ],
     ),
     highlight: { found: ['e:output', 's2:output'], active: ['e:state', 's2:state'] },
-    explanation: 'The text ushers is scanned once. At e, the state she emits she and follows output inheritance to emit he. At the final s, it emits hers.',
+    explanation: `The ${textLen}-character text "${scanText}" is scanned once across ${textLen} rows. At ${scanChars[3]}, the state ${'she'} emits ${'she'} and follows output inheritance to emit ${'he'}. At the final ${scanChars[5]}, it emits ${'hers'}.`,
   };
 
   yield {
     state: automaton('After reporting she, failure/output reports he'),
     highlight: { active: ['she', 'f-she-he'], found: ['he'] },
-    explanation: 'The match she ends at the same character as he, because he is a suffix of she. Output merging is what makes overlapping dictionary matches appear without rescanning.',
+    explanation: `The match ${'she'} ends at the same character as ${'he'}, because ${'he'} is a suffix of ${'she'}. Output merging is what makes ${matchCount} overlapping matches appear without rescanning "${scanText}".`,
   };
 
   yield {
@@ -182,7 +199,7 @@ function* streamMatches() {
       ],
     ),
     highlight: { found: ['total:bound'], compare: ['emit:bound'] },
-    explanation: 'The scanner is linear in the text plus the number of matches emitted. Output size is unavoidable: if a dictionary produces many matches, the algorithm has to report them.',
+    explanation: `The scanner is linear in the text plus the number of matches emitted. The ${runtimeRows.length}-row accounting shows the bound is O(n + matches); for "${scanText}" that means ${textLen} char reads plus ${matchCount} outputs.`,
   };
 
   yield {
@@ -206,7 +223,7 @@ function* streamMatches() {
       ],
     ),
     highlight: { active: ['ids:whyMany', 'index:whyMany'], compare: ['filter:risk'] },
-    explanation: 'Aho-Corasick is what you reach for when the dictionary is fixed, the stream is large, and overlapping matches matter.',
+    explanation: `Aho-Corasick is what you reach for across ${useCases.length} domains — ${useCases[0]}, ${useCases[useCases.length - 1]}, and more — when the dictionary is fixed, the stream is large, and overlapping matches matter.`,
   };
 }
 
@@ -225,7 +242,8 @@ export const article = {
         'The graph is the Aho-Corasick automaton built from a small dictionary. Each node is a trie state labeled with the prefix it represents. Solid directed edges are goto transitions: consuming a matching character moves one level deeper. Dashed edges labeled "fail" are failure links (also called suffix links): they point to the longest proper suffix of the current prefix that is itself a prefix in the trie. The edge labeled "fail/output" from "she" to "he" is both a failure link and an output link, because "he" is a complete pattern that happens to be the suffix target.',
         'Nodes annotated "output" are match states. When the automaton enters one, it emits that pattern. Output links chain additional shorter patterns that also end at the same text position. In the "stream matches" view, watch the text pointer: it advances exactly once per character, never rewinds. Active highlights show the current automaton state. Found highlights show which patterns have been reported.',
         {type: 'callout', text: 'Aho-Corasick turns many keyword searches into one automaton by preserving the longest useful suffix after every mismatch.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/aho-corasick-automaton.gif', alt: 'Animated walkthrough of the aho corasick automaton visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

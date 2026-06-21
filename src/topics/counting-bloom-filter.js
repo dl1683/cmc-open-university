@@ -196,6 +196,13 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/counting-bloom-filter.gif', alt: 'Animated walkthrough of the counting bloom filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Counting Bloom filters exist because ordinary Bloom filters are good at compact membership checks but bad at deletion. A normal Bloom filter stores bits. If two keys share a bit and one key is deleted, clearing the bit can accidentally erase evidence for the other key.',

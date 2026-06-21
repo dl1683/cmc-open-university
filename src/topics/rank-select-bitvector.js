@@ -34,59 +34,69 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* rankDirectory() {
+  const bitPositions = 16;
+  const bits = ['1', '0', '1', '1', '0', '0', '1', '0', '1', '1', '1', '0', '0', '1', '0', '1'];
+  const prefixCounts = ['1', '1', '2', '3', '3', '3', '4', '4', '5', '6', '7', '7', '7', '8', '8', '9'];
+  const superblockEntries = ['0', '', '', '', '', '', '', '', '4', '', '', '', '', '', '', ''];
+  const totalOnes = Number(prefixCounts[prefixCounts.length - 1]);
+  const rows = [
+    { id: 'bits', label: 'bits' },
+    { id: 'rank', label: 'prefix 1s' },
+    { id: 'block', label: 'superblock' },
+  ];
+  const columns = Array.from({ length: bitPositions }, (_, i) => ({ id: `p${i}`, label: String(i) }));
   yield {
     state: labelMatrix(
       'Bitvector B',
-      [
-        { id: 'bits', label: 'bits' },
-        { id: 'rank', label: 'prefix 1s' },
-        { id: 'block', label: 'superblock' },
-      ],
-      Array.from({ length: 16 }, (_, i) => ({ id: `p${i}`, label: String(i) })),
-      [
-        ['1', '0', '1', '1', '0', '0', '1', '0', '1', '1', '1', '0', '0', '1', '0', '1'],
-        ['1', '1', '2', '3', '3', '3', '4', '4', '5', '6', '7', '7', '7', '8', '8', '9'],
-        ['0', '', '', '', '', '', '', '', '4', '', '', '', '', '', '', ''],
-      ],
+      rows,
+      columns,
+      [bits, prefixCounts, superblockEntries],
     ),
     highlight: { active: ['bits:p0', 'bits:p2', 'bits:p3', 'bits:p6'], found: ['block:p0', 'block:p8'] },
-    explanation: 'rank(i) asks how many 1 bits appear up to position i. A succinct bitvector stores sparse prefix counts so queries do not scan from the beginning.',
+    explanation: `rank(i) asks how many 1 bits appear up to position i across ${bitPositions} bit positions. This ${rows.length}-row view stores sparse prefix counts so queries do not scan all ${totalOnes} ones from the beginning.`,
   };
 
+  const queryPos = 10;
+  const superblockVal = 4;
+  const miniVal = 0;
+  const popcountVal = 3;
+  const rankAnswer = superblockVal + miniVal + popcountVal;
+  const rankPieces = [
+    { id: 'super', label: 'superblock count' },
+    { id: 'mini', label: 'inside-block count' },
+    { id: 'pop', label: 'popcount tail' },
+    { id: 'answer', label: 'answer' },
+  ];
   yield {
     state: labelMatrix(
-      'Answer rank(10)',
-      [
-        { id: 'super', label: 'superblock count' },
-        { id: 'mini', label: 'inside-block count' },
-        { id: 'pop', label: 'popcount tail' },
-        { id: 'answer', label: 'answer' },
-      ],
+      `Answer rank(${queryPos})`,
+      rankPieces,
       [
         { id: 'value', label: 'value' },
         { id: 'work', label: 'work' },
       ],
       [
-        ['4', 'ones before position 8'],
-        ['0', 'start of mini block'],
-        ['3', 'popcount bits 8..10'],
-        ['7', '4 + 0 + 3'],
+        [String(superblockVal), 'ones before position 8'],
+        [String(miniVal), 'start of mini block'],
+        [String(popcountVal), `popcount bits 8..${queryPos}`],
+        [String(rankAnswer), `${superblockVal} + ${miniVal} + ${popcountVal}`],
       ],
     ),
     highlight: { active: ['super:value', 'pop:value'], found: ['answer:value'] },
-    explanation: 'A practical rank directory combines coarse counters, smaller local counters, and a machine popcount over the final word. That gives constant-time counting with tiny overhead.',
-    invariant: 'Rank is prefix sum over bits, accelerated by sampled prefix sums plus popcount.',
+    explanation: `A practical rank directory decomposes rank(${queryPos}) into ${rankPieces.length} additive pieces: coarse counters, local counters, and a machine popcount, yielding ${rankAnswer} in constant time.`,
+    invariant: `Rank is prefix sum over ${bitPositions} bits, accelerated by sampled prefix sums plus popcount to answer rank(${queryPos}) = ${rankAnswer}.`,
   };
 
+  const spaceApproaches = [
+    { id: 'plain', label: 'plain prefix array' },
+    { id: 'sampled', label: 'sampled rank directory' },
+    { id: 'compressed', label: 'compressed variant' },
+    { id: 'raw', label: 'raw bits' },
+  ];
   yield {
     state: labelMatrix(
       'Why this is succinct',
-      [
-        { id: 'plain', label: 'plain prefix array' },
-        { id: 'sampled', label: 'sampled rank directory' },
-        { id: 'compressed', label: 'compressed variant' },
-        { id: 'raw', label: 'raw bits' },
-      ],
+      spaceApproaches,
       [
         { id: 'space', label: 'space' },
         { id: 'query', label: 'query' },
@@ -99,18 +109,19 @@ function* rankDirectory() {
       ],
     ),
     highlight: { active: ['sampled:space', 'sampled:query'], compare: ['plain:space', 'raw:query'] },
-    explanation: 'The point is not that rank is hard. The point is answering rank while adding only a small number of bits beyond the original bitvector.',
+    explanation: `The point is not that rank is hard. Across ${spaceApproaches.length} approaches, the goal is answering rank over ${bitPositions} positions while adding only o(n) bits beyond the original bitvector.`,
   };
 
+  const useCases = [
+    { id: 'wavelet', label: 'wavelet tree' },
+    { id: 'fm', label: 'FM-index' },
+    { id: 'bitmap', label: 'compressed bitmap' },
+    { id: 'tree', label: 'succinct tree' },
+  ];
   yield {
     state: labelMatrix(
       'Where rank appears',
-      [
-        { id: 'wavelet', label: 'wavelet tree' },
-        { id: 'fm', label: 'FM-index' },
-        { id: 'bitmap', label: 'compressed bitmap' },
-        { id: 'tree', label: 'succinct tree' },
-      ],
+      useCases,
       [
         { id: 'rankrole', label: 'rank role' },
         { id: 'selectrole', label: 'select role' },
@@ -123,44 +134,48 @@ function* rankDirectory() {
       ],
     ),
     highlight: { found: ['wavelet:rankrole', 'fm:rankrole'], active: ['bitmap:selectrole'] },
-    explanation: 'Rank/select is the hidden primitive inside many compressed structures. Once rank is fast, indexes can store topology as bits instead of pointers.',
+    explanation: `Rank/select is the hidden primitive inside ${useCases.length} compressed structures shown here. Once rank answers in O(1) over ${bitPositions} positions, indexes store topology as bits instead of pointers.`,
   };
 }
 
 function* selectDirectory() {
+  const selectK = 6;
+  const selectAnswer = 9;
+  const selectSteps = [
+    { id: 'goal', label: 'goal' },
+    { id: 'coarse', label: 'coarse jump' },
+    { id: 'scan', label: 'word scan' },
+    { id: 'answer', label: 'answer' },
+  ];
   yield {
     state: labelMatrix(
-      'select(k) locates the k-th 1',
+      `select(k) locates the k-th 1`,
+      selectSteps,
       [
-        { id: 'goal', label: 'goal' },
-        { id: 'coarse', label: 'coarse jump' },
-        { id: 'scan', label: 'word scan' },
-        { id: 'answer', label: 'answer' },
-      ],
-      [
-        { id: 'example', label: 'select(6)' },
+        { id: 'example', label: `select(${selectK})` },
         { id: 'meaning', label: 'meaning' },
       ],
       [
-        ['6th one', 'find position with rank = 6'],
+        [`${selectK}th one`, `find position with rank = ${selectK}`],
         ['jump near rank bucket', 'avoid scanning all bits'],
         ['popcount words', 'locate exact bit'],
-        ['position 9', 'B[9] is the 6th one'],
+        [`position ${selectAnswer}`, `B[${selectAnswer}] is the ${selectK}th one`],
       ],
     ),
     highlight: { active: ['goal:example', 'coarse:example', 'scan:example'], found: ['answer:example'] },
-    explanation: 'select(k) is the inverse direction: find the position where the k-th 1 occurs. Directories store sampled positions so the final search is local.',
+    explanation: `select(${selectK}) is the inverse direction: find position ${selectAnswer} where the ${selectK}th 1 occurs. The ${selectSteps.length} steps -- goal, coarse jump, word scan, answer -- keep the final search local.`,
   };
 
+  const densityVariants = [
+    { id: 'dense', label: 'dense ones' },
+    { id: 'sparse', label: 'sparse ones' },
+    { id: 'clustered', label: 'clustered ones' },
+    { id: 'random', label: 'random bits' },
+  ];
   yield {
     state: labelMatrix(
       'Dense versus sparse bitvectors',
-      [
-        { id: 'dense', label: 'dense ones' },
-        { id: 'sparse', label: 'sparse ones' },
-        { id: 'clustered', label: 'clustered ones' },
-        { id: 'random', label: 'random bits' },
-      ],
+      densityVariants,
       [
         { id: 'rank', label: 'rank design' },
         { id: 'select', label: 'select design' },
@@ -173,18 +188,19 @@ function* selectDirectory() {
       ],
     ),
     highlight: { found: ['sparse:select', 'clustered:rank'], compare: ['random:rank'] },
-    explanation: 'Compressed rank/select dictionaries adapt to density. Sparse sets can store positions or gaps; dense sets often keep raw bits plus small rank samples.',
+    explanation: `Compressed rank/select dictionaries adapt across ${densityVariants.length} density profiles. Sparse sets store positions or gaps; dense sets keep raw bits plus small rank samples.`,
   };
 
+  const queryContracts = [
+    { id: 'rank1', label: 'rank1(i)' },
+    { id: 'rank0', label: 'rank0(i)' },
+    { id: 'select1', label: 'select1(k)' },
+    { id: 'select0', label: 'select0(k)' },
+  ];
   yield {
     state: labelMatrix(
       'Query contracts',
-      [
-        { id: 'rank1', label: 'rank1(i)' },
-        { id: 'rank0', label: 'rank0(i)' },
-        { id: 'select1', label: 'select1(k)' },
-        { id: 'select0', label: 'select0(k)' },
-      ],
+      queryContracts,
       [
         { id: 'answer', label: 'answer' },
         { id: 'formula', label: 'relationship' },
@@ -197,18 +213,19 @@ function* selectDirectory() {
       ],
     ),
     highlight: { active: ['rank1:answer', 'select1:answer'], found: ['rank0:formula'] },
-    explanation: 'Most libraries expose both 0 and 1 variants. If rank1 is fast and the length is known, rank0 is usually derived. Select needs its own samples for speed.',
+    explanation: `All ${queryContracts.length} query variants -- ${queryContracts.map(q => q.id).join(', ')} -- are exposed by most libraries. If rank1 is fast, rank0 is derived as i+1-rank1(i); select needs its own samples.`,
   };
 
+  const tradeoffDimensions = [
+    { id: 'space', label: 'extra space' },
+    { id: 'latency', label: 'latency' },
+    { id: 'build', label: 'build time' },
+    { id: 'updates', label: 'updates' },
+  ];
   yield {
     state: labelMatrix(
       'Engineering tradeoffs',
-      [
-        { id: 'space', label: 'extra space' },
-        { id: 'latency', label: 'latency' },
-        { id: 'build', label: 'build time' },
-        { id: 'updates', label: 'updates' },
-      ],
+      tradeoffDimensions,
       [
         { id: 'pressure', label: 'pressure' },
         { id: 'response', label: 'response' },
@@ -221,7 +238,7 @@ function* selectDirectory() {
       ],
     ),
     highlight: { active: ['space:response', 'latency:response'], compare: ['updates:response'] },
-    explanation: 'Rank/select bitvectors are usually static. They are built once so compressed indexes can query them millions of times.',
+    explanation: `Rank/select bitvectors balance ${tradeoffDimensions.length} pressures: ${tradeoffDimensions.map(d => d.label).join(', ')}. They are built once so compressed indexes can query them millions of times.`,
   };
 }
 
@@ -241,7 +258,8 @@ export const article = {
         {type: 'callout', text: 'Rank and select make bitstrings navigable: rank counts how far you have gone, and select jumps to the position where a count first becomes true.'},
         'The "select directory" view works in the opposite direction. The first frame traces select(6) from goal through coarse jump through word scan to the final answer position. Later frames compare how density affects directory design: dense, sparse, clustered, and random layouts demand different sampling strategies.',
         'At each frame, notice what is stored versus what is recomputed. The entire point of the structure is that almost nothing is stored, yet queries never scan from the beginning.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/rank-select-bitvector.gif', alt: 'Animated walkthrough of the rank select bitvector visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

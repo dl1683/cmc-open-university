@@ -75,6 +75,10 @@ function trafficPlot(title) {
 }
 
 function* queueHandoff() {
+  const threadCount = 3; // A, B, C in this demo
+  const qnodeFields = 2; // next pointer + locked flag per node
+  const handoffWrites = 1; // release writes exactly one successor flag
+
   yield {
     state: mcsGraph('MCS turns a lock into a linked queue of qnodes', {
       tail: 'points to C',
@@ -84,8 +88,8 @@ function* queueHandoff() {
       shared: 'tail only',
     }),
     highlight: { active: ['tail', 'a', 'b', 'c', 'e-a-b', 'e-b-c'], compare: ['shared'] },
-    explanation: 'An MCS lock stores one shared tail pointer. Each contender brings a queue node with a next pointer and a locked flag. The waiters form a linked list behind the current owner.',
-    invariant: 'Every waiting thread spins on its own qnode.locked flag.',
+    explanation: `An MCS lock stores one shared tail pointer. Each of the ${threadCount} contenders brings a queue node with ${qnodeFields} fields (next pointer and locked flag). The waiters form a linked list behind the current owner.`,
+    invariant: `Every waiting thread spins on its own qnode.locked flag — ${threadCount - 1} waiters poll ${threadCount - 1} separate cache lines.`,
   };
 
   yield {
@@ -97,7 +101,7 @@ function* queueHandoff() {
       coreC: 'swap tail',
     }),
     highlight: { active: ['c', 'tail', 'b', 'e-tail-c'], found: ['coreC'] },
-    explanation: "To acquire, thread C atomically swaps the lock tail with its own qnode. The old tail is C's predecessor. If there was no predecessor, C owns the lock immediately.",
+    explanation: `To acquire, thread C atomically swaps the lock tail with its own qnode. The old tail is C's predecessor. If there was no predecessor, C owns the lock immediately — ${handoffWrites} atomic swap is all it takes.`,
   };
 
   yield {
@@ -109,7 +113,7 @@ function* queueHandoff() {
       coreC: 'waiting',
     }),
     highlight: { active: ['b', 'c', 'e-b-c'], compare: ['tail'] },
-    explanation: 'If a predecessor exists, C sets C.locked = true and stores C into predecessor.next. That single link makes the queue explicit and gives the predecessor a precise successor to wake.',
+    explanation: `If a predecessor exists, C sets C.locked = true and stores C into predecessor.next. That ${handoffWrites} link makes the queue explicit and gives the predecessor a precise successor to wake among ${threadCount} threads.`,
   };
 
   yield {
@@ -123,7 +127,7 @@ function* queueHandoff() {
       shared: 'quiet',
     }),
     highlight: { active: ['coreB', 'b', 'e-coreB-b', 'coreC', 'c', 'e-coreC-c'], compare: ['shared'] },
-    explanation: 'The scalability win is cache behavior. B repeatedly reads B.locked, and C repeatedly reads C.locked. They do not all pound one shared cache line while waiting.',
+    explanation: `The scalability win is cache behavior. Each of the ${threadCount - 1} waiters repeatedly reads its own .locked flag — B polls B.locked, C polls C.locked. They do not all pound ${handoffWrites} shared cache line while waiting.`,
   };
 
   yield {
@@ -136,16 +140,21 @@ function* queueHandoff() {
       coreB: 'enters',
     }),
     highlight: { active: ['a', 'b', 'coreA', 'coreB', 'e-a-b', 'e-coreB-b'], found: ['c'] },
-    explanation: 'On release, A checks its next pointer. If B is present, A clears B.locked. That one remote store hands the lock to the exact successor and preserves FIFO order.',
-    invariant: 'The unlock path wakes one successor, not every contender.',
+    explanation: `On release, A checks its next pointer. If B is present, A clears B.locked with ${handoffWrites} remote store — handing the lock to the exact successor and preserving FIFO order across all ${threadCount} threads.`,
+    invariant: `The unlock path wakes exactly ${handoffWrites} successor, not all ${threadCount - 1} contenders.`,
   };
 }
 
 function* contentionScalability() {
+  const lockStyles = 3; // test-and-set, ticket, MCS in the plot
+  const maxCores = 32; // largest core count on the x-axis
+  const lockTypes = 4; // lock types in the comparison matrix
+  const scenarioCount = 4; // rows in the tradeoff matrix
+
   yield {
     state: trafficPlot('Why local spinning matters under contention'),
     highlight: { active: ['mcs', 'flat'], compare: ['tas', 'ticket', 'hot'] },
-    explanation: 'A simple test-and-set lock can make every waiter repeatedly invalidate the same cache line. MCS keeps the shared tail mostly out of the spin path, so release traffic stays close to one successor handoff.',
+    explanation: `A simple test-and-set lock can make every waiter repeatedly invalidate the same cache line. Across all ${lockStyles} styles plotted up to ${maxCores} cores, MCS keeps the shared tail mostly out of the spin path so release traffic stays close to one successor handoff.`,
   };
 
   yield {
@@ -170,7 +179,7 @@ function* contentionScalability() {
       ],
     ),
     highlight: { active: ['mcs:fair', 'mcs:spin', 'mcs:best'], compare: ['tas:spin', 'mutex:best'] },
-    explanation: 'MCS is not just a faster boolean. It changes the data structure from one contended word into a queue, then makes each waiter observe its own node.',
+    explanation: `MCS is not just a faster boolean. Among the ${lockTypes} lock types compared, it changes the data structure from one contended word into a queue, then makes each waiter observe its own node — ${lockStyles - 1} of the ${lockStyles} plotted styles still poll shared state.`,
   };
 
   yield {
@@ -184,7 +193,7 @@ function* contentionScalability() {
       shared: 'tail pointer',
     }),
     highlight: { active: ['b', 'c', 'coreB', 'coreC'], compare: ['shared'] },
-    explanation: 'The algorithm needs a qnode per waiting acquisition. That is why MCS APIs often require caller-provided node storage or keep per-thread lock context.',
+    explanation: `The algorithm needs a qnode per waiting acquisition — with ${maxCores} cores contending, that means up to ${maxCores} nodes. That is why MCS APIs often require caller-provided node storage or keep per-thread lock context.`,
   };
 
   yield {
@@ -208,7 +217,7 @@ function* contentionScalability() {
       ],
     ),
     highlight: { active: ['many:effect', 'many:choice'], compare: ['io:choice', 'preempt:choice'] },
-    explanation: 'Queue locks are excellent when the lock is hot but held briefly. If the holder can sleep, block on I/O, or be descheduled for long periods, a parking primitive may be better.',
+    explanation: `Queue locks are excellent when the lock is hot but held briefly. Across the ${scenarioCount} scenarios above, if the holder can sleep, block on I/O, or be descheduled for long periods, a parking primitive may be better — MCS shines in only ${scenarioCount - 2} of the ${scenarioCount} cases.`,
   };
 }
 
@@ -221,6 +230,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/mcs-queue-lock-scalable-spinlock.gif', alt: 'Animated walkthrough of the mcs queue lock scalable spinlock visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

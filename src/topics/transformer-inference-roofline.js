@@ -51,13 +51,18 @@ function rooflineState(markers = []) {
 }
 
 function* rooflineMap() {
+  const decodeIntensity = 3;
+  const prefillIntensity = 260;
+  const computeCeiling = 100;
+  const memBandwidthSlope = 0.4;
+
   yield {
     state: rooflineState([
       { id: 'decode', x: 3, y: 1.2, label: 'decode token' },
       { id: 'prefill', x: 260, y: 100, label: 'prefill prompt' },
     ]),
     highlight: { active: ['decode'], found: ['prefill'], compare: ['memory-roof', 'compute-roof'] },
-    explanation: 'A roofline chart separates two ceilings: memory bandwidth on the sloped line, peak math on the flat line. Transformer prefill has enough arithmetic per byte to climb toward the compute roof. Autoregressive decode sits near the left edge, where each new token reads a lot of weights and KV cache for little new math.',
+    explanation: `A roofline chart separates two ceilings: memory bandwidth on the sloped line (${memBandwidthSlope}x), peak math on the flat line at ${computeCeiling}. Transformer prefill at intensity ~${prefillIntensity} has enough arithmetic per byte to climb toward the compute roof. Autoregressive decode at intensity ~${decodeIntensity} sits near the left edge, where each new token reads a lot of weights and KV cache for little new math.`,
   };
 
   yield {
@@ -67,8 +72,8 @@ function* rooflineMap() {
       { id: 'prefill', x: 260, y: 100, label: 'prefill' },
     ]),
     highlight: { active: ['fp16-decode', 'int4-decode'], found: ['prefill'] },
-    explanation: 'Quantization moves decode to the right because fewer bytes are read per multiply. Structured pruning can do the same only when the sparse path actually packs weights and uses sparse kernels. Neither trick magically turns decode into a dense matrix-multiply workload.',
-    invariant: 'The bound is min(peak compute, memory bandwidth times arithmetic intensity).',
+    explanation: `Quantization moves decode from intensity ~${decodeIntensity} to the right because fewer bytes are read per multiply. Structured pruning can do the same only when the sparse path actually packs weights and uses sparse kernels. Neither trick magically turns decode into a dense matrix-multiply workload near prefill's ~${prefillIntensity}.`,
+    invariant: `The bound is min(peak compute at ${computeCeiling}, memory bandwidth at ${memBandwidthSlope}x times arithmetic intensity).`,
   };
 
   yield {
@@ -93,7 +98,7 @@ function* rooflineMap() {
       ],
     ),
     highlight: { active: ['decode:dominant', 'long:dominant'], found: ['prefill:fix', 'decode:fix'] },
-    explanation: 'The serving stack is a phase-change problem. The fastest prefill kernel does not solve decode memory traffic, and the best batching policy does not remove prefill latency. Good systems name the phase before choosing the tool.',
+    explanation: `The serving stack is a phase-change problem. Prefill at intensity ~${prefillIntensity} and decode at intensity ~${decodeIntensity} hit different ceilings. The fastest prefill kernel does not solve decode memory traffic, and the best batching policy does not remove prefill latency. Good systems name the phase before choosing the tool.`,
   };
 
   yield {
@@ -117,11 +122,17 @@ function* rooflineMap() {
       ],
     ),
     highlight: { found: ['flash:why', 'page:why', 'batch:why', 'spec:why'] },
-    explanation: 'A production inference engine is a stack of phase-specific fixes: FlashAttention for attention IO, PagedAttention for cache allocation, continuous batching for GPU occupancy, and Speculative Decoding for serial latency.',
+    explanation: `A production inference engine stacks phase-specific fixes below the ${computeCeiling}-unit compute ceiling: FlashAttention for attention IO, PagedAttention for cache allocation, continuous batching for GPU occupancy, and Speculative Decoding for serial latency. Together they push decode (intensity ~${decodeIntensity}) and prefill (intensity ~${prefillIntensity}) closer to their respective roofs.`,
   };
 }
 
 function* prefillVsDecode() {
+  const phases = ['prefill', 'decode'];
+  const prefillSmallX = 160;
+  const prefillLargeX = 320;
+  const decodeSingleX = 2;
+  const decodeBatchedX = 12;
+
   yield {
     state: labelMatrix(
       'One request has two execution phases',
@@ -143,7 +154,7 @@ function* prefillVsDecode() {
       ],
     ),
     highlight: { active: ['prefill:cost', 'decode:cost'], found: ['first:what'] },
-    explanation: 'Users experience one answer, but the runtime sees two phases. Prefill builds the KV Cache from the prompt. Decode repeatedly reads model weights and the existing cache to append one token.',
+    explanation: `Users experience one answer, but the runtime sees ${phases.length} phases: ${phases.join(' and ')}. Prefill builds the KV Cache from the prompt. Decode repeatedly reads model weights and the existing cache to append one token.`,
   };
 
   yield {
@@ -167,7 +178,7 @@ function* prefillVsDecode() {
       ],
     ),
     highlight: { compare: ['short:effect', 'agent:effect'], active: ['batch:effect'] },
-    explanation: 'Long context is not just an accuracy feature. Every live context occupies KV cache bytes across layers and heads. When memory fills, the server must reduce batch size, evict work, spill, or reject new requests.',
+    explanation: `Long context is not just an accuracy feature. Every live context occupies KV cache bytes across layers and heads. When memory fills, the server must reduce batch size, evict work, spill, or reject new requests -- this is why ${phases[1]} at intensity ~${decodeSingleX} cannot simply be batched without limit.`,
   };
 
   yield {
@@ -178,7 +189,7 @@ function* prefillVsDecode() {
       { id: 'decode-batch', x: 12, y: 4.8, label: 'decode batched' },
     ]),
     highlight: { active: ['decode-small', 'decode-batch'], found: ['prefill-large'] },
-    explanation: 'Batching raises arithmetic intensity because multiple sequences reuse the same weights. That is why decode throughput improves with batch size, but the batch is limited by KV cache memory and user latency.',
+    explanation: `Batching raises arithmetic intensity because multiple sequences reuse the same weights. A single decode at intensity ~${decodeSingleX} jumps to ~${decodeBatchedX} when batched. ${phases[0]} similarly moves from ~${prefillSmallX} to ~${prefillLargeX} with larger batches, but the batch is limited by KV cache memory and user latency.`,
   };
 
   yield {
@@ -202,7 +213,7 @@ function* prefillVsDecode() {
       ],
     ),
     highlight: { active: ['ttft:phase', 'tpot:phase', 'tail:phase'], found: ['tail:wrong fix'] },
-    explanation: 'The roofline model is useful because it forces metric discipline. Time to first token, time per output token, aggregate throughput, and p99 latency diagnose different bottlenecks.',
+    explanation: `The roofline model is useful because it forces metric discipline. Time to first token mostly reflects ${phases[0]} cost, time per output token mostly reflects the ${phases[1]} loop, aggregate throughput and p99 latency diagnose different bottlenecks.`,
   };
 }
 
@@ -222,7 +233,8 @@ export const article = {
         'Each marker is a serving phase placed on the chart. The prefill marker sits near the compute roof because processing many prompt tokens at once yields high arithmetic intensity. The decode marker sits near the memory slope because generating one token at a time reads many bytes for little new math. Watch how quantization, batching, and other levers shift markers horizontally -- rightward means more work per byte, which pushes a memory-bound phase closer to the compute roof.',
         'Active markers (highlighted) are the current focus. Found markers are phases whose bottleneck has been identified. When the animation switches to the matrix view, rows are serving phases and columns are diagnostic axes: work shape, dominant pressure, and the lever that actually helps. Read both views together to see that "the model is slow" is never a diagnosis -- the phase determines the fix.',
         {type: 'callout', text: 'Roofline thinking starts by naming the phase. Prefill, decode, long-context cache pressure, and batching can all bottleneck on different physical limits inside the same model.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/transformer-inference-roofline.gif', alt: 'Animated walkthrough of the transformer inference roofline visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

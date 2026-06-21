@@ -97,53 +97,61 @@ function researchGraph(title) {
 }
 
 function* topologyMap() {
+  const hl1 = { active: ['task', 'selector', 'e-task-selector'], compare: ['single', 'supervisor', 'handoff'] };
   yield {
     state: topologyGraph('Start with the cheapest topology that can solve the task'),
-    highlight: { active: ['task', 'selector', 'e-task-selector'], compare: ['single', 'supervisor', 'handoff'] },
-    explanation: 'The selector is the important node. It asks whether one loop is enough before spending on more agents. Extra agents only help when the task has independent branches, specialized handoffs, scarce workers, or critique that changes the answer.',
+    highlight: hl1,
+    explanation: `The selector is the important node among ${hl1.active.length} active elements. It asks whether one loop is enough before spending on more agents, choosing among ${hl1.compare.length} alternative topologies: ${hl1.compare.join(', ')}. Extra agents only help when the task has independent branches, specialized handoffs, scarce workers, or critique that changes the answer.`,
   };
 
+  const hl2 = { active: ['selector', 'single', 'e-selector-single'], compare: ['trace', 'eval'] };
   yield {
     state: topologyGraph('A single agent is the baseline'),
-    highlight: { active: ['selector', 'single', 'e-selector-single'], compare: ['trace', 'eval'] },
-    explanation: 'Use one agent when the work is mostly sequential and the agent can keep the important state in one context window. This is still an agent loop: plan, act, observe, evaluate, and stop.',
+    highlight: hl2,
+    explanation: `Use one agent when the work is mostly sequential and the agent can keep the important state in one context window. The path activates ${hl2.active.length} elements (${hl2.active.filter(a => !a.startsWith('e-')).join(', ')}) while ${hl2.compare.join(' and ')} remain as checkpoints. This is still an agent loop: plan, act, observe, evaluate, and stop.`,
     invariant: 'Do not add agents when a single loop plus good tools is enough.',
   };
 
+  const hl3 = { active: ['selector', 'supervisor', 'blackboard', 'contract', 'e-selector-supervisor', 'e-supervisor-board', 'e-supervisor-contract'], found: ['synth'] };
   yield {
     state: topologyGraph('Supervisor fan-out buys parallel search'),
-    highlight: { active: ['selector', 'supervisor', 'blackboard', 'contract', 'e-selector-supervisor', 'e-supervisor-board', 'e-supervisor-contract'], found: ['synth'] },
-    explanation: 'A supervisor decomposes the task and launches subagents. It is strongest when the subproblems are independent: web searches, codebase scans, candidate generation, red-team passes, or data extraction over separate shards.',
+    highlight: hl3,
+    explanation: `A supervisor decomposes the task and launches subagents, lighting up ${hl3.active.length} active elements across the fan-out path toward ${hl3.found[0]}. It is strongest when the subproblems are independent: web searches, codebase scans, candidate generation, red-team passes, or data extraction over separate shards.`,
   };
 
+  const hl4 = { active: ['selector', 'handoff', 'debate', 'e-selector-handoff', 'e-handoff-debate'], compare: ['supervisor'] };
   yield {
     state: topologyGraph('Handoffs preserve specialized local context'),
-    highlight: { active: ['selector', 'handoff', 'debate', 'e-selector-handoff', 'e-handoff-debate'], compare: ['supervisor'] },
-    explanation: 'A handoff topology passes control from one specialist to another. It works for workflows such as support triage to billing to retention, where each agent needs its own instructions and tools but the conversation should stay coherent.',
+    highlight: hl4,
+    explanation: `A handoff topology activates ${hl4.active.filter(a => !a.startsWith('e-')).join(', ')} and passes control from one specialist to another, compared against the ${hl4.compare[0]} alternative. It works for workflows such as support triage to billing to retention, where each agent needs its own instructions and tools but the conversation should stay coherent.`,
   };
 
+  const hl5 = { active: ['blackboard', 'contract', 'debate', 'synth', 'e-board-synth', 'e-contract-synth', 'e-debate-synth'], found: ['eval', 'trace'] };
   yield {
     state: topologyGraph('Shared coordination needs explicit state'),
-    highlight: { active: ['blackboard', 'contract', 'debate', 'synth', 'e-board-synth', 'e-contract-synth', 'e-debate-synth'], found: ['eval', 'trace'] },
-    explanation: 'Blackboards, contract-net bidding, and debate/map-reduce are not just prompt patterns. They are data-structure patterns: shared working memory, bid queues, message envelopes, merge reducers, evaluators, and audit traces.',
+    highlight: hl5,
+    explanation: `${hl5.active.filter(a => !a.startsWith('e-')).join(', ')} form the coordination layer, with ${hl5.found.length} downstream nodes (${hl5.found.join(', ')}) consuming merged results. Blackboards, contract-net bidding, and debate/map-reduce are not just prompt patterns. They are data-structure patterns: shared working memory, bid queues, message envelopes, merge reducers, evaluators, and audit traces.`,
   };
 
+  const matRows = [
+    { id: 'single', label: 'single loop' },
+    { id: 'supervisor', label: 'supervisor' },
+    { id: 'handoff', label: 'handoff' },
+    { id: 'blackboard', label: 'blackboard' },
+    { id: 'contract', label: 'contract net' },
+    { id: 'debate', label: 'debate/map' },
+  ];
+  const matCols = [
+    { id: 'best', label: 'best fit' },
+    { id: 'state', label: 'main state' },
+    { id: 'risk', label: 'main risk' },
+  ];
+  const hl6 = { active: ['supervisor:best', 'blackboard:state', 'contract:state'], compare: ['single:risk', 'debate:risk'] };
   yield {
     state: labelMatrix(
       'Topology selection table',
-      [
-        { id: 'single', label: 'single loop' },
-        { id: 'supervisor', label: 'supervisor' },
-        { id: 'handoff', label: 'handoff' },
-        { id: 'blackboard', label: 'blackboard' },
-        { id: 'contract', label: 'contract net' },
-        { id: 'debate', label: 'debate/map' },
-      ],
-      [
-        { id: 'best', label: 'best fit' },
-        { id: 'state', label: 'main state' },
-        { id: 'risk', label: 'main risk' },
-      ],
+      matRows,
+      matCols,
       [
         ['sequential tool work', 'trace + memory', 'context drift'],
         ['parallel breadth', 'task DAG', 'merge loss'],
@@ -153,46 +161,52 @@ function* topologyMap() {
         ['quality checks', 'candidate set', 'false consensus'],
       ],
     ),
-    highlight: { active: ['supervisor:best', 'blackboard:state', 'contract:state'], compare: ['single:risk', 'debate:risk'] },
-    explanation: 'The topology is an engineering choice, not a maturity badge. Pick by data shape: independent branches want fan-out, evolving hypotheses want a board, scarce capacity wants bidding, and high-stakes synthesis wants independent critique.',
+    highlight: hl6,
+    explanation: `The ${matRows.length}x${matCols.length} matrix compares topologies across ${matCols.map(c => c.label).join(', ')}. ${hl6.active.length} cells are active and ${hl6.compare.length} cells flag risks (${hl6.compare.join(', ')}). The topology is an engineering choice, not a maturity badge. Pick by data shape: independent branches want fan-out, evolving hypotheses want a board, scarce capacity wants bidding, and high-stakes synthesis wants independent critique.`,
   };
 }
 
 function* researchCaseStudy() {
+  const rhl1 = { active: ['user', 'lead', 'subA', 'subB', 'subC', 'e-user-lead', 'e-lead-a', 'e-lead-b', 'e-lead-c'], compare: ['budget'] };
   yield {
     state: researchGraph('Breadth-first research uses context isolation'),
-    highlight: { active: ['user', 'lead', 'subA', 'subB', 'subC', 'e-user-lead', 'e-lead-a', 'e-lead-b', 'e-lead-c'], compare: ['budget'] },
-    explanation: 'Anthropic describes a lead research agent that plans the work and creates parallel subagents. Each subagent gets its own context window, explores a slice of the problem, and returns compressed findings.',
+    highlight: rhl1,
+    explanation: `Anthropic describes a lead research agent that plans the work and creates ${rhl1.active.filter(a => a.startsWith('sub')).length} parallel subagents (${rhl1.active.filter(a => a.startsWith('sub')).join(', ')}). Each subagent gets its own context window, explores a slice of the problem, and returns compressed findings while ${rhl1.compare[0]} tracks spend.`,
   };
 
+  const rhl2 = { active: ['subA', 'subB', 'subC', 'ledger', 'board', 'e-a-ledger', 'e-b-ledger', 'e-c-board'], compare: ['synth'] };
   yield {
     state: researchGraph('Subagents write evidence, not final prose'),
-    highlight: { active: ['subA', 'subB', 'subC', 'ledger', 'board', 'e-a-ledger', 'e-b-ledger', 'e-c-board'], compare: ['synth'] },
-    explanation: 'Read the worker outputs as records, not mini-answers. Subagents should return claims, citations, snippets, uncertainty, and open questions. If they return polished prose, the reducer loses provenance and repeats work.',
+    highlight: rhl2,
+    explanation: `Read the worker outputs as records, not mini-answers. ${rhl2.active.filter(a => !a.startsWith('e-')).length} active nodes channel evidence into storage before reaching ${rhl2.compare[0]}. Subagents should return claims, citations, snippets, uncertainty, and open questions. If they return polished prose, the reducer loses provenance and repeats work.`,
   };
 
+  const rhl3 = { active: ['ledger', 'board', 'synth', 'gate', 'e-ledger-synth', 'e-board-synth', 'e-synth-gate'], found: ['budget'] };
   yield {
     state: researchGraph('Synthesis is a reduce step with quality gates'),
-    highlight: { active: ['ledger', 'board', 'synth', 'gate', 'e-ledger-synth', 'e-board-synth', 'e-synth-gate'], found: ['budget'] },
-    explanation: 'The lead agent reduces the partial results into a coherent answer. The quality gate checks citation coverage, contradiction handling, freshness, scope fit, and whether more exploration is worth the remaining budget.',
+    highlight: rhl3,
+    explanation: `The lead agent reduces the partial results into a coherent answer by activating ${rhl3.active.length} elements across the merge path (${rhl3.active.filter(a => !a.startsWith('e-')).join(', ')}). The quality gate checks citation coverage, contradiction handling, freshness, scope fit, and whether more exploration is worth the remaining ${rhl3.found[0]}.`,
     invariant: 'Parallelism increases coverage only if the reducer preserves evidence.',
   };
 
+  const rMatRows = [
+    { id: 'task', label: 'task DAG' },
+    { id: 'mailbox', label: 'mailbox' },
+    { id: 'ledger', label: 'ledger' },
+    { id: 'board', label: 'board' },
+    { id: 'budget', label: 'budget' },
+    { id: 'trace', label: 'trace' },
+  ];
+  const rMatCols = [
+    { id: 'contains', label: 'contains' },
+    { id: 'why', label: 'why it exists' },
+  ];
+  const rhl4 = { active: ['task:contains', 'ledger:contains', 'board:contains', 'budget:why'], found: ['trace:why'] };
   yield {
     state: labelMatrix(
       'Research-system records',
-      [
-        { id: 'task', label: 'task DAG' },
-        { id: 'mailbox', label: 'mailbox' },
-        { id: 'ledger', label: 'ledger' },
-        { id: 'board', label: 'board' },
-        { id: 'budget', label: 'budget' },
-        { id: 'trace', label: 'trace' },
-      ],
-      [
-        { id: 'contains', label: 'contains' },
-        { id: 'why', label: 'why it exists' },
-      ],
+      rMatRows,
+      rMatCols,
       [
         ['subquestions + deps', 'avoid duplicate search'],
         ['agent messages', 'coordinate async work'],
@@ -202,14 +216,15 @@ function* researchCaseStudy() {
         ['events + decisions', 'debug failures'],
       ],
     ),
-    highlight: { active: ['task:contains', 'ledger:contains', 'board:contains', 'budget:why'], found: ['trace:why'] },
-    explanation: 'A useful multi-agent system is a set of records with clear ownership. The LLMs choose actions, but the system reliability comes from task graphs, mailboxes, ledgers, boards, budgets, and traces.',
+    highlight: rhl4,
+    explanation: `A useful multi-agent system is a set of ${rMatRows.length} record types across ${rMatCols.length} columns (${rMatCols.map(c => c.label).join(', ')}). ${rhl4.active.length} cells are active and ${rhl4.found.length} cell (${rhl4.found[0]}) marks the audit trail. The LLMs choose actions, but the system reliability comes from ${rMatRows.map(r => r.label).join(', ')}.`,
   };
 
+  const rhl5 = { active: ['lead', 'budget', 'synth', 'gate', 'e-lead-budget', 'e-synth-budget', 'e-synth-gate'], compare: ['subA', 'subB', 'subC'] };
   yield {
     state: researchGraph('Cost is a first-class coordination signal'),
-    highlight: { active: ['lead', 'budget', 'synth', 'gate', 'e-lead-budget', 'e-synth-budget', 'e-synth-gate'], compare: ['subA', 'subB', 'subC'] },
-    explanation: 'Multi-agent systems can spend far more tokens than a single chat. That can be rational for high-value breadth-heavy tasks, but the orchestration layer must decide when another subagent is likely to change the answer.',
+    highlight: rhl5,
+    explanation: `Multi-agent systems can spend far more tokens than a single chat, with ${rhl5.compare.length} workers (${rhl5.compare.join(', ')}) each consuming their own context. The orchestration layer activates ${rhl5.active.filter(a => !a.startsWith('e-')).length} coordination nodes (${rhl5.active.filter(a => !a.startsWith('e-')).join(', ')}) and must decide when another subagent is likely to change the answer.`,
   };
 }
 
@@ -250,7 +265,8 @@ export const article = {
           label: 'Node flow in both animation views',
         },
         'The matrix steps show topology selection tables and record schemas. Active cells highlight the best fit for a given data shape. Compare cells flag the main risk of each topology. Use the matrix to answer: given my task shape, which coordination pattern has the smallest overhead that still covers the missing property?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/multi-agent-orchestration-topologies.gif', alt: 'Animated walkthrough of the multi agent orchestration topologies visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

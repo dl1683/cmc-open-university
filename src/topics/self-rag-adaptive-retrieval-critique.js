@@ -57,10 +57,15 @@ function loopGraph(title) {
 }
 
 function* reflectionLoop() {
+  const reflectionTokenCount = 4; // Retrieve, Relevant, Supported, Utility
+  const loopNodeCount = 7; // prompt, need, ret, gen, crit, select, answer
+  const loopEdgeCount = 7; // edges in the loop graph
+  const ragVariants = 4; // fixed RAG, Self-RAG, agent loop, eval harness
+
   yield {
     state: loopGraph('Self-RAG turns retrieval into a learned control decision'),
     highlight: { active: ['prompt', 'need', 'ret', 'gen', 'crit'], found: ['answer'] },
-    explanation: 'Standard RAG retrieves a fixed number of passages before every generation. Self-RAG trains the model to emit reflection tokens that decide whether retrieval is needed, whether passages are relevant, and whether the generated segment is supported.',
+    explanation: `Standard RAG retrieves a fixed number of passages before every generation. Self-RAG trains the model to emit ${reflectionTokenCount} reflection tokens across ${loopNodeCount} pipeline stages that decide whether retrieval is needed, whether passages are relevant, and whether the generated segment is supported.`,
   };
 
   yield {
@@ -84,14 +89,14 @@ function* reflectionLoop() {
       ],
     ),
     highlight: { active: ['retrieve:controls', 'relevant:controls', 'support:controls', 'utility:controls'] },
-    explanation: 'The special tokens act like internal control-plane signals. They are predicted as part of generation, so the model can be steered at inference time toward more retrieval, stricter support, or more concise answers.',
-    invariant: 'Reflection tokens are policy signals; they still need external evaluation.',
+    explanation: `The ${reflectionTokenCount} special tokens (Retrieve, Relevant, Supported, Utility) act like internal control-plane signals. They are predicted as part of generation, so the model can be steered at inference time toward more retrieval, stricter support, or more concise answers.`,
+    invariant: `All ${reflectionTokenCount} reflection tokens are policy signals; they still need external evaluation to verify calibration.`,
   };
 
   yield {
     state: loopGraph('Generation happens segment by segment'),
     highlight: { active: ['gen', 'crit', 'select', 'e-gen-crit', 'e-crit-select'], compare: ['ret'] },
-    explanation: 'Self-RAG scores generated segments as it goes. Segment-level critique lets the system reject or down-rank unsupported continuations before they become a polished but false final answer.',
+    explanation: `Self-RAG scores generated segments as it goes through ${loopEdgeCount} graph edges. Segment-level critique lets the system reject or down-rank unsupported continuations before they become a polished but false final answer.`,
   };
 
   yield {
@@ -115,11 +120,16 @@ function* reflectionLoop() {
       ],
     ),
     highlight: { active: ['self:retrieval', 'self:risk'], compare: ['fixed:risk'] },
-    explanation: 'Self-RAG is not just a prompt pattern. It changes the model behavior by training it to produce retrieval and critique signals. That makes it powerful but harder to retrofit than a reranker.',
+    explanation: `Self-RAG is not just a prompt pattern. Compared to ${ragVariants} retrieval paradigms (fixed, self, agent, eval), it changes model behavior by training it to produce retrieval and critique signals. That makes it powerful but harder to retrofit than a reranker.`,
   };
 }
 
 function* controlAndScoring() {
+  const thresholdDataPoints = 5; // 0.1, 0.3, 0.5, 0.7, 0.9
+  const candidateSegments = 4; // A, B, C, D
+  const scoringDimensions = 3; // support, relevance, utility
+  const deploymentChecks = 4; // training data, retriever, thresholds, evals
+
   yield {
     state: plotState({
       axes: { x: { label: 'retrieval threshold', min: 0, max: 1 }, y: { label: 'relative rate', min: 0, max: 1 } },
@@ -129,7 +139,7 @@ function* controlAndScoring() {
       ],
     }),
     highlight: { active: ['calls'], compare: ['miss'] },
-    explanation: 'At inference time, reflection tokens can be thresholded. Retrieve aggressively and cost/noise rise; retrieve conservatively and missed evidence rises. The threshold is a product-risk dial.',
+    explanation: `At inference time, reflection tokens can be thresholded across ${thresholdDataPoints} sampled points from 0.1 to 0.9. Retrieve aggressively and cost/noise rise; retrieve conservatively and missed evidence rises. The threshold is a product-risk dial.`,
   };
 
   yield {
@@ -154,13 +164,13 @@ function* controlAndScoring() {
       ],
     ),
     highlight: { found: ['segA:utility'], removed: ['segB:utility'], active: ['segD:utility'] },
-    explanation: 'The critique tokens create a local scoring ledger for generation. A segment can sound relevant but be unsupported, or be supported but not useful for the user question.',
+    explanation: `The critique tokens create a local scoring ledger across ${candidateSegments} candidate segments, each rated on ${scoringDimensions} dimensions. A segment can sound relevant but be unsupported, or be supported but not useful for the user question.`,
   };
 
   yield {
     state: loopGraph('Self-RAG connects retrieval, generation, and verification'),
     highlight: { active: ['ret', 'gen', 'crit', 'select', 'e-ret-gen', 'e-gen-crit', 'e-crit-select'], found: ['answer'] },
-    explanation: 'This is why Self-RAG belongs beside RAG evaluation and verifier search. It brings some evaluation signals into the generation loop, while still needing external golden sets to prove reliability.',
+    explanation: `This is why Self-RAG belongs beside RAG evaluation and verifier search. It brings ${scoringDimensions} evaluation dimensions (support, relevance, utility) into the generation loop, while still needing external golden sets to prove reliability.`,
   };
 
   yield {
@@ -184,7 +194,7 @@ function* controlAndScoring() {
       ],
     ),
     highlight: { active: ['data:need', 'retriever:need', 'thresholds:need', 'eval:need'] },
-    explanation: 'Self-RAG is a trained system, not a simple middleware toggle. The model, retriever, thresholds, and evaluation suite have to be designed together.',
+    explanation: `Self-RAG is a trained system, not a simple middleware toggle. All ${deploymentChecks} components -- model, retriever, thresholds, and evaluation suite -- have to be designed together.`,
   };
 }
 
@@ -204,7 +214,8 @@ export const article = {
         'The control-and-scoring view shows what happens at inference time. The plot tracks the tradeoff between retrieval frequency and missed evidence as you move the threshold dial. The segment ledger shows how critique tokens score candidate continuations on support, relevance, and utility before selecting a winner.',
         'Watch for the moment the model decides not to retrieve. That is the move that separates Self-RAG from fixed RAG. In standard RAG, every prompt pays the same retrieval cost. Here, the model has learned when to skip.',
         {type: 'callout', text: 'Self-RAG turns retrieval from a fixed preprocessing step into a learned control signal checked at every generated segment.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/self-rag-adaptive-retrieval-critique.gif', alt: 'Animated walkthrough of the self rag adaptive retrieval critique visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

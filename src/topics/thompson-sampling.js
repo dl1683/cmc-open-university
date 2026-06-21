@@ -111,7 +111,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: "callout", text: "Thompson sampling explores in proportion to remaining doubt: an arm gets traffic only while its posterior can still plausibly win."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/thompson-sampling.gif', alt: 'Animated walkthrough of the thompson sampling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why Bandits Need This`,

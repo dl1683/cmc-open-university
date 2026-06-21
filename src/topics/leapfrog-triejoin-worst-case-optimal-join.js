@@ -57,27 +57,34 @@ function trieGraph(title) {
 }
 
 function* trieIntersection() {
+  const relations = ['R', 'S', 'T'];
+  const variables = ['x', 'y', 'z'];
+  const activeStep1 = ['vars', 'R', 'S', 'T', 'x', 'e-R-x', 'e-T-x'];
+
   yield {
     state: trieGraph('Leapfrog Triejoin intersects variable domains level by level'),
-    highlight: { active: ['vars', 'R', 'S', 'T', 'x', 'e-R-x', 'e-T-x'], found: ['emit'] },
-    explanation: 'Instead of joining two relations at a time, Leapfrog Triejoin chooses a variable order and asks every relevant relation index for possible values at the current prefix.',
-    invariant: 'At each variable, candidate values are the intersection of sorted iterators constrained by the current prefix.',
+    highlight: { active: activeStep1, found: ['emit'] },
+    explanation: `Instead of joining ${relations.length} relations (${relations.join(', ')}) pairwise, Leapfrog Triejoin chooses a variable order over ${variables.length} variables (${variables.join(', ')}) and asks every relevant relation index for possible values at the current prefix. This step highlights ${activeStep1.length} active elements in the trie graph.`,
+    invariant: `At each of the ${variables.length} variables, candidate values are the intersection of sorted iterators constrained by the current prefix.`,
   };
+
+  const trieRows = [
+    { id: 'R', label: 'R(x,y)' },
+    { id: 'S', label: 'S(y,z)' },
+    { id: 'T', label: 'T(x,z)' },
+    { id: 'prefix', label: 'prefix' },
+  ];
+  const trieCols = [
+    { id: 'level1', label: 'level 1' },
+    { id: 'level2', label: 'level 2' },
+    { id: 'operation', label: 'operation' },
+  ];
 
   yield {
     state: labelMatrix(
       'Trie view of relations',
-      [
-        { id: 'R', label: 'R(x,y)' },
-        { id: 'S', label: 'S(y,z)' },
-        { id: 'T', label: 'T(x,z)' },
-        { id: 'prefix', label: 'prefix' },
-      ],
-      [
-        { id: 'level1', label: 'level 1' },
-        { id: 'level2', label: 'level 2' },
-        { id: 'operation', label: 'operation' },
-      ],
+      trieRows,
+      trieCols,
       [
         ['x values', 'y per x', 'seek'],
         ['y values', 'z per y', 'seek'],
@@ -86,28 +93,32 @@ function* trieIntersection() {
       ],
     ),
     highlight: { active: ['R:operation', 'S:operation', 'T:operation'], found: ['prefix:level2'] },
-    explanation: 'A trie index lets the algorithm open a prefix and then iterate the values of the next variable under that prefix. B-trees or sorted column indexes can supply the same seek/next interface.',
+    explanation: `This ${trieRows.length}-row by ${trieCols.length}-column matrix maps each of the ${relations.length} relations to its trie levels. A trie index lets the algorithm open a prefix and then iterate the values of the next variable under that prefix. B-trees or sorted column indexes can supply the same seek/next interface.`,
   };
 
+  const intersectVars = ['x', 'y', 'z'];
   yield {
     state: trieGraph('Leapfrog intersection advances the lagging iterator'),
-    highlight: { active: ['x', 'y', 'z'], found: ['emit'], compare: ['R', 'S', 'T'] },
-    explanation: 'For a variable, each participating relation has a sorted iterator of legal values. The algorithm advances the iterator with the smallest value until all iterators agree or one is exhausted.',
+    highlight: { active: intersectVars, found: ['emit'], compare: relations },
+    explanation: `For each of the ${intersectVars.length} variables (${intersectVars.join(', ')}), each of the ${relations.length} participating relations has a sorted iterator of legal values. The algorithm advances the iterator with the smallest value until all ${relations.length} iterators agree or one is exhausted.`,
   };
+
+  const comparisonRows = [
+    { id: 'binary', label: 'binary plan' },
+    { id: 'trie', label: 'trie join' },
+    { id: 'index', label: 'index need' },
+    { id: 'output', label: 'output bound' },
+  ];
+  const comparisonCols = [
+    { id: 'shape', label: 'shape' },
+    { id: 'risk', label: 'risk' },
+  ];
 
   yield {
     state: labelMatrix(
       'Binary joins versus trie join',
-      [
-        { id: 'binary', label: 'binary plan' },
-        { id: 'trie', label: 'trie join' },
-        { id: 'index', label: 'index need' },
-        { id: 'output', label: 'output bound' },
-      ],
-      [
-        { id: 'shape', label: 'shape' },
-        { id: 'risk', label: 'risk' },
-      ],
+      comparisonRows,
+      comparisonCols,
       [
         ['pairwise joins', 'huge intermediate'],
         ['multiway search', 'index order'],
@@ -116,67 +127,81 @@ function* trieIntersection() {
       ],
     ),
     highlight: { active: ['trie:shape', 'output:shape'], compare: ['binary:risk'] },
-    explanation: 'Worst-case optimal join algorithms matter when binary joins create intermediate results much larger than the final output or theoretical bound.',
+    explanation: `This ${comparisonRows.length}-row by ${comparisonCols.length}-column comparison shows why worst-case optimal join algorithms matter: binary joins create intermediate results much larger than the final output or theoretical bound, while trie join performs a ${relations.length}-way multiway search.`,
   };
 
+  const fullActiveNodes = ['R', 'S', 'T', 'x', 'y', 'z', 'emit'];
   yield {
     state: trieGraph('Complete case: Datalog rule evaluation'),
-    highlight: { active: ['R', 'S', 'T', 'x', 'y', 'z', 'emit'], found: ['bound'] },
-    explanation: 'Logic and graph workloads often evaluate multiway predicates. Triejoin treats a rule body as one multiway search rather than a fixed chain of binary joins.',
+    highlight: { active: fullActiveNodes, found: ['bound'] },
+    explanation: `Logic and graph workloads often evaluate multiway predicates across ${relations.length} relations and ${variables.length} variables. With all ${fullActiveNodes.length} nodes active, Triejoin treats a rule body as one multiway search rather than a fixed chain of binary joins.`,
   };
 }
 
 function* triangleQueryCase() {
+  const relations = ['R', 'S', 'T'];
+  const variables = ['x', 'y', 'z'];
+  const edgeSpecs = ['R(x,y)', 'S(y,z)', 'T(x,z)'];
+
   yield {
-    state: trieGraph('Triangle query: R(x,y), S(y,z), T(x,z)'),
-    highlight: { active: ['R', 'S', 'T'], found: ['x', 'y', 'z'], compare: ['emit'] },
-    explanation: 'The triangle query is the canonical example. Pairwise joining R and S may produce many x,y,z candidates that T later rejects. Multiway search checks all constraints as it binds variables.',
-    invariant: 'A partial assignment survives only if every relation that mentions its bound variables can still match.',
+    state: trieGraph(`Triangle query: ${edgeSpecs.join(', ')}`),
+    highlight: { active: relations, found: variables, compare: ['emit'] },
+    explanation: `The triangle query is the canonical example with ${relations.length} relations (${edgeSpecs.join(', ')}) over ${variables.length} variables (${variables.join(', ')}). Pairwise joining ${relations[0]} and ${relations[1]} may produce many ${variables.join(',')} candidates that ${relations[2]} later rejects. Multiway search checks all ${relations.length} constraints as it binds variables.`,
+    invariant: `A partial assignment across ${variables.length} variables survives only if every relation that mentions its bound variables can still match.`,
   };
+
+  const traceRows = [
+    { id: 'x', label: 'bind x' },
+    { id: 'y', label: 'bind y' },
+    { id: 'z', label: 'bind z' },
+    { id: 'emit', label: 'emit' },
+  ];
+  const traceCols = [
+    { id: 'candidate', label: 'candidate source' },
+    { id: 'constraint', label: 'constraints checked' },
+  ];
+  const traceData = [
+    ['R.x intersect T.x', 'x exists in both'],
+    ['R.y intersect S.y', 'given x where needed'],
+    ['S.z intersect T.z', 'given y and x'],
+    ['(x,y,z)', 'all three edges'],
+  ];
 
   yield {
     state: labelMatrix(
       'Triangle trace',
-      [
-        { id: 'x', label: 'bind x' },
-        { id: 'y', label: 'bind y' },
-        { id: 'z', label: 'bind z' },
-        { id: 'emit', label: 'emit' },
-      ],
-      [
-        { id: 'candidate', label: 'candidate source' },
-        { id: 'constraint', label: 'constraints checked' },
-      ],
-      [
-        ['R.x intersect T.x', 'x exists in both'],
-        ['R.y intersect S.y', 'given x where needed'],
-        ['S.z intersect T.z', 'given y and x'],
-        ['(x,y,z)', 'all three edges'],
-      ],
+      traceRows,
+      traceCols,
+      traceData,
     ),
     highlight: { active: ['x:candidate', 'y:candidate', 'z:candidate'], found: ['emit:constraint'] },
-    explanation: 'The order is variable-oriented. Each bound prefix narrows the next trie iterators, so impossible candidates die before they become large materialized tables.',
+    explanation: `This ${traceRows.length}-row by ${traceCols.length}-column trace shows the variable-oriented order. Each of the ${variables.length} bound prefixes (${variables.join(', ')}) narrows the next trie iterators, so impossible candidates die before they become large materialized tables.`,
   };
 
+  const indexActiveNodes = ['R', 'S', 'T', 'x', 'y', 'z'];
   yield {
     state: trieGraph('Indexes make seek and next cheap'),
-    highlight: { active: ['R', 'S', 'T', 'x', 'y', 'z'], compare: ['bound'], found: ['emit'] },
-    explanation: 'The algorithm assumes each relation can be viewed through sorted indexes compatible with the variable order. Index selection is therefore part of the physical plan.',
+    highlight: { active: indexActiveNodes, compare: ['bound'], found: ['emit'] },
+    explanation: `The algorithm assumes each of the ${relations.length} relations can be viewed through sorted indexes compatible with the ${variables.length}-variable order. With ${indexActiveNodes.length} nodes active, index selection is therefore part of the physical plan.`,
   };
+
+  const fitRows = [
+    { id: 'datalog', label: 'Datalog' },
+    { id: 'rdf', label: 'RDF/SPARQL' },
+    { id: 'graph', label: 'graph motifs' },
+    { id: 'sql', label: 'ordinary SQL' },
+  ];
+  const fitCols = [
+    { id: 'fit', label: 'fit' },
+    { id: 'watch', label: 'watch out' },
+  ];
+  const strongFitDomains = ['Datalog', 'RDF/SPARQL', 'graph motifs'];
 
   yield {
     state: labelMatrix(
       'Where it fits',
-      [
-        { id: 'datalog', label: 'Datalog' },
-        { id: 'rdf', label: 'RDF/SPARQL' },
-        { id: 'graph', label: 'graph motifs' },
-        { id: 'sql', label: 'ordinary SQL' },
-      ],
-      [
-        { id: 'fit', label: 'fit' },
-        { id: 'watch', label: 'watch out' },
-      ],
+      fitRows,
+      fitCols,
       [
         ['strong', 'many rules'],
         ['strong', 'many triple patterns'],
@@ -185,13 +210,15 @@ function* triangleQueryCase() {
       ],
     ),
     highlight: { active: ['datalog:fit', 'rdf:fit', 'graph:fit'], compare: ['sql:watch'] },
-    explanation: 'Triejoin is not a universal replacement for hash join. It is strongest for multiway joins, graph patterns, logic rules, and cyclic queries where binary plans create bad intermediates.',
+    explanation: `This ${fitRows.length}-row by ${fitCols.length}-column matrix shows that Triejoin is not a universal replacement for hash join. It is strongest for ${strongFitDomains.length} domain types (${strongFitDomains.join(', ')}), plus cyclic queries where binary plans create bad intermediates.`,
   };
 
+  const emitActiveNodes = ['R', 'S', 'T', 'emit'];
+  const compareVars = ['x', 'y', 'z'];
   yield {
     state: trieGraph('Complete case: find triangles in a social graph'),
-    highlight: { active: ['R', 'S', 'T', 'emit'], found: ['bound'], compare: ['x', 'y', 'z'] },
-    explanation: 'Triangle enumeration in a graph can be written as a three-relation query over edges. A worst-case optimal plan intersects adjacency tries instead of materializing every two-hop path first.',
+    highlight: { active: emitActiveNodes, found: ['bound'], compare: compareVars },
+    explanation: `Triangle enumeration in a graph can be written as a ${relations.length}-relation query over edges. With ${emitActiveNodes.length} active nodes and ${compareVars.length} compared variables, a worst-case optimal plan intersects adjacency tries instead of materializing every two-hop path first.`,
   };
 }
 
@@ -204,6 +231,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/leapfrog-triejoin-worst-case-optimal-join.gif', alt: 'Animated walkthrough of the leapfrog triejoin worst case optimal join visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     { heading: 'What it is', paragraphs: [
       'Leapfrog Triejoin is a worst-case optimal multiway join algorithm. It represents relations through trie-like indexes over variable orders and searches assignments variable by variable, intersecting sorted candidate iterators at each level.',
       {

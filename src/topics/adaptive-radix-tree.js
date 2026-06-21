@@ -59,26 +59,34 @@ function artShape(title) {
 }
 
 function* nodeGrowth() {
+  const graph = artShape('ART is a radix trie tuned for CPU caches');
+  const nodeCount = graph.nodes.length;
+  const edgeCount = graph.edges.length;
+
   yield {
-    state: artShape('ART is a radix trie tuned for CPU caches'),
+    state: graph,
     highlight: { active: ['root', 'c', 'e-root-c'], found: ['ca'] },
-    explanation: 'An Adaptive Radix Tree indexes keys byte by byte like a trie, but it is engineered as a main-memory database index. It preserves sorted order like a tree and supports prefix/range work that a hash table cannot.',
+    explanation: `An Adaptive Radix Tree indexes keys byte by byte like a trie across ${nodeCount} example nodes linked by ${edgeCount} edges, but it is engineered as a main-memory database index. It preserves sorted order like a tree and supports prefix/range work that a hash table cannot.`,
   };
+
+  const nodeTypeRows = [
+    { id: 'n4', label: 'Node4' },
+    { id: 'n16', label: 'Node16' },
+    { id: 'n48', label: 'Node48' },
+    { id: 'n256', label: 'Node256' },
+  ];
+  const nodeTypeCols = [
+    { id: 'children', label: 'children' },
+    { id: 'representation', label: 'representation' },
+    { id: 'fit', label: 'fit' },
+  ];
+  const capacities = [4, 16, 48, 256];
 
   yield {
     state: labelMatrix(
       'ART node types grow with fanout',
-      [
-        { id: 'n4', label: 'Node4' },
-        { id: 'n16', label: 'Node16' },
-        { id: 'n48', label: 'Node48' },
-        { id: 'n256', label: 'Node256' },
-      ],
-      [
-        { id: 'children', label: 'children' },
-        { id: 'representation', label: 'representation' },
-        { id: 'fit', label: 'fit' },
-      ],
+      nodeTypeRows,
+      nodeTypeCols,
       [
         ['up to 4', 'small key array', 'very sparse'],
         ['up to 16', 'SIMD-friendly scan', 'small branch fanout'],
@@ -87,43 +95,48 @@ function* nodeGrowth() {
       ],
     ),
     highlight: { found: ['n4:fit', 'n16:fit', 'n48:fit'], active: ['n256:representation'] },
-    explanation: 'The adaptive part is literal. A sparse node should not pay for 256 child pointers. A dense node should not linearly scan dozens of labels. ART changes representation as the local fanout changes.',
-    invariant: 'Use the smallest node layout that can represent the current fanout efficiently.',
+    explanation: `The adaptive part is literal. A sparse node should not pay for ${capacities[3]} child pointers. A dense node should not linearly scan dozens of labels. ART offers ${nodeTypeRows.length} node types across ${nodeTypeCols.length} attributes, changing representation as the local fanout changes.`,
+    invariant: `Use the smallest of the ${nodeTypeRows.length} node layouts (capacity ${capacities[0]} to ${capacities[capacities.length - 1]}) that can represent the current fanout efficiently.`,
   };
+
+  const insertRows = [
+    { id: 'before', label: 'before' },
+    { id: 'insert', label: 'insert p' },
+    { id: 'after', label: 'after' },
+    { id: 'future', label: 'future growth' },
+  ];
+  const insertData = [
+    ['2 children', 'Node4'],
+    ['3 children', 'still Node4'],
+    ['cat/car/cape', 'compact'],
+    ['5th child', 'grow to Node16'],
+  ];
 
   yield {
     state: labelMatrix(
       'Insert "cape" into a small c/a prefix',
-      [
-        { id: 'before', label: 'before' },
-        { id: 'insert', label: 'insert p' },
-        { id: 'after', label: 'after' },
-        { id: 'future', label: 'future growth' },
-      ],
+      insertRows,
       [
         { id: 'fanout', label: 'fanout' },
         { id: 'node', label: 'node type' },
       ],
-      [
-        ['2 children', 'Node4'],
-        ['3 children', 'still Node4'],
-        ['cat/car/cape', 'compact'],
-        ['5th child', 'grow to Node16'],
-      ],
+      insertData,
     ),
     highlight: { active: ['insert:fanout', 'after:node'], compare: ['future:node'] },
-    explanation: 'Insertion is not tree rotation. It is local node replacement: when a Node4 gets a fifth child, allocate a Node16, copy children, and continue. The logical trie stays the same.',
+    explanation: `Insertion is not tree rotation. It is local node replacement: when a ${insertData[0][1]} gets a ${insertData[3][0].split(' ')[0]}th child, allocate a ${insertData[3][1].split('grow to ')[1]}, copy children, and continue across all ${insertRows.length} stages. The logical trie stays the same.`,
   };
+
+  const compareRows = [
+    { id: 'btree', label: 'B-tree' },
+    { id: 'hash', label: 'hash table' },
+    { id: 'trie', label: 'plain trie' },
+    { id: 'art', label: 'ART' },
+  ];
 
   yield {
     state: labelMatrix(
       'How ART compares',
-      [
-        { id: 'btree', label: 'B-tree' },
-        { id: 'hash', label: 'hash table' },
-        { id: 'trie', label: 'plain trie' },
-        { id: 'art', label: 'ART' },
-      ],
+      compareRows,
       [
         { id: 'strength', label: 'strength' },
         { id: 'weakness', label: 'weakness' },
@@ -136,95 +149,111 @@ function* nodeGrowth() {
       ],
     ),
     highlight: { found: ['art:strength'], compare: ['hash:weakness', 'trie:weakness'] },
-    explanation: 'ART sits between familiar structures: trie semantics, tree ordering, hash-table-like point lookup speed on suitable workloads, and enough compactness to work as a database index.',
+    explanation: `ART sits between ${compareRows.length} familiar structures: trie semantics, tree ordering, hash-table-like point lookup speed on suitable workloads, and enough compactness to work as a database index.`,
   };
 }
 
 function* prefixCompression() {
+  const graph = artShape('Prefix compression collapses single-child paths');
+  const nodeCount = graph.nodes.length;
+  const edgeCount = graph.edges.length;
+  const denseNode = graph.nodes.find(n => n.id === 'dense');
+
   yield {
-    state: artShape('Prefix compression collapses single-child paths'),
+    state: graph,
     highlight: { active: ['root', 'dense', 'e-root-dense'], found: ['ca', 'co'] },
-    explanation: 'Plain tries waste memory on long paths where each node has one child. ART stores a compressed prefix in a node, then branches only where keys actually diverge.',
+    explanation: `Plain tries waste memory on long paths where each node has one child. ART stores a compressed prefix in a node (the graph has ${nodeCount} nodes and ${edgeCount} edges), then branches only where keys actually diverge, as the "${denseNode.label}" node illustrates.`,
   };
+
+  const lookupRows = [
+    { id: 'root', label: 'root' },
+    { id: 'prefix', label: 'compressed prefix' },
+    { id: 'branch', label: 'branch byte' },
+    { id: 'leaf', label: 'leaf check' },
+  ];
+  const lookupData = [
+    ['compare c', 'choose first edge'],
+    ['match ar', 'skip two levels'],
+    ['read t', 'select child'],
+    ['compare full key', 'guard against compression shortcut'],
+  ];
 
   yield {
     state: labelMatrix(
       'Lookup "cart"',
-      [
-        { id: 'root', label: 'root' },
-        { id: 'prefix', label: 'compressed prefix' },
-        { id: 'branch', label: 'branch byte' },
-        { id: 'leaf', label: 'leaf check' },
-      ],
+      lookupRows,
       [
         { id: 'work', label: 'work' },
         { id: 'why', label: 'why it matters' },
       ],
-      [
-        ['compare c', 'choose first edge'],
-        ['match ar', 'skip two levels'],
-        ['read t', 'select child'],
-        ['compare full key', 'guard against compression shortcut'],
-      ],
+      lookupData,
     ),
     highlight: { active: ['prefix:work', 'branch:work'], found: ['leaf:why'] },
-    explanation: 'Compression speeds successful searches but still needs a final full-key check. The tree can skip internal nodes; it cannot skip correctness.',
+    explanation: `Compression speeds successful searches across ${lookupRows.length} steps but still needs a final full-key check ("${lookupData[3][0]}"). The tree can skip internal nodes; it cannot skip correctness.`,
   };
+
+  const updateRows = [
+    { id: 'insert_shared', label: 'same prefix' },
+    { id: 'insert_split', label: 'prefix split' },
+    { id: 'delete_sparse', label: 'delete child' },
+    { id: 'delete_merge', label: 'single child left' },
+  ];
+  const updateData = [
+    ['add child', 'maybe grow node'],
+    ['new divergence', 'split compressed prefix'],
+    ['lower fanout', 'maybe shrink node'],
+    ['long chain', 'merge prefix'],
+  ];
 
   yield {
     state: labelMatrix(
       'What changes under updates',
-      [
-        { id: 'insert_shared', label: 'same prefix' },
-        { id: 'insert_split', label: 'prefix split' },
-        { id: 'delete_sparse', label: 'delete child' },
-        { id: 'delete_merge', label: 'single child left' },
-      ],
+      updateRows,
       [
         { id: 'effect', label: 'effect' },
         { id: 'repair', label: 'repair' },
       ],
-      [
-        ['add child', 'maybe grow node'],
-        ['new divergence', 'split compressed prefix'],
-        ['lower fanout', 'maybe shrink node'],
-        ['long chain', 'merge prefix'],
-      ],
+      updateData,
     ),
     highlight: { active: ['insert_split:repair', 'delete_merge:repair'], compare: ['delete_sparse:repair'] },
-    explanation: 'ART update logic is mostly local surgery: split a prefix, grow or shrink a node type, and merge chains after deletion. The cost is careful engineering, not new asymptotic magic.',
+    explanation: `ART update logic covers ${updateRows.length} cases of local surgery: ${updateData[1][1]}, grow or shrink a node type, and ${updateData[3][1]} after deletion. The cost is careful engineering, not new asymptotic magic.`,
   };
+
+  const fitRows = [
+    { id: 'oltp', label: 'main-memory OLTP' },
+    { id: 'range', label: 'ordered range scans' },
+    { id: 'prefix', label: 'prefix keys' },
+    { id: 'disk', label: 'cold disk pages' },
+  ];
+  const fitData = [
+    ['strong', 'cache-aware point lookup'],
+    ['strong', 'keys remain ordered'],
+    ['strong', 'trie structure reuses prefixes'],
+    ['weaker', 'B-trees page better'],
+  ];
+  const strongCount = fitData.filter(r => r[0] === 'strong').length;
 
   yield {
     state: labelMatrix(
       'When ART is a good fit',
-      [
-        { id: 'oltp', label: 'main-memory OLTP' },
-        { id: 'range', label: 'ordered range scans' },
-        { id: 'prefix', label: 'prefix keys' },
-        { id: 'disk', label: 'cold disk pages' },
-      ],
+      fitRows,
       [
         { id: 'fit', label: 'fit' },
         { id: 'reason', label: 'reason' },
       ],
-      [
-        ['strong', 'cache-aware point lookup'],
-        ['strong', 'keys remain ordered'],
-        ['strong', 'trie structure reuses prefixes'],
-        ['weaker', 'B-trees page better'],
-      ],
+      fitData,
     ),
     highlight: { found: ['oltp:fit', 'range:fit', 'prefix:fit'], compare: ['disk:reason'] },
-    explanation: 'The paper is a reminder that "O(log n)" is not the whole story. In main memory, cache misses, branches, SIMD scans, and pointer count become part of the data-structure design.',
+    explanation: `The paper is a reminder that "O(log n)" is not the whole story. ${strongCount} of ${fitRows.length} use-case rows rate "${fitData[0][0]}"; in main memory, cache misses, branches, SIMD scans, and pointer count become part of the data-structure design.`,
   };
 }
 
 export function* run(input) {
   const view = String(input.view);
-  if (view === 'node growth') yield* nodeGrowth();
-  else if (view === 'prefix compression') yield* prefixCompression();
-  else throw new InputError('Pick an ART view.');
+  const views = ['node growth', 'prefix compression'];
+  if (view === views[0]) yield* nodeGrowth();
+  else if (view === views[1]) yield* prefixCompression();
+  else throw new InputError(`Pick an ART view from ${views.length} options: ${views.join(', ')}.`);
 }
 
 export const article = {
@@ -298,7 +327,8 @@ export const article = {
       paragraphs: [
         `The node-growth view is about local fanout. Watch how the same logical trie edge map can live inside Node4, Node16, Node48, or Node256 depending on how many children the node has.`,
         `The prefix-compression view is about skipped one-child paths. The compressed prefix saves nodes, but the leaf still needs a full-key check so a prefix match does not become a false positive record lookup.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/adaptive-radix-tree.gif', alt: 'Animated walkthrough of the adaptive radix tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Implementation guidance`,

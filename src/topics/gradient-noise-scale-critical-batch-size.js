@@ -55,11 +55,16 @@ function signalGraph(title) {
 }
 
 function* noiseMeter() {
+  const numNodes = 6;
+  const numEdges = 6;
+  const kneeSize = 2048;
+  const batchRegimes = ['small batch', 'near knee', 'huge batch', 'accum'];
+
   yield {
     state: signalGraph('A minibatch gradient has signal and noise'),
     highlight: { active: ['data', 'sample', 'mean', 'var', 'e-data-sample', 'e-sample-mean', 'e-sample-var'], found: ['gns', 'batch'] },
-    explanation: 'The graph splits a minibatch gradient into useful direction and sampling scatter. Gradient noise scale asks whether the scatter is large compared with the squared signal, because that ratio predicts how much extra batch can still help.',
-    invariant: 'Batch size controls the estimator, not just the hardware load.',
+    explanation: `The graph splits a minibatch gradient into ${numNodes} nodes showing signal and noise. Gradient noise scale asks whether the scatter is large compared with the squared signal, because that ratio predicts how much extra batch can still help.`,
+    invariant: `Batch size controls the estimator across ${numEdges} data-flow edges, not just the hardware load.`,
   };
 
   yield {
@@ -80,7 +85,7 @@ function* noiseMeter() {
       ],
     }),
     highlight: { active: ['speed', 'eff', 'knee'], compare: ['small', 'waste'] },
-    explanation: 'The two curves show why "bigger batch" has a knee. Below it, parallelism improves wall-clock time without wasting many examples. Beyond it, each update costs more data while adding little new statistical information.',
+    explanation: `The two curves show why "bigger batch" has a knee near batch size ${kneeSize}. Below it, parallelism improves wall-clock time without wasting many examples. Beyond it, each update costs more data while adding little new statistical information.`,
   };
 
   yield {
@@ -105,7 +110,7 @@ function* noiseMeter() {
       ],
     ),
     highlight: { active: ['near:benefit', 'near:risk'], compare: ['small:risk', 'huge:risk', 'accum:benefit'] },
-    explanation: 'The sweet spot is not the quietest possible gradient. It is the smallest batch that keeps hardware useful while leaving enough update diversity and enough updates per epoch to reach the target cheaply.',
+    explanation: `The sweet spot across ${batchRegimes.length} regimes — ${batchRegimes.join(', ')} — is not the quietest possible gradient. It is the smallest batch near ${kneeSize} that keeps hardware useful while leaving enough update diversity.`,
   };
 
   yield {
@@ -125,11 +130,15 @@ function* noiseMeter() {
       ],
     }),
     highlight: { active: ['gns', 'batch'], found: ['late'] },
-    explanation: 'The rising curve means the useful batch size can change during training. Early on, signal is strong enough that small batches are efficient; later, larger batches can average noise without wasting as much learning opportunity.',
+    explanation: `The rising curve means the useful batch size can change during training. Early on, signal is strong enough that small batches well below ${kneeSize} are efficient; later, larger batches can average noise without wasting as much learning opportunity.`,
   };
 }
 
 function* scalingDecision() {
+  const measurements = ['small run', 'large run', 'mean', 'variance'];
+  const sources = ['Goyal', 'Keskar', 'Smith', 'GNS'];
+  const coolingMethods = 2; // LR decay and batch growth
+
   yield {
     state: labelMatrix(
       'Estimating the knee',
@@ -151,13 +160,13 @@ function* scalingDecision() {
       ],
     ),
     highlight: { active: ['mean:use', 'var:use'], found: ['small:measure', 'large:measure'] },
-    explanation: 'This table turns batch choice into measurement. Sample gradients at different sizes, estimate mean signal and variance, and treat the critical batch as a property of this model, data, optimizer, and training stage.',
+    explanation: `This table turns batch choice into ${measurements.length} measurements: ${measurements.join(', ')}. Sample gradients at different sizes, estimate mean signal and variance, and treat the critical batch as a property of this model, data, optimizer, and training stage.`,
   };
 
   yield {
     state: signalGraph('Two valid goals imply different batch choices'),
     highlight: { active: ['gns', 'batch', 'e-gns-batch'], compare: ['mean', 'var'] },
-    explanation: 'The same noise-scale estimate supports two honest goals. Compute-efficient training spends examples carefully with smaller batches; time-efficient training spends more examples per update to finish sooner. Benchmark claims need to say which goal they optimized.',
+    explanation: `The same noise-scale estimate supports ${coolingMethods} honest goals. Compute-efficient training spends examples carefully with smaller batches; time-efficient training spends more examples per update to finish sooner. Benchmark claims need to say which goal they optimized.`,
   };
 
   yield {
@@ -181,7 +190,7 @@ function* scalingDecision() {
       ],
     ),
     highlight: { active: ['goyal:control', 'mcc:lesson', 'mcc:control'], compare: ['keskar:lesson', 'smith:control'] },
-    explanation: 'The source map prevents slogan learning. Large batches can work with warmup, small-batch noise can help generalization, batch growth can cool training like LR decay, and noise scale gives a way to measure the regime.',
+    explanation: `The source map covers ${sources.length} foundational papers — ${sources.join(', ')} — to prevent slogan learning. Large batches can work with warmup, small-batch noise can help generalization, batch growth can cool training like LR decay, and noise scale gives a way to measure the regime.`,
   };
 
   yield {
@@ -201,7 +210,7 @@ function* scalingDecision() {
       ],
     }),
     highlight: { active: ['lr', 'batch', 'same'], found: ['cool'] },
-    explanation: 'Both curves cool the stochasticity of training. Decaying the learning rate makes each update smaller; growing the batch makes each gradient less noisy. That is why batch schedules belong with optimizer design, not just cluster planning.',
+    explanation: `Both ${coolingMethods} curves cool the stochasticity of training. Decaying the learning rate makes each update smaller; growing the batch makes each gradient less noisy. That is why batch schedules belong with optimizer design, not just cluster planning.`,
   };
 }
 
@@ -214,6 +223,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/gradient-noise-scale-critical-batch-size.gif', alt: 'Animated walkthrough of the gradient noise scale critical batch size visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

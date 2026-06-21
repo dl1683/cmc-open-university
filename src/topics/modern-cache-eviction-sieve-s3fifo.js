@@ -28,6 +28,10 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* sieveHand() {
+  const cacheItems = 4; // A, B, C, D
+  const maxThreads = 32;
+  const sieveSteps = 6; // hit, queue, hand, bit, skip, evict
+
   yield {
     state: graphState({
       nodes: [
@@ -47,7 +51,7 @@ function* sieveHand() {
       ],
     }, { title: 'SIEVE keeps insertion order and one visited bit' }),
     highlight: { active: ['queue', 'hand', 'bit'], found: ['evict'] },
-    explanation: 'SIEVE keeps one queue, one hand pointer, and one visited bit per item. Hits set the bit. Eviction walks candidates from old to new, clears visited items once, and evicts the first unvisited candidate.',
+    explanation: `SIEVE keeps one queue, one hand pointer, and one visited bit per item across ${cacheItems} cached entries. Hits set the bit. Eviction walks ${sieveSteps} stages from old to new, clears visited items once, and evicts the first unvisited candidate.`,
   };
 
   yield {
@@ -71,8 +75,8 @@ function* sieveHand() {
       ],
     ),
     highlight: { active: ['A:visited'], found: ['B:action'] },
-    explanation: 'A recently hit object gets one second chance. It is not moved to the head on every hit, which avoids the write amplification and synchronization pressure of strict LRU promotion.',
-    invariant: 'No per-hit list promotion is the scalability lesson.',
+    explanation: `A recently hit object gets one second chance across ${cacheItems} candidates. It is not moved to the head on every hit, which avoids the write amplification and synchronization pressure of strict LRU promotion.`,
+    invariant: `No per-hit list promotion across ${cacheItems} entries is the scalability lesson.`,
   };
 
   yield {
@@ -84,7 +88,7 @@ function* sieveHand() {
       ],
     }),
     highlight: { active: ['sieve'], compare: ['lru'] },
-    explanation: 'The shape illustrates the paper claim: avoiding promotion on every hit can make a cache policy easier to scale under contention. The exact throughput depends on the implementation and workload.',
+    explanation: `The shape illustrates the paper claim: avoiding promotion on every hit can make a cache policy easier to scale under contention up to ${maxThreads} threads. The exact throughput depends on the implementation and workload.`,
   };
 
   yield {
@@ -108,11 +112,14 @@ function* sieveHand() {
       ],
     ),
     highlight: { found: ['state:choice', 'hit:choice', 'evict:choice'] },
-    explanation: 'SIEVE is attractive because the implementation surface is tiny. The serious evaluation still comes from trace replay and byte-aware workload testing, not from simplicity alone.',
+    explanation: `SIEVE is attractive because the implementation surface spans just ${sieveSteps} conceptual steps. The serious evaluation still comes from trace replay and byte-aware workload testing, not from simplicity alone.`,
   };
 }
 
 function* s3fifoQueues() {
+  const queueCount = 3; // small, main, ghost
+  const policiesCompared = 4; // LRU, W-TinyLFU, SIEVE, S3-FIFO
+
   yield {
     state: graphState({
       nodes: [
@@ -130,7 +137,7 @@ function* s3fifoQueues() {
       ],
     }, { title: 'S3-FIFO uses static FIFO queues for quick demotion' }),
     highlight: { active: ['small', 'main', 'ghost'], found: ['drop'] },
-    explanation: 'S3-FIFO uses FIFO queues instead of recency-list promotion. A small queue filters one-hit objects quickly, while the main and ghost queues preserve enough history to protect reusable objects.',
+    explanation: `S3-FIFO uses ${queueCount} FIFO queues instead of recency-list promotion. A small queue filters one-hit objects quickly, while the main and ghost queues preserve enough history to protect reusable objects.`,
   };
 
   yield {
@@ -152,8 +159,8 @@ function* s3fifoQueues() {
       ],
     ),
     highlight: { found: ['S:why', 'M:role', 'G:role'] },
-    explanation: 'The key S3-FIFO insight is quick demotion: most objects in skewed workloads are touched once, so the cache should remove many of them before they pollute the main resident set.',
-    invariant: 'FIFO can be effective when the queues are arranged to filter noise early.',
+    explanation: `The key S3-FIFO insight is quick demotion: most objects in skewed workloads are touched once, so the cache should remove many of them across ${queueCount} queues before they pollute the main resident set.`,
+    invariant: `FIFO can be effective when ${queueCount} queues are arranged to filter noise early.`,
   };
 
   yield {
@@ -165,7 +172,7 @@ function* s3fifoQueues() {
       ],
     }),
     highlight: { active: ['s3'], compare: ['lru'] },
-    explanation: 'The paper reports broad trace results; this toy curve encodes the claimed direction. S3-FIFO aims for lower miss ratio while keeping the concurrency advantages of FIFO queues.',
+    explanation: `The paper reports broad trace results; this toy curve encodes the claimed direction. S3-FIFO aims for lower miss ratio while keeping the concurrency advantages of ${queueCount} FIFO queues.`,
   };
 
   yield {
@@ -190,7 +197,7 @@ function* s3fifoQueues() {
       ],
     ),
     highlight: { active: ['SIEVE:lesson', 'S3:lesson'], compare: ['LRU:hit', 'WT:hit'] },
-    explanation: 'Modern cache papers are not only chasing lower miss ratios. They are also asking which policy has simple enough state transitions to scale in production.',
+    explanation: `Modern cache papers compare ${policiesCompared} policies not only for miss ratios but also for which policy has simple enough state transitions to scale in production.`,
   };
 }
 
@@ -214,7 +221,8 @@ export const article = {
           type: 'note',
           text: 'Both views show policy state, not data flow. The animation proves that a cache hit need not mutate ordering metadata -- it can be as cheap as flipping one bit or appending to a queue tail.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/modern-cache-eviction-sieve-s3fifo.gif', alt: 'Animated walkthrough of the modern cache eviction sieve s3fifo visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

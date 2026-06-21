@@ -82,21 +82,26 @@ function verificationGraph(title) {
 }
 
 function* delegationChain() {
+  const nodeCount = 7;
+  const edgeCount = 7;
+  const tokenFields = ['issuer', 'audience', 'capability', 'proofs', 'expiry'];
+  const fieldCount = tokenFields.length;
+
   yield {
     state: delegationGraph('UCAN delegates capability from one DID to another'),
     highlight: { active: ['owner', 'ucan1', 'agent', 'e-owner-ucan1', 'e-ucan1-agent'], compare: ['ucan2'] },
-    explanation: 'A UCAN token is a signed edge in an authority graph. The issuer grants a capability over a resource to one audience, usually with time bounds and proof links that explain why the issuer had that authority.',
+    explanation: `A UCAN token is a signed edge in an authority graph of ${nodeCount} principals linked by ${edgeCount} edges. The issuer grants a capability over a resource to one audience, usually with time bounds and proof links that explain why the issuer had that authority.`,
   };
   yield {
     state: delegationGraph('Delegation can be attenuated down the chain'),
     highlight: { active: ['agent', 'ucan2', 'worker', 'e-agent-ucan2', 'e-ucan2-worker'], found: ['owner'] },
-    explanation: 'The delegate can issue a narrower UCAN to another actor. The new token should grant no more authority than the proof chain grants to the delegator.',
-    invariant: 'Every child capability must be a subset of its proof authority.',
+    explanation: `The delegate can issue a narrower UCAN to another actor. Across all ${edgeCount} edges, the new token should grant no more authority than the proof chain grants to the delegator.`,
+    invariant: `Every child capability must be a subset of its proof authority — enforced at each of the ${edgeCount} delegation edges.`,
   };
   yield {
     state: delegationGraph('Invocation carries the capability proof chain'),
     highlight: { active: ['worker', 'invoke', 'resource', 'ucan2', 'e-worker-invoke', 'e-ucan2-invoke', 'e-invoke-resource'], compare: ['owner'] },
-    explanation: 'To use authority, the worker sends an invocation plus the relevant proof chain. The resource can verify locally instead of calling one central authorization server.',
+    explanation: `To use authority, the worker sends an invocation plus the relevant proof chain. The resource can verify locally across ${nodeCount} nodes instead of calling one central authorization server.`,
   };
   yield {
     state: labelMatrix(
@@ -121,20 +126,25 @@ function* delegationChain() {
       ],
     ),
     highlight: { active: ['cap:verify', 'prf:verify', 'aud:verify'] },
-    explanation: 'The data model is compact, but the verifier must enforce the meaning of every field. A signed token with a wrong audience or overbroad child capability should fail.',
+    explanation: `The data model is compact — ${fieldCount} fields (${tokenFields.join(', ')}) — but the verifier must enforce the meaning of every field. A signed token with a wrong audience or overbroad child capability should fail.`,
   };
 }
 
 function* offlineVerification() {
+  const vNodeCount = 8;
+  const vEdgeCount = 8;
+  const comparisonSystems = ['OAuth', 'macaroon', 'UCAN', 'Zanzibar'];
+  const systemCount = comparisonSystems.length;
+
   yield {
     state: verificationGraph('Verification can happen from the packet and proofs'),
     highlight: { active: ['packet', 'proofs', 'sig', 'cap', 'e-packet-proofs', 'e-proofs-sig', 'e-proofs-cap'], compare: ['decision'] },
-    explanation: 'Local verification means the packet carries enough proof material to decide. The verifier walks tokens, checks signatures, checks audience continuity, and proves the requested capability is covered by the chain.',
+    explanation: `Local verification means the packet carries enough proof material to decide across ${vNodeCount} verification nodes and ${vEdgeCount} check edges. The verifier walks tokens, checks signatures, checks audience continuity, and proves the requested capability is covered by the chain.`,
   };
   yield {
     state: verificationGraph('Expiry and revocation evidence bound risk'),
     highlight: { active: ['time', 'revoke', 'decision', 'e-time-decision', 'e-revoke-decision'], found: ['cap'] },
-    explanation: 'Distributed authorization still needs expiry and revocation strategy. Short expirations reduce stale authority. Revocation proofs can be checked when the application requires them.',
+    explanation: `Distributed authorization still needs expiry and revocation strategy. Of the ${vEdgeCount} verification edges, the time and revocation paths converge on the decision node. Short expirations reduce stale authority. Revocation proofs can be checked when the application requires them.`,
   };
   yield {
     state: labelMatrix(
@@ -157,12 +167,12 @@ function* offlineVerification() {
       ],
     ),
     highlight: { active: ['ucan:center', 'ucan:best'], compare: ['oauth:center', 'zanzibar:center'] },
-    explanation: 'UCAN is most natural when users, devices, and agents need to delegate authority without a single always-online authorization database.',
+    explanation: `Among ${systemCount} authorization approaches (${comparisonSystems.join(', ')}), UCAN is most natural when users, devices, and agents need to delegate authority without a single always-online authorization database.`,
   };
   yield {
     state: verificationGraph('The decision should still be logged'),
     highlight: { active: ['decision', 'log', 'e-decision-log'], found: ['packet', 'proofs'], compare: ['revoke'] },
-    explanation: 'Local verification does not mean no observability. Store which proof chain was accepted, which capability was invoked, and which revocation checks were applied.',
+    explanation: `Local verification does not mean no observability. Across all ${vNodeCount} nodes in the verification graph, store which proof chain was accepted, which capability was invoked, and which revocation checks were applied.`,
   };
 }
 
@@ -175,6 +185,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/ucan-delegation-proof-chain.gif', alt: 'Animated walkthrough of the ucan delegation proof chain visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why Capability Delegation Exists',
       paragraphs: [

@@ -151,7 +151,8 @@ export const article = {
           type: 'note',
           text: 'Everything inside a contour ring has loss lower than the ring label. Moving inward through nested rings means descending toward a minimum.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/contour-maps.gif', alt: 'Animated walkthrough of the contour maps visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

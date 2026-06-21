@@ -190,6 +190,13 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/quorums.gif', alt: 'Animated walkthrough of the quorums visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Read/write quorums exist because replicated systems want a tunable middle ground between fast but stale reads and fully coordinated consensus. If data lives on N replicas, a write can wait for W acknowledgements and a read can ask R replicas. The choice of R and W decides how much latency, availability, and freshness each request buys.',

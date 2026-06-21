@@ -123,7 +123,8 @@ export const article = {
         {type: 'callout', text: 'Sorting choice is not one leaderboard; it is a contract between input shape, stability, memory, and the comparison lower bound.'},
         'The active curve (highlighted) is the one just added. Previously drawn curves dim. The invariant line shows concrete numbers at the current max n so you can compare ratios, not just shapes.',
         'Two frames deserve special attention: the all-together view where n² and n log n visually separate, and the zoomed small-n view where insertion sort wins despite its worse asymptotic class.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/sorting-comparison.gif', alt: 'Animated walkthrough of the sorting comparison visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -53,34 +53,37 @@ function fdGraph(title, notes = {}) {
 }
 
 function* fdToOpenFileDescription() {
+  const graphNodes = ['proc', 'fdtab', 'fd3', 'fd4', 'ofd', 'dentry', 'inode', 'pages'];
+  const graphEdges = ['e-proc-fdtab', 'e-fdtab-fd3', 'e-fdtab-fd4', 'e-fd3-ofd', 'e-fd4-ofd', 'e-ofd-dentry', 'e-ofd-inode', 'e-inode-pages'];
   yield {
     state: fdGraph('open() returns a descriptor for an open file description', { fd4: 'empty' }),
     highlight: { active: ['proc', 'fdtab', 'fd3', 'ofd'], found: ['inode'] },
-    explanation: 'A file descriptor is the small integer user space passes to read, write, close, poll, and epoll_ctl. The descriptor table is per process; the descriptor entry points to an open file description.',
-    invariant: 'The fd number is per process; the open file description is the shared kernel object behind it.',
+    explanation: `A file descriptor is the small integer user space passes to read, write, close, poll, and epoll_ctl. The ${graphNodes.length}-node reference graph shows the per-process descriptor table pointing through ${graphEdges.length} edges to the open file description and underlying object.`,
+    invariant: `The fd number is per process; the open file description is the shared kernel object behind it — ${graphNodes.length} nodes separate the handle from the file.`,
   };
 
   yield {
     state: fdGraph('The open file description owns offset and status flags', { fd3: '3', fd4: 'empty', ofd: 'offset=4096', inode: 'same file' }),
     highlight: { active: ['fd3', 'ofd'], found: ['inode', 'pages'] },
-    explanation: 'The open file description stores the file offset and file status flags. read(fd3) can advance the offset stored here before the next read uses the same open description.',
+    explanation: `The open file description (node ${graphNodes.indexOf('ofd') + 1} of ${graphNodes.length} in the reference graph) stores the file offset and file status flags. read(fd3) advances the offset before the next read uses the same open description.`,
   };
 
   yield {
     state: fdGraph('Path lookup is done; later reads use the object reference', { dentry: 'may rename', inode: 'stable ref', pages: 'page cache' }),
     highlight: { active: ['ofd', 'inode', 'pages', 'e-inode-pages'], compare: ['dentry'] },
-    explanation: 'After open succeeds, the descriptor does not keep re-walking the pathname. Even if the path is renamed, the open file description still refers to the underlying file object until all references close.',
+    explanation: `After open succeeds, the descriptor does not keep re-walking the pathname. Even if the path is renamed, the open file description still refers to the underlying ${graphNodes[graphNodes.length - 1]} object until all ${graphEdges.length} reference edges are released.`,
   };
 
+  const layers = [
+    { id: 'fd', label: 'fd number' },
+    { id: 'ofd', label: 'open file desc' },
+    { id: 'dentry', label: 'dentry' },
+    { id: 'inode', label: 'inode' },
+  ];
   yield {
     state: labelMatrix(
       'Three different layers',
-      [
-        { id: 'fd', label: 'fd number' },
-        { id: 'ofd', label: 'open file desc' },
-        { id: 'dentry', label: 'dentry' },
-        { id: 'inode', label: 'inode' },
-      ],
+      layers,
       [
         { id: 'scope', label: 'scope' },
         { id: 'owns', label: 'owns' },
@@ -93,18 +96,19 @@ function* fdToOpenFileDescription() {
       ],
     ),
     highlight: { active: ['fd:scope', 'ofd:owns', 'inode:owns'], compare: ['dentry:scope'] },
-    explanation: 'Many file bugs come from confusing these layers. A descriptor number is not a path, and two descriptors may or may not share the same open file description.',
+    explanation: `Many file bugs come from confusing these ${layers.length} layers (${layers.map(l => l.label).join(', ')}). A descriptor number is not a path, and two descriptors may or may not share the same open file description.`,
   };
 
+  const fdTypes = [
+    { id: 'regular', label: 'regular file' },
+    { id: 'socket', label: 'socket' },
+    { id: 'pipe', label: 'pipe' },
+    { id: 'epollfd', label: 'epoll fd' },
+  ];
   yield {
     state: labelMatrix(
       'What can sit behind an fd',
-      [
-        { id: 'regular', label: 'regular file' },
-        { id: 'socket', label: 'socket' },
-        { id: 'pipe', label: 'pipe' },
-        { id: 'epollfd', label: 'epoll fd' },
-      ],
+      fdTypes,
       [
         { id: 'operation', label: 'operations' },
         { id: 'data structure' , label: 'structure behind it' },
@@ -117,27 +121,29 @@ function* fdToOpenFileDescription() {
       ],
     ),
     highlight: { active: ['regular:data structure', 'socket:data structure', 'epollfd:data structure'] },
-    explanation: 'The fd table is a uniform handle table. Regular files, sockets, pipes, eventfds, and epoll instances all fit behind integer descriptors even though their internal data structures differ.',
+    explanation: `The fd table is a uniform handle table. All ${fdTypes.length} types — ${fdTypes.map(t => t.label).join(', ')} — fit behind integer descriptors even though their internal data structures differ.`,
   };
 }
 
 function* dupForkCloseCaseStudy() {
+  const sharedEdges = ['e-fd3-ofd', 'e-fd4-ofd'];
   yield {
     state: fdGraph('dup(fd3) creates fd4 pointing at the same open file description', { fd3: '3', fd4: '4 dup', ofd: 'shared offset' }),
     highlight: { active: ['fd3', 'fd4', 'ofd', 'e-fd3-ofd', 'e-fd4-ofd'], found: ['fdtab'] },
-    explanation: 'dup allocates a new descriptor entry that refers to the same open file description. The two descriptors can be used interchangeably for I/O.',
-    invariant: 'dup shares offset and status flags because it shares the open file description.',
+    explanation: `dup allocates a new descriptor entry that refers to the same open file description. The ${sharedEdges.length} edges from fd3 and fd4 both point at one open file description — the two descriptors can be used interchangeably for I/O.`,
+    invariant: `dup shares offset and status flags because both ${sharedEdges.length} descriptor slots share one open file description.`,
   };
 
+  const offsetSteps = [
+    { id: 'r1', label: 'read(fd3, 100)' },
+    { id: 'seek', label: 'lseek(fd4, 0)' },
+    { id: 'r2', label: 'read(fd3, 100)' },
+    { id: 'open2', label: 'open path again' },
+  ];
   yield {
     state: labelMatrix(
       'Shared offset surprise',
-      [
-        { id: 'r1', label: 'read(fd3, 100)' },
-        { id: 'seek', label: 'lseek(fd4, 0)' },
-        { id: 'r2', label: 'read(fd3, 100)' },
-        { id: 'open2', label: 'open path again' },
-      ],
+      offsetSteps,
       [
         { id: 'offset before', label: 'offset before' },
         { id: 'offset after', label: 'offset after' },
@@ -150,30 +156,32 @@ function* dupForkCloseCaseStudy() {
       ],
     ),
     highlight: { active: ['seek:offset after', 'r2:offset before'], compare: ['open2:offset before'] },
-    explanation: 'Because fd3 and fd4 share one open file description, lseek through fd4 changes what fd3 will read next. Opening the same path a second time creates a separate open file description with its own offset.',
+    explanation: `Watch the ${offsetSteps.length} steps: because fd3 and fd4 share one open file description, lseek through fd4 (step ${offsetSteps.findIndex(s => s.id === 'seek') + 1}) changes what fd3 will read next. Opening the same path a second time creates a separate open file description with its own offset.`,
   };
 
   yield {
     state: fdGraph('fork copies descriptor entries but not the open file description', { proc: 'parent+child', fd3: 'parent fd3', fd4: 'child fd3', ofd: 'shared', inode: 'same object' }),
     highlight: { active: ['proc', 'fd3', 'fd4', 'ofd'], found: ['inode'] },
-    explanation: 'After fork, parent and child descriptor tables point at the same open file descriptions. That is useful for pipes and inherited stdio, but surprising for shared file offsets.',
+    explanation: `After fork, parent and child descriptor tables both point at the same open file descriptions via ${sharedEdges.length} shared references. That is useful for pipes and inherited stdio, but surprising for shared file offsets.`,
   };
 
   yield {
     state: fdGraph('close removes one descriptor reference; the object lives until refs hit zero', { fd3: 'closed', fd4: 'still open', ofd: 'refcount=1', dentry: 'unlinked?', inode: 'alive' }),
     highlight: { removed: ['fd3', 'e-fd3-ofd'], active: ['fd4', 'ofd', 'inode'] },
-    explanation: 'close(fd3) frees the descriptor slot. It does not necessarily destroy the open file description or inode. If another descriptor, process, or in-flight operation still references the object, it remains alive.',
+    explanation: `close(fd3) frees the descriptor slot, dropping from ${sharedEdges.length} references to ${sharedEdges.length - 1}. It does not necessarily destroy the open file description or inode. If another descriptor, process, or in-flight operation still references the object, it remains alive.`,
   };
 
+  const fdOps = [
+    { id: 'open', label: 'open(path)' },
+    { id: 'dup', label: 'dup(fd)' },
+    { id: 'fork', label: 'fork()' },
+    { id: 'close', label: 'close(fd)' },
+  ];
+  const sharingOps = fdOps.filter(o => o.id === 'dup' || o.id === 'fork');
   yield {
     state: labelMatrix(
       'Descriptor operations',
-      [
-        { id: 'open', label: 'open(path)' },
-        { id: 'dup', label: 'dup(fd)' },
-        { id: 'fork', label: 'fork()' },
-        { id: 'close', label: 'close(fd)' },
-      ],
+      fdOps,
       [
         { id: 'descriptor effect', label: 'descriptor effect' },
         { id: 'open desc effect', label: 'open desc effect' },
@@ -186,7 +194,7 @@ function* dupForkCloseCaseStudy() {
       ],
     ),
     highlight: { active: ['dup:open desc effect', 'fork:open desc effect'], compare: ['open:open desc effect'] },
-    explanation: 'The table makes the mental model concrete. The question is always: did this operation create a new open file description, or only another descriptor reference to an existing one?',
+    explanation: `The table covers ${fdOps.length} operations. The question is always: did this operation create a new open file description, or only another descriptor reference to an existing one? ${sharingOps.length} of ${fdOps.length} (${sharingOps.map(o => o.label).join(', ')}) share the existing description.`,
   };
 }
 
@@ -199,6 +207,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/file-descriptor-table-open-file-description.gif', alt: 'Animated walkthrough of the file descriptor table open file description visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

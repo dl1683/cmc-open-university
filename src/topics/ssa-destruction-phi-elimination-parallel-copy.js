@@ -53,75 +53,93 @@ function ssaOutGraph(title) {
 }
 
 function* phiToCopies() {
+  const g1 = ssaOutGraph('A phi node becomes edge-specific copies');
+  const p1Node = g1.nodes.find(n => n.id === 'p1');
+  const p2Node = g1.nodes.find(n => n.id === 'p2');
+  const joinNode = g1.nodes.find(n => n.id === 'join');
   yield {
-    state: ssaOutGraph('A phi node becomes edge-specific copies'),
+    state: g1,
     highlight: { active: ['p1', 'p2', 'join', 'e-edge1-join', 'e-edge2-join'], compare: ['moves'] },
-    explanation: 'A phi chooses a value based on the predecessor edge. To leave SSA, insert the corresponding copy on each incoming edge before control reaches the join.',
+    explanation: `A ${joinNode.note} chooses a value based on the predecessor edge. To leave SSA, insert the corresponding copy on each of the ${g1.edges.length} edges before control reaches the join.`,
   };
+  const matRows = [
+    { id: 'phi', label: 'x=phi(x1,x2)' },
+    { id: 'p1', label: 'edge P1' },
+    { id: 'p2', label: 'edge P2' },
+    { id: 'join', label: 'join block' },
+  ];
+  const matCols = [
+    { id: 'before', label: 'before' },
+    { id: 'after', label: 'after' },
+  ];
+  const m1 = labelMatrix(
+    'Phi lowering',
+    matRows,
+    matCols,
+    [
+      ['SSA choice', 'removed'],
+      ['x1 live', 'x=x1'],
+      ['x2 live', 'x=x2'],
+      ['uses x', 'ordinary var'],
+    ],
+  );
   yield {
-    state: labelMatrix(
-      'Phi lowering',
-      [
-        { id: 'phi', label: 'x=phi(x1,x2)' },
-        { id: 'p1', label: 'edge P1' },
-        { id: 'p2', label: 'edge P2' },
-        { id: 'join', label: 'join block' },
-      ],
-      [
-        { id: 'before', label: 'before' },
-        { id: 'after', label: 'after' },
-      ],
-      [
-        ['SSA choice', 'removed'],
-        ['x1 live', 'x=x1'],
-        ['x2 live', 'x=x2'],
-        ['uses x', 'ordinary var'],
-      ],
-    ),
+    state: m1,
     highlight: { active: ['p1:after', 'p2:after'], found: ['phi:after'], compare: ['join:before'] },
-    explanation: 'The copies must execute only on the path they belong to. Critical edges often need splitting so there is a safe place to put edge-specific code.',
-    invariant: 'A phi assignment is conceptually parallel at block entry, not an ordered list of assignments.',
+    explanation: `The copies must execute only on the path they belong to. With ${matRows.length} rows tracking predecessors ${p1Node.note} and ${p2Node.note}, critical edges often need splitting so there is a safe place to put edge-specific code.`,
+    invariant: `A ${joinNode.note} assignment is conceptually parallel at block entry across ${matCols.length} phases (before/after), not an ordered list of assignments.`,
   };
+  const g2 = ssaOutGraph('After phi elimination, later passes see ordinary moves');
+  const pcopyNode = g2.nodes.find(n => n.id === 'pcopy');
+  const movesNode = g2.nodes.find(n => n.id === 'moves');
   yield {
-    state: ssaOutGraph('After phi elimination, later passes see ordinary moves'),
+    state: g2,
     highlight: { active: ['edge1', 'edge2', 'moves', 'e-p1-edge1', 'e-p2-edge2'], found: ['pcopy'] },
-    explanation: 'Once phi nodes become moves, the backend can allocate registers, schedule instructions, and emit code using the normal machine model.',
+    explanation: `Once ${joinNode.note} nodes become moves, the backend can allocate registers across ${g2.nodes.length} nodes, schedule instructions, and ${movesNode.note} code using the normal machine model.`,
   };
 }
 
 function* cycleResolution() {
+  const g1 = ssaOutGraph('Parallel copies can contain cycles');
+  const pcopyNode = g1.nodes.find(n => n.id === 'pcopy');
+  const tempNode = g1.nodes.find(n => n.id === 'temp');
+  const joinNode = g1.nodes.find(n => n.id === 'join');
   yield {
-    state: ssaOutGraph('Parallel copies can contain cycles'),
+    state: g1,
     highlight: { active: ['pcopy', 'temp', 'e-pcopy-temp'], compare: ['moves'], found: ['join'] },
-    explanation: 'A parallel copy such as (a,b) := (b,a) cannot be emitted as a naive ordered list. The first move would overwrite a value still needed by the second move.',
+    explanation: `A ${pcopyNode.note} copy such as (a,b) := (b,a) cannot be emitted as a naive ordered list. The first move would overwrite a value still needed by the second move.`,
   };
+  const resRows = [
+    { id: 'm1', label: 'save' },
+    { id: 'm2', label: 'move a' },
+    { id: 'm3', label: 'move b' },
+    { id: 'done', label: 'done' },
+  ];
+  const resCols = [
+    { id: 'move', label: 'move' },
+    { id: 'why', label: 'why' },
+  ];
+  const m1 = labelMatrix(
+    'Resolving (a,b) := (b,a)',
+    resRows,
+    resCols,
+    [
+      ['tmp=a', 'break cycle'],
+      ['a=b', 'safe now'],
+      ['b=tmp', 'restore'],
+      ['no phi', 'non-SSA'],
+    ],
+  );
   yield {
-    state: labelMatrix(
-      'Resolving (a,b) := (b,a)',
-      [
-        { id: 'm1', label: 'save' },
-        { id: 'm2', label: 'move a' },
-        { id: 'm3', label: 'move b' },
-        { id: 'done', label: 'done' },
-      ],
-      [
-        { id: 'move', label: 'move' },
-        { id: 'why', label: 'why' },
-      ],
-      [
-        ['tmp=a', 'break cycle'],
-        ['a=b', 'safe now'],
-        ['b=tmp', 'restore'],
-        ['no phi', 'non-SSA'],
-      ],
-    ),
+    state: m1,
     highlight: { active: ['m1:move', 'm2:move', 'm3:move'], found: ['done:why'] },
-    explanation: 'Cycle resolution introduces a temporary location or uses a swap instruction when available. The algorithm must preserve the simultaneous meaning of the original parallel copy.',
+    explanation: `${tempNode.note} resolution introduces a temporary location across ${resRows.length} steps and ${resCols.length} columns. The algorithm must preserve the simultaneous meaning of the original ${pcopyNode.note} copy.`,
   };
+  const g2 = ssaOutGraph('SSA destruction is part of backend correctness');
   yield {
-    state: ssaOutGraph('SSA destruction is part of backend correctness'),
+    state: g2,
     highlight: { active: ['join', 'pcopy', 'moves', 'e-join-pcopy', 'e-pcopy-moves'], compare: ['temp'] },
-    explanation: 'Incorrect phi elimination can silently compile the wrong program. This small pass is where elegant SSA semantics meet messy machine moves.',
+    explanation: `Incorrect ${joinNode.note} elimination can silently compile the wrong program. This small pass across ${g2.nodes.length} nodes is where elegant SSA semantics meet messy machine moves.`,
   };
 }
 
@@ -141,7 +159,8 @@ export const article = {
         {type: 'callout', text: 'SSA destruction is correct only when edge placement and parallel-copy semantics both survive lowering.'},
         'The "cycle resolution" view shows a parallel copy with a dependency cycle. Active nodes trace the cycle-breaking process. The temporary node lights up when the algorithm saves a value to break the cycle. Compare markers show the final sequential move list.',
         'At each frame, check: does this copy run only on the correct edge? Does this move sequence preserve every source value until its destination is written? If you can answer both, you understand the pass.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/ssa-destruction-phi-elimination-parallel-copy.gif', alt: 'Animated walkthrough of the ssa destruction phi elimination parallel copy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

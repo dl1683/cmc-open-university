@@ -59,25 +59,31 @@ function samGraph(title) {
 }
 
 function* onlineBuild() {
+  const text = 'ababa';
+  const stateCount = 8;
+  const edgeCount = 9;
+  const maxStates = 2 * text.length - 1; // tight bound
+
   yield {
     state: samGraph('Start with a state for the empty string'),
     highlight: { active: ['s0'], compare: ['s1', 's2'] },
-    explanation: 'A suffix automaton is built online. The start state represents the empty context. Each new character creates a state for the whole prefix and then repairs transitions from suffix contexts that did not know this character yet.',
-    invariant: 'After reading a prefix, every substring of that prefix is accepted by some path from the start state.',
+    explanation: `A suffix automaton for "${text}" is built online. The start state represents the empty context. Each new character creates a state for the whole prefix and then repairs transitions from suffix contexts that did not know this character yet.`,
+    invariant: `After reading a prefix, every substring of that prefix is accepted by some path from the start state. The final automaton has ${stateCount} states and ${edgeCount} edges.`,
   };
 
   yield {
     state: samGraph('Append a and b: transitions form new substring paths'),
     highlight: { active: ['s1', 's2', 'e-0-1', 'e-1-2'], found: ['s0'] },
-    explanation: 'Appending a character extends the longest prefix path. It may also add transitions from older suffix states. Those extra transitions are what make substrings, not just prefixes, reachable.',
+    explanation: `Appending a character extends the longest prefix path. For "${text}", it may also add transitions from older suffix states. Those extra transitions are what make substrings, not just prefixes, reachable.`,
   };
 
   yield {
     state: samGraph('Repeated contexts reuse suffix links'),
     highlight: { active: ['s3', 's4', 's5'], found: ['qA', 'qBA', 'e-s3-qA', 'e-s5-qBA'], compare: ['s1', 's2'] },
-    explanation: 'When text repeats, states share end-position equivalence classes. Suffix links point from a longer context to the largest proper suffix context that has the same future possibilities.',
+    explanation: `When text repeats, states share end-position equivalence classes. The ${stateCount} states stay within the ${maxStates}-state upper bound. Suffix links point from a longer context to the largest proper suffix context that has the same future possibilities.`,
   };
 
+  const bookkeepingRows = 4;
   yield {
     state: labelMatrix(
       'Build bookkeeping',
@@ -99,17 +105,22 @@ function* onlineBuild() {
       ],
     ),
     highlight: { found: ['clone:why', 'link:role'], active: ['trans:why'] },
-    explanation: 'The clone case is the subtle part. If a transition would make one state represent incompatible lengths, the algorithm clones it and redirects suffix links so the automaton stays minimal.',
+    explanation: `The clone case is the subtle part. Each of the ${bookkeepingRows} fields (maxLen, suffix link, transitions, clone) plays a role: if a transition would make one state represent incompatible lengths, the algorithm clones it and redirects suffix links so the automaton stays minimal.`,
   };
 }
 
 function* substringQueries() {
+  const pattern = 'aba';
+  const patternLen = pattern.length;
+  const text = 'ababa';
+
   yield {
     state: samGraph('Substring membership is just a transition walk'),
     highlight: { active: ['s0', 's1', 's2', 's3', 'e-0-1', 'e-1-2', 'e-2-3'], found: ['s3'] },
-    explanation: 'To check whether aba occurs, start at the initial state and follow a, then b, then a. If every transition exists, the pattern is a substring of the indexed text.',
+    explanation: `To check whether "${pattern}" occurs in "${text}", start at the initial state and follow ${patternLen} transitions: a, then b, then a. If every transition exists, the pattern is a substring of the indexed text.`,
   };
 
+  const queryCount = 4;
   yield {
     state: labelMatrix(
       'Common queries',
@@ -131,15 +142,16 @@ function* substringQueries() {
       ],
     ),
     highlight: { active: ['contains:cost', 'lcs:method'], found: ['distinct:method'] },
-    explanation: 'A suffix automaton is not only a matcher. Its state lengths and suffix-link tree expose counts, repeated substrings, and longest-common-substring style queries.',
+    explanation: `A suffix automaton is not only a matcher. All ${queryCount} query types leverage state lengths and the suffix-link tree to expose counts, repeated substrings, and longest-common-substring style queries.`,
   };
 
   yield {
     state: samGraph('Suffix links turn failed extension into fallback'),
     highlight: { active: ['s5', 'qBA', 'e-s5-qBA'], compare: ['qA', 's0'] },
-    explanation: 'Suffix links play the same broad role as failure links in KMP and Aho-Corasick: when the current context is too specific, fall back to the best shorter context that can still continue.',
+    explanation: `Suffix links play the same broad role as failure links in KMP and Aho-Corasick: when the current context is too specific for "${text}", fall back to the best shorter context that can still continue.`,
   };
 
+  const familySize = 4;
   yield {
     state: labelMatrix(
       'Neighbors in the string-index family',
@@ -161,7 +173,7 @@ function* substringQueries() {
       ],
     ),
     highlight: { found: ['sam:indexes', 'sam:strength'], compare: ['suffix:strength', 'aho:strength'] },
-    explanation: 'The full map is now connected: tries share prefixes, Aho-Corasick adds failure links, suffix arrays sort suffixes, and suffix automata minimize all substring paths.',
+    explanation: `The full map of ${familySize} string-index structures is now connected: tries share prefixes, Aho-Corasick adds failure links, suffix arrays sort suffixes, and suffix automata minimize all substring paths.`,
   };
 }
 
@@ -181,7 +193,8 @@ export const article = {
         {type: 'callout', text: 'A suffix automaton is compact because it merges substrings by identical future behavior, not by identical spelling.'},
         'In the query view, the walk from the start state follows one transition per character. If every transition exists, the pattern is a substring. If any transition is missing, the pattern is not. The animation is deliberately simple here because the sophistication lives in construction, not lookup.',
         'Active (bright) nodes mark the current extend path. Found (green) nodes mark suffix-link targets. Compare (dimmed) nodes show states that already existed before this step. Read each frame as: "we just extended by one character -- which states changed, and did any state need to be cloned?"',
-      ],
+      
+        {type: 'image', src: './assets/gifs/suffix-automaton.gif', alt: 'Animated walkthrough of the suffix automaton visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

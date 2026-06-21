@@ -98,46 +98,50 @@ function allocationGraph(title) {
 }
 
 function* negotiationProtocol() {
+  const candidates = ['a', 'b', 'c'];
+  const protocolNodes = ['manager', 'cfp', 'a', 'b', 'c', 'heap', 'award', 'reject', 'report', 'audit'];
   yield {
     state: contractGraph('A manager announces a task'),
     highlight: { active: ['manager', 'cfp', 'a', 'b', 'c', 'e-manager-cfp', 'e-cfp-a', 'e-cfp-b', 'e-cfp-c'], compare: ['heap'] },
-    explanation: 'The manager does not guess who should work. It publishes a task envelope with constraints, deadline, required capability, and scoring rules, then lets workers expose their private load, skill, and cost through bids.',
+    explanation: `The manager does not guess who should work. It publishes a task envelope to ${candidates.length} candidate agents, then lets workers expose their private load, skill, and cost through bids.`,
   };
 
   yield {
     state: contractGraph('Agents bid from local knowledge'),
     highlight: { active: ['a', 'b', 'c', 'heap', 'e-a-heap', 'e-b-heap', 'e-c-heap'], compare: ['manager'] },
-    explanation: 'Each agent decides whether to bid using private state: current load, tools, expertise, expected cost, confidence, and opportunity cost. The manager does not need to know every worker detail.',
-    invariant: 'The bid is a compact promise about capability, cost, and risk.',
+    explanation: `Each of the ${candidates.length} agents decides whether to bid using private state: current load, tools, expertise, expected cost, confidence, and opportunity cost. The manager does not need to know every worker detail.`,
+    invariant: `Each bid from the ${candidates.length} candidates is a compact promise about capability, cost, and risk.`,
   };
 
   yield {
     state: contractGraph('A bid heap ranks offers'),
     highlight: { active: ['heap', 'award', 'reject', 'e-heap-award', 'e-heap-reject'], found: ['audit'] },
-    explanation: 'The manager ranks bids with a utility function. In code this is often a priority queue keyed by expected value: quality score minus latency, cost, risk, and coordination overhead.',
+    explanation: `The manager ranks up to ${candidates.length} bids with a utility function. In code this is often a priority queue keyed by expected value: quality score minus latency, cost, risk, and coordination overhead.`,
   };
 
   yield {
     state: contractGraph('Award creates a commitment'),
     highlight: { active: ['award', 'report', 'manager', 'e-award-report', 'e-report-manager'], compare: ['reject'] },
-    explanation: 'The winning agent receives the award and commits to execution. Losing agents are released. The result report closes the contract or triggers failure handling.',
+    explanation: `The winning agent receives the award and commits to execution. The remaining ${candidates.length - 1} losing agents are released. The result report closes the contract across ${protocolNodes.length} protocol nodes.`,
   };
 
+  const messageTypes = [
+    { id: 'cfp', label: 'CFP' },
+    { id: 'proposal', label: 'proposal' },
+    { id: 'refuse', label: 'refuse' },
+    { id: 'award', label: 'award' },
+    { id: 'inform', label: 'inform/fail' },
+  ];
+  const messageCols = [
+    { id: 'sender', label: 'sender' },
+    { id: 'payload', label: 'payload' },
+    { id: 'state', label: 'state change' },
+  ];
   yield {
     state: labelMatrix(
       'Contract Net message types',
-      [
-        { id: 'cfp', label: 'CFP' },
-        { id: 'proposal', label: 'proposal' },
-        { id: 'refuse', label: 'refuse' },
-        { id: 'award', label: 'award' },
-        { id: 'inform', label: 'inform/fail' },
-      ],
-      [
-        { id: 'sender', label: 'sender' },
-        { id: 'payload', label: 'payload' },
-        { id: 'state', label: 'state change' },
-      ],
+      messageTypes,
+      messageCols,
       [
         ['manager', 'task + eval', 'open auction'],
         ['candidate', 'cost + ETA', 'rank bid'],
@@ -147,50 +151,54 @@ function* negotiationProtocol() {
       ],
     ),
     highlight: { active: ['cfp:payload', 'proposal:payload', 'award:state', 'inform:state'], compare: ['refuse:state'] },
-    explanation: 'The protocol is a small state machine over messages. That makes it easier to test than free-form agent chatter and easier to audit than hidden routing heuristics.',
+    explanation: `The protocol defines ${messageTypes.length} message types (${messageTypes.map(m => m.label).join(', ')}), each with ${messageCols.length} fields. That makes it easier to test than free-form agent chatter and easier to audit than hidden routing heuristics.`,
   };
 }
 
 function* agentAllocation() {
+  const specialists = ['code', 'research', 'ops'];
+  const allocNodes = ['plan', 'router', 'code', 'research', 'ops', 'score', 'run', 'retry', 'result', 'budget'];
   yield {
     state: allocationGraph('A task DAG feeds the market'),
     highlight: { active: ['plan', 'router', 'e-plan-router'], compare: ['code', 'research', 'ops'] },
-    explanation: 'Read the task DAG as the supply of ready work. The router publishes only tasks whose dependencies are satisfied, and specialists bid on the slices where their tools, context, and proof artifacts make them worth choosing.',
+    explanation: `Read the task DAG as the supply of ready work. The router publishes to ${specialists.length} specialist pools (${specialists.join(', ')}), and each bids on the slices where its tools, context, and proof artifacts make it worth choosing.`,
   };
 
   yield {
     state: allocationGraph('Bids expose tradeoffs'),
     highlight: { active: ['code', 'research', 'ops', 'score', 'e-code-score', 'e-research-score', 'e-ops-score'], found: ['budget'] },
-    explanation: 'The score function can combine domain fit, tool access, context freshness, estimated tokens, queue delay, expected verification cost, and risk. The best bid is rarely just the cheapest bid.',
+    explanation: `The score function combines bids from ${specialists.length} specialist types. It weighs domain fit, tool access, context freshness, estimated tokens, queue delay, expected verification cost, and risk. The best bid is rarely just the cheapest.`,
   };
 
   yield {
     state: allocationGraph('Execution is bounded by budget'),
     highlight: { active: ['score', 'run', 'budget', 'e-score-run', 'e-run-budget'], compare: ['retry'] },
-    explanation: 'After award, the worker executes inside an explicit envelope: tool permissions, token limit, deadline, retry count, required artifacts, and stop condition. Contract Net allocates work; it does not remove safety gates.',
+    explanation: `After award, the worker executes inside an explicit envelope across ${allocNodes.length} allocation nodes: tool permissions, token limit, deadline, retry count, required artifacts, and stop condition. Contract Net allocates work; it does not remove safety gates.`,
   };
 
   yield {
     state: allocationGraph('Failures reopen or escalate the contract'),
     highlight: { active: ['run', 'retry', 'router', 'e-score-retry', 'e-retry-router'], found: ['result'] },
-    explanation: 'If the winner fails, times out, or returns unverifiable work, the manager can reannounce the task with new context, blacklist a bad route, split the task, or escalate to a human.',
-    invariant: 'A failed contract should create better routing information, not just another blind retry.',
+    explanation: `If the winner fails, times out, or returns unverifiable work, the manager can reannounce the task to the ${specialists.length} specialist pools with new context, blacklist a bad route, split the task, or escalate to a human.`,
+    invariant: `A failed contract should create better routing information for the next round of ${specialists.length} bidders, not just another blind retry.`,
   };
 
+  const scoringFeatures = [
+    { id: 'skill', label: 'skill fit' },
+    { id: 'context', label: 'context' },
+    { id: 'cost', label: 'cost' },
+    { id: 'risk', label: 'risk' },
+    { id: 'proof', label: 'proof' },
+  ];
+  const scoringCols = [
+    { id: 'signal', label: 'signal' },
+    { id: 'effect', label: 'effect' },
+  ];
   yield {
     state: labelMatrix(
       'Bid scoring features',
-      [
-        { id: 'skill', label: 'skill fit' },
-        { id: 'context', label: 'context' },
-        { id: 'cost', label: 'cost' },
-        { id: 'risk', label: 'risk' },
-        { id: 'proof', label: 'proof' },
-      ],
-      [
-        { id: 'signal', label: 'signal' },
-        { id: 'effect', label: 'effect' },
-      ],
+      scoringFeatures,
+      scoringCols,
       [
         ['tool + domain', 'raises quality'],
         ['fresh memory', 'cuts setup'],
@@ -200,7 +208,7 @@ function* agentAllocation() {
       ],
     ),
     highlight: { active: ['skill:effect', 'context:effect', 'proof:effect'], compare: ['cost:effect', 'risk:effect'] },
-    explanation: 'A useful bid is not just "I can do it." It should expose why this worker is a good match and what verification artifact it will return.',
+    explanation: `A useful bid is not just "I can do it." It should expose ${scoringFeatures.length} scoring dimensions (${scoringFeatures.map(f => f.label).join(', ')}) explaining why this worker is a good match and what verification artifact it will return.`,
   };
 }
 
@@ -213,6 +221,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/contract-net-agent-task-allocation.gif', alt: 'Animated walkthrough of the contract net agent task allocation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why it exists',
       paragraphs: [

@@ -68,26 +68,34 @@ const AXES = { x: { label: 'feature x₁', min: -1, max: 7 }, y: { label: 'featu
 
 // ——— Hard Margin visualization ———
 function* hardMargin() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const nPos = HARD_DATA.filter(d => d.label === 1).length;
+  const nNeg = HARD_DATA.filter(d => d.label === -1).length;
+  const svP0 = HARD_DATA.find(d => d.id === 'p0');
+  const svN2 = HARD_DATA.find(d => d.id === 'n2');
+  const wNorm = Math.sqrt(HARD_W.w1 ** 2 + HARD_W.w2 ** 2);
+
   // Step 1: Show the data
   yield {
     state: plotState({ axes: AXES, markers: dataMarkers(HARD_DATA) }),
     highlight: { active: ['p0', 'p1', 'p2', 'p3'], compare: ['n0', 'n1', 'n2', 'n3'] },
-    explanation: 'Eight points, two classes. The + class clusters upper-right, the − class lower-left. Many lines could separate them. Which one should a classifier pick? A random line through the gap would work on this training set, but a barely-clearing line sits on a knife edge — one new point near the boundary could flip it. The SVM picks the line that maximizes the gap.',
+    explanation: `${HARD_DATA.length} points, two classes. The ${nPos} + class points cluster upper-right, the ${nNeg} − class points lower-left. Many lines could separate them. Which one should a classifier pick? A random line through the gap would work on this training set, but a barely-clearing line sits on a knife edge — one new point near the boundary could flip it. The SVM picks the line that maximizes the gap.`,
   };
 
   // Step 2: Show a bad separator
   const badW = { w1: 0.5, w2: 1, b: -3.5 };
+  const badNorm = Math.sqrt(badW.w1 ** 2 + badW.w2 ** 2);
   yield {
     state: plotState({ axes: AXES, series: marginLines(badW), markers: dataMarkers(HARD_DATA) }),
     highlight: { active: ['boundary'], compare: ['n2', 'p0'] },
-    explanation: 'A valid separator, but a poor one. It classifies every point correctly, yet the margin — the gap between the boundary and the closest points — is narrow. Point (1,3) and point (3,4) nearly touch the decision surface. A small shift in either would cause a misclassification. The SVM rejects this: it wants the widest possible street between the classes.',
+    explanation: `A valid separator (${badW.w1}x₁ + ${badW.w2}x₂ + (${badW.b}) = 0), but a poor one with margin width ${r2(2 / badNorm)}. It classifies every point correctly, yet the margin — the gap between the boundary and the closest points — is narrow. Point (${svN2.x},${svN2.y}) and point (${svP0.x},${svP0.y}) nearly touch the decision surface. A small shift in either would cause a misclassification. The SVM rejects this: it wants the widest possible street between the classes.`,
   };
 
   // Step 3: Show the optimal separator with margin
   yield {
     state: plotState({ axes: AXES, series: marginLines(HARD_W), markers: dataMarkers(HARD_DATA) }),
     highlight: { active: ['boundary'], found: ['p0', 'n2'], compare: ['margin-plus', 'margin-minus'] },
-    explanation: 'The maximum-margin hyperplane: x₁ + x₂ − 5.5 = 0. The dashed lines mark w·x + b = +1 and w·x + b = −1. The margin width is 2/‖w‖ = 2/√2 ≈ 1.41 units. No other line through this data produces a wider gap. The two highlighted points — (3,4) and (1,3) — sit exactly on the margin boundaries. These are the support vectors.',
+    explanation: `The maximum-margin hyperplane: ${HARD_W.w1}x₁ + ${HARD_W.w2}x₂ + (${HARD_W.b}) = 0. The dashed lines mark w·x + b = +1 and w·x + b = −1. The margin width is 2/‖w‖ = 2/${r2(wNorm)} ≈ ${r2(2 / wNorm)} units. No other line through this data produces a wider gap. The two highlighted points — (${svP0.x},${svP0.y}) and (${svN2.x},${svN2.y}) — sit exactly on the margin boundaries. These are the support vectors.`,
   };
 
   // Step 4: Explain support vectors
@@ -96,18 +104,21 @@ function* hardMargin() {
     const z = HARD_W.w1 * d.x + HARD_W.w2 * d.y + HARD_W.b;
     scores[d.id] = z.toFixed(1);
   }
+  const p1Pt = HARD_DATA.find(d => d.id === 'p1');
   yield {
     state: plotState({ axes: AXES, series: marginLines(HARD_W), markers: dataMarkers(HARD_DATA, scores) }),
     highlight: { found: ['p0', 'n2'], active: ['boundary'] },
-    explanation: 'Each point now shows its functional margin: w·x + b. Support vectors have |w·x + b| = 1 exactly. Points deeper inside their class have larger margins — (4,5) scores 3.5, far from the boundary. Delete any non-support-vector point and the boundary stays identical. Delete a support vector and the optimal boundary must change. The entire model depends on these few critical points.',
+    explanation: `Each point now shows its functional margin: w·x + b. Support vectors ${HARD_SVS[0]} and ${HARD_SVS[1]} have |w·x + b| = 1 exactly. Points deeper inside their class have larger margins — (${p1Pt.x},${p1Pt.y}) scores ${scores['p1']}, far from the boundary. Delete any non-support-vector point and the boundary stays identical. Delete a support vector and the optimal boundary must change. The entire model depends on these few critical points.`,
     invariant: 'Support vectors satisfy |w·x + b| = 1. All other points satisfy |w·x + b| > 1.',
   };
 
   // Step 5: Margin computation walkthrough
+  const p0Score = HARD_W.w1 * svP0.x + HARD_W.w2 * svP0.y + HARD_W.b;
+  const n2Score = HARD_W.w1 * svN2.x + HARD_W.w2 * svN2.y + HARD_W.b;
   yield {
     state: plotState({ axes: AXES, series: marginLines(HARD_W), markers: dataMarkers(HARD_DATA, scores) }),
     highlight: { found: ['p0', 'n2'], active: ['margin-plus', 'margin-minus'] },
-    explanation: 'Margin computation for the worked example. w = (1, 1), b = −5.5, ‖w‖ = √(1² + 1²) = √2. Point (3,4): w·x + b = 3 + 4 − 5.5 = 1.5 — positive class, margin 1.5/√2 ≈ 1.06. Point (1,3): w·x + b = 1 + 3 − 5.5 = −1.5 — negative class, |margin| 1.5/√2 ≈ 1.06. The geometric margin between the two margin planes is 2/‖w‖ = 2/√2 ≈ 1.41. Maximizing this margin is the SVM optimization objective: minimize ‖w‖² subject to every point scoring at least 1 on its correct side.',
+    explanation: `Margin computation for the worked example. w = (${HARD_W.w1}, ${HARD_W.w2}), b = ${HARD_W.b}, ‖w‖ = √(${HARD_W.w1}² + ${HARD_W.w2}²) = ${r2(wNorm)}. Point (${svP0.x},${svP0.y}): w·x + b = ${svP0.x} + ${svP0.y} + (${HARD_W.b}) = ${r2(p0Score)} — positive class, margin ${r2(p0Score)}/${r2(wNorm)} ≈ ${r2(p0Score / wNorm)}. Point (${svN2.x},${svN2.y}): w·x + b = ${svN2.x} + ${svN2.y} + (${HARD_W.b}) = ${r2(n2Score)} — negative class, |margin| ${r2(Math.abs(n2Score))}/${r2(wNorm)} ≈ ${r2(Math.abs(n2Score / wNorm))}. The geometric margin between the two margin planes is 2/‖w‖ = 2/${r2(wNorm)} ≈ ${r2(2 / wNorm)}. Maximizing this margin is the SVM optimization objective: minimize ‖w‖² subject to every point scoring at least 1 on its correct side.`,
   };
 }
 
@@ -121,15 +132,20 @@ const SOFT_DATA = [
 ];
 
 function* softMargin() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const noise0 = SOFT_DATA.find(d => d.id === 'noise0');
+  const noise1 = SOFT_DATA.find(d => d.id === 'noise1');
+
   // Step 1: overlapping data
   yield {
     state: plotState({ axes: AXES, markers: dataMarkers(SOFT_DATA) }),
     highlight: { active: ['noise0', 'noise1'], compare: ['p0', 'n2'] },
-    explanation: 'Real data is rarely separable. Two new points break the clean gap: a − point at (3,3) sits among the + cluster, and a + point at (2,2) drifts toward the − side. No line can classify every point correctly. Hard-margin SVM would declare "no solution." We need a way to allow some misclassifications while still preferring a wide margin.',
+    explanation: `Real data is rarely separable. ${SOFT_DATA.length} points now — two new points break the clean gap: a − point at (${noise0.x},${noise0.y}) sits among the + cluster, and a + point at (${noise1.x},${noise1.y}) drifts toward the − side. No line can classify every point correctly. Hard-margin SVM would declare "no solution." We need a way to allow some misclassifications while still preferring a wide margin.`,
   };
 
   // Step 2: High C (strict, narrow margin)
   const highCW = { w1: 1, w2: 1, b: -4.5 };
+  const highCNorm = Math.sqrt(highCW.w1 ** 2 + highCW.w2 ** 2);
   const highCScores = {};
   for (const d of SOFT_DATA) {
     const z = highCW.w1 * d.x + highCW.w2 * d.y + highCW.b;
@@ -138,11 +154,12 @@ function* softMargin() {
   yield {
     state: plotState({ axes: AXES, series: marginLines(highCW), markers: dataMarkers(SOFT_DATA, highCScores) }),
     highlight: { active: ['boundary'], compare: ['noise0', 'noise1'] },
-    explanation: 'C = 1000 (high penalty for violations). The optimizer tolerates only minimal slack. The boundary bends to accommodate noise points, sacrificing margin width. The two noisy points get small slack values — they sit inside the margin or on the wrong side, and each pays a penalty proportional to its violation. With extreme C, the SVM chases every point like a hard margin, overfitting noise.',
+    explanation: `C = 1000 (high penalty for violations). Boundary: ${highCW.w1}x₁ + ${highCW.w2}x₂ + (${highCW.b}) = 0, margin width ${r2(2 / highCNorm)}. The optimizer tolerates only minimal slack. Noise point (${noise0.x},${noise0.y}) scores ${highCScores['noise0']}, and (${noise1.x},${noise1.y}) scores ${highCScores['noise1']} — they sit inside the margin or on the wrong side, and each pays a penalty proportional to its violation. With extreme C, the SVM chases every point like a hard margin, overfitting noise.`,
   };
 
   // Step 3: Low C (relaxed, wide margin)
   const lowCW = { w1: 1, w2: 1, b: -5.5 };
+  const lowCNorm = Math.sqrt(lowCW.w1 ** 2 + lowCW.w2 ** 2);
   const lowCScores = {};
   for (const d of SOFT_DATA) {
     const z = lowCW.w1 * d.x + lowCW.w2 * d.y + lowCW.b;
@@ -151,21 +168,22 @@ function* softMargin() {
   yield {
     state: plotState({ axes: AXES, series: marginLines(lowCW), markers: dataMarkers(SOFT_DATA, lowCScores) }),
     highlight: { active: ['boundary', 'margin-plus', 'margin-minus'], compare: ['noise0', 'noise1'] },
-    explanation: 'C = 0.1 (low penalty). The optimizer prefers a wide margin and lets noisy points slide. The boundary stays close to the original hard-margin solution, accepting misclassification of the two noisy points as the cost of a more robust model. Each noisy point gets a slack variable ξ > 0 — the penalty is C × Σξ, so small C means violations are cheap.',
+    explanation: `C = 0.1 (low penalty). Boundary: ${lowCW.w1}x₁ + ${lowCW.w2}x₂ + (${lowCW.b}) = 0, margin width ${r2(2 / lowCNorm)}. The optimizer prefers a wide margin and lets noisy points slide. Noise point (${noise0.x},${noise0.y}) scores ${lowCScores['noise0']}, and (${noise1.x},${noise1.y}) scores ${lowCScores['noise1']}. The boundary stays close to the original hard-margin solution, accepting misclassification of the two noisy points as the cost of a more robust model. Each noisy point gets a slack variable ξ > 0 — the penalty is C × Σξ, so small C means violations are cheap.`,
     invariant: 'The soft-margin objective: minimize ½‖w‖² + C·Σξᵢ. Large C demands accuracy; small C demands margin width.',
   };
 
   // Step 4: The C tradeoff
+  const cValues = [-2, -1, 0, 1, 2, 3, 4];
   yield {
     state: plotState({
       axes: { x: { label: 'C (penalty parameter)', min: -3, max: 5 }, y: { label: 'effect', min: 0, max: 1 } },
       series: [
-        { id: 'margin-width', label: 'margin width', points: [-2, -1, 0, 1, 2, 3, 4].map(logC => ({ x: logC, y: 1 / (1 + Math.exp(logC - 1)) })) },
-        { id: 'train-error', label: 'training error', points: [-2, -1, 0, 1, 2, 3, 4].map(logC => ({ x: logC, y: 1 / (1 + Math.exp(-(logC - 1))) * 0.05 })) },
+        { id: 'margin-width', label: 'margin width', points: cValues.map(logC => ({ x: logC, y: 1 / (1 + Math.exp(logC - 1)) })) },
+        { id: 'train-error', label: 'training error', points: cValues.map(logC => ({ x: logC, y: 1 / (1 + Math.exp(-(logC - 1))) * 0.05 })) },
       ],
     }),
     highlight: { active: ['margin-width'], compare: ['train-error'] },
-    explanation: 'The C parameter is the SVM bias-variance knob. Small C (left): wide margin, more training errors, better generalization on noisy data. Large C (right): narrow margin, fewer training errors, risk of overfitting. The x-axis is log₁₀(C). Cross-validation picks the C that minimizes held-out error. In practice, search over powers of 10: C = 0.01, 0.1, 1, 10, 100.',
+    explanation: `The C parameter is the SVM bias-variance knob. ${cValues.length} log₁₀(C) values from ${cValues[0]} to ${cValues[cValues.length - 1]} are plotted. Small C (left, e.g. C = ${r2(10 ** cValues[0])}): wide margin, more training errors, better generalization on noisy data. Large C (right, e.g. C = ${r2(10 ** cValues[cValues.length - 1])}): narrow margin, fewer training errors, risk of overfitting. Cross-validation picks the C that minimizes held-out error. In practice, search over powers of 10: C = 0.01, 0.1, 1, 10, 100.`,
   };
 }
 
@@ -183,6 +201,11 @@ const KERNEL_1D = [
 ];
 
 function* kernelTrick() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const kPos = KERNEL_1D.filter(d => d.label === 1);
+  const kNeg = KERNEL_1D.filter(d => d.label === -1);
+  const maxNegX2 = Math.max(...kNeg.map(d => d.x ** 2));
+
   // Step 1: 1D non-separable data
   yield {
     state: plotState({
@@ -190,7 +213,7 @@ function* kernelTrick() {
       markers: KERNEL_1D.map(d => ({ id: d.id, x: d.x, y: 0, label: d.label === 1 ? '+' : '−' })),
     }),
     highlight: { active: ['k2', 'k3', 'k4'], compare: ['k0', 'k1', 'k5', 'k6'] },
-    explanation: 'One dimension, seven points. The + class sits in the middle (|x| ≤ 1), the − class on the outside (|x| ≥ 2). No single threshold can separate them — any vertical cut leaves some + mixed with − on at least one side. A linear SVM in 1D is just a point on a number line, and it cannot draw a circle. The data needs a curve, but the SVM only draws lines.',
+    explanation: `One dimension, ${KERNEL_1D.length} points. ${kPos.length} + class points sit in the middle (|x| ≤ ${Math.max(...kPos.map(d => Math.abs(d.x)))}), ${kNeg.length} − class points on the outside (|x| ≥ ${Math.min(...kNeg.map(d => Math.abs(d.x)))}). No single threshold can separate them — any vertical cut leaves some + mixed with − on at least one side. A linear SVM in 1D is just a point on a number line, and it cannot draw a circle. The data needs a curve, but the SVM only draws lines.`,
   };
 
   // Step 2: Lift to 2D — the feature map φ(x) = (x, x²)
@@ -200,17 +223,26 @@ function* kernelTrick() {
     y: d.x * d.x,
     label: d.label === 1 ? '+' : '−',
   }));
+  const k2 = KERNEL_1D[2];
+  const k0 = KERNEL_1D[0];
+  const k4 = KERNEL_1D[4];
   yield {
     state: plotState({
       axes: { x: { label: 'x', min: -4, max: 4 }, y: { label: 'x²', min: -1, max: 10 } },
       markers: liftedMarkers,
     }),
     highlight: { active: ['k2', 'k3', 'k4'], compare: ['k0', 'k1', 'k5', 'k6'] },
-    explanation: 'Map every point x to φ(x) = (x, x²). The + points (|x| ≤ 1) land low: x² ≤ 1. The − points (|x| ≥ 2) land high: x² ≥ 4. In this lifted 2D space, a straight line easily separates the classes. The data was not linearly separable in its original space. The feature map φ made it separable by adding a dimension that encodes distance from the origin.',
+    explanation: `Map every point x to φ(x) = (x, x²). For example, k2: x = ${k2.x} maps to (${k2.x}, ${k2.x ** 2}), k0: x = ${k0.x} maps to (${k0.x}, ${k0.x ** 2}), k4: x = ${k4.x} maps to (${k4.x}, ${k4.x ** 2}). The + points (|x| ≤ ${Math.max(...kPos.map(d => Math.abs(d.x)))}) land low: x² ≤ ${Math.max(...kPos.map(d => d.x ** 2))}. The − points (|x| ≥ ${Math.min(...kNeg.map(d => Math.abs(d.x)))}) land high: x² ≥ ${Math.min(...kNeg.map(d => d.x ** 2))}. In this lifted 2D space, a straight line easily separates the classes. The feature map φ made it separable by adding a dimension that encodes distance from the origin.`,
   };
 
   // Step 3: Show the separating hyperplane in lifted space
   const kernelW = { w1: 0, w2: -1, b: 2.5 };
+  const k1Lifted = { x: KERNEL_1D[1].x, y: KERNEL_1D[1].x ** 2 };
+  const k2Lifted = { x: k2.x, y: k2.x ** 2 };
+  const k4Lifted = { x: k4.x, y: k4.x ** 2 };
+  const k5Lifted = { x: KERNEL_1D[5].x, y: KERNEL_1D[5].x ** 2 };
+  const boundaryThreshold = Math.abs(kernelW.b);
+  const projectedRadius = r2(Math.sqrt(boundaryThreshold));
   yield {
     state: plotState({
       axes: { x: { label: 'x', min: -4, max: 4 }, y: { label: 'x²', min: -1, max: 10 } },
@@ -220,7 +252,7 @@ function* kernelTrick() {
       markers: liftedMarkers,
     }),
     highlight: { active: ['boundary'], found: ['k1', 'k2', 'k4', 'k5'] },
-    explanation: 'A horizontal line at x² = 2.5 separates the classes in lifted space. Below: + points. Above: − points. Support vectors: (−1,1), (1,1) on the + side, (−2,4) and (2,4) on the − side — the four points closest to the boundary. Projecting this line back to 1D gives the decision rule |x| < √2.5 ≈ 1.58 → class +. A line in lifted space is a curve in the original space.',
+    explanation: `Boundary in lifted space: ${kernelW.w1}x + (${kernelW.w2})x² + ${kernelW.b} = 0, i.e. a horizontal line at x² = ${boundaryThreshold}. Below: + points. Above: − points. Support vectors: (${k2Lifted.x},${k2Lifted.y}), (${k4Lifted.x},${k4Lifted.y}) on the + side, (${k1Lifted.x},${k1Lifted.y}) and (${k5Lifted.x},${k5Lifted.y}) on the − side — the four points closest to the boundary. Projecting this line back to 1D gives the decision rule |x| < √${boundaryThreshold} ≈ ${projectedRadius} → class +. A line in lifted space is a curve in the original space.`,
   };
 
   // Step 4: The kernel trick avoids explicit lifting
@@ -233,15 +265,17 @@ function* kernelTrick() {
       markers: liftedMarkers,
     }),
     highlight: { active: ['boundary'], found: ['k1', 'k2', 'k4', 'k5'] },
-    explanation: 'The kernel trick: the SVM optimization only needs dot products φ(xᵢ)·φ(xⱼ). A kernel function K(xᵢ, xⱼ) computes this dot product WITHOUT explicitly transforming the data. For the polynomial kernel of degree 2: K(x, z) = (x·z + 1)² expands to include x², xz, and constant terms — the same features φ would produce, but computed as one cheap evaluation. The RBF kernel K(x, z) = exp(−γ‖x−z‖²) implicitly maps to infinite dimensions. The SVM never stores or iterates over those dimensions. It only evaluates K between pairs of training points.',
+    explanation: `The kernel trick: the SVM optimization only needs dot products φ(xᵢ)·φ(xⱼ). A kernel function K(xᵢ, xⱼ) computes this dot product WITHOUT explicitly transforming the data. For the polynomial kernel of degree 2: K(x, z) = (x·z + 1)² expands to include x², xz, and constant terms — the same features φ would produce, but computed as one cheap evaluation. The boundary x² = ${boundaryThreshold} came from solving ${kernelW.w2}x² + ${kernelW.b} = 0 in lifted space. The RBF kernel K(x, z) = exp(−γ‖x−z‖²) implicitly maps to infinite dimensions. The SVM never stores or iterates over those dimensions. It only evaluates K between pairs of training points.`,
     invariant: 'K(xᵢ, xⱼ) = φ(xᵢ)·φ(xⱼ) — the kernel computes the lifted dot product without the lift.',
   };
 
   // Step 5: RBF kernel decision boundary shape
+  const rbfRadius = r2(Math.sqrt(boundaryThreshold));
   const rbfBoundaryPoints = [];
   for (let theta = 0; theta <= 2 * Math.PI; theta += 0.1) {
-    rbfBoundaryPoints.push({ x: 1.58 * Math.cos(theta), y: 1.58 * Math.sin(theta) });
+    rbfBoundaryPoints.push({ x: rbfRadius * Math.cos(theta), y: rbfRadius * Math.sin(theta) });
   }
+  const outerDist = 3;
   yield {
     state: plotState({
       axes: { x: { label: 'x₁', min: -4, max: 4 }, y: { label: 'x₂', min: -4, max: 4 } },
@@ -250,14 +284,14 @@ function* kernelTrick() {
       ],
       markers: [
         { id: 'center', x: 0, y: 0, label: '+' },
-        { id: 'outer1', x: 3, y: 0, label: '−' },
-        { id: 'outer2', x: -3, y: 0, label: '−' },
-        { id: 'outer3', x: 0, y: 3, label: '−' },
-        { id: 'outer4', x: 0, y: -3, label: '−' },
+        { id: 'outer1', x: outerDist, y: 0, label: '−' },
+        { id: 'outer2', x: -outerDist, y: 0, label: '−' },
+        { id: 'outer3', x: 0, y: outerDist, label: '−' },
+        { id: 'outer4', x: 0, y: -outerDist, label: '−' },
       ],
     }),
     highlight: { active: ['rbf-boundary'], found: ['center'], compare: ['outer1', 'outer2', 'outer3', 'outer4'] },
-    explanation: 'With an RBF kernel in 2D, the SVM draws curves — here, a circle. The kernel maps each point to infinite dimensions where this circle becomes a hyperplane. The γ parameter in exp(−γ‖x−z‖²) controls the radius of influence: large γ makes tight boundaries (each support vector creates a small bubble), small γ makes smooth boundaries (support vectors blend). The SVM computes only kernel evaluations between training points, never coordinates in the infinite-dimensional space.',
+    explanation: `With an RBF kernel in 2D, the SVM draws curves — here, a circle of radius ${rbfRadius}. The + class center sits at (0,0), and − class markers are placed at distance ${outerDist} on each axis. The kernel maps each point to infinite dimensions where this circle becomes a hyperplane. The γ parameter in exp(−γ‖x−z‖²) controls the radius of influence: large γ makes tight boundaries (each support vector creates a small bubble), small γ makes smooth boundaries (support vectors blend). The SVM computes only kernel evaluations between training points, never coordinates in the infinite-dimensional space.`,
   };
 }
 
@@ -278,7 +312,8 @@ export const article = {
         "The 'hard margin' view shows eight 2D points from two classes. A decision boundary appears as a solid line; two dashed lines mark the margin — the widest gap the SVM can place between the classes. Support vectors are highlighted: these are the points sitting exactly on the margin boundaries.",
         "The 'soft margin (C)' view adds two noisy points that break separability. Watch how the boundary shifts with different C values: high C (strict) bends the boundary to chase outliers; low C (relaxed) keeps a wide margin and accepts some misclassifications. Each violating point pays a penalty proportional to how far it crosses the margin.",
         "The 'kernel trick' view starts with 1D data that no single threshold can split. The feature map lifts each point x to (x, x²), and a line in the lifted space becomes a curve in the original. The final frame shows how the RBF kernel produces circular boundaries without computing explicit coordinates in infinite-dimensional space.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/svm.gif', alt: 'Animated walkthrough of the svm visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

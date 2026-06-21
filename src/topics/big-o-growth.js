@@ -65,7 +65,8 @@ export const article = {
         'The active curve (highlighted) is the one just added. Previously drawn curves are dimmed. The invariant line below each frame shows the exact values at the current max n, so you can compare numbers instead of guessing from the chart.',
         'Watch the gaps, not the absolute heights. At n = 12 the curves look similar. At n = 48 they are already separating. At real production sizes the separation is the difference between instant, slow, and impossible. The chart is small on purpose: even modest n exposes the shape.',
         {type: 'callout', text: 'Big-O is the shape of work growth, so the right curve matters more than a small benchmark number.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/big-o-growth.gif', alt: 'Animated walkthrough of the big o growth visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

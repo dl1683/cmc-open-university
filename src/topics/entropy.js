@@ -125,7 +125,8 @@ export const article = {
         },
         'The entropy table shows three distributions over four weather outcomes and their entropies. Active cells highlight H, the average surprise. Certain distributions have H = 0 because nothing is unknown. Uniform distributions have maximal H because every outcome is equally surprising. The skewed distribution lands between, because common outcomes contribute little surprise while rare ones contribute a lot.',
         'The cross-entropy frame compares reality p against a model q. The gap between H(p, q) and H(p) is KL divergence: the bits wasted because the model is wrong. When the animation replaces weather labels with tokens, the same table becomes language-model training loss.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/entropy.gif', alt: 'Animated walkthrough of the entropy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

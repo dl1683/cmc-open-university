@@ -208,7 +208,8 @@ const legacyArticle = {
       paragraphs: [
         `Read the generals as a model of untrusted communication, not as a military story. Messages can be missing, contradictory, forged, or delayed, and correct participants still need to decide consistently.`,
         `The animation\'s useful lesson is fault model discipline. Crash-fault consensus assumes nodes stop or lag; Byzantine consensus assumes nodes may lie. The data structures, quorum sizes, signatures, and costs change because the threat model changed.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/byzantine-generals.gif', alt: 'Animated walkthrough of the byzantine generals visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Cost and behavior`,

@@ -38,7 +38,7 @@ function* recolorCase() {
   yield {
     state: tree(baseNodes, baseEdges),
     highlight: {},
-    explanation: 'Start with a valid red-black tree: it is still a Binary Search Tree, but every node carries a color. The root is black, red nodes cannot have red children, and every path from a node to a null leaf crosses the same number of black nodes. Those color rules are the balance budget.',
+    explanation: `Start with a valid red-black tree: the root is ${baseNodes[0].label} (${baseNodes[0].note}), with children ${baseNodes[1].label} (${baseNodes[1].note}) and ${baseNodes[2].label} (${baseNodes[2].note}). Every node carries a color. The root is black, red nodes cannot have red children, and every path from a node to a null leaf crosses the same number of black nodes. Those color rules are the balance budget.`,
   };
 
   const inserted = [...baseNodes, node('n1', 1, 'RED new', 2, 5)];
@@ -46,14 +46,14 @@ function* recolorCase() {
   yield {
     state: tree(inserted, insertedEdges),
     highlight: { active: ['n1'], compare: ['n5'] },
-    explanation: 'Insert 1 exactly like an ordinary BST: 1 < 10, then 1 < 5, so it becomes the left child of 5. New nodes start red because adding a red node does not immediately increase any black-height count.',
+    explanation: `Insert ${inserted[3].label} exactly like an ordinary BST: ${inserted[3].label} < ${inserted[0].label}, then ${inserted[3].label} < ${inserted[1].label}, so it becomes the left child of ${inserted[1].label}. The new node is colored ${inserted[3].note} because adding a red node does not immediately increase any black-height count.`,
     invariant: 'BST order is never optional: rotations and recoloring must preserve all in-order values.',
   };
 
   yield {
     state: tree(inserted, insertedEdges),
     highlight: { active: ['n1'], swap: ['n5'], compare: ['n20'] },
-    explanation: 'But now a red node has a red child: 5 is red and 1 is red. The uncle, 20, is also red, so this is the cheap case. We do not rotate. We push blackness down one level by recoloring the parent and uncle black.',
+    explanation: `But now a red node has a red child: ${inserted[1].label} is ${inserted[1].note} and ${inserted[3].label} is ${inserted[3].note}. The uncle, ${inserted[2].label}, is also ${inserted[2].note}, so this is the cheap case. We do not rotate. We push blackness down one level by recoloring the parent and uncle black.`,
   };
 
   const recolored = [
@@ -65,7 +65,7 @@ function* recolorCase() {
   yield {
     state: tree(recolored, insertedEdges),
     highlight: { active: ['n10'], sorted: ['n5', 'n20'] },
-    explanation: 'Recolor parent and uncle to black, recolor the grandparent to red. The local black-height remains balanced: every path through 5 and 20 still sees the same black count. The only possible remaining violation has moved upward to the grandparent.',
+    explanation: `Recolor parent ${recolored[1].label} to ${recolored[1].note} and uncle ${recolored[2].label} to ${recolored[2].note}, recolor the grandparent ${recolored[0].label} to ${recolored[0].note}. The local black-height remains balanced: every path through ${recolored[1].label} and ${recolored[2].label} still sees the same black count. The only possible remaining violation has moved upward to the grandparent.`,
   };
 
   const finalNodes = [
@@ -77,7 +77,7 @@ function* recolorCase() {
   yield {
     state: tree(finalNodes, insertedEdges),
     highlight: { found: ['n10', 'n5', 'n20', 'n1'] },
-    explanation: 'The root must always be black, so 10 flips back to black and the repair stops. Search remains ordinary BST search, but insert paid a small rebalancing tax so future searches do not degrade into a linked list.',
+    explanation: `The root must always be black, so ${finalNodes[0].label} flips back to ${finalNodes[0].note}. Children ${finalNodes[1].label} (${finalNodes[1].note}) and ${finalNodes[2].label} (${finalNodes[2].note}) stay as they are, and leaf ${finalNodes[3].label} remains ${finalNodes[3].note}. Search remains ordinary BST search, but insert paid a small rebalancing tax so future searches do not degrade into a linked list.`,
     invariant: 'After repair: root black, no red-red edge, equal black-height on all downward paths.',
   };
 }
@@ -92,7 +92,7 @@ function* rotationCase() {
   yield {
     state: tree(baseNodes, baseEdges),
     highlight: {},
-    explanation: 'This time the uncle is a black null leaf. The tree is valid before insertion: 10 is black, 20 is red, and both root-to-null sides have the same black-height. Red-black trees count the invisible null leaves as black.',
+    explanation: `This time the uncle is a black null leaf. The tree is valid before insertion: ${baseNodes[0].label} is ${baseNodes[0].note} and ${baseNodes[1].label} is ${baseNodes[1].note}, and both root-to-null sides have the same black-height. Red-black trees count the invisible null leaves as black.`,
   };
 
   const inserted = [...baseNodes, node('n30', 30, 'RED new', 9, 6)];
@@ -100,13 +100,13 @@ function* rotationCase() {
   yield {
     state: tree(inserted, insertedEdges),
     highlight: { active: ['n30'], compare: ['n20'] },
-    explanation: 'Insert 30 as a normal BST: 30 > 10, then 30 > 20, so it becomes the right child of 20. Again, the new node starts red.',
+    explanation: `Insert ${inserted[2].label} as a normal BST: ${inserted[2].label} > ${inserted[0].label}, then ${inserted[2].label} > ${inserted[1].label}, so it becomes the right child of ${inserted[1].label}. The new node is colored ${inserted[2].note}.`,
   };
 
   yield {
     state: tree(inserted, insertedEdges),
     highlight: { swap: ['n20', 'n30'], active: ['n10'] },
-    explanation: 'Now we have a red-red violation, but the uncle is black. Because the new node is an outside child (right child of a right child), one left rotation at the grandparent fixes the shape. If this were an inside child, we would first rotate the parent to convert it into this case.',
+    explanation: `Now we have a red-red violation: ${inserted[1].label} (${inserted[1].note}) and ${inserted[2].label} (${inserted[2].note}) are both red, but the uncle of ${inserted[2].label} is black (null). Because ${inserted[2].label} is an outside child (right child of a right child), one left rotation at the grandparent ${inserted[0].label} fixes the shape. If this were an inside child, we would first rotate the parent to convert it into this case.`,
   };
 
   const rotatedNodes = [
@@ -118,14 +118,14 @@ function* rotationCase() {
   yield {
     state: tree(rotatedNodes, rotatedEdges),
     highlight: { active: ['n20'], sorted: ['n10', 'n30'] },
-    explanation: 'Rotate left around 10, then recolor: 20 becomes black and moves up; 10 becomes red and moves left; 30 stays red. The in-order sequence is still 10, 20, 30, so the BST contract survived the rotation.',
+    explanation: `Rotate left around ${rotatedNodes[1].label}: ${rotatedNodes[0].label} becomes ${rotatedNodes[0].note} and moves up; ${rotatedNodes[1].label} becomes ${rotatedNodes[1].note} and moves left; ${rotatedNodes[2].label} stays ${rotatedNodes[2].note}. The in-order sequence is still ${rotatedNodes[1].label}, ${rotatedNodes[0].label}, ${rotatedNodes[2].label}, so the BST contract survived the rotation.`,
     invariant: 'Rotations change shape, not sorted order. Recoloring restores the red-black invariants.',
   };
 
   yield {
     state: tree(rotatedNodes, rotatedEdges),
     highlight: { found: ['n20', 'n10', 'n30'] },
-    explanation: 'Done: no red node has a red child, and every path from 20 to a null leaf crosses one black node below the root. The point of the color system is not perfect balance like AVL Tree Rotations; it is cheap-enough balance with very small insertion and deletion repair costs.',
+    explanation: `Done: root ${rotatedNodes[0].label} is ${rotatedNodes[0].note}, children ${rotatedNodes[1].label} (${rotatedNodes[1].note}) and ${rotatedNodes[2].label} (${rotatedNodes[2].note}) — no red node has a red child, and every path from ${rotatedNodes[0].label} to a null leaf crosses one black node below the root. The point of the color system is not perfect balance like AVL Tree Rotations; it is cheap-enough balance with very small insertion and deletion repair costs.`,
   };
 }
 
@@ -145,7 +145,8 @@ export const article = {
         'In the recolor case, watch the parent-uncle pair. Both are red, so the fix avoids rotation entirely: parent and uncle turn black, the grandparent turns red, and the violation floats upward. Highlighted "swap" and "compare" nodes mark the red parent and red uncle. When the violation reaches the root, the root simply turns black and the repair ends.',
         'In the rotation case, the uncle is black (a null leaf counts as black). The "swap" highlight marks the red-red chain that triggers a left rotation. The middle value lifts into the grandparent position, the old grandparent drops to its left, and recoloring restores the invariants. Follow the left-to-right layout before and after: the sorted order never changes. Rotations reshape the tree without disturbing the BST contract.',
         {type: 'callout', text: 'A red-black tree keeps a BST shallow by enforcing color rules that bound path imbalance, then repairs violations with local recolors and rotations.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/red-black-tree.gif', alt: 'Animated walkthrough of the red black tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -53,8 +53,8 @@ function* queueKills() {
       markers: [{ id: 'doom', x: 10, y: NOSHED[10].q, label: 'wait crosses the 2s timeout' }],
     }),
     highlight: { removed: ['doom'], active: ['queue'] },
-    explanation: 'The setup is mild overload: 120 requests per second arrive, 100 can be served. If the server accepts everything, the excess becomes a queue that grows by 20 every second. Queue depth turns directly into wait time, so after a short while accepted requests are already older than the client timeout. The server is busy, but much of that work can no longer produce useful answers.',
-    invariant: 'Demand > capacity with an unbounded queue: depth grows linearly, wait grows with it, and every request eventually outlives its caller.',
+    explanation: `The setup is mild overload: ${DEMAND} requests per second arrive, ${CAP} can be served. If the server accepts everything, the excess becomes a queue that grows by ${DEMAND - CAP} every second. Queue depth turns directly into wait time, so after a short while accepted requests are already older than the ${TIMEOUT}s client timeout. The server is busy, but much of that work can no longer produce useful answers.`,
+    invariant: `Demand (${DEMAND}/s) > capacity (${CAP}/s) with an unbounded queue: depth grows linearly at +${DEMAND - CAP}/s, wait grows with it, and every request eventually outlives its caller.`,
   };
 
   yield {
@@ -66,8 +66,8 @@ function* queueKills() {
       ],
     }),
     highlight: { removed: ['bad'], found: ['good'] },
-    explanation: 'The important metric is goodput: responses delivered before callers give up. The accept-everything policy keeps processing but eventually delivers almost nothing in time. The shedding policy caps the queue, rejects overflow immediately, and keeps useful throughput at capacity. Same hardware, different admission rule. Saying no preserves the meaning of yes.',
-    invariant: 'Goodput = served before timeout: past saturation, accepting more work strictly reduces it.',
+    explanation: `The important metric is goodput: responses delivered before callers give up. The accept-everything policy keeps processing but eventually delivers almost nothing in time. The shedding policy caps the queue at ${QUEUE_CAP}, rejects overflow immediately, and keeps useful throughput at ${CAP}/s. Same hardware, different admission rule. Saying no preserves the meaning of yes.`,
+    invariant: `Goodput = served before ${TIMEOUT}s timeout: past saturation, accepting more work strictly reduces it.`,
   };
 
   yield {
@@ -82,7 +82,7 @@ function* queueKills() {
       format: (v) => ['', 'a 6-second spinner, then an error — 100% of users', 'fast success — 83% of users', 'an INSTANT "busy, retry shortly" — 17%'][v],
     }),
     highlight: { removed: ['noshed:lucky'], found: ['shed:lucky', 'shed:unlucky'] },
-    explanation: 'From the user side, no shedding means slow universal failure: everyone waits, then errors. With shedding, most users get fast success and the rest get a fast, honest 503 with Retry-After. That rejected user can retry later with jitter instead of wasting seconds on a doomed request. Load shedding is useful because it makes overload explicit and quick.',
+    explanation: `From the user side, no shedding means slow universal failure: everyone waits, then errors. With shedding (queue capped at ${QUEUE_CAP}), most users get fast success and the rest get a fast, honest 503 with Retry-After. That rejected user can retry later with jitter instead of wasting ${TIMEOUT}+ seconds on a doomed request. Load shedding is useful because it makes overload explicit and quick.`,
   };
 }
 
@@ -101,8 +101,8 @@ function* withTaste() {
       format: (v) => ['', 'load > 80% — nobody notices for hours', 'load > 90% — the page renders without the rail', 'load > 98% — visible but survivable', 'NEVER shed — this is why the site exists'][v],
     }),
     highlight: { removed: ['tier4:when'], found: ['tier1:when'] },
-    explanation: 'Shedding should be ordered by value. Dropping an analytics beacon is cheap; dropping checkout is expensive. A production shedder needs request priority, endpoint class, or criticality metadata so it can shed the least valuable work first. Under overload, the system deliberately becomes smaller: it keeps the work that matters most and discards the rest quickly.',
-    invariant: 'Shed by priority, lowest first: overload should cost the business the least valuable work it has.',
+    explanation: `Shedding should be ordered by value. Dropping an analytics beacon is cheap; dropping checkout is expensive. A production shedder needs request priority, endpoint class, or criticality metadata so it can shed the least valuable work first. Under overload at ${DEMAND}/s against ${CAP}/s capacity, the system deliberately becomes smaller: it keeps the work that matters most and discards the rest quickly.`,
+    invariant: `Shed by priority, lowest first: when ${DEMAND - CAP} excess requests/s must go, overload should cost the business the least valuable work it has.`,
   };
 
   yield {
@@ -119,7 +119,7 @@ function* withTaste() {
       format: (v) => (v === 0 ? '~0ms — feature off' : `${v}ms compute`),
     }),
     highlight: { compare: ['full:cost', 'brown2:cost'] },
-    explanation: 'Brownout keeps the request but reduces its cost. Instead of full recommendations, serve cached recommendations, then a popularity list, then hide the rail. Each level lowers CPU, model, database, or network work per request. This is graceful degradation used proactively: stretch capacity before the queue becomes fatal.',
+    explanation: `Brownout keeps the request but reduces its cost. Instead of full recommendations, serve cached recommendations, then a popularity list, then hide the rail. Each level lowers CPU, model, database, or network work per request. This is graceful degradation used proactively: stretch ${CAP}/s capacity before the queue becomes fatal under ${DEMAND}/s demand.`,
   };
 
   yield {
@@ -135,8 +135,8 @@ function* withTaste() {
       format: (v) => ['', 'load balancer / gateway — before auth, parsing, DB work', 'queue depth, p99 latency, concurrent in-flight — not CPU alone', 'a 503 must cost microseconds, or shedding itself overloads'][v],
     }),
     highlight: { active: ['where:how'] },
-    explanation: 'Placement matters. Shed at the front door, before auth, parsing, database calls, and fan-out make the request expensive. Trigger on leading indicators like queue depth, in-flight count, and p99 latency, not CPU alone. The rejection path must be cheaper than the work it rejects. Admission control asks "can this request still become goodput?" before spending on it.',
-    invariant: 'Shed early, trigger on queues not CPU, and make the no cheaper than the hello.',
+    explanation: `Placement matters. Shed at the front door, before auth, parsing, database calls, and fan-out make the request expensive. Trigger on leading indicators like queue depth (cap at ${QUEUE_CAP}), in-flight count, and p99 latency, not CPU alone. The rejection path must be cheaper than the work it rejects. Admission control asks "can this request still become goodput within ${TIMEOUT}s?" before spending on it.`,
+    invariant: `Shed early, trigger on queues not CPU, and make the no cheaper than the hello — a ${DEMAND - CAP}/s excess leaves no room for slow rejections.`,
   };
 
   yield {
@@ -152,7 +152,7 @@ function* withTaste() {
       format: (v) => ['', 'microseconds', 'survive the spike RIGHT NOW', 'milliseconds', 'stretch capacity without dropping users', 'minutes', 'fix the capacity for real — too slow for the spike itself'][v],
     }),
     highlight: { found: ['shed:speed'], compare: ['scale:speed'] },
-    explanation: 'The doctrine is ordered by reaction time. Shedding reacts in microseconds and protects current capacity. Brownout reacts in milliseconds and makes each request cheaper. Autoscaling reacts in minutes and fixes capacity after the spike has already arrived. A reliable system uses all three: survive now, degrade gracefully, and add capacity when it is ready.',
+    explanation: `The doctrine is ordered by reaction time. Shedding reacts in microseconds and protects current ${CAP}/s capacity from ${DEMAND}/s demand. Brownout reacts in milliseconds and makes each request cheaper. Autoscaling reacts in minutes and fixes capacity after the spike has already arrived. Over the ${T}-second simulation, a reliable system uses all three: survive now, degrade gracefully, and add capacity when it is ready.`,
   };
 }
 
@@ -165,6 +165,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/load-shedding.gif', alt: 'Animated walkthrough of the load shedding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

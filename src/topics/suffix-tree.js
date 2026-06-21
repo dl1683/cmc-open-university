@@ -55,6 +55,9 @@ function suffixTreeShape(title) {
 }
 
 function* compressedTrie() {
+  const text = 'banana$';
+  const suffixes = ['banana$', 'anana$', 'nana$', 'ana$', 'na$', 'a$', '$'];
+
   yield {
     state: labelMatrix(
       'Every suffix of banana$',
@@ -79,23 +82,25 @@ function* compressedTrie() {
       ],
     ),
     highlight: { active: ['s1:suffix', 's3:suffix', 's5:suffix'], compare: ['s1:branch', 's3:branch', 's5:branch'] },
-    explanation: 'A suffix tree begins as the trie you would get by inserting every suffix of the text. The sentinel $ makes every suffix end at a distinct leaf.',
-    invariant: 'Every suffix is represented by one root-to-leaf path.',
+    explanation: `A suffix tree begins as the trie you would get by inserting every suffix of the text "${text}". With ${suffixes.length} suffixes (indices 0 through ${suffixes.length - 1}), the sentinel $ makes every suffix end at a distinct leaf.`,
+    invariant: `Every suffix is represented by one root-to-leaf path — ${suffixes.length} suffixes produce ${suffixes.length} leaves.`,
   };
 
   yield {
     state: suffixTreeShape('Compress one-child paths into edge labels'),
     highlight: { active: ['root', 'a', 'na1', 'ana_leaf', 'e-root-a', 'e-a-na'], found: ['banana', 'sentinel'] },
-    explanation: 'The compressed tree stores whole substrings on edges instead of one character per node. That is why the structure has linear size even though the uncompressed suffix trie can be quadratic.',
-    invariant: 'Internal nodes are real branch points; long non-branching paths become one labeled edge.',
+    explanation: `The compressed tree stores whole substrings on edges instead of one character per node. For "${text}" with ${text.length} characters, the structure has linear size even though the uncompressed suffix trie can be quadratic.`,
+    invariant: `Internal nodes are real branch points; long non-branching paths become one labeled edge.`,
   };
 
+  const pattern = 'ana';
   yield {
-    state: suffixTreeShape('Search for pattern "ana"'),
+    state: suffixTreeShape(`Search for pattern "${pattern}"`),
     highlight: { active: ['root', 'a', 'na1', 'e-root-a', 'e-a-na'], found: ['ana_leaf'], compare: ['n'] },
-    explanation: 'Substring search walks the pattern across edge labels. If the walk succeeds, every leaf below that point is an occurrence. For "ana", the leaves under the a->na path give starts 1 and 3.',
+    explanation: `Substring search walks the ${pattern.length}-character pattern "${pattern}" across edge labels. If the walk succeeds, every leaf below that point is an occurrence. For "${pattern}", the leaves under the a->na path give starts 1 and 3.`,
   };
 
+  const structures = ['Suffix Tree', 'Suffix Array', 'Suffix Automaton', 'FM-Index'];
   yield {
     state: labelMatrix(
       'Choose the right suffix structure',
@@ -114,11 +119,14 @@ function* compressedTrie() {
       ],
     ),
     highlight: { found: ['tree:strength', 'array:strength'], compare: ['tree:cost'] },
-    explanation: 'Suffix trees are conceptually powerful, but suffix arrays and FM-indexes often win in memory-sensitive production indexes. Learn the tree to understand the questions; choose the representation by workload.',
+    explanation: `This comparison covers ${structures.length} suffix structures: ${structures.join(', ')}. Suffix trees are conceptually powerful, but suffix arrays and FM-indexes often win in memory-sensitive production indexes. Learn the tree to understand the questions; choose the representation by workload.`,
   };
 }
 
 function* ukkonenPhases() {
+  const activePointFields = ['active node', 'active edge', 'active length', 'remainder'];
+  const extensionRules = ['leaf extension', 'split edge', 'already present', 'canonize'];
+
   yield {
     state: labelMatrix(
       'Ukkonen keeps an active point',
@@ -137,14 +145,14 @@ function* ukkonenPhases() {
       ],
     ),
     highlight: { active: ['active_node:meaning', 'active_edge:meaning', 'active_len:meaning'], found: ['remainder:why'] },
-    explanation: 'Ukkonen construction is online: after adding each character, it updates all newly needed suffixes without rebuilding the tree. The active point is the compressed cursor that makes this efficient.',
+    explanation: `Ukkonen construction is online: after adding each character, it updates all newly needed suffixes without rebuilding the tree. The ${activePointFields.length} active-point fields (${activePointFields.join(', ')}) form the compressed cursor that makes this efficient.`,
   };
 
   yield {
     state: suffixTreeShape('Suffix links jump from xA to A'),
     highlight: { active: ['na1', 'link', 'n', 'e-link', 'e-link-root'], compare: ['root'] },
-    explanation: 'A suffix link connects an internal node representing xA to the node representing A. When one extension finishes, the next extension can follow the link instead of rescanning from the root.',
-    invariant: 'Suffix links preserve the work already paid for by previous extensions.',
+    explanation: `A suffix link connects an internal node representing xA to the node representing A. When one extension finishes, the next extension can follow the link instead of rescanning from the root.`,
+    invariant: `Suffix links preserve the work already paid for by previous extensions.`,
   };
 
   yield {
@@ -165,9 +173,10 @@ function* ukkonenPhases() {
       ],
     ),
     highlight: { active: ['rule2:action', 'rule3:effect'], found: ['canon:effect'] },
-    explanation: 'The implementation feels complex because it mixes three ideas: implicit leaves, edge splitting, and suffix-link jumps. Each rule protects the linear-time bound by refusing to repeat old comparisons.',
+    explanation: `The implementation feels complex because it mixes ${extensionRules.length} ideas: ${extensionRules.slice(0, 3).join(', ')}, and ${extensionRules[3]}. Each rule protects the linear-time bound by refusing to repeat old comparisons.`,
   };
 
+  const caseStudySteps = ['load sequence', 'build tree', 'scan internal nodes', 'report repeat'];
   yield {
     state: labelMatrix(
       'Case study: DNA repeat discovery',
@@ -186,7 +195,7 @@ function* ukkonenPhases() {
       ],
     ),
     highlight: { found: ['scan:signal', 'report:answer'], compare: ['build:signal'] },
-    explanation: 'The complete case-study pattern is simple: build once, then ask topology questions. A deep internal node with multiple descendant leaves is a repeated substring, and the leaves give the positions.',
+    explanation: `The complete ${caseStudySteps.length}-step pattern is simple: ${caseStudySteps[1]}, then ask topology questions. A deep internal node with multiple descendant leaves is a repeated substring, and the leaves give the positions.`,
   };
 }
 
@@ -210,7 +219,8 @@ export const article = {
           type: 'note',
           text: 'In both views, the sentinel $ appears as a distinct edge label. It is not decoration. Without it, suffix "a" would be a prefix of suffix "ana" and would vanish as an implicit point inside an edge, making leaf counting for occurrences ambiguous.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/suffix-tree.gif', alt: 'Animated walkthrough of the suffix tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

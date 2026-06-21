@@ -70,11 +70,24 @@ function clusterGraph(title, notes = {}) {
 }
 
 function* clusterInterface() {
+  const baseVertices = ['a', 'b', 'c', 'd', 'e'];
+  const leafClusters = ['ab', 'bc', 'cd', 'ce'];
+  const numVertices = baseVertices.length;
+  const numLeafClusters = leafClusters.length;
+  const leafLabels = leafClusters.map(c => c.toUpperCase());
+  const maxBoundary = 2;
+  const joinTypes = ['compress', 'rake'];
+  const costBound = 'O(log n)';
+  const rootLabel = 'A-D';
+  const callbackNames = ['create', 'join', 'split', 'destroy'];
+  const numCallbacks = callbackNames.length;
+  const alternatives = ['LCT', 'ETT', 'HLD'];
+
   yield {
     state: clusterGraph('Leaf clusters correspond to tree edges'),
-    highlight: { active: ['ab', 'bc', 'cd', 'ce'], compare: ['a', 'b', 'c', 'd', 'e'] },
-    explanation: 'A top tree represents an underlying dynamic tree as a balanced tree of clusters. Leaf clusters correspond to original edges such as AB, BC, CD, and CE.',
-    invariant: 'Every cluster is a connected subtree with at most two boundary vertices.',
+    highlight: { active: leafClusters, compare: baseVertices },
+    explanation: `A top tree represents an underlying ${numVertices}-vertex dynamic tree as a balanced tree of clusters. ${numLeafClusters} leaf clusters correspond to original edges: ${leafLabels.join(', ')}.`,
+    invariant: `Every cluster is a connected subtree with at most ${maxBoundary} boundary vertices.`,
   };
 
   yield {
@@ -90,12 +103,12 @@ function* clusterInterface() {
       [
         ['join paths', 'longer path'],
         ['attach side', 'same path'],
-        ['<= 2 verts', 'small API'],
-        ['balanced', 'O(log n)'],
+        [`<= ${maxBoundary} verts`, 'small API'],
+        ['balanced', costBound],
       ],
     ),
     highlight: { active: ['compress:meaning', 'rake:meaning'], found: ['height:result'] },
-    explanation: 'compress combines adjacent path clusters. rake folds a side subtree into a path cluster. The data structure keeps this cluster tree balanced.',
+    explanation: `${joinTypes[0]} combines adjacent path clusters. ${joinTypes[1]} folds a side subtree into a path cluster. The data structure keeps this cluster tree balanced so operations cost ${costBound}.`,
   };
 
   yield {
@@ -106,7 +119,7 @@ function* clusterInterface() {
       ce: 'side C',
     }),
     highlight: { found: ['acd'], active: ['abc', 'cd'], compare: ['ce'] },
-    explanation: 'The root cluster can store an aggregate for the whole tree or for an exposed path. Children store smaller summaries, and joins recompute parent summaries.',
+    explanation: `The root cluster ${rootLabel} can store an aggregate for the whole ${numVertices}-vertex tree or for an exposed path. Children store smaller summaries, and ${joinTypes.join('/')} joins recompute parent summaries.`,
   };
 
   yield {
@@ -127,7 +140,7 @@ function* clusterInterface() {
       ],
     ),
     highlight: { active: ['create:job', 'join:job', 'split:job'], found: ['destroy:when'] },
-    explanation: 'The top-tree interface is valuable because application data lives in small callbacks. Dynamic-tree machinery handles rebalancing; the user writes aggregate logic for cluster joins and splits.',
+    explanation: `The top-tree interface defines ${numCallbacks} callbacks (${callbackNames.join(', ')}). Application data lives in these small functions. Dynamic-tree machinery handles rebalancing; the user writes aggregate logic for cluster joins and splits.`,
   };
 
   yield {
@@ -148,16 +161,31 @@ function* clusterInterface() {
       ],
     ),
     highlight: { found: ['top:best'], compare: ['lct:shape', 'ett:shape', 'hld:shape'] },
-    explanation: 'Top trees, link-cut trees, and Euler tour trees all handle dynamic forests. Top trees are the cluster-summary interface: expose a path or tree, then read the root cluster.',
+    explanation: `Top trees, ${alternatives.join(', ')} all handle dynamic forests. Top trees are the cluster-summary interface: expose a path or tree, then read the root cluster in ${costBound}.`,
   };
 }
 
 function* exposePath() {
+  const pathStart = 'A';
+  const pathEnd = 'D';
+  const pathLabel = `${pathStart}-${pathEnd}`;
+  const sideCluster = 'CE';
+  const costBound = 'O(log n)';
+  const pathEdges = ['AB', 'BC', 'CD'];
+  const numPathEdges = pathEdges.length;
+  const edgeWeights = [4, 6, 3];
+  const pathSum = edgeWeights.reduce((a, b) => a + b, 0);
+  const operations = ['expose', 'link', 'cut', 'update'];
+  const numOps = operations.length;
+  const cutEdge = 'C-D';
+  const queryTypes = ['sum', 'min', 'mark', 'diam'];
+  const numQueryTypes = queryTypes.length;
+
   yield {
-    state: clusterGraph('Expose path A-D'),
+    state: clusterGraph(`Expose path ${pathLabel}`),
     highlight: { active: ['a', 'b', 'c', 'd', 'ab', 'bc', 'cd', 'abc', 'acd'], compare: ['e', 'ce'] },
-    explanation: 'expose(A, D) rearranges clusters so the root cluster boundary is A and D. Side subtrees such as CE can remain attached as raked information.',
-    invariant: 'After expose(u, v), the root cluster represents the u-v path with u and v as boundary vertices.',
+    explanation: `expose(${pathStart}, ${pathEnd}) rearranges clusters so the root cluster boundary is ${pathStart} and ${pathEnd}. Side subtrees such as ${sideCluster} remain attached as raked information.`,
+    invariant: `After expose(u, v), the root cluster represents the u-v path with exactly ${2} boundary vertices: u and v.`,
   };
 
   yield {
@@ -171,14 +199,14 @@ function* exposePath() {
       ],
       [{ id: 'edge' }, { id: 'sum' }],
       [
-        ['4', '4'],
-        ['6', '10'],
-        ['3', '13'],
-        ['path', '13'],
+        [String(edgeWeights[0]), String(edgeWeights[0])],
+        [String(edgeWeights[1]), String(edgeWeights[0] + edgeWeights[1])],
+        [String(edgeWeights[2]), String(pathSum)],
+        ['path', String(pathSum)],
       ],
     ),
     highlight: { active: ['ab:sum', 'bc:sum', 'cd:sum'], found: ['root:sum'] },
-    explanation: 'A path-sum aggregate is simple: each cluster stores its path sum. Exposing A-D makes the answer available at the root cluster.',
+    explanation: `A path-sum aggregate: ${numPathEdges} edge clusters (${pathEdges.join(', ')}) with weights ${edgeWeights.join(', ')} accumulate to ${pathSum}. Exposing ${pathLabel} makes the total available at the root.`,
   };
 
   yield {
@@ -192,24 +220,24 @@ function* exposePath() {
       ],
       [{ id: 'touch' }, { id: 'cost' }],
       [
-        ['root path', 'O(log n)'],
-        ['new edge', 'O(log n)'],
-        ['old edge', 'O(log n)'],
-        ['cluster path', 'O(log n)'],
+        ['root path', costBound],
+        ['new edge', costBound],
+        ['old edge', costBound],
+        ['cluster path', costBound],
       ],
     ),
     highlight: { found: ['link:cost', 'cut:cost', 'update:cost'], compare: ['expose:touch'] },
-    explanation: 'Only logarithmically many clusters change when topology or weights change. Recompute summaries along those affected cluster paths.',
+    explanation: `All ${numOps} operations (${operations.join(', ')}) touch only ${costBound} clusters when topology or weights change. Summaries are recomputed along the affected cluster path.`,
   };
 
   yield {
-    state: clusterGraph('Cut edge C-D and rebuild affected clusters', {
+    state: clusterGraph(`Cut edge ${cutEdge} and rebuild affected clusters`, {
       cd: 'cut',
       acd: 'split',
       abc: 'kept',
     }),
     highlight: { removed: ['cd', 'e-c-d'], active: ['acd'], found: ['abc'], compare: ['ce'] },
-    explanation: 'A cut removes one leaf cluster and splits the affected top-tree path. Untouched clusters and summaries remain reusable.',
+    explanation: `Cutting ${cutEdge} removes one leaf cluster and splits the top-tree path above it. The remaining cluster ABC and side cluster ${sideCluster} stay reusable.`,
   };
 
   yield {
@@ -230,15 +258,27 @@ function* exposePath() {
       ],
     ),
     highlight: { active: ['path:answer', 'min:answer'], found: ['diam:answer'], compare: ['mark:store'] },
-    explanation: 'The pattern is uniform: define what each cluster stores, define how two children combine, expose the desired boundary, then read the root summary.',
+    explanation: `The pattern is uniform across all ${numQueryTypes} query types (${queryTypes.join(', ')}): define what each cluster stores, define how ${2} children combine, expose the desired boundary, then read the root summary.`,
   };
 }
 
 function* diameterCaseStudy() {
+  const diamEndpoints = ['A', 'D'];
+  const sideVertex = 'E';
+  const summaryFields = ['inside', 'left bdry', 'right bdry', 'best pair'];
+  const numSummaryFields = summaryFields.length;
+  const maxBoundary = 2;
+  const numCandidates = 3;
+  const costBound = 'O(log n)';
+  const sideEdge = 'CE';
+  const rootCluster = 'A-D';
+  const cautionCategories = ['API', 'lazy', 'bdry', 'debug'];
+  const numCautions = cautionCategories.length;
+
   yield {
     state: clusterGraph('Maintain network diameter under link/cut'),
     highlight: { active: ['acd', 'abc', 'cd', 'ce'], found: ['a', 'd'], compare: ['e'] },
-    explanation: 'A dynamic network dashboard may need the current tree diameter after links fail or recover. A top tree can store diameter endpoints and length in every cluster.',
+    explanation: `A dynamic network dashboard needs the current tree diameter after links fail or recover. The diameter endpoints here are ${diamEndpoints.join(' and ')}, with side vertex ${sideVertex}. A top tree stores diameter endpoints and length in every cluster.`,
   };
 
   yield {
@@ -259,7 +299,7 @@ function* diameterCaseStudy() {
       ],
     ),
     highlight: { active: ['inside:keeps', 'left:keeps', 'right:keeps'], found: ['best:why'] },
-    explanation: 'For diameter, a cluster stores enough boundary distances to test whether the best pair stays inside one child or crosses between children.',
+    explanation: `Each cluster keeps ${numSummaryFields} fields (${summaryFields.join(', ')}). These boundary distances test whether the best pair stays inside one child or crosses between children via the ${maxBoundary} boundary vertices.`,
   };
 
   yield {
@@ -280,7 +320,7 @@ function* diameterCaseStudy() {
       ],
     ),
     highlight: { active: ['c1:candidate', 'c2:candidate', 'cross:candidate'], found: ['parent:take'] },
-    explanation: 'The parent cluster does not scan all vertices. It compares a constant-size set of candidates derived from child summaries.',
+    explanation: `The parent cluster compares ${numCandidates} constant-size candidates (diam C1, diam C2, farL + farR) derived from child summaries. No vertex scan is needed.`,
   };
 
   yield {
@@ -291,7 +331,7 @@ function* diameterCaseStudy() {
       e: 'end?',
     }),
     highlight: { active: ['ce', 'e-ce-c', 'acd'], found: ['a', 'e'], compare: ['d'] },
-    explanation: 'When a side edge links in, the top tree rebuilds affected clusters and recomputes diameter summaries on that path. The dashboard reads the new root summary.',
+    explanation: `When side edge ${sideEdge} links in, the top tree rebuilds ${costBound} affected clusters and recomputes diameter summaries along that path. The dashboard reads root cluster ${rootCluster} for the new diameter.`,
   };
 
   yield {
@@ -307,12 +347,12 @@ function* diameterCaseStudy() {
       [
         ['small', 'fast'],
         ['push', 'stale'],
-        ['<=2', 'expose'],
+        [`<=${maxBoundary}`, 'expose'],
         ['brute', 'bug'],
       ],
     ),
     highlight: { active: ['api:rule', 'boundary:rule'], found: ['debug:risk'], compare: ['lazy:risk'] },
-    explanation: 'The cluster interface is clean only if each summary is small, joins are constant time, and expose boundary rules are tested against tiny brute-force dynamic trees.',
+    explanation: `${numCautions} production cautions (${cautionCategories.join(', ')}): summaries must be small, joins constant time, boundary count at most ${maxBoundary}, and expose rules tested against brute-force dynamic trees.`,
   };
 }
 
@@ -339,7 +379,8 @@ export const article = {
           type: 'callout',
           text: 'A top tree works because every large tree query is reduced to constant-size facts at two-boundary clusters.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/top-tree-cluster-dynamic-forest.gif', alt: 'Animated walkthrough of the top tree cluster dynamic forest visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

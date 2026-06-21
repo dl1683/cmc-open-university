@@ -72,11 +72,15 @@ function proofFlow(title) {
 }
 
 function* appendPeaks() {
+  const peakScheduleSize = 8; // n=1 through n=8
+  const appendSteps = 4; // leaf, 1-merge, 2-merge, 4-merge
+  const peaksAtSeven = [4, 2, 1];
+
   yield {
     state: appendFlow('Append-only log keeps a frontier of peaks'),
     highlight: { active: ['leaf', 'merge'], found: ['peaks', 'root'] },
-    explanation: 'A Merkle Mountain Range is a Merkle tree for an append-only array. Each append creates a new leaf, then repeatedly merges rightmost peaks of equal size. The unmerged peak roots form the frontier.',
-    invariant: 'The peak sizes match the 1 bits in the leaf count.',
+    explanation: `A Merkle Mountain Range is a Merkle tree for an append-only array. Each append creates a new leaf, then repeatedly merges rightmost peaks of equal size. The ${peaksAtSeven.length} unmerged peak roots form the frontier.`,
+    invariant: `The peak sizes match the 1 bits in the leaf count — ${peaksAtSeven.length} peaks for ${peaksAtSeven.length} set bits.`,
   };
 
   yield {
@@ -108,7 +112,7 @@ function* appendPeaks() {
       ],
     ),
     highlight: { active: ['n7:peaks'], found: ['n8:peaks'] },
-    explanation: 'At seven leaves the frontier has peaks for ranges 4, 2, and 1. Appending the eighth leaf creates a carry chain: 1+1 becomes 2, 2+2 becomes 4, 4+4 becomes 8.',
+    explanation: `At ${peakScheduleSize - 1} leaves the frontier has peaks for ranges ${peaksAtSeven.join(', ')}. Appending the ${peakScheduleSize}th leaf creates a carry chain: 1+1 becomes 2, 2+2 becomes 4, 4+4 becomes ${peakScheduleSize}.`,
   };
 
   yield {
@@ -132,23 +136,26 @@ function* appendPeaks() {
       ],
     ),
     highlight: { active: ['one:action', 'two:action', 'four:action'], found: ['four:frontier'] },
-    explanation: 'Appending is like binary addition. Most appends touch only a small suffix of the frontier; an append at a power-of-two boundary carries farther, but the amortized work stays small.',
-    invariant: 'Stored nodes are immutable; appending creates new right-edge parents and leaves old ranges intact.',
+    explanation: `Appending is like binary addition. Most appends touch only a small suffix of the frontier; an append at a power-of-two boundary carries through all ${appendSteps} merge steps, but the amortized work stays small.`,
+    invariant: `Stored nodes are immutable; appending creates new right-edge parents across up to ${appendSteps} levels and leaves old ranges intact.`,
   };
 
   yield {
     state: appendFlow('Bagging peaks turns the frontier into one commitment'),
     highlight: { active: ['peaks', 'bag'], found: ['root'] },
-    explanation: 'A verifier usually wants one digest, not several peaks. Bagging combines the current peak roots in a deterministic order to produce the published commitment for the whole prefix.',
+    explanation: `A verifier usually wants one digest, not ${peaksAtSeven.length} separate peaks. Bagging combines the current peak roots in a deterministic order to produce the published commitment for the whole prefix.`,
   };
 }
 
 function* proofsAndAudits() {
+  const auditTypes = 4; // inclusion, prefix, append-only, equivocate
+  const relatedStructures = 4; // CT tree, MMR, Git DAG, WAL
+
   yield {
     state: proofFlow('Proofs climb to a peak, then bag with the frontier'),
     highlight: { active: ['entry', 'path', 'peak'], found: ['root'] },
-    explanation: 'An inclusion proof gives the sibling hashes needed to recompute the peak containing entry i, plus the other peak roots needed to recompute the bagged root.',
-    invariant: 'The verifier needs the claimed root, the leaf index, the leaf value, and a logarithmic proof path.',
+    explanation: `An inclusion proof — the first of ${auditTypes} audit claims — gives the sibling hashes needed to recompute the peak containing entry i, plus the other peak roots needed to recompute the bagged root.`,
+    invariant: `The verifier needs ${auditTypes} pieces: the claimed root, the leaf index, the leaf value, and a logarithmic proof path.`,
   };
 
   yield {
@@ -172,7 +179,7 @@ function* proofsAndAudits() {
       ],
     ),
     highlight: { found: ['include:evidence', 'append:evidence'], compare: ['equiv:evidence'] },
-    explanation: 'The important application is not just membership. A log can publish successive roots, and monitors can ask whether the later root extends the earlier prefix instead of rewriting history.',
+    explanation: `The important application is not just membership. Across all ${auditTypes} audit types, a log can publish successive roots, and monitors can ask whether the later root extends the earlier prefix instead of rewriting history.`,
   };
 
   yield {
@@ -196,13 +203,13 @@ function* proofsAndAudits() {
       ],
     ),
     highlight: { active: ['ct:job', 'mmr:job'], found: ['git:shape'], compare: ['wal:shape'] },
-    explanation: 'Certificate Transparency uses a Merkle history tree. MMRs use a frontier of complete subtrees. Git is a Merkle DAG over snapshots. A write-ahead log is append-only too, but it is not authenticated unless hashes or signatures are layered on top.',
+    explanation: `These ${relatedStructures} related structures each solve append differently: Certificate Transparency uses a Merkle history tree, MMRs use a frontier of complete subtrees, Git is a Merkle DAG over snapshots, and a write-ahead log is append-only too but not authenticated unless hashes or signatures are layered on top.`,
   };
 
   yield {
     state: proofFlow('Auditors compare roots over time'),
     highlight: { active: ['bag', 'root'], compare: ['path'], found: ['peak'] },
-    explanation: 'Transparency systems add social machinery around the data structure: logs publish signed roots, monitors fetch entries, witnesses remember roots, and clients demand proofs. The MMR supplies compact cryptographic evidence; the ecosystem decides what to do when evidence conflicts.',
+    explanation: `Transparency systems add social machinery around the data structure: logs publish signed roots, monitors fetch entries, witnesses remember roots, and clients demand proofs. The MMR supplies compact cryptographic evidence across ${auditTypes} claim types; the ecosystem decides what to do when evidence conflicts.`,
   };
 }
 
@@ -215,6 +222,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/merkle-mountain-range-append-only-log.gif', alt: 'Animated walkthrough of the merkle mountain range append only log visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

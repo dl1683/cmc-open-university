@@ -48,6 +48,12 @@ function residualPlot(threshold) {
 }
 
 function* splitConformal() {
+  const splitParts = 4;
+  const calScores = 10;
+  const qhat = 0.34;
+  const candidateLabels = 4;
+  const guaranteeRows = 4;
+
   yield {
     state: labelMatrix(
       'Split conformal uses data the model did not train on',
@@ -69,14 +75,14 @@ function* splitConformal() {
       ],
     ),
     highlight: { active: ['cal:purpose', 'cal:rule'], found: ['guarantee:rule'] },
-    explanation: 'The split is the guarantee boundary. Training fits the base model; calibration measures errors on data the model did not train on. Future sets then inherit a quantile of those held-out errors instead of trusting the model score directly.',
-    invariant: 'The calibration data must be exchangeable with future data for the guarantee to apply.',
+    explanation: `The split across ${splitParts} data roles is the guarantee boundary. Training fits the base model; calibration measures errors on ${calScores} held-out examples the model did not train on. Future sets then inherit a quantile of those held-out errors instead of trusting the model score directly.`,
+    invariant: `The ${calScores} calibration examples must be exchangeable with future data for the guarantee to apply.`,
   };
 
   yield {
-    state: residualPlot(0.34),
+    state: residualPlot(qhat),
     highlight: { active: ['scores', 'qhat'], compare: ['new'] },
-    explanation: 'The horizontal line is qhat, the chosen residual quantile. A new regression prediction keeps the model center yhat but expands it by plus or minus qhat, so past calibration misses become the width of future intervals.',
+    explanation: `The horizontal line is qhat = ${qhat}, the chosen residual quantile from ${calScores} calibration scores. A new regression prediction keeps the model center yhat but expands it by plus or minus ${qhat}, so past calibration misses become the width of future intervals.`,
   };
 
   yield {
@@ -100,7 +106,7 @@ function* splitConformal() {
       ],
     ),
     highlight: { found: ['cat:include', 'dog:include'], compare: ['fox:include', 'eel:include'] },
-    explanation: 'The classification set is the visible cost of ambiguity. If the top label is not enough to satisfy the coverage rule, the wrapper includes additional plausible labels rather than pretending the top-1 answer is certain.',
+    explanation: `The classification set ranks ${candidateLabels} candidate labels by decreasing score. If the top label is not enough to satisfy the coverage rule, the wrapper includes additional plausible labels rather than pretending the top-1 answer is certain.`,
   };
 
   yield {
@@ -124,24 +130,31 @@ function* splitConformal() {
       ],
     ),
     highlight: { found: ['marginal:status'], compare: ['conditional:status', 'shift:status'] },
-    explanation: 'The guarantee row is precise, not magical. Under exchangeability, marginal coverage holds over future draws. The table also names what is not promised: every subgroup, every individual, fixed set size, or validity after distribution shift.',
+    explanation: `The guarantee row is precise across ${guaranteeRows} conditions, not magical. Under exchangeability, marginal coverage holds over future draws. The table also names what is not promised: every subgroup, every individual, fixed set size, or validity after distribution shift.`,
   };
 }
 
 function* coverageCalibration() {
+  const frontierPoints = 6;
+  const sizeAt90 = 2.7;
+  const sizeAt95 = 3.8;
+  const subgroupRows = 4;
+  const uncertaintyMethods = 4;
+  const checklistItems = 4;
+
   yield {
     state: plotState({
       axes: { x: { label: 'target coverage', min: 0.5, max: 0.99 }, y: { label: 'average set size', min: 1, max: 6 } },
       series: [
-        { id: 'sets', label: 'coverage-size frontier', points: [{ x: 0.6, y: 1.1 }, { x: 0.75, y: 1.4 }, { x: 0.85, y: 2.0 }, { x: 0.9, y: 2.7 }, { x: 0.95, y: 3.8 }, { x: 0.99, y: 5.5 }] },
+        { id: 'sets', label: 'coverage-size frontier', points: [{ x: 0.6, y: 1.1 }, { x: 0.75, y: 1.4 }, { x: 0.85, y: 2.0 }, { x: 0.9, y: sizeAt90 }, { x: 0.95, y: sizeAt95 }, { x: 0.99, y: 5.5 }] },
       ],
       markers: [
-        { id: 'p90', x: 0.9, y: 2.7, label: '90%' },
-        { id: 'p95', x: 0.95, y: 3.8, label: '95%' },
+        { id: 'p90', x: 0.9, y: sizeAt90, label: '90%' },
+        { id: 'p95', x: 0.95, y: sizeAt95, label: '95%' },
       ],
     }),
     highlight: { active: ['sets'], compare: ['p90', 'p95'] },
-    explanation: 'The frontier shows the main tradeoff. Raising target coverage means choosing a larger quantile, which widens intervals or adds labels. Conformal prediction buys coverage by making uncertainty visible.',
+    explanation: `The frontier shows the main tradeoff across ${frontierPoints} coverage levels. At 90% coverage the average set size is ${sizeAt90}; at 95% it grows to ${sizeAt95}. Conformal prediction buys coverage by making uncertainty visible.`,
   };
 
   yield {
@@ -165,8 +178,8 @@ function* coverageCalibration() {
       ],
     ),
     highlight: { found: ['overall:coverage'], removed: ['groupB:coverage'], compare: ['fix:interpretation'] },
-    explanation: 'The average can hide who is being failed. Overall 90% coverage is compatible with one group being overcovered and another undercovered, so high-stakes deployments need slice-level coverage checks.',
-    invariant: 'Coverage is a property of a data-generating process, not a moral certificate.',
+    explanation: `The average across ${subgroupRows} rows can hide who is being failed. Overall 90% coverage is compatible with one group at 95% and another at 80%, so high-stakes deployments need slice-level coverage checks.`,
+    invariant: `Coverage is a property of a data-generating process across ${subgroupRows} groups, not a moral certificate.`,
   };
 
   yield {
@@ -190,7 +203,7 @@ function* coverageCalibration() {
       ],
     ),
     highlight: { active: ['conformal:question'], compare: ['calibration:question', 'dropout:limit'] },
-    explanation: 'The table separates questions. Calibration asks whether probabilities mean what they say; MC dropout estimates model uncertainty; conformal prediction asks whether the returned set will cover under its assumptions. Better scores usually mean smaller conformal sets.',
+    explanation: `The table separates ${uncertaintyMethods} uncertainty methods and their distinct questions. Calibration asks whether probabilities mean what they say; MC dropout estimates model uncertainty; conformal prediction asks whether the returned set will cover under its assumptions.`,
   };
 
   yield {
@@ -214,7 +227,7 @@ function* coverageCalibration() {
       ],
     ),
     highlight: { found: ['split:requirement', 'drift:requirement', 'slices:requirement', 'ux:requirement'] },
-    explanation: 'The wrapper is simple code, but the guarantee is operational. A contaminated calibration split, stale distribution, unexamined subgroup, or confusing set interface can make the statistical promise useless in practice.',
+    explanation: `The wrapper is simple code, but all ${checklistItems} operational checks must pass. A contaminated calibration split, stale distribution, unexamined subgroup, or confusing set interface can make the statistical promise useless in practice.`,
   };
 }
 
@@ -237,7 +250,8 @@ export const article = {
         },
         'The "coverage calibration" view shows what happens when you change the target coverage level. The frontier plot traces the tradeoff: higher coverage means wider intervals or larger label sets. Active series mark the curve; compare markers show specific operating points.',
         'At each frame, ask: what data produced this threshold, why is this quantile the right one, and what assumption must hold for the guarantee to transfer to new data.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/conformal-prediction.gif', alt: 'Animated walkthrough of the conformal prediction visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

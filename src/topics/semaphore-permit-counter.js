@@ -59,30 +59,33 @@ function permitGraph(title, { permits = '2', queue = 'empty', c = 'arrives', pos
 }
 
 function* permitsAndWaiters() {
+  const capacity = 2;
+  const workers = ['A', 'B', 'C'];
+
   yield {
     state: permitGraph('A counting semaphore starts with N permits', { permits: '2 free', queue: 'empty', c: 'not here', post: 'idle' }),
     highlight: { active: ['counter', 'resource'], found: ['a', 'b'] },
-    explanation: 'A semaphore is a nonnegative integer plus a waiting discipline. The integer represents how many units of some resource may be claimed concurrently.',
-    invariant: 'The visible counter never goes below zero.',
+    explanation: `A semaphore is a nonnegative integer plus a waiting discipline. The integer represents how many units of some resource may be claimed concurrently — here, ${capacity} at a time.`,
+    invariant: `The visible counter never goes below zero; it starts at ${capacity} and can only reach 0.`,
   };
 
   yield {
     state: permitGraph('Acquire consumes permits while the count is positive', { permits: '0 free', queue: 'empty', c: 'arrives', post: 'idle' }),
     highlight: { active: ['a', 'b', 'counter', 'e-counter-a', 'e-counter-b'], compare: ['c'] },
-    explanation: 'Workers A and B each decrement the counter and enter the bounded region. With two permits consumed, the third acquire cannot decrement into negative capacity.',
+    explanation: `Workers ${workers[0]} and ${workers[1]} each decrement the counter and enter the bounded region. With ${capacity} permits consumed, the third acquire by ${workers[2]} cannot decrement into negative capacity.`,
   };
 
   yield {
     state: permitGraph('At zero, acquire joins a wait queue', { permits: '0 free', queue: 'C asleep', c: 'blocked', post: 'idle' }),
     highlight: { active: ['c', 'queue', 'e-counter-c', 'e-c-queue'], compare: ['resource'] },
-    explanation: 'When permits are exhausted, the semaphore records the waiter and parks it. In a futex-backed implementation, this is the point where the fast path becomes a kernel wait.',
+    explanation: `When all ${capacity} permits are exhausted, the semaphore records ${workers[2]} as a waiter and parks it. In a futex-backed implementation, this is the point where the fast path becomes a kernel wait.`,
   };
 
   yield {
     state: permitGraph('Release either restores a permit or wakes one waiter', { permits: '0 after handoff', queue: 'C woken', c: 'ready', post: 'A posts' }),
     highlight: { active: ['post', 'queue', 'c', 'e-post-queue', 'e-c-resource'], found: ['resource'] },
-    explanation: 'A post operation increments capacity. If waiters exist, implementations often hand the permit directly to one waiter rather than letting the public count become positive and trigger a race.',
-    invariant: 'permits in use + visible permits + reserved permits equals capacity.',
+    explanation: `A post operation increments capacity. If waiters exist, implementations often hand the permit directly to one waiter rather than letting the public count become positive and trigger a race among all ${workers.length} workers.`,
+    invariant: `permits in use + visible permits + reserved permits equals ${capacity}.`,
   };
 
   yield {
@@ -107,11 +110,16 @@ function* permitsAndWaiters() {
       ],
     ),
     highlight: { active: ['counting:permits', 'async:use'], found: ['weighted:permits'] },
-    explanation: 'The same permit-counter structure appears in operating systems, async runtimes, database pools, API clients, and bulkheads. The queue policy and cancellation rules matter as much as the integer.',
+    explanation: `The same permit-counter structure appears in operating systems, async runtimes, database pools, API clients, and bulkheads. All ${capacity + 2} flavors shown share one invariant: a nonnegative counter plus a wait queue.`,
   };
 }
 
 function* bulkheadLimitCaseStudy() {
+  const paymentPermits = 80;
+  const searchPermits = 60;
+  const recsPermits = 20;
+  const totalPermits = paymentPermits + searchPermits + recsPermits;
+
   yield {
     state: graphState({
       nodes: [
@@ -135,7 +143,7 @@ function* bulkheadLimitCaseStudy() {
       ],
     }, { title: 'One semaphore per dependency makes a bulkhead concrete' }),
     highlight: { active: ['payments', 'search', 'recs'], found: ['paydb', 'searchdb'], compare: ['recsvc'] },
-    explanation: 'Bulkheads become executable when each dependency has a separate semaphore. A slow recommendations service can fill its 20 permits, but it cannot consume the 80 payment permits.',
+    explanation: `Bulkheads become executable when each dependency has a separate semaphore. A slow recommendations service can fill its ${recsPermits} permits, but it cannot consume the ${paymentPermits} payment permits — ${totalPermits} permits total, split across 3 independent pools.`,
   };
 
   yield {
@@ -161,7 +169,7 @@ function* bulkheadLimitCaseStudy() {
       ],
     ),
     highlight: { active: ['recs-bad:inflight', 'recs-bad:limit'], found: ['payments:limit', 'search:limit'] },
-    explanation: 'The permit count is not arbitrary. If the downstream slows from 120 ms to 2 seconds, its demand jumps from 6 in-flight calls to 100. The semaphore caps that surge at 20 and fails the rest quickly.',
+    explanation: `The permit count is not arbitrary. If the downstream slows from 120 ms to 2 seconds, its demand jumps from 6 in-flight calls to 100. The semaphore caps that surge at ${recsPermits} and fails the rest quickly, while payments keeps its ${paymentPermits} permits untouched.`,
   };
 
   yield {
@@ -185,14 +193,14 @@ function* bulkheadLimitCaseStudy() {
       ],
     ),
     highlight: { active: ['latency:policy', 'thread:reason'], compare: ['batch:policy'] },
-    explanation: 'The semaphore gives a cap, not the whole policy. Production systems choose whether exhausted permits should wait, time out, reject, or use a fallback based on the caller budget.',
+    explanation: `The semaphore gives a cap, not the whole policy. With ${totalPermits} permits spread across 3 pools, production systems choose whether exhausted permits should wait, time out, reject, or use a fallback based on the caller budget.`,
   };
 
   yield {
     state: permitGraph('A semaphore links back to the futex slow path', { permits: '0 free', queue: 'many waiters', c: 'timed wait', post: 'wake 1' }),
     highlight: { active: ['counter', 'queue', 'post', 'e-post-queue'], found: ['c'] },
-    explanation: 'In a thread-based runtime, the exhausted semaphore usually parks waiters through a futex or equivalent kernel primitive. In an async runtime, the wait queue holds tasks instead of OS threads.',
-    invariant: 'Do not let an unbounded semaphore queue become a hidden outage queue.',
+    explanation: `In a thread-based runtime, the exhausted semaphore usually parks waiters through a futex or equivalent kernel primitive. In an async runtime, the wait queue holds tasks instead of OS threads — either way, the ${recsPermits}-permit cap holds.`,
+    invariant: `Do not let an unbounded semaphore queue become a hidden outage queue — all ${totalPermits} permits across the system have explicit bounds.`,
   };
 }
 
@@ -215,7 +223,8 @@ export const article = {
         },
         'Watch the counter. It starts at 2, drops to 0 as A and B acquire, stays at 0 while C blocks, and stays at 0 after A releases because the freed permit passes directly to C. The counter never goes negative. That is the semaphore invariant.',
         'The bulkhead view shows three independent semaphores guarding three dependencies. Each semaphore has its own counter and queue. A slowdown in one dependency exhausts only its own permits, not the others. Watch the permit counts and arrival rates to see why isolation matters.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/semaphore-permit-counter.gif', alt: 'Animated walkthrough of the semaphore permit counter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

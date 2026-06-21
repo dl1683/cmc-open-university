@@ -56,38 +56,43 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* poolLifecycle() {
+  const poolNodes = 6;
+  const poolEdges = 6;
+  const maxPoolSize = 10;
+  const healthChecks = 4;
+
   yield {
     state: poolGraph('Cold start: pool is empty, first request opens a connection', {
-      idle: '0', active: '0', waiting: '0', total: '0/10', action: 'first request',
+      idle: '0', active: '0', waiting: '0', total: `0/${maxPoolSize}`, action: 'first request',
     }),
     highlight: { active: ['app', 'e-app-pool'], compare: ['pool'] },
-    explanation: 'The pool starts empty. The first checkout finds no idle connection, so it opens a fresh TCP socket to the database, completes the handshake (TCP three-way + optional TLS), authenticates, and returns the ready connection. That startup cost is paid once per physical connection.',
-    invariant: 'idle + active + opening <= max pool size.',
+    explanation: `The pool of ${poolNodes} components starts empty. The first checkout finds no idle connection, so it opens a fresh TCP socket to the database, completes the handshake (TCP three-way + optional TLS), authenticates, and returns the ready connection. That startup cost is paid once per physical connection.`,
+    invariant: `idle + active + opening <= max pool size of ${maxPoolSize}.`,
   };
 
   yield {
     state: poolGraph('Connection in use: the pool tracks ownership', {
-      idle: '0', active: '1', waiting: '0', total: '1/10', action: 'using conn',
+      idle: '0', active: '1', waiting: '0', total: `1/${maxPoolSize}`, action: 'using conn',
     }),
     highlight: { active: ['active', 'e-active-db'], found: ['db'] },
-    explanation: 'The application holds the connection while it runs queries. The pool marks it active. No other caller can use this connection until the holder returns it. The database sees one authenticated session occupying one of its max_connections slots.',
+    explanation: `The application holds the connection while it runs queries through ${poolEdges} edges. The pool marks it active. No other caller can use this connection until the holder returns it. The database sees one authenticated session occupying one of its max_connections slots.`,
   };
 
   yield {
     state: poolGraph('Return: connection goes back to idle, ready for reuse', {
-      idle: '1', active: '0', waiting: '0', total: '1/10', action: 'done, return',
+      idle: '1', active: '0', waiting: '0', total: `1/${maxPoolSize}`, action: 'done, return',
     }),
     highlight: { active: ['pool', 'e-pool-idle'], found: ['idle'] },
-    explanation: 'When the application finishes, it returns the connection to the pool instead of closing the TCP socket. The pool resets session state if needed and places the connection in the idle set. The next checkout takes the idle connection in microseconds instead of paying the handshake cost again.',
-    invariant: 'Every checkout must have a matching return. A leaked checkout permanently reduces pool capacity.',
+    explanation: `When the application finishes, it returns the connection to the pool instead of closing the TCP socket. The pool resets session state and places the connection in the idle set. The next checkout takes the idle connection in microseconds instead of paying the handshake cost again.`,
+    invariant: `Every checkout must have a matching return. A leaked checkout permanently reduces pool capacity below ${maxPoolSize}.`,
   };
 
   yield {
     state: poolGraph('Warm pool: multiple idle connections ready for instant checkout', {
-      idle: '3', active: '2', waiting: '0', total: '5/10', action: 'steady state',
+      idle: '3', active: '2', waiting: '0', total: `5/${maxPoolSize}`, action: 'steady state',
     }),
     highlight: { found: ['idle', 'active'], active: ['pool'] },
-    explanation: 'Under steady traffic, the pool stabilizes with some connections active and some idle. Checkout is a pointer move from the idle list. The expensive handshake cost is amortized across thousands of queries. This is the normal operating state of a healthy pool.',
+    explanation: `Under steady traffic, the pool stabilizes at 5 of ${maxPoolSize} maximum connections — 3 idle and 2 active. Checkout is a pointer move from the idle list. The expensive handshake cost is amortized across thousands of queries.`,
   };
 
   yield {
@@ -111,18 +116,24 @@ function* poolLifecycle() {
       ],
     ),
     highlight: { active: ['borrow:check', 'maxlife:check'], found: ['idle:cost'] },
-    explanation: 'Idle connections can die silently. The database may close them after a timeout. A firewall may drop the TCP session. The server may restart. Health checks detect dead connections before handing them to callers. The tradeoff is checkout latency versus surprise errors.',
+    explanation: `Idle connections can die silently. All ${healthChecks} health-check policies guard against this: the database may close them after a timeout, a firewall may drop the TCP session, or the server may restart. The tradeoff is checkout latency versus surprise errors.`,
   };
 }
 
 function* checkoutUnderLoad() {
+  const maxSize = 10;
+  const waiters = 3;
+  const loadScenarios = 4;
+  const leakSnapshots = 5;
+  const checkoutTimeout = 3;
+
   yield {
     state: poolGraph('All connections active: the wait queue fills', {
-      idle: '0', active: '10', waiting: '3 callers', total: '10/10', action: 'checkout blocked',
+      idle: '0', active: String(maxSize), waiting: `${waiters} callers`, total: `${maxSize}/${maxSize}`, action: 'checkout blocked',
     }),
     highlight: { compare: ['wait', 'e-pool-wait'], active: ['active'], removed: ['idle'] },
-    explanation: 'When every connection is in use and the pool is at max size, new checkouts cannot open more connections. Callers enter a wait queue. Each waiting caller holds a thread, goroutine, or async task while producing no useful work. This is the point where pool sizing starts to matter.',
-    invariant: 'Wait queue depth is the leading indicator of pool exhaustion.',
+    explanation: `When all ${maxSize} connections are in use and the pool is at max size, new checkouts cannot open more. ${waiters} callers enter a wait queue, each holding a thread or async task while producing no useful work. This is the point where pool sizing starts to matter.`,
+    invariant: `Wait queue depth is the leading indicator of pool exhaustion at max size ${maxSize}.`,
   };
 
   yield {
@@ -148,15 +159,15 @@ function* checkoutUnderLoad() {
       ],
     ),
     highlight: { active: ['spike:need', 'spike:pool'], removed: ['bad:need', 'bad:pool'] },
-    explanation: 'Little\'s Law predicts steady-state concurrency: arrival rate times hold time. A pool of 20 handles 500 req/s at 8ms hold time easily. But if a slow query pushes hold time to 80ms, steady-state demand jumps to 40 and half the callers wait. During an incident with 2s hold time, the pool is a drop in the bucket and the wait queue explodes.',
+    explanation: `Little's Law predicts steady-state concurrency across ${loadScenarios} scenarios: arrival rate times hold time. A pool of 20 handles 500 req/s at 8ms easily. But if a slow query pushes hold time to 80ms, demand jumps to ~40 and half the callers wait. During an incident with 2s hold time, the pool is a drop in the bucket.`,
   };
 
   yield {
     state: poolGraph('Timeout protects callers from unbounded waits', {
-      idle: '0', active: '10', waiting: '1 (timed out)', total: '10/10', action: 'checkout timeout: 3s',
+      idle: '0', active: String(maxSize), waiting: '1 (timed out)', total: `${maxSize}/${maxSize}`, action: `checkout timeout: ${checkoutTimeout}s`,
     }),
     highlight: { removed: ['wait'], active: ['app'], compare: ['pool'] },
-    explanation: 'A checkout timeout caps how long a caller will wait for a connection. Without it, a full pool under a slow query can make every upstream request hang for minutes. With a 3-second timeout, callers get a fast error they can handle: retry, degrade, or fail to the user. The timeout converts an invisible outage queue into an observable rejection.',
+    explanation: `A checkout timeout of ${checkoutTimeout}s caps how long a caller will wait for one of ${maxSize} connections. Without it, a full pool under a slow query can make every upstream request hang for minutes. The timeout converts an invisible outage queue into an observable rejection.`,
   };
 
   yield {
@@ -184,8 +195,8 @@ function* checkoutUnderLoad() {
       ],
     ),
     highlight: { active: ['t2:leaked', 't3:leaked'], removed: ['t4:avail'] },
-    explanation: 'A connection leak happens when code checks out a connection but never returns it. The pool cannot reclaim it. Over hours, leaked connections accumulate, effective capacity drops, and eventually every checkout times out. The fix is always the same: ensure every checkout is paired with a return in a finally block, defer statement, or RAII scope.',
-    invariant: 'Every checkout must have a matching return. Missing returns are silent capacity loss.',
+    explanation: `A connection leak happens when code checks out but never returns. Across ${leakSnapshots} time snapshots, leaked connections accumulate from 0 to 15 while effective capacity drops from 20 to 5 until every checkout times out. The fix: ensure every checkout is paired with a return in a finally block, defer statement, or RAII scope.`,
+    invariant: `Every checkout must have a matching return. Missing returns are silent capacity loss across all ${leakSnapshots} observed intervals.`,
   };
 }
 
@@ -208,7 +219,8 @@ export const article = {
         },
         'The checkout-under-load view shows what happens when demand exceeds pool capacity. The wait queue fills, Little\'s Law sizes the gap, checkout timeouts convert silent hangs into fast errors, and connection leaks show the slow death of a pool that never gets its connections back.',
         'Active markers are the current operation. Found markers are connections in a healthy state. Removed markers are connections or callers in trouble. At each frame, track how many connections are idle, active, and waiting, and ask whether the pool invariant still holds.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/connection-pooling.gif', alt: 'Animated walkthrough of the connection pooling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -84,13 +84,16 @@ function distinctGraph(title) {
 }
 
 function* reorderQueries() {
+  const queryCount = 3;
   yield {
     state: moGraph('Sort offline queries into a cheap movement order'),
     highlight: { active: ['queries', 'block', 'sortR', 'e-queries-block', 'e-queries-sortR'], found: ['q1', 'q2', 'q3'] },
-    explanation: "Mo's algorithm works because all queries are known before answering. Sort them by the block of L, then by R, so the maintained window moves a short total distance.",
-    invariant: 'The array is static, and answers are stored back under the original query ids.',
+    explanation: `Mo's algorithm works because all ${queryCount} queries are known before answering. Sort them by the block of L, then by R, so the maintained window moves a short total distance.`,
+    invariant: `The array is static, and answers for all ${queryCount} queries are stored back under the original query ids.`,
   };
 
+  const totalQueries = 4;
+  const blockCount = 2;
   yield {
     state: labelMatrix(
       'Mo order example',
@@ -113,15 +116,18 @@ function* reorderQueries() {
       ],
     ),
     highlight: { active: ['q1:order', 'q2:order'], found: ['q3:order', 'q0:order'], compare: ['q0:range'] },
-    explanation: 'The query order is no longer the input order. The algorithm sorts for cheap movement, records each answer into ans[originalIndex], and prints results later in the requested order.',
+    explanation: `The ${totalQueries} queries span ${blockCount} L-blocks. The algorithm sorts for cheap movement, records each answer into ans[originalIndex], and prints results later in the requested order.`,
   };
 
+  const fromRange = '[1,4]';
+  const toRange = '[2,7]';
   yield {
     state: moGraph('Move one current window using add and remove operations'),
     highlight: { active: ['q1', 'q2', 'window', 'e-q1-window', 'e-q2-window'], found: ['answer'], compare: ['q3'] },
-    explanation: 'To move from [1,4] to [2,7], remove index 1 and add indices 5, 6, and 7. The data structure keeps the answer current after every endpoint move.',
+    explanation: `To move from ${fromRange} to ${toRange}, remove index 1 and add indices 5, 6, and 7. The data structure keeps the answer current after every endpoint move.`,
   };
 
+  const conditionCount = 4;
   yield {
     state: labelMatrix(
       'When Mo applies',
@@ -143,18 +149,20 @@ function* reorderQueries() {
       ],
     ),
     highlight: { active: ['static:result', 'offline:result', 'local:result'], removed: ['online:result'] },
-    explanation: "Mo's algorithm is not a general replacement for segment trees. It is for static offline queries where adding or removing one endpoint can update the answer quickly.",
+    explanation: `Mo's algorithm checks ${conditionCount} conditions and is not a general replacement for segment trees. It is for static offline queries where adding or removing one endpoint can update the answer quickly.`,
   };
 }
 
 function* distinctCountCaseStudy() {
+  const nodeCount = 7;
   yield {
     state: distinctGraph('Range distinct count is a classic Mo case study'),
     highlight: { active: ['window', 'addL', 'addR', 'freq', 'e-addL-freq', 'e-addR-freq'], found: ['distinct'] },
-    explanation: 'For each current range, keep frequency counts of values. Adding a value with count 0 increments the distinct counter. Removing a value whose count becomes 0 decrements it.',
-    invariant: 'The maintained counters must exactly match the current window.',
+    explanation: `For each current range in the ${nodeCount}-node pipeline, keep frequency counts of values. Adding a value with count 0 increments the distinct counter. Removing a value whose count becomes 0 decrements it.`,
+    invariant: `The maintained counters must exactly match the current [L,R] window at every step.`,
   };
 
+  const moveTypes = 4;
   yield {
     state: labelMatrix(
       'Endpoint moves',
@@ -176,15 +184,16 @@ function* distinctCountCaseStudy() {
       ],
     ),
     highlight: { active: ['addNew:distinct', 'removeLast:distinct'], found: ['addSeen:freq'], compare: ['removeMore:distinct'] },
-    explanation: 'The update logic is small and local. That is exactly the property Mo needs: each endpoint movement changes the answer in O(1) or near O(1).',
+    explanation: `The ${moveTypes} move types show the update logic is small and local. That is exactly the property Mo needs: each endpoint movement changes the answer in O(1) or near O(1).`,
   };
 
   yield {
     state: distinctGraph('Answers are written by original query id'),
     highlight: { active: ['distinct', 'ans', 'e-distinct-ans'], compare: ['window'], found: ['freq'] },
-    explanation: 'Because queries are processed out of order, each query carries its original id. The final answer array restores the output order after all sorted queries finish.',
+    explanation: `Because queries are processed out of order, each query carries its original id. The final answer array restores the output order after all sorted queries finish.`,
   };
 
+  const variantCount = 4;
   yield {
     state: labelMatrix(
       'Variants and limits',
@@ -206,7 +215,7 @@ function* distinctCountCaseStudy() {
       ],
     ),
     highlight: { active: ['hilbert:idea', 'tree:idea'], compare: ['updates:warning'], removed: ['bad:warning'] },
-    explanation: 'Mo has powerful variants, but the core contract remains: sort queries to reduce movement, and maintain the answer through cheap local transitions.',
+    explanation: `Mo has ${variantCount} powerful variants, but the core contract remains: sort queries to reduce movement, and maintain the answer through cheap local transitions.`,
   };
 }
 
@@ -219,6 +228,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/mos-algorithm-offline-range-queries.gif', alt: 'Animated walkthrough of the mos algorithm offline range queries visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

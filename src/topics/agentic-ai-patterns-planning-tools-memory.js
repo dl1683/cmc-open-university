@@ -87,40 +87,45 @@ function workflowState(title) {
 }
 
 function* controlLoop() {
+  const loop = loopState('An agent is a measured observe-act loop');
+  const loopNodes = loop.graph.nodes;
+  const loopEdges = loop.graph.edges;
+
   yield {
-    state: loopState('An agent is a measured observe-act loop'),
+    state: loop,
     highlight: { active: ['task', 'context', 'planner', 'e-task-context', 'e-context-planner', 'e-task-planner'], compare: ['tool', 'observe', 'eval'] },
-    explanation: 'Read the loop left to right: task and context feed the planner, the planner chooses one bounded action, and the result comes back as observation. This exists because a single prompt cannot know what the environment will reveal after the first step.',
+    explanation: `Read the ${loopNodes.length}-node loop left to right: ${loopNodes[0].label} and ${loopNodes[1].label} feed the ${loopNodes[2].label}, the planner chooses one bounded action, and the result comes back as ${loopNodes[4].label}. This exists because a single prompt cannot know what the environment will reveal after the first step.`,
   };
 
   yield {
     state: loopState('Tool calls turn intent into external action'),
     highlight: { active: ['planner', 'tool', 'observe', 'e-planner-tool', 'e-tool-observe'], found: ['eval'] },
-    explanation: 'ReAct-style systems interleave reasoning and action. A search call, code edit, database query, browser click, or calculator result changes the state that the next decision sees.',
-    invariant: 'The action trace is part of the state, not decoration.',
+    explanation: `ReAct-style systems interleave reasoning and action. A search call, code edit, database query, browser click, or calculator result changes the state that the next ${loopNodes[2].label} decision sees.`,
+    invariant: `The ${loopNodes[3].label} action trace is part of the ${loopNodes[1].label}, not decoration.`,
   };
 
   yield {
     state: loopState('Memory feeds the next decision'),
     highlight: { active: ['observe', 'memory', 'context', 'e-observe-memory', 'e-memory-context'], compare: ['planner'] },
-    explanation: 'Memory can be a short transcript, an episodic scratchpad, a vector store, a ticket state, or a durable workflow history. What matters is retrieval discipline: the next step should read the facts that change the decision.',
+    explanation: `${loopNodes[5].label} can be a short transcript, an episodic scratchpad, a vector store, a ticket state, or a durable workflow history. What matters is retrieval discipline: the next ${loopNodes[2].label} step should read the facts that change the decision.`,
   };
 
   yield {
     state: loopState('Evaluation closes the loop'),
     highlight: { active: ['observe', 'eval', 'planner', 'answer', 'e-observe-eval', 'e-eval-planner', 'e-eval-answer'], removed: ['e-planner-tool'] },
-    explanation: 'The evaluator is the stop/go switch. It turns raw observation into a decision: answer now, try another action, reject unsafe output, or ask a person. Without this node, the loop can spend tokens while drifting away from the task.',
+    explanation: `The ${loopNodes[6].label} node is the stop/go switch. It turns raw ${loopNodes[4].label} into a decision: ${loopNodes[7].label} now, try another action, reject unsafe output, or ask a person. Without this node, the ${loopEdges.length}-edge loop can spend tokens while drifting away from the ${loopNodes[0].label}.`,
   };
 
+  const agentDataRows = [
+    { id: 'state', label: 'state object' },
+    { id: 'trace', label: 'trace log' },
+    { id: 'memory', label: 'memory index' },
+    { id: 'budget', label: 'budget' },
+  ];
   yield {
     state: labelMatrix(
       'Core agent data structures',
-      [
-        { id: 'state', label: 'state object' },
-        { id: 'trace', label: 'trace log' },
-        { id: 'memory', label: 'memory index' },
-        { id: 'budget', label: 'budget' },
-      ],
+      agentDataRows,
       [
         { id: 'stores', label: 'stores' },
         { id: 'why', label: 'why it matters' },
@@ -133,27 +138,32 @@ function* controlLoop() {
       ],
     ),
     highlight: { active: ['state:stores', 'trace:stores', 'memory:stores', 'budget:why'] },
-    explanation: 'Agent engineering becomes ordinary systems engineering when the loop state is explicit. State, trace, memory, and budgets are the data structures that keep the system controllable.',
+    explanation: `Agent engineering becomes ordinary systems engineering when the ${agentDataRows.length} loop structures are explicit. ${agentDataRows.map(r => r.label).join(', ')} are the data structures that keep the system controllable.`,
   };
 }
 
 function* productionPatterns() {
+  const wf = workflowState('Most production systems mix workflows and agents');
+  const wfNodes = wf.graph.nodes;
+  const wfEdges = wf.graph.edges;
+
   yield {
-    state: workflowState('Most production systems mix workflows and agents'),
+    state: wf,
     highlight: { active: ['user', 'router', 'workflow', 'agent', 'e-user-router', 'e-router-workflow', 'e-router-agent'], compare: ['guard', 'human'] },
-    explanation: 'A deterministic workflow is better when the path is known. An agent helps when the system must choose its own path through uncertain tools or changing evidence. Mature products usually route between both.',
+    explanation: `A deterministic ${wfNodes[2].label} is better when the path is known. An ${wfNodes[3].label} helps when the system must choose its own path through uncertain ${wfNodes[4].label} or changing evidence. The ${wfNodes.length}-node graph shows mature products routing between both.`,
   };
 
+  const patternRows = [
+    { id: 'chain', label: 'prompt chain' },
+    { id: 'router', label: 'router' },
+    { id: 'tool', label: 'tool loop' },
+    { id: 'planner', label: 'planner' },
+    { id: 'multi', label: 'multi-agent' },
+  ];
   yield {
     state: labelMatrix(
       'Common agentic patterns',
-      [
-        { id: 'chain', label: 'prompt chain' },
-        { id: 'router', label: 'router' },
-        { id: 'tool', label: 'tool loop' },
-        { id: 'planner', label: 'planner' },
-        { id: 'multi', label: 'multi-agent' },
-      ],
+      patternRows,
       [
         { id: 'best', label: 'best use' },
         { id: 'risk', label: 'main risk' },
@@ -167,25 +177,26 @@ function* productionPatterns() {
       ],
     ),
     highlight: { found: ['chain:best', 'router:best', 'tool:best', 'planner:best'], compare: ['multi:risk'] },
-    explanation: 'The pattern should match the uncertainty. Do not pay for an agent when a prompt chain or router is enough. Do not pretend a fixed workflow is enough when the task needs environment feedback.',
+    explanation: `The ${patternRows.length} patterns (${patternRows.map(p => p.label).join(', ')}) should match the uncertainty. Do not pay for an ${patternRows[4].label} when a ${patternRows[0].label} or ${patternRows[1].label} is enough.`,
   };
 
   yield {
     state: workflowState('Guardrails live around actions'),
     highlight: { active: ['agent', 'tools', 'guard', 'human', 'e-agent-tools', 'e-tools-agent', 'e-agent-guard', 'e-guard-human'], found: ['log'] },
-    explanation: 'The highest-risk boundary is not text generation. It is action: sending email, editing code, moving money, deleting data, filing a ticket, or exposing private context. Guardrails belong around tools and outputs.',
-    invariant: 'Constrain the action channel, not only the prompt.',
+    explanation: `The highest-risk boundary is not text generation. It is action at the ${wfNodes[4].label} node: sending email, editing code, moving money, deleting data. The ${wfNodes[5].label} and ${wfNodes[6].label} nodes enforce guardrails around ${wfEdges.length} edges of control flow.`,
+    invariant: `Constrain the ${wfNodes[4].label} action channel, not only the prompt.`,
   };
 
+  const failureRows = [
+    { id: 'drift', label: 'goal drift' },
+    { id: 'poison', label: 'bad context' },
+    { id: 'loop', label: 'runaway loop' },
+    { id: 'eval', label: 'weak eval' },
+  ];
   yield {
     state: labelMatrix(
       'Failure modes and controls',
-      [
-        { id: 'drift', label: 'goal drift' },
-        { id: 'poison', label: 'bad context' },
-        { id: 'loop', label: 'runaway loop' },
-        { id: 'eval', label: 'weak eval' },
-      ],
+      failureRows,
       [
         { id: 'symptom', label: 'symptom' },
         { id: 'control', label: 'control' },
@@ -198,13 +209,13 @@ function* productionPatterns() {
       ],
     ),
     highlight: { active: ['drift:control', 'poison:control', 'loop:control', 'eval:control'] },
-    explanation: 'Agentic systems fail like distributed systems: state is stale, inputs are hostile, retries hide bugs, and observability arrives late. The cure is explicit state plus small evaluators at each boundary.',
+    explanation: `Agentic systems exhibit ${failureRows.length} failure modes (${failureRows.map(f => f.label).join(', ')}). The cure is explicit state plus small evaluators at each boundary.`,
   };
 
   yield {
     state: workflowState('Durable orchestration preserves long work'),
     highlight: { active: ['workflow', 'agent', 'guard', 'log', 'e-workflow-guard', 'e-agent-guard', 'e-guard-log'], compare: ['tools'] },
-    explanation: 'Long-running agents need a place to store progress, retries, approvals, and side-effect history. Durable workflow engines make the loop restartable instead of trusting one process and one transcript.',
+    explanation: `Long-running ${wfNodes[3].label} instances need a place to store progress, retries, approvals, and side-effect history. Durable ${wfNodes[2].label} engines write to the ${wfNodes[7].label} node, making the loop restartable instead of trusting one process.`,
   };
 }
 
@@ -212,7 +223,7 @@ export function* run(input) {
   const view = String(input.view);
   if (view === 'control loop') yield* controlLoop();
   else if (view === 'production patterns') yield* productionPatterns();
-  else throw new InputError('Pick an agentic AI patterns view.');
+  else throw new InputError(`Pick an agentic AI patterns view, not "${view}".`);
 }
 
 export const article = {
@@ -225,7 +236,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/agentic-ai-patterns-planning-tools-memory.gif', alt: 'Animated walkthrough of the agentic ai patterns planning tools memory visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'What agentic means',

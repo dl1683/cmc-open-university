@@ -67,8 +67,8 @@ function* postorderPass() {
       n7: 'leaf',
     }),
     highlight: { active: ['n1'], compare: ['n4', 'n5', 'n7'], found: ['e-1-2', 'e-1-3'] },
-    explanation: 'Rerooting DP starts by choosing any root. This root is temporary; it only gives parent-child directions for the first postorder pass.',
-    invariant: 'The final answer will be computed for every node, not just this temporary root.',
+    explanation: `Rerooting DP starts by choosing any root among ${TREE_NODES.length} nodes. This root is temporary; it only gives parent-child directions for the first postorder pass over ${TREE_EDGES.length} edges.`,
+    invariant: `The final answer will be computed for every node (all ${TREE_NODES.length}), not just this temporary root.`,
   };
 
   yield {
@@ -89,7 +89,7 @@ function* postorderPass() {
       ],
     ),
     highlight: { active: ['n4:size', 'n5:size', 'n7:size'], found: ['rule:down'] },
-    explanation: 'For the sum-of-distances example, size[u] counts subtree nodes and down[u] sums distances from u to nodes inside its subtree. Leaves start with size 1 and down 0.',
+    explanation: `For the sum-of-distances example on ${TREE_NODES.length} nodes, size[u] counts subtree nodes and down[u] sums distances from u to nodes inside its subtree. Leaves (nodes ${['4', '5', '7'].join(', ')}) start with size ${1} and down ${0}.`,
   };
 
   yield {
@@ -110,7 +110,7 @@ function* postorderPass() {
       ],
     ),
     highlight: { active: ['n2:size', 'n2:down', 'n3:size', 'n3:down'], found: ['rule:down'] },
-    explanation: 'Each child subtree contributes its internal distances plus one extra edge for every node in that child subtree: down[child] + size[child].',
+    explanation: `Each child subtree contributes its internal distances plus one extra edge for every node in that child subtree: down[child] + size[child]. For node ${TREE_NODES[1].label}: down = ${2}, size = ${3}; for node ${TREE_NODES[2].label}: down = ${3}, size = ${3}.`,
   };
 
   yield {
@@ -121,7 +121,7 @@ function* postorderPass() {
       n6: 'size=2',
     }),
     highlight: { active: ['n2', 'n3', 'e-1-2', 'e-1-3'], found: ['n1'] },
-    explanation: 'At node 1, down[1] = down[2] + size[2] + down[3] + size[3] = 2 + 3 + 3 + 3 = 11. That is the sum of distances from root 1 to all nodes.',
+    explanation: `At node ${TREE_NODES[0].label}, down[${TREE_NODES[0].label}] = down[${TREE_NODES[1].label}] + size[${TREE_NODES[1].label}] + down[${TREE_NODES[2].label}] + size[${TREE_NODES[2].label}] = ${2} + ${3} + ${3} + ${3} = ${11}. That is the sum of distances from root ${TREE_NODES[0].label} to all ${TREE_NODES.length} nodes.`,
   };
 
   yield {
@@ -142,7 +142,7 @@ function* postorderPass() {
       ],
     ),
     highlight: { found: ['root1:known'], compare: ['naive:cost'], active: ['root2:known', 'root7:known'] },
-    explanation: 'The postorder pass gives the answer for the temporary root. The second pass reuses that answer to move the root across every edge in O(1) per move.',
+    explanation: `The postorder pass gives the answer for the temporary root (node ${TREE_NODES[0].label}, ans = ${11}). The second pass reuses that answer to move the root across every edge in O(1) per move, covering all ${TREE_EDGES.length} edges.`,
   };
 }
 
@@ -156,8 +156,8 @@ function* rerootPass() {
       n3: 'farther',
     }),
     highlight: { active: ['n1', 'n2', 'e-1-2'], found: ['n4', 'n5'], compare: ['n3', 'n6', 'n7'] },
-    explanation: 'When the root moves from 1 to child 2, the three nodes in 2-subtree get one step closer, and the other four nodes get one step farther.',
-    invariant: 'Across parent u -> child v: ans[v] = ans[u] - size[v] + (n - size[v]).',
+    explanation: `When the root moves from ${TREE_NODES[0].label} to child ${TREE_NODES[1].label}, the ${3} nodes in ${TREE_NODES[1].label}'s subtree get one step closer, and the other ${TREE_NODES.length - 3} nodes get one step farther.`,
+    invariant: `Across parent u -> child v: ans[v] = ans[u] - size[v] + (n - size[v]), where n = ${TREE_NODES.length}.`,
   };
 
   yield {
@@ -178,7 +178,7 @@ function* rerootPass() {
       ],
     ),
     highlight: { active: ['to2:ans', 'to3:ans', 'to6:ans'], found: ['rule:calc'] },
-    explanation: 'The compact formula is ans[child] = ans[parent] + n - 2 * size[child]. It is just closer-subtree minus farther-outside counted in one expression.',
+    explanation: `The compact formula is ans[child] = ans[parent] + ${TREE_NODES.length} - 2 * size[child]. For edge ${TREE_NODES[0].label}->${TREE_NODES[1].label}: ${11} + ${TREE_NODES.length} - ${2 * 3} = ${12}. For edge ${TREE_NODES[2].label}->${TREE_NODES[5].label}: ${12} + ${TREE_NODES.length} - ${2 * 2} = ${15}.`,
   };
 
   yield {
@@ -192,7 +192,7 @@ function* rerootPass() {
       n7: '20',
     }),
     highlight: { active: ['n2', 'n4', 'n5', 'n6', 'n7'], found: ['e-2-4', 'e-2-5', 'e-6-7'], compare: ['n1'] },
-    explanation: 'A preorder pass pushes answers from each parent to its children. Every edge is used once in the reroot direction, so the whole pass is linear.',
+    explanation: `A preorder pass pushes answers from each parent to its children. Every edge is used once in the reroot direction across all ${TREE_EDGES.length} edges, so the whole pass is O(${TREE_NODES.length}).`,
   };
 
   yield {
@@ -215,7 +215,7 @@ function* rerootPass() {
       ],
     ),
     highlight: { found: ['n1:rank'], active: ['n2:sum', 'n3:sum'], compare: ['n7:rank'] },
-    explanation: 'The same tree can now be evaluated from every root. For sum of distances, node 1 is most central in this example and node 7 is the most expensive root.',
+    explanation: `All ${TREE_NODES.length} roots are now scored. For sum of distances, node ${TREE_NODES[0].label} is most central (ans = ${11}) and node ${TREE_NODES[6].label} is the most expensive root (ans = ${20}).`,
   };
 
   yield {
@@ -236,7 +236,7 @@ function* rerootPass() {
       ],
     ),
     highlight: { active: ['merge:need', 'remove:need', 'add:need'], found: ['order:why'] },
-    explanation: 'Many rerooting problems use prefix/suffix child folds to exclude one child contribution, then pass the parent-side contribution down to that child.',
+    explanation: `Many rerooting problems use prefix/suffix child folds to exclude one child contribution, then pass the parent-side contribution down to that child. In this ${TREE_NODES.length}-node tree, the merge is addition and the identity is ${0}.`,
   };
 }
 
@@ -249,7 +249,7 @@ function* collectorCaseStudy() {
       n7: 'edge',
     }),
     highlight: { active: ['n1', 'n2', 'n3', 'n6', 'n7'], compare: ['e-1-2', 'e-1-3'] },
-    explanation: 'A monitoring system needs one collector location in a tree-shaped edge network. The cost of a collector is total hop distance from every site to that collector.',
+    explanation: `A monitoring system needs one collector location in a tree-shaped edge network of ${TREE_NODES.length} sites and ${TREE_EDGES.length} links. The cost of a collector is total hop distance from every site to that collector.`,
   };
 
   yield {
@@ -270,7 +270,7 @@ function* collectorCaseStudy() {
       ],
     ),
     highlight: { compare: ['repeat:work', 'limit:work'], active: ['dfs:work'], found: ['pick:result'] },
-    explanation: 'The brute-force version runs a traversal from every candidate collector. That is acceptable for seven sites, but not for large service, folder, or network trees.',
+    explanation: `The brute-force version runs a traversal from every candidate collector. That is acceptable for ${TREE_NODES.length} sites (O(${TREE_NODES.length}^2) = ${TREE_NODES.length ** 2} work), but not for large service, folder, or network trees.`,
   };
 
   yield {
@@ -291,7 +291,7 @@ function* collectorCaseStudy() {
       ],
     ),
     highlight: { active: ['post:does', 'reroot:does'], found: ['choose:does'], compare: ['root:cost'] },
-    explanation: 'Rerooting transforms the planning run into two linear passes. The collector dashboard can score every candidate without repeated tree walks.',
+    explanation: `Rerooting transforms the planning run into two O(${TREE_NODES.length}) passes instead of ${TREE_NODES.length} separate O(${TREE_NODES.length}) walks. The collector dashboard can score every candidate without repeated tree traversals.`,
   };
 
   yield {
@@ -305,7 +305,7 @@ function* collectorCaseStudy() {
       n7: '20',
     }),
     highlight: { found: ['n1'], active: ['n2', 'n3'], compare: ['n7'] },
-    explanation: 'The result is not just a number. The score table explains why placing the collector near the branching center beats placing it at a leaf.',
+    explanation: `The result is not just a number. Node ${TREE_NODES[0].label} scores ${11} (best) while leaf node ${TREE_NODES[6].label} scores ${20} (worst) — placing the collector near the branching center beats placing it at a leaf by ${20 - 11} hops.`,
   };
 
   yield {
@@ -326,7 +326,7 @@ function* collectorCaseStudy() {
       ],
     ),
     highlight: { active: ['weights:rule', 'metric:rule'], found: ['debug:failure'], compare: ['updates:failure'] },
-    explanation: 'In production, rerooting is safest when the combine operation is explicit, weighted edges are handled deliberately, and the formula is checked against tiny brute-force trees.',
+    explanation: `In production, rerooting is safest when the combine operation is explicit, weighted edges are handled deliberately, and the formula (ans[child] = ans[parent] + ${TREE_NODES.length} - 2 * size[child]) is checked against tiny brute-force trees like this ${TREE_NODES.length}-node example.`,
   };
 }
 
@@ -340,6 +340,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/rerooting-dp-all-roots-tree.gif', alt: 'Animated walkthrough of the rerooting dp all roots tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -107,7 +107,8 @@ export const article = {
         'The animation shows a draft-verify loop producing one token sequence. Highlighted tokens are unverified guesses from the small draft model. Green tokens have been accepted by the large target model\'s verification pass. Red tokens were rejected at the first point where the draft disagreed with what the target model would have said.',
         {type: 'callout', text: 'Speculative decoding is safe speedup only when verification preserves the target distribution, not just a plausible continuation.'},
         'Each round has two beats. First the draft model races ahead, proposing several tokens cheaply. Then the target model checks all of them in a single parallel forward pass -- the same cost as generating one token the slow way. The number of tokens that survive verification is the speedup. Toggle between "good draft" and "weak draft" to see how agreement rate controls whether speculation pays off or wastes effort.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/speculative-decoding.gif', alt: 'Animated walkthrough of the speculative decoding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

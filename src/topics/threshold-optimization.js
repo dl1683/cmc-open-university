@@ -119,7 +119,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: "callout", text: "A threshold is a priced operating point, not a model property; changing costs can move the best cutoff while the scores stay fixed."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/threshold-optimization.gif', alt: 'Animated walkthrough of the threshold optimization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

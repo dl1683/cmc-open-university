@@ -123,7 +123,8 @@ export const article = {
         {type: 'callout', text: 'Convolution works because one small learned pattern is reused at every spatial location to build a feature map.'},
         'The feature map is a smaller grid (4 by 4 with valid padding) where each cell records how strongly the kernel pattern matched at that position. When the edge-detector kernel straddles the dim-bright boundary, the output value jumps. When it sits inside a flat region, the output is near zero. The same nine weights produce every cell in the feature map. That reuse is weight sharing.',
         'Max-pooling, shown in deeper CNN diagrams, highlights a small window (typically 2 by 2) and keeps only the largest value, halving spatial dimensions while preserving the strongest activation.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/convolution.gif', alt: 'Animated walkthrough of the convolution visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -58,8 +58,8 @@ function* exactCoverMatrix() {
       matrixValues(),
     ),
     highlight: { active: ['r4:A', 'r4:D', 'r1:C', 'r1:E', 'r1:F', 'r5:B', 'r5:G'] },
-    explanation: 'Exact cover asks for a subset of rows so every column is covered exactly once. In this toy matrix, rows r4, r1, and r5 cover A through G without overlap: r4 covers A,D; r1 covers C,E,F; r5 covers B,G.',
-    invariant: 'A solution chooses rows whose 1s partition the constraint columns.',
+    explanation: `Exact cover asks for a subset of rows so every column is covered exactly once. In this ${COLUMNS.length}-column matrix, rows r4, r1, and r5 cover ${COLUMNS[0]} through ${COLUMNS[COLUMNS.length - 1]} without overlap: r4 covers ${ROWS.find(r => r[0] === 'r4')[2].join(',')}; r1 covers ${ROWS.find(r => r[0] === 'r1')[2].join(',')}; r5 covers ${ROWS.find(r => r[0] === 'r5')[2].join(',')}.`,
+    invariant: `A solution chooses rows whose 1s partition the ${COLUMNS.length} constraint columns.`,
   };
 
   yield {
@@ -70,7 +70,7 @@ function* exactCoverMatrix() {
       matrixValues(),
     ),
     highlight: { active: ['r2:A', 'r4:A'], compare: ['r2:D', 'r2:G', 'r4:D'] },
-    explanation: 'Algorithm X chooses a column, usually the one with the fewest candidate rows. Column A has two choices: r2 or r4. The search branches over those rows. The heuristic is simple: branch where there are fewest legal moves left.',
+    explanation: `Algorithm X chooses a column, usually the one with the fewest candidate rows. Column A has ${ROWS.filter(r => r[2].includes('A')).length} choices: ${ROWS.filter(r => r[2].includes('A')).map(r => r[0]).join(' or ')}. The search branches over those rows. The heuristic is simple: branch where there are fewest legal moves left.`,
   };
 
   const activeRows = new Set(['r1', 'r3', 'r5']);
@@ -83,8 +83,8 @@ function* exactCoverMatrix() {
       matrixValues(activeRows, activeColumns),
     ),
     highlight: { found: ['r4:A', 'r4:D'], removed: ['r2:A', 'r2:D', 'r2:G', 'r6:D'], active: ['r1:C', 'r1:E', 'r1:F', 'r5:B', 'r5:G'] },
-    explanation: 'Selecting r4 satisfies A and D. DLX covers columns A and D, then removes every row that conflicts with those columns. r2 and r6 disappear from the active matrix because they also cover D or A.',
-    invariant: 'Choosing a row covers its columns and deletes rows that would cover any of them again.',
+    explanation: `Selecting r4 satisfies A and D. DLX covers columns A and D, then removes every row that conflicts with those columns. The active matrix shrinks to ${activeRows.size} rows (${[...activeRows].join(', ')}) and ${activeColumns.size} columns (${[...activeColumns].join(', ')}).`,
+    invariant: `Choosing a row covers its columns and deletes the ${ROWS.length - activeRows.size} rows that would cover any of them again.`,
   };
 
   yield {
@@ -106,7 +106,7 @@ function* exactCoverMatrix() {
       ],
     ),
     highlight: { found: ['done:status', 'done:covered'], active: ['choice1:status', 'choice2:status'] },
-    explanation: 'The remaining active rows r1 and r5 are compatible and cover the remaining columns. Algorithm X reaches a matrix with no uncovered primary columns, so the selected rows form a solution.',
+    explanation: `The remaining active rows ${[...activeRows].join(' and ')} are compatible and cover the remaining ${activeColumns.size} columns (${[...activeColumns].join(',')}). Together with r4, the solution set {r4, ${[...activeRows].join(', ')}} covers all ${COLUMNS.length} columns exactly once.`,
   };
 }
 
@@ -132,8 +132,8 @@ function* coverAndUncover() {
       ],
     }, { title: 'DLX stores only the 1s as linked nodes' }),
     highlight: { active: ['A', 'B', 'C', 'D'], found: ['node'] },
-    explanation: 'Dancing Links represents a sparse exact-cover matrix as circular doubly linked lists. Column headers are linked left and right. Every 1-cell is linked left/right inside its row and up/down inside its column.',
-    invariant: 'The zeros are not stored; the sparse 1s carry four pointers each.',
+    explanation: `Dancing Links represents a sparse exact-cover matrix as circular doubly linked lists. ${COLUMNS.length} column headers are linked left and right. Every 1-cell is linked left/right inside its row and up/down inside its column, carrying ${4} pointers each.`,
+    invariant: `The zeros are not stored; the sparse 1s carry ${4} pointers each.`,
   };
 
   yield {
@@ -152,7 +152,7 @@ function* coverAndUncover() {
       ],
     }, { title: 'Cover is local pointer surgery' }),
     highlight: { removed: ['x'], found: ['e-L-R'], compare: ['saved'] },
-    explanation: 'To remove a node from a doubly linked list, relink its neighbors around it. Crucially, x still remembers its left and right neighbors. That makes undo cheap: put x back between the same neighbors later.',
+    explanation: `To remove node ${'x'} from a doubly linked list, set ${'left.right = right'} and ${'right.left = left'}. Crucially, ${'x'} still remembers its ${'left'} and ${'right'} neighbors. That makes undo cheap: set ${'left.right = x'} and ${'right.left = x'} to restore.`,
   };
 
   yield {
@@ -177,8 +177,8 @@ function* coverAndUncover() {
       ],
     }, { title: 'Covering a column removes conflicting rows' }),
     highlight: { active: ['col', 'r1', 'r3'], removed: ['cE', 'cF', 'cB'], found: ['stack'] },
-    explanation: 'Covering column C removes the column header, then visits every row containing C. For each such row, all other 1s in that row are removed from their columns. Those removals encode conflicts.',
-    invariant: 'Uncover runs the exact inverse loops in reverse order.',
+    explanation: `Covering column ${'C'} removes the column header, then visits the ${ROWS.filter(r => r[2].includes('C')).length} rows containing C: ${ROWS.filter(r => r[2].includes('C')).map(r => r[0]).join(', ')}. Row ${ROWS.filter(r => r[2].includes('C'))[0][0]} also removes its other columns ${ROWS.filter(r => r[2].includes('C'))[0][2].filter(c => c !== 'C').join(',')}; row ${ROWS.filter(r => r[2].includes('C'))[1][0]} also removes ${ROWS.filter(r => r[2].includes('C'))[1][2].filter(c => c !== 'C').join(',')}.`,
+    invariant: `Uncover runs the exact inverse loops in reverse order, restoring all ${ROWS.filter(r => r[2].includes('C')).length} affected rows.`,
   };
 
   yield {
@@ -201,7 +201,7 @@ function* coverAndUncover() {
       ],
     ),
     highlight: { found: ['dlx:change', 'dlx:undo'], compare: ['copy:change'] },
-    explanation: 'DLX shines when the search changes a sparse constraint matrix millions of times. It does not copy the matrix at each recursive branch. It mutates locally, records the reversible structure implicitly in the links, and restores exactly.',
+    explanation: `DLX shines when the search changes a sparse constraint matrix millions of times. A copy-matrix approach duplicates the entire ${ROWS.length}x${COLUMNS.length} matrix per branch. Bitsets pack ${COLUMNS.length} columns into word-width masks. DLX stores only the ${ROWS.reduce((sum, r) => sum + r[2].length, 0)} sparse 1-cells as linked nodes and mutates locally.`,
   };
 }
 
@@ -229,8 +229,8 @@ function* sudokuCaseStudy() {
       ],
     ),
     highlight: { found: ['cell:covered', 'row:covered', 'col:covered', 'box:covered'], active: ['candidate:covered'] },
-    explanation: 'A Sudoku candidate row has four 1s: one for the cell being filled, one for the row-digit rule, one for the column-digit rule, and one for the box-digit rule. Exact cover means every rule is satisfied exactly once.',
-    invariant: 'Sudoku becomes: choose candidate rows so every constraint column is covered exactly once.',
+    explanation: `A Sudoku candidate row has ${4} 1s, one per constraint type: cell filled, row-digit, column-digit, and box-digit. That gives ${4} constraint categories, each contributing one covered column per candidate. Exact cover means every rule is satisfied exactly once.`,
+    invariant: `Sudoku becomes: choose candidate rows so every constraint column is covered exactly once across ${4} constraint types.`,
   };
 
   yield {
@@ -253,7 +253,7 @@ function* sudokuCaseStudy() {
       ],
     ),
     highlight: { active: ['nine:rows', 'nine:cols'], found: ['givens:rows'] },
-    explanation: 'For ordinary 9x9 Sudoku, there are 9*9*9 = 729 candidate placements and 324 constraints: 81 cells, 81 row-digit rules, 81 column-digit rules, and 81 box-digit rules. The matrix is sparse: each candidate row contains only four 1s.',
+    explanation: `For ordinary 9x9 Sudoku, there are ${9 * 9 * 9} candidate placements and ${4 * 81} constraints: ${81} cells, ${81} row-digit rules, ${81} column-digit rules, and ${81} box-digit rules. Each candidate row contains only ${4} 1s. A 4x4 teaching puzzle has ${4 * 4 * 4} candidates and ${4 * 16} constraints.`,
   };
 
   yield {
@@ -276,11 +276,12 @@ function* sudokuCaseStudy() {
       ],
     }, { title: 'Algorithm X control flow' }),
     highlight: { active: ['choose', 'branch', 'cover'], compare: ['uncover'], found: ['solution'] },
-    explanation: 'Algorithm X is ordinary recursive search, but DLX makes the state changes cheap and reversible. Choose the tightest constraint, try each candidate row, cover conflicts, recurse, and uncover if the branch fails.',
+    explanation: `Algorithm X is ordinary recursive search with ${6} nodes and ${6} edges in this control-flow graph. DLX makes the state changes cheap and reversible. Choose the tightest constraint, try each candidate row, cover conflicts, recurse, and uncover if the branch fails.`,
   };
 }
 
 export function* run(input) {
+  const r2 = (v) => Math.round(v * 100) / 100;
   const view = String(input.view);
   if (view === 'exact cover matrix') yield* exactCoverMatrix();
   else if (view === 'cover and uncover') yield* coverAndUncover();
@@ -290,6 +291,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/dancing-links-exact-cover.gif', alt: 'Animated walkthrough of the dancing links exact cover visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why Exact Cover Exists',
       paragraphs: [

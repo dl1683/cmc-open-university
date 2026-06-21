@@ -72,28 +72,32 @@ function dfaGraph(title) {
 }
 
 function* stateSets() {
+  const hl1 = { active: ['nfa', 'closure', 'move', 'key'], found: ['dfa'] };
   yield {
     state: subsetGraph('A DFA state can be a whole NFA frontier'),
-    highlight: { active: ['nfa', 'closure', 'move', 'key'], found: ['dfa'] },
-    explanation: 'Subset construction makes an NFA deterministic by treating each eps-closed set of NFA states as one DFA state. The set becomes a cache key; the DFA transition table points from set to set.',
+    highlight: hl1,
+    explanation: `Subset construction makes an NFA deterministic by treating each eps-closed set of ${hl1.active.length} NFA-side components (${hl1.active.join(', ')}) as one DFA state. The set becomes a cache key; the DFA transition table points from set to set, producing ${hl1.found.length} deterministic output (${hl1.found.join(', ')}).`,
     invariant: 'Deterministic does not mean simpler internally; it means one next state per input symbol.',
   };
 
+  const rows2 = [
+    { id: 'd0', label: 'D0' },
+    { id: 'd1', label: 'D1' },
+    { id: 'dm', label: 'DM' },
+    { id: 'dead', label: 'dead' },
+  ];
+  const cols2 = [
+    { id: 'nfa', label: 'set' },
+    { id: 'a', label: 'on a' },
+    { id: 'b', label: 'on b' },
+    { id: 'c', label: 'on c' },
+  ];
+  const hl2 = { active: ['d0:a', 'd1:b', 'd1:c'], found: ['dm:nfa'] };
   yield {
     state: labelMatrix(
       'State-set conversion for (ab|a)*c',
-      [
-        { id: 'd0', label: 'D0' },
-        { id: 'd1', label: 'D1' },
-        { id: 'dm', label: 'DM' },
-        { id: 'dead', label: 'dead' },
-      ],
-      [
-        { id: 'nfa', label: 'set' },
-        { id: 'a', label: 'on a' },
-        { id: 'b', label: 'on b' },
-        { id: 'c', label: 'on c' },
-      ],
+      rows2,
+      cols2,
       [
         ['R,A,L,S,C', 'D1', 'dead', 'DM'],
         ['B,R,A,L,S,C', 'D1', 'D0', 'DM'],
@@ -101,30 +105,36 @@ function* stateSets() {
         ['empty', 'dead', 'dead', 'dead'],
       ],
     ),
-    highlight: { active: ['d0:a', 'd1:b', 'd1:c'], found: ['dm:nfa'] },
-    explanation: 'The start set D0 contains every state reachable by eps edges. Reading a creates D1 because both alternatives in the NFA can be relevant. From D1, a loops, b returns to D0, and c accepts.',
+    highlight: hl2,
+    explanation: `The ${rows2.length}x${cols2.length} table maps ${rows2.length} DFA states (${rows2.map(r => r.label).join(', ')}) across ${cols2.length} columns. ${hl2.active.length} transition cells are highlighted (${hl2.active.join(', ')}); the start set D0 contains every state reachable by eps edges. Reading a creates D1 because both alternatives in the NFA can be relevant. From D1, a loops, b returns to D0, and c accepts.`,
   };
 
+  const hl3 = { active: ['d0', 'd1', 'dm', 'e-d0-d1', 'e-d1-d0', 'e-d1-dm'], found: ['table'] };
+  const hl3Nodes = hl3.active.filter(id => !id.startsWith('e-'));
+  const hl3Edges = hl3.active.filter(id => id.startsWith('e-'));
   yield {
     state: dfaGraph('The cached DFA has one edge per symbol'),
-    highlight: { active: ['d0', 'd1', 'dm', 'e-d0-d1', 'e-d1-d0', 'e-d1-dm'], found: ['table'] },
-    explanation: 'Once the state sets are interned, matching is simple table lookup. The runtime scanner no longer sees eps transitions or multiple active paths. It just moves D0, D1, DM, or dead.',
+    highlight: hl3,
+    explanation: `Once the state sets are interned, matching is simple table lookup across ${hl3Nodes.length} active nodes (${hl3Nodes.join(', ')}) and ${hl3Edges.length} edges. The runtime scanner no longer sees eps transitions or multiple active paths. It just moves ${hl3Nodes.join(', ')}, or dead, landing results in ${hl3.found.join(', ')}.`,
   };
 
+  const rows4 = [
+    { id: 'work', label: 'queue' },
+    { id: 'set', label: 'set' },
+    { id: 'key', label: 'key' },
+    { id: 'map', label: 'map' },
+    { id: 'table', label: 'table' },
+  ];
+  const cols4 = [
+    { id: 'job', label: 'job' },
+    { id: 'why', label: 'why' },
+  ];
+  const hl4 = { active: ['work:job', 'map:why', 'table:why'], compare: ['key:job'] };
   yield {
     state: labelMatrix(
       'Implementation data structures',
-      [
-        { id: 'work', label: 'queue' },
-        { id: 'set', label: 'set' },
-        { id: 'key', label: 'key' },
-        { id: 'map', label: 'map' },
-        { id: 'table', label: 'table' },
-      ],
-      [
-        { id: 'job', label: 'job' },
-        { id: 'why', label: 'why' },
-      ],
+      rows4,
+      cols4,
       [
         ['new sets', 'BFS'],
         ['NFA ids', 'frontier'],
@@ -133,101 +143,101 @@ function* stateSets() {
         ['state x c', 'scan'],
       ],
     ),
-    highlight: { active: ['work:job', 'map:why', 'table:why'], compare: ['key:job'] },
-    explanation: 'The algorithm is graph search plus hash-consing. A queue explores newly discovered state sets; a hash map gives each unique set one stable DFA id; the transition table records the compiled result.',
+    highlight: hl4,
+    explanation: `The algorithm uses ${rows4.length} data structures (${rows4.map(r => r.label).join(', ')}) tracked across ${cols4.length} columns. ${hl4.active.length} cells are active (${hl4.active.join(', ')}), with ${hl4.compare.length} compared (${hl4.compare.join(', ')}). A queue explores newly discovered state sets; a hash map gives each unique set one stable DFA id; the transition table records the compiled result.`,
   };
 
+  const hl5 = { active: ['cache', 'dfa', 'scan', 'e-cache-dfa'], compare: ['closure'] };
+  const hl5Nodes = hl5.active.filter(id => !id.startsWith('e-'));
+  const hl5Edges = hl5.active.filter(id => id.startsWith('e-'));
   yield {
     state: subsetGraph('Lazy construction builds only what input or cache pressure needs'),
-    highlight: { active: ['cache', 'dfa', 'scan', 'e-cache-dfa'], compare: ['closure'] },
-    explanation: 'Production engines often build DFA states lazily while scanning. If a state set is already cached, use it. If not, compute it from the NFA, store it if memory allows, and continue. This is the bridge between Thompson simulation and full DFA compilation.',
+    highlight: hl5,
+    explanation: `Production engines often build DFA states lazily while scanning across ${hl5Nodes.length} active nodes (${hl5Nodes.join(', ')}) and ${hl5Edges.length} edge (${hl5Edges.join(', ')}), comparing against ${hl5.compare.length} earlier stage (${hl5.compare.join(', ')}). If a state set is already cached, use it. If not, compute it from the NFA, store it if memory allows, and continue. This is the bridge between Thompson simulation and full DFA compilation.`,
   };
 }
 
 function* dfaBlowup() {
+  const rows1 = [
+    { id: 'n4', label: '4 states' },
+    { id: 'n8', label: '8 states' },
+    { id: 'n16', label: '16 states' },
+    { id: 'n32', label: '32 states' },
+  ];
+  const cols1 = [
+    { id: 'max', label: 'max subsets' },
+    { id: 'lesson', label: 'lesson' },
+  ];
+  const data1 = [
+    ['16', 'small enough'],
+    ['256', 'plausible'],
+    ['65,536', 'watch memory'],
+    ['4.3B', 'avoid eager'],
+  ];
+  const hl1 = { active: ['n16:max', 'n32:lesson'], compare: ['n8:max'] };
   yield {
-    state: labelMatrix(
-      'Why full DFA construction can explode',
-      [
-        { id: 'n4', label: '4 states' },
-        { id: 'n8', label: '8 states' },
-        { id: 'n16', label: '16 states' },
-        { id: 'n32', label: '32 states' },
-      ],
-      [
-        { id: 'max', label: 'max subsets' },
-        { id: 'lesson', label: 'lesson' },
-      ],
-      [
-        ['16', 'small enough'],
-        ['256', 'plausible'],
-        ['65,536', 'watch memory'],
-        ['4.3B', 'avoid eager'],
-      ],
-    ),
-    highlight: { active: ['n16:max', 'n32:lesson'], compare: ['n8:max'] },
-    explanation: 'The worst case is 2^m DFA states for m NFA states. Most real patterns do not reach all subsets, but a production engine must be designed as though someone will hand it the bad one.',
+    state: labelMatrix('Why full DFA construction can explode', rows1, cols1, data1),
+    highlight: hl1,
+    explanation: `The worst case is 2^m DFA states for m NFA states. This ${rows1.length}x${cols1.length} table shows ${rows1.length} NFA sizes (${rows1.map(r => r.label).join(', ')}), with ${hl1.active.length} cells highlighted and ${hl1.compare.length} compared (${hl1.compare.join(', ')}). Most real patterns do not reach all subsets, but a production engine must be designed as though someone will hand it the bad one.`,
   };
 
+  const hl2 = { active: ['key', 'cache', 'dfa'], compare: ['nfa'] };
   yield {
     state: subsetGraph('The blowup is a representation problem'),
-    highlight: { active: ['key', 'cache', 'dfa'], compare: ['nfa'] },
-    explanation: 'The language accepted by the NFA and DFA is the same. The risk is representation size: a compact NFA can describe a frontier space whose deterministic expansion is huge.',
+    highlight: hl2,
+    explanation: `The language accepted by the NFA and DFA is the same, yet ${hl2.active.length} downstream nodes (${hl2.active.join(', ')}) expand from ${hl2.compare.length} compact source (${hl2.compare.join(', ')}). The risk is representation size: a compact NFA can describe a frontier space whose deterministic expansion is huge.`,
     invariant: 'Equivalent automata can have very different memory costs.',
   };
 
+  const rows3 = [
+    { id: 'small', label: 'small' },
+    { id: 'hot', label: 'hot' },
+    { id: 'wide', label: 'wide' },
+    { id: 'attack', label: 'attack' },
+  ];
+  const cols3 = [
+    { id: 'strategy', label: 'plan' },
+    { id: 'guard', label: 'guard' },
+  ];
+  const hl3 = { active: ['hot:strategy', 'attack:strategy', 'attack:guard'], found: ['wide:strategy'] };
   yield {
-    state: labelMatrix(
-      'Practical engine strategy',
-      [
-        { id: 'small', label: 'small' },
-        { id: 'hot', label: 'hot' },
-        { id: 'wide', label: 'wide' },
-        { id: 'attack', label: 'attack' },
-      ],
-      [
-        { id: 'strategy', label: 'plan' },
-        { id: 'guard', label: 'guard' },
-      ],
-      [
-        ['eager', 'budget'],
-        ['lazy', 'evict'],
-        ['classes', 'compress'],
-        ['fallback', 'caps'],
-      ],
-    ),
-    highlight: { active: ['hot:strategy', 'attack:strategy', 'attack:guard'], found: ['wide:strategy'] },
-    explanation: 'Regex engines use engineering compromises: byte classes shrink alphabets, lazy DFA caches hot states, and a Thompson fallback preserves progress when the DFA cache would grow too large.',
+    state: labelMatrix('Practical engine strategy', rows3, cols3, [
+      ['eager', 'budget'],
+      ['lazy', 'evict'],
+      ['classes', 'compress'],
+      ['fallback', 'caps'],
+    ]),
+    highlight: hl3,
+    explanation: `Regex engines use ${rows3.length} engineering strategies (${rows3.map(r => r.label).join(', ')}) across ${cols3.length} dimensions. ${hl3.active.length} cells are active (${hl3.active.join(', ')}), with ${hl3.found.length} found (${hl3.found.join(', ')}): byte classes shrink alphabets, lazy DFA caches hot states, and a Thompson fallback preserves progress when the DFA cache would grow too large.`,
   };
 
+  const hl4 = { active: ['table', 'd0', 'd1'], found: ['dm'], removed: ['dead'] };
   yield {
     state: dfaGraph('A cached transition table is a data structure, not magic'),
-    highlight: { active: ['table', 'd0', 'd1'], found: ['dm'], removed: ['dead'] },
-    explanation: 'After construction, the DFA is just a transition table. That makes matching fast and debuggable, but the table needs memory budgets, eviction policy, and clear failure behavior if compilation exceeds limits.',
+    highlight: hl4,
+    explanation: `After construction, the DFA is just a transition table. ${hl4.active.length} nodes are active (${hl4.active.join(', ')}), ${hl4.found.length} accepting (${hl4.found.join(', ')}), and ${hl4.removed.length} pruned (${hl4.removed.join(', ')}). That makes matching fast and debuggable, but the table needs memory budgets, eviction policy, and clear failure behavior if compilation exceeds limits.`,
   };
 
+  const rows5 = [
+    { id: 'dfa', label: 'DFA' },
+    { id: 'nfa', label: 'NFA' },
+    { id: 'back', label: 'BT' },
+    { id: 'hybrid', label: 'hybrid' },
+  ];
+  const cols5 = [
+    { id: 'best', label: 'best' },
+    { id: 'risk', label: 'risk' },
+  ];
+  const hl5 = { active: ['dfa:best', 'nfa:best', 'hybrid:best'], compare: ['back:risk'] };
   yield {
-    state: labelMatrix(
-      'How to choose the model',
-      [
-        { id: 'dfa', label: 'DFA' },
-        { id: 'nfa', label: 'NFA' },
-        { id: 'back', label: 'BT' },
-        { id: 'hybrid', label: 'hybrid' },
-      ],
-      [
-        { id: 'best', label: 'best' },
-        { id: 'risk', label: 'risk' },
-      ],
-      [
-        ['hot text', 'blowup'],
-        ['safety', 'const'],
-        ['features', '2^n'],
-        ['service', 'complex'],
-      ],
-    ),
-    highlight: { active: ['dfa:best', 'nfa:best', 'hybrid:best'], compare: ['back:risk'] },
-    explanation: 'Subset construction is the conceptual hinge. It explains why DFAs are fast, why NFAs are compact, why lazy hybrids exist, and why backtracking has such different failure modes.',
+    state: labelMatrix('How to choose the model', rows5, cols5, [
+      ['hot text', 'blowup'],
+      ['safety', 'const'],
+      ['features', '2^n'],
+      ['service', 'complex'],
+    ]),
+    highlight: hl5,
+    explanation: `Subset construction is the conceptual hinge across ${rows5.length} execution models (${rows5.map(r => r.label).join(', ')}). ${hl5.active.length} strengths are highlighted (${hl5.active.join(', ')}), with ${hl5.compare.length} risk flagged (${hl5.compare.join(', ')}). It explains why DFAs are fast, why NFAs are compact, why lazy hybrids exist, and why backtracking has such different failure modes.`,
   };
 }
 
@@ -240,6 +250,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/subset-construction-nfa-to-dfa.gif', alt: 'Animated walkthrough of the subset construction nfa to dfa visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

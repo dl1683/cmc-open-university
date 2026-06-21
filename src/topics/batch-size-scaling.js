@@ -37,6 +37,8 @@ function* noiseScale() {
   const sizes = [32, 128, 512, 2048, 8192];
   const noise = sizes.map((x) => ({ x, y: 100 / Math.sqrt(x / 32) }));
   const steps = sizes.map((x) => ({ x, y: 100000 / (x / 32) }));
+  const smallBatch = sizes[1];
+  const largeBatch = sizes[sizes.length - 1];
   yield {
     state: plotState({
       axes: { x: { label: 'minibatch size', min: 0, max: 8500 }, y: { label: 'relative amount', min: 0, max: 105 } },
@@ -45,14 +47,15 @@ function* noiseScale() {
         { id: 'steps', label: 'updates per epoch', points: steps.map((p) => ({ x: p.x, y: Math.min(100, p.y / 1000) })) },
       ],
       markers: [
-        { id: 'small', x: 128, y: 50, label: 'small batch' },
-        { id: 'large', x: 8192, y: 6, label: 'large batch' },
+        { id: 'small', x: smallBatch, y: 50, label: 'small batch' },
+        { id: 'large', x: largeBatch, y: 6, label: 'large batch' },
       ],
     }),
     highlight: { active: ['noise', 'steps'], found: ['small', 'large'] },
-    explanation: 'As the minibatch grows, the gradient estimate gets quieter and the epoch contains fewer optimizer updates. The plot is showing the core bargain: more parallel work per step, but fewer chances for the optimizer to change direction.',
+    explanation: `As the minibatch grows from ${sizes[0]} to ${largeBatch}, the gradient estimate gets quieter and the epoch contains fewer optimizer updates. The plot shows the core bargain across ${sizes.length} batch sizes: more parallel work per step, but fewer chances for the optimizer to change direction.`,
   };
 
+  const effectCount = 4;
   yield {
     state: labelMatrix(
       'What changes as batch size grows',
@@ -74,18 +77,19 @@ function* noiseScale() {
       ],
     ),
     highlight: { active: ['noise:large', 'updates:large', 'hardware:large'], compare: ['generalize:large'] },
-    explanation: 'The matrix separates the effects that often get blurred together. A large batch can keep hardware busy and reduce noise, but it also removes update diversity. Validation decides whether that parallelism preserved learning or only changed the path.',
+    explanation: `The matrix separates ${effectCount} effects that often get blurred together. A large batch can keep hardware busy and reduce noise, but it also removes update diversity. Validation decides whether that parallelism preserved learning or only changed the path.`,
     invariant: 'Batch size is an optimization hyperparameter, not just a hardware knob.',
   };
 
+  const sgdStages = ['workers', 'local minibatch', 'gradient sync', 'optimizer step'];
   yield {
     state: labelMatrix(
       'Distributed synchronous SGD',
       [
-        { id: 'workers', label: 'workers' },
-        { id: 'local', label: 'local minibatch' },
-        { id: 'allreduce', label: 'gradient sync' },
-        { id: 'step', label: 'optimizer step' },
+        { id: 'workers', label: sgdStages[0] },
+        { id: 'local', label: sgdStages[1] },
+        { id: 'allreduce', label: sgdStages[2] },
+        { id: 'step', label: sgdStages[3] },
       ],
       [
         { id: 'role', label: 'role' },
@@ -99,17 +103,18 @@ function* noiseScale() {
       ],
     ),
     highlight: { found: ['workers:role', 'allreduce:role', 'step:role'], compare: ['allreduce:failure'] },
-    explanation: 'Synchronous data parallelism makes one global batch from many local batches. The all-reduce averages those gradients before a single update, so network delay and stragglers become part of the training algorithm, not just system overhead.',
+    explanation: `Synchronous data parallelism makes one global batch from many local batches across ${sgdStages.length} stages. The all-reduce averages those gradients before a single ${sgdStages[3]}, so network delay and stragglers become part of the training algorithm, not just system overhead.`,
   };
 
+  const ceilings = ['critical batch', 'communication', 'memory', 'quality'];
   yield {
     state: labelMatrix(
       'When scaling stops helping',
       [
-        { id: 'critical', label: 'critical batch' },
-        { id: 'comm', label: 'communication' },
-        { id: 'memory', label: 'memory' },
-        { id: 'quality', label: 'quality' },
+        { id: 'critical', label: ceilings[0] },
+        { id: 'comm', label: ceilings[1] },
+        { id: 'memory', label: ceilings[2] },
+        { id: 'quality', label: ceilings[3] },
       ],
       [
         { id: 'symptom', label: 'symptom' },
@@ -123,36 +128,43 @@ function* noiseScale() {
       ],
     ),
     highlight: { active: ['critical:response', 'comm:response', 'quality:response'] },
-    explanation: 'This table is the failure checklist for large-batch runs. Past the useful knee, extra batch can vanish into communication, memory pressure, or worse validation. Scaling is only a win when time to the same target quality falls.',
+    explanation: `This table is the failure checklist with ${ceilings.length} ceilings for large-batch runs. Past the useful knee, extra batch can vanish into ${ceilings[1]}, ${ceilings[2]} pressure, or worse ${ceilings[3]}. Scaling is only a win when time to the same target quality falls.`,
   };
 }
 
 function* linearWarmup() {
-  const constant = Array.from({ length: 21 }, (_, i) => ({ x: i, y: i === 0 ? 8 : 8 }));
-  const warmup = Array.from({ length: 21 }, (_, i) => ({ x: i, y: i < 5 ? 1 + (7 * i) / 5 : 8 - (i - 5) * 0.18 }));
+  const maxLR = 8;
+  const warmupEpochs = 5;
+  const totalEpochs = 20;
+  const constant = Array.from({ length: totalEpochs + 1 }, (_, i) => ({ x: i, y: i === 0 ? maxLR : maxLR }));
+  const warmup = Array.from({ length: totalEpochs + 1 }, (_, i) => ({ x: i, y: i < warmupEpochs ? 1 + (7 * i) / warmupEpochs : maxLR - (i - warmupEpochs) * 0.18 }));
   yield {
     state: plotState({
-      axes: { x: { label: 'epoch', min: 0, max: 20 }, y: { label: 'learning rate multiplier', min: 0, max: 9 } },
+      axes: { x: { label: 'epoch', min: 0, max: totalEpochs }, y: { label: 'learning rate multiplier', min: 0, max: 9 } },
       series: [
         { id: 'constant', label: 'jump to large LR', points: constant },
         { id: 'warmup', label: 'linear warmup then decay', points: warmup },
       ],
       markers: [
-        { id: 'danger', x: 1, y: 8, label: 'early shock' },
-        { id: 'stable', x: 5, y: 8, label: 'warmed up' },
+        { id: 'danger', x: 1, y: maxLR, label: 'early shock' },
+        { id: 'stable', x: warmupEpochs, y: maxLR, label: 'warmed up' },
       ],
     }),
     highlight: { active: ['constant', 'danger'], found: ['warmup', 'stable'] },
-    explanation: 'The dashed choice is the naive jump: use the large-batch learning rate immediately. Warmup ramps toward that rate so early unstable gradients do not take oversized steps before the representation has settled.',
+    explanation: `The dashed choice is the naive jump: use the large-batch learning rate ${maxLR}x immediately. Warmup ramps over ${warmupEpochs} epochs so early unstable gradients do not take oversized steps before the representation has settled.`,
   };
 
+  const baseBatch = 256;
+  const baseLR = 0.1;
+  const scale4 = 4;
+  const scale16 = 16;
   yield {
     state: labelMatrix(
       'Linear scaling rule',
       [
         { id: 'base', label: 'base run' },
-        { id: 'x4', label: '4x batch' },
-        { id: 'x16', label: '16x batch' },
+        { id: 'x4', label: `${scale4}x batch` },
+        { id: 'x16', label: `${scale16}x batch` },
         { id: 'warm', label: 'warmup' },
       ],
       [
@@ -161,25 +173,26 @@ function* linearWarmup() {
         { id: 'reason', label: 'reason' },
       ],
       [
-        ['256', '0.1', 'known stable baseline'],
-        ['1024', '0.4', 'same per-epoch update scale'],
-        ['4096', '1.6', 'needs care early'],
+        [`${baseBatch}`, `${baseLR}`, 'known stable baseline'],
+        [`${baseBatch * scale4}`, `${baseLR * scale4}`, 'same per-epoch update scale'],
+        [`${baseBatch * scale16}`, `${baseLR * scale16}`, 'needs care early'],
         ['first epochs', 'ramp upward', 'avoid optimization shock'],
       ],
     ),
     highlight: { active: ['x4:lr', 'x16:lr', 'warm:lr'], found: ['base:reason'] },
-    explanation: 'The table ties the learning-rate multiplier to global batch size. The rule is empirical: try to preserve per-epoch progress with a larger step, then use warmup because the first epochs are the most fragile.',
+    explanation: `The table ties the learning-rate multiplier to global batch size. At ${scale4}x the batch (${baseBatch * scale4}), the LR scales to ${baseLR * scale4}; at ${scale16}x (${baseBatch * scale16}), it reaches ${baseLR * scale16}. Warmup is needed because the first epochs are the most fragile.`,
     invariant: 'Large-batch training changes both the batch and the optimizer schedule.',
   };
 
+  const approaches = ['accumulation', 'more GPUs', 'sync SGD', 'async SGD'];
   yield {
     state: labelMatrix(
       'Gradient accumulation is not the same as more throughput',
       [
-        { id: 'accum', label: 'accumulation' },
-        { id: 'parallel', label: 'more GPUs' },
-        { id: 'sync', label: 'sync SGD' },
-        { id: 'async', label: 'async SGD' },
+        { id: 'accum', label: approaches[0] },
+        { id: 'parallel', label: approaches[1] },
+        { id: 'sync', label: approaches[2] },
+        { id: 'async', label: approaches[3] },
       ],
       [
         { id: 'what', label: 'what it changes' },
@@ -193,17 +206,18 @@ function* linearWarmup() {
       ],
     ),
     highlight: { compare: ['accum:cost', 'parallel:cost'], found: ['sync:what', 'async:cost'] },
-    explanation: 'Gradient accumulation changes the effective batch seen by the optimizer, not the amount of parallel hardware. It can fix memory limits, but it usually trades fewer updates for more time per update rather than producing distributed speedup.',
+    explanation: `${approaches[0]} changes the effective batch seen by the optimizer, not the amount of parallel hardware. It can fix memory limits, but unlike ${approaches[1]}, it usually trades fewer updates for more time per update rather than producing distributed speedup.`,
   };
 
+  const signals = ['training loss', 'validation loss', 'speedup', 'cost per target'];
   yield {
     state: labelMatrix(
       'Validation keeps scaling honest',
       [
-        { id: 'train', label: 'training loss' },
-        { id: 'val', label: 'validation loss' },
-        { id: 'speed', label: 'speedup' },
-        { id: 'cost', label: 'cost per target' },
+        { id: 'train', label: signals[0] },
+        { id: 'val', label: signals[1] },
+        { id: 'speed', label: signals[2] },
+        { id: 'cost', label: signals[3] },
       ],
       [
         { id: 'good', label: 'good sign' },
@@ -217,7 +231,7 @@ function* linearWarmup() {
       ],
     ),
     highlight: { active: ['val:good', 'speed:good', 'cost:good'], compare: ['val:bad', 'cost:bad'] },
-    explanation: 'The final scoreboard rejects throughput alone. A scaled run wins only if it reaches the same validation target sooner or cheaper; faster examples per second can still lose if accuracy drops or accelerator cost rises.',
+    explanation: `The final scoreboard checks ${signals.length} signals and rejects throughput alone. A scaled run wins only if ${signals[1]} reaches the same target sooner or ${signals[3]} drops; faster examples per second can still lose if accuracy drops or accelerator cost rises.`,
   };
 }
 
@@ -230,6 +244,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/batch-size-scaling.gif', alt: 'Animated walkthrough of the batch size scaling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Topic Exists',
       paragraphs: [

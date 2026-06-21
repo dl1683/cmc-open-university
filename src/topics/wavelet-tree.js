@@ -58,10 +58,16 @@ function wtGraph(title) {
 }
 
 function* rankWalk() {
+  const seq = 'annbana';
+  const sigma = 3;
+  const queryChar = 'a';
+  const queryPos = 6;
+  const levels = Math.ceil(Math.log2(sigma));
+
   yield {
     state: wtGraph('Wavelet tree for sequence annbana'),
     highlight: { active: ['root', 'bits0'], found: ['a', 'b', 'n'] },
-    explanation: 'A wavelet tree recursively splits the alphabet. At each internal node, a bitvector says whether each symbol goes left or right. The child sequence is the stable subsequence for that side.',
+    explanation: `A wavelet tree recursively splits the alphabet. For the ${seq.length}-symbol sequence "${seq}" over ${sigma} distinct symbols, the tree has ${levels} internal levels. At each internal node, a bitvector says whether each symbol goes left or right. The child sequence is the stable subsequence for that side.`,
   };
 
   yield {
@@ -85,16 +91,17 @@ function* rankWalk() {
       ],
     ),
     highlight: { active: ['root:result', 'leaf:result'], compare: ['left:result'] },
-    explanation: 'To count a symbols in the first six positions, walk toward the a leaf. At each level, rank maps the prefix length into the corresponding child prefix length.',
-    invariant: 'Stable partitioning preserves relative order inside every child sequence.',
+    explanation: `To count "${queryChar}" symbols in the first ${queryPos} positions of "${seq}", walk toward the ${queryChar} leaf. At each of the ${levels} levels, rank maps the prefix length into the corresponding child prefix length.`,
+    invariant: `Stable partitioning preserves relative order inside every child sequence — the ${queryPos}-position prefix remaps cleanly through each of the ${levels} levels.`,
   };
 
   yield {
     state: wtGraph('Access follows the bit at each level'),
     highlight: { active: ['root', 'bits0', 'left', 'bits1', 'b'], compare: ['a', 'n'] },
-    explanation: 'access(i) also walks levels. Read the bit at position i. Rank tells the child position for that symbol. Continue until a leaf reveals the stored character.',
+    explanation: `access(i) also walks ${levels} levels for this ${sigma}-symbol alphabet. Read the bit at position i. Rank tells the child position for that symbol. Continue until a leaf reveals the stored character.`,
   };
 
+  const opCount = 4;
   yield {
     state: labelMatrix(
       'Wavelet-tree operations',
@@ -116,11 +123,18 @@ function* rankWalk() {
       ],
     ),
     highlight: { found: ['rank:cost', 'select:cost'], active: ['range:walk'] },
-    explanation: 'The operation vocabulary is small: rank, select, and access. But those primitives power compressed text indexes, range quantiles, document retrieval, and FM-index Occ queries.',
+    explanation: `All ${opCount} core operations cost O(log ${sigma}) = O(${levels}) per query on this alphabet. Rank, select, and access are the primitives that power compressed text indexes, range quantiles, document retrieval, and FM-index Occ queries.`,
   };
 }
 
 function* rangeQuantile() {
+  const rangeStart = 1;
+  const rangeEnd = 6;
+  const k = 2;
+  const rangeLen = rangeEnd - rangeStart;
+  const leftCount = 2;
+  const rightCount = 3;
+
   yield {
     state: labelMatrix(
       'Find 2nd smallest in range [1,6) of annbana',
@@ -142,15 +156,16 @@ function* rangeQuantile() {
       ],
     ),
     highlight: { active: ['root:decision', 'left:decision'], found: ['left:content'] },
-    explanation: 'Range quantile descends by counting how many selected positions go left. If k fits in the left count, descend left; otherwise subtract left count and descend right.',
+    explanation: `Range quantile finds the ${k}nd smallest in positions [${rangeStart}, ${rangeEnd}) — a span of ${rangeLen} symbols. It descends by counting how many selected positions go left: here ${leftCount} go left and ${rightCount} go right. Since k=${k} fits in the left count of ${leftCount}, descend left.`,
   };
 
   yield {
     state: wtGraph('Intervals are remapped by rank at each level'),
     highlight: { active: ['bits0', 'left', 'bits1'], compare: ['right'] },
-    explanation: 'A range [l, r) in a parent becomes a child range using rank0 or rank1 at l and r. The query never materializes the subsequence; it carries interval boundaries through bitvectors.',
+    explanation: `The range [${rangeStart}, ${rangeEnd}) in a parent becomes a child range using rank0 or rank1 at positions ${rangeStart} and ${rangeEnd}. The query never materializes the ${rangeLen}-element subsequence; it carries two interval boundaries through bitvectors.`,
   };
 
+  const appCount = 4;
   yield {
     state: labelMatrix(
       'Applications',
@@ -172,9 +187,10 @@ function* rangeQuantile() {
       ],
     ),
     highlight: { found: ['fm:whyWavelet', 'quantile:whyWavelet'], compare: ['docs:query'] },
-    explanation: 'Wavelet trees are valuable because they turn a sequence into a hierarchy of bitvectors. That makes many sequence queries become short rank/select walks.',
+    explanation: `Wavelet trees support ${appCount} major application families because they turn a sequence into a hierarchy of bitvectors. That makes many sequence queries become short rank/select walks of O(log sigma) each.`,
   };
 
+  const designChoices = 4;
   yield {
     state: labelMatrix(
       'Design choices',
@@ -196,7 +212,7 @@ function* rangeQuantile() {
       ],
     ),
     highlight: { active: ['bitvector:benefit', 'matrix:benefit'], compare: ['huffman:tradeoff'] },
-    explanation: 'The clean concept is recursive partitioning. Practical implementations refine the shape and bitvector layout to fit alphabets, caches, and compressed-space targets.',
+    explanation: `The clean concept is recursive partitioning. These ${designChoices} design choices refine the shape and bitvector layout to fit alphabets, caches, and compressed-space targets.`,
   };
 }
 
@@ -216,7 +232,8 @@ export const article = {
         {type: 'callout', text: 'A wavelet tree stores routing bits, not duplicate subsequences; rank turns each parent prefix into the exact child prefix needed by the query.'},
         'The range-quantile view carries an interval instead of a single prefix. At each node, the interval splits by counting how many positions route left versus right. The decision to descend left or right depends on whether the target rank fits inside the left count.',
         'Found markers show the final answer once the walk reaches a leaf. Compare markers show sibling paths that the query skipped. At every frame, ask: what information did the bitvector just provide, and why does stable partitioning make that information correct?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/wavelet-tree.gif', alt: 'Animated walkthrough of the wavelet tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

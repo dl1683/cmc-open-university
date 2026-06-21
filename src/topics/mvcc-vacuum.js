@@ -34,8 +34,8 @@ function* versions() {
       format: (v) => (v === 0 ? 'âˆž (current)' : `txid ${v}`),
     }),
     highlight: { found: ['v3:xmax'] },
-    explanation: 'This is the physical trick behind snapshot isolation. An UPDATE does not overwrite the old tuple; it creates a new physical version and stamps version metadata. xmin says which transaction created the version. xmax says which transaction replaced it, or infinity if it is still current. The animation shows one logical balance with three disk tuples. The database is not guessing history from a separate audit log; the heap itself contains the visible chain.',
-    invariant: 'UPDATE = insert new version + stamp the old one\'s xmax. Nothing is overwritten, ever.',
+    explanation: `This is the physical trick behind snapshot isolation. An UPDATE does not overwrite the old tuple; it creates a new physical version and stamps version metadata. xmin says which transaction created the version. xmax says which transaction replaced it, or infinity if it is still current. The animation shows one logical balance with ${VERSIONS.length} disk tuples. The database is not guessing history from a separate audit log; the heap itself contains the visible chain.`,
+    invariant: `UPDATE = insert new version + stamp the old one's xmax. ${VERSIONS.length} physical versions, zero overwrites.`,
   };
 
   const READERS = [150, 250, 400];
@@ -48,8 +48,8 @@ function* versions() {
       format: (v) => (v ? 'VISIBLE' : '—'),
     }),
     highlight: { found: ['v1:s150', 'v2:s250', 'v3:s400'] },
-    explanation: 'The visibility rule is small enough to memorize: a version is visible if it was born before the snapshot and had not been superseded yet. So the reader at txid 150 sees the $100 version, the reader at 250 sees $80, and the reader at 400 sees $95. Each reader gets one coherent truth without blocking the writer that made a later truth. MVCC turns reads into a historical lookup instead of a fight over the current row.',
-    invariant: 'visible(v, snap) = v.xmin â‰¤ snap AND v.xmax > snap — one version per row per snapshot, locks not required.',
+    explanation: `The visibility rule is small enough to memorize: a version is visible if it was born before the snapshot and had not been superseded yet. So the reader at txid ${READERS[0]} sees the $100 version, the reader at ${READERS[1]} sees $80, and the reader at ${READERS[2]} sees $95. Each of ${READERS.length} readers gets one coherent truth without blocking the writer that made a later truth. MVCC turns reads into a historical lookup instead of a fight over the current row.`,
+    invariant: `visible(v, snap) = v.xmin <= snap AND v.xmax > snap — one version per row per snapshot across all ${VERSIONS.length} versions, locks not required.`,
   };
 
   yield {
@@ -66,11 +66,12 @@ function* versions() {
       format: (v) => ['', 'never mutate — append a new immutable version', 'VACUUM', 'git gc', 'compaction', 'nobody (names expire naturally)'][v],
     }),
     highlight: { compare: ['mvcc:rule', 'git:rule', 'lsm:rule'] },
-    explanation: 'This is the same design move as Git objects, LSM entries, and versioned cache names: do not mutate the thing somebody might still be reading; append a new thing and let readers choose their version. The benefit is concurrency and clear crash behavior. The cost is deferred cleanup. Append-only systems are only fast if the cleanup loop keeps pace with the append loop.',
+    explanation: `This is the same design move as Git objects, LSM entries, and versioned cache names: do not mutate the thing somebody might still be reading; append a new thing and let readers choose their version. The benefit is concurrency and clear crash behavior — the ${VERSIONS.length} versions in our example prove it. The cost is deferred cleanup. Append-only systems are only fast if the cleanup loop keeps pace with the append loop.`,
   };
 }
 
 function* vacuumTrap() {
+  const deadCount = 4;
   yield {
     state: matrixState({
       title: 'A hot row after four quick updates: one survivor, four corpses',
@@ -86,8 +87,8 @@ function* vacuumTrap() {
       format: (v) => ['', 'DEAD — invisible to every snapshot', 'still occupied', 'LIVE'][v],
     }),
     highlight: { removed: ['d1:status', 'd2:status', 'd3:status', 'd4:status'], found: ['live:status'] },
-    explanation: 'A dead tuple is not logically visible to anyone, but it is still physically present. That distinction matters. A hot status row updated four times now has one live truth and four dead bodies occupying pages, indexes, cache, and scan time. MVCC bought nonblocking reads by postponing the bill. VACUUM is the bill collector.',
-    invariant: 'A version is dead once no active snapshot can see it — invisible, but still occupying disk.',
+    explanation: `A dead tuple is not logically visible to anyone, but it is still physically present. That distinction matters. A hot status row updated ${deadCount} times now has one live truth and ${deadCount} dead bodies occupying pages, indexes, cache, and scan time. MVCC bought nonblocking reads by postponing the bill. VACUUM is the bill collector.`,
+    invariant: `A version is dead once no active snapshot can see it — ${deadCount} invisible tuples still occupying disk.`,
   };
 
   yield {
@@ -104,7 +105,7 @@ function* vacuumTrap() {
       format: (v) => ['', 'find versions with xmax in the past', 'dead only if xmax < OLDEST active snapshot', 'mark space reusable (FULL rewrites the table)', 'wakes on ~20% dead-tuple thresholds'][v],
     }),
     highlight: { active: ['horizon:what'] },
-    explanation: 'VACUUM is conservative on purpose. It can remove a tuple only when that tuple is older than the oldest active snapshot in the system. Regular VACUUM marks space reusable; it usually does not shrink the table file. VACUUM FULL rewrites the table smaller but takes heavier locks. Autovacuum keeps the regular sweep happening in the background, which is why a healthy MVCC database is a cleanup system as much as a storage system.',
+    explanation: `VACUUM is conservative on purpose. It can remove a tuple only when that tuple is older than the oldest active snapshot in the system — here, all ${deadCount} dead tuples must pass that test. Regular VACUUM marks space reusable; it usually does not shrink the table file. VACUUM FULL rewrites the table smaller but takes heavier locks. Autovacuum keeps the regular sweep happening in the background, which is why a healthy MVCC database is a cleanup system as much as a storage system.`,
   };
 
   yield {
@@ -121,8 +122,8 @@ function* vacuumTrap() {
       format: (v) => (v >= 1000 ? v.toLocaleString('en-US') : ['0', 'analyst runs BEGIN; … and goes to lunch', 'autovacuum runs — reclaims NOTHING', 'queries visibly slower; disk alarm', 'DBA finds idle-in-transaction, kills it'][v]),
     }),
     highlight: { removed: ['t10am:event', 't2pm:bloat'], found: ['t4pm:event'] },
-    explanation: 'This is the production shape to recognize. One idle transaction opened at 9:00 pins the xmin horizon at 9:00. Every tuple replaced after that may still be visible to that sleeping snapshot, so VACUUM must leave it alone. Autovacuum can run perfectly and still reclaim nothing. The fix is not heroic tuning; first find the old transaction, end it, and then let cleanup catch up.',
-    invariant: 'The oldest open snapshot pins the vacuum horizon: one idle transaction makes every newer corpse untouchable.',
+    explanation: `This is the production shape to recognize. One idle transaction opened at 9:00 pins the xmin horizon at 9:00. Every tuple replaced after that may still be visible to that sleeping snapshot, so VACUUM must leave it alone. Autovacuum can run perfectly and still reclaim nothing — by 4:00 pm, ${(2400000).toLocaleString('en-US')} dead tuples have accumulated. The fix is not heroic tuning; first find the old transaction, end it, and then let cleanup catch up.`,
+    invariant: `The oldest open snapshot pins the vacuum horizon: one idle transaction makes every newer corpse untouchable.`,
   };
 
   yield {
@@ -139,7 +140,7 @@ function* vacuumTrap() {
       format: (v) => ['', 'every open second pins the horizon', 'the safety net for forgotten BEGINs', 'n_dead_tup is the bloat speedometer', 'a counter updated 1000/s births 1000 corpses/s'][v],
     }),
     highlight: { active: ['timeout:why'] },
-    explanation: 'The working checklist is short: keep transactions short, set an idle-in-transaction timeout, monitor dead tuple counts, and avoid schemas that update one hot row thousands of times per second. A hot counter is not just a lock problem; it is a tuple-factory problem. MVCC, LSM compaction, and git gc all share the same law: immutable history is powerful only if the garbage collector is allowed to finish its job.',
+    explanation: `The working checklist is short: ${deadCount} rules. Keep transactions short, set an idle-in-transaction timeout, monitor dead tuple counts, and avoid schemas that update one hot row thousands of times per second. A hot counter is not just a lock problem; it is a tuple-factory problem. MVCC, LSM compaction, and git gc all share the same law: immutable history is powerful only if the garbage collector is allowed to finish its job.`,
   };
 }
 
@@ -158,7 +159,8 @@ export const article = {
         `The "row versions & visibility" view shows one logical row stored as three physical tuples. Each tuple carries xmin (the transaction that created it) and xmax (the transaction that replaced it). The matrix highlights which version each reader sees based on the visibility rule. Found cells mark the single version each snapshot resolves to. Compare cells show the family resemblance between MVCC, Git, LSM trees, and versioned caches.`,
         `The "VACUUM and the bloat trap" view shows dead tuples accumulating after updates. Removed cells are tuples that are logically invisible but still physically present. Active cells mark the cleanup horizon and the configuration knobs that keep bloat under control. At each step, ask: which tuples are dead, which are reclaimable, and what is holding the horizon back.`,
         {type: 'callout', text: `MVCC is append-first concurrency: preserve old versions for readers, then prove when the cleanup horizon makes them reclaimable.`},
-      ],
+      
+        {type: 'image', src: './assets/gifs/mvcc-vacuum.gif', alt: 'Animated walkthrough of the mvcc vacuum visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

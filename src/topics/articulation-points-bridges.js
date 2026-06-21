@@ -280,7 +280,8 @@ export const article = {
         'Highlighted nodes are under active processing. Visited nodes are discovered but not currently expanding. When the algorithm finds a back edge, its target flashes to show that the current node has a shortcut to an ancestor. Articulation points glow as "found" once confirmed. Bridge edges are marked separately.',
         'The key inference: when DFS returns from child u to parent v, compare low[u] against disc[v]. If low[u] >= disc[v], no back edge from u\'s subtree escapes past v, so v is an articulation point. If the inequality is strict (low[u] > disc[v]), the tree edge v-u is a bridge. Watch the low values ripple upward as DFS unwinds.',
         {type: 'callout', text: 'Disc and low values turn single-failure connectivity into a one-pass escape-route test.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/articulation-points-bridges.gif', alt: 'Animated walkthrough of the articulation points bridges visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

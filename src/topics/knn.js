@@ -128,7 +128,8 @@ export const article = {
         { type: 'callout', text: 'KNN is lazy supervised learning: the training set stays as the model, and prediction is local voting around the query.' },
         'During distance computation, each training point lights up as compare while its distance to the query is measured. After sorting, the k nearest neighbors are marked found.',
         'The final frame shows the query point colored by its predicted class. Watch how changing k changes which neighbors vote and potentially flips the outcome.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/knn.gif', alt: 'Animated walkthrough of the knn visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

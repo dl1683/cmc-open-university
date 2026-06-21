@@ -89,11 +89,18 @@ function sparsePipeline(title) {
 }
 
 function* splitCubes() {
+  const octantCount = 8;
+  const directionBits = 3;
+  const mixedCount = 3;
+  const emptyCount = 3;
+  const solidCount = 2;
+  const stopRuleCount = 4;
+
   yield {
     state: octreeGraph('An octree splits one cube into eight octants'),
     highlight: { active: ['root', 'o000', 'o001', 'o010', 'o011', 'o100', 'o101', 'o110', 'o111'], found: ['e-root-010', 'e-root-100', 'e-root-111'] },
-    explanation: 'An octree is the 3D sibling of a quadtree. Each internal node splits its cube by x, y, and z midpoints, producing eight child cubes identified by three direction bits.',
-    invariant: 'Every child cube is disjoint, and the eight children cover the parent cube.',
+    explanation: `An octree is the 3D sibling of a quadtree. Each internal node splits its cube by x, y, and z midpoints, producing ${octantCount} child cubes identified by ${directionBits} direction bits.`,
+    invariant: `Every child cube is disjoint, and the ${octantCount} children cover the parent cube.`,
   };
 
   yield {
@@ -117,13 +124,13 @@ function* splitCubes() {
       ],
     ),
     highlight: { active: ['x:example', 'y:example', 'z:example'], found: ['code:example'] },
-    explanation: 'A child path is just bits. Concatenate octant codes down the tree and you get a 3D sibling of quadkeys and Morton codes.',
+    explanation: `A child path is just ${directionBits} bits. Concatenate octant codes down the tree and you get a 3D sibling of quadkeys and Morton codes, addressing ${octantCount} octants per level.`,
   };
 
   yield {
     state: octreeGraph('Sparse trees skip empty space and recurse only into mixed cubes'),
     highlight: { active: ['o010', 'o100', 'o111'], removed: ['o000', 'o011', 'o110'], found: ['o001', 'o101'] },
-    explanation: 'Empty cubes can be omitted or represented as compact leaves. Solid cubes can stop early. Mixed cubes split again. This is why octrees are useful for sparse volumes and occupancy maps.',
+    explanation: `Of ${octantCount} children, ${mixedCount} are mixed and split again, ${emptyCount} are empty and removed, and ${solidCount} are solid leaves. This is why octrees are useful for sparse volumes and occupancy maps.`,
   };
 
   yield {
@@ -147,16 +154,20 @@ function* splitCubes() {
       ],
     ),
     highlight: { active: ['mixed:action', 'depth:action'], found: ['empty:action', 'solid:action'] },
-    explanation: 'The art is choosing leaf size and stop conditions. Too fine and memory explodes. Too coarse and queries return too many false candidates or lose detail.',
+    explanation: `The ${stopRuleCount} stop conditions (empty, solid, mixed, max depth) govern leaf size. Too fine and memory explodes. Too coarse and queries return too many false candidates or lose detail.`,
   };
 }
 
 function* sparseVoxelCaseStudy() {
+  const pipelineLength = 7;
+  const caseStudyCount = 4;
+  const layoutCount = 4;
+
   yield {
     state: sparsePipeline('Sparse volume storage keeps active regions, not the whole grid'),
     highlight: { active: ['volume', 'tiles', 'leaves', 'tree', 'e-volume-tiles', 'e-volume-leaves'], found: ['query'] },
-    explanation: 'A smoke simulation, medical scan, terrain field, or point-cloud occupancy grid can be mostly empty. Sparse voxel trees store active regions and dense leaf blocks instead of a full 3D array.',
-    invariant: 'Sparse means absent regions are cheap; active regions still need dense local access.',
+    explanation: `A smoke simulation, medical scan, terrain field, or point-cloud occupancy grid can be mostly empty. The ${pipelineLength}-stage sparse pipeline stores active regions and dense leaf blocks instead of a full 3D array.`,
+    invariant: `Sparse means absent regions are cheap across all ${pipelineLength} pipeline nodes; active regions still need dense local access.`,
   };
 
   yield {
@@ -180,13 +191,13 @@ function* sparseVoxelCaseStudy() {
       ],
     ),
     highlight: { active: ['openvdb:stores', 'pcl:stores'], found: ['svo:lesson'], compare: ['robot:lesson'] },
-    explanation: 'The same recursive cube partition appears in production volume tools, point-cloud libraries, sparse voxel renderers, and occupancy maps. The payload changes; the hierarchy stays recognizable.',
+    explanation: `These ${caseStudyCount} case studies show the same recursive cube partition in production volume tools, point-cloud libraries, sparse voxel renderers, and occupancy maps. The payload changes; the hierarchy stays recognizable.`,
   };
 
   yield {
     state: sparsePipeline('Queries descend through active nodes and cache hot leaves'),
     highlight: { active: ['query', 'tree', 'cache', 'result', 'e-tree-query', 'e-tree-cache', 'e-cache-result'], compare: ['volume'] },
-    explanation: 'Ray casts, box queries, nearest-neighbor candidates, and voxel edits all walk the tree to the relevant leaf blocks. Good implementations cache recent leaves because local edits and rays often touch neighboring voxels.',
+    explanation: `Ray casts, box queries, nearest-neighbor candidates, and voxel edits all walk the ${pipelineLength}-node pipeline to the relevant leaf blocks. Good implementations cache recent leaves because local edits and rays often touch neighboring voxels.`,
   };
 
   yield {
@@ -210,7 +221,7 @@ function* sparseVoxelCaseStudy() {
       ],
     ),
     highlight: { active: ['linear:helps', 'block:helps'], found: ['dag:helps'], compare: ['pointer:cost'] },
-    explanation: 'An octree can be pointer-heavy, key-sorted, block-packed, or compressed by merging identical subtrees. The right layout depends on update rate, traversal pattern, memory budget, and GPU friendliness.',
+    explanation: `An octree offers ${layoutCount} layout choices: pointer-heavy, key-sorted, block-packed, or DAG-compressed. The right layout depends on update rate, traversal pattern, memory budget, and GPU friendliness.`,
   };
 }
 
@@ -223,6 +234,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/octree-sparse-voxel-index.gif', alt: 'Animated walkthrough of the octree sparse voxel index visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Problem',
       paragraphs: [

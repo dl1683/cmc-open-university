@@ -50,11 +50,18 @@ function timeGraph(title) {
 }
 
 function* timeSegments() {
+  const edgeAB = 'A-B';
+  const edgeBC = 'B-C';
+  const intervalAB = '[0,3)';
+  const intervalBC = '[1,5)';
+  const queryCount = 2;
+  const timeSlots = 5;
+
   yield {
     state: timeGraph('Convert add/remove events into edge lifetimes'),
     highlight: { active: ['q0', 'q3', 'e-q0-seg'], found: ['seg'], compare: ['q2', 'q4'] },
-    explanation: 'Offline dynamic connectivity first reads all operations. Each edge gets a lifetime interval from add time to remove time, or to the end if it is never removed.',
-    invariant: 'An edge is active exactly on the time interval assigned to it.',
+    explanation: `Offline dynamic connectivity first reads all operations. Each edge gets a lifetime interval from add time to remove time, or to the end if it is never removed. Here edge ${edgeAB} lives on ${intervalAB} and edge ${edgeBC} lives on ${intervalBC}.`,
+    invariant: `An edge is active exactly on the time interval assigned to it — ${queryCount} queries check connectivity at specific points within ${timeSlots} time slots.`,
   };
   yield {
     state: labelMatrix(
@@ -74,12 +81,12 @@ function* timeSegments() {
       ],
     ),
     highlight: { active: ['ab:interval', 'bc:interval'], found: ['ask2:meaning', 'ask4:meaning'] },
-    explanation: 'The problem has deletions in chronological order, but after preprocessing each edge is just an interval on a timeline.',
+    explanation: `The problem has deletions in chronological order, but after preprocessing each edge is just an interval on a timeline. Edge ${edgeAB} is active on ${intervalAB} and edge ${edgeBC} on ${intervalBC}.`,
   };
   yield {
     state: timeGraph('Store each interval in O(log q) segment-tree nodes'),
     highlight: { active: ['seg', 'e-q0-seg', 'e-q1-seg'], compare: ['dsu'] },
-    explanation: 'A segment tree over query time covers each lifetime interval with logarithmically many nodes. During DFS, every query leaf sees exactly the active edges on its root-to-leaf path.',
+    explanation: `A segment tree over ${timeSlots} time slots covers each lifetime interval with logarithmically many nodes. During DFS, every query leaf sees exactly the active edges on its root-to-leaf path — ${queryCount} queries will each inherit a different set of live edges.`,
   };
   yield {
     state: labelMatrix(
@@ -99,11 +106,16 @@ function* timeSegments() {
       ],
     ),
     highlight: { found: ['offline:benefit', 'rollback:benefit'], compare: ['online:benefit'] },
-    explanation: 'The trick is changing time order. Normal DSU cannot delete edges, but a DFS over intervals only needs add and undo.',
+    explanation: `The trick is changing time order. Normal DSU cannot delete edges, but a DFS over intervals only needs add and undo — edges like ${edgeAB} and ${edgeBC} are unioned on entry and rolled back on exit.`,
   };
 }
 
 function* rollbackDfs() {
+  const dsuOps = 4;
+  const answerT2 = 'connected';
+  const answerT4 = 'not connected';
+  const alternativeCount = 3;
+
   yield {
     state: labelMatrix(
       'Rollback DSU change stack',
@@ -122,13 +134,13 @@ function* rollbackDfs() {
       ],
     ),
     highlight: { active: ['push:detail', 'rollback:detail'], compare: ['find:constraint'] },
-    explanation: 'Rollback DSU records every parent/size mutation on a stack. It usually avoids path compression because compression changes many parents that would all need undo records.',
-    invariant: 'After rollback to a snapshot, DSU state is exactly as it was at that snapshot.',
+    explanation: `Rollback DSU records every parent/size mutation on a stack. It supports ${dsuOps} operations — find, union, push, and rollback — but usually avoids path compression because compression changes many parents that would all need undo records.`,
+    invariant: `After rollback to a snapshot, DSU state is exactly as it was at that snapshot — pop until the stack returns to the saved size using ${dsuOps} supported operations.`,
   };
   yield {
     state: timeGraph('DFS through time: add edges, answer leaves, rollback'),
     highlight: { active: ['seg', 'dsu', 'answers', 'e-seg-dsu', 'e-dsu-ans'], found: ['q2', 'q4'] },
-    explanation: 'When DFS enters a segment-tree node, it unions all edges stored at that node. At leaf nodes it answers queries. When DFS exits, it rolls back to the previous stack size.',
+    explanation: `When DFS enters a segment-tree node, it unions all edges stored at that node. At leaf nodes it answers queries — expecting "${answerT2}" or "${answerT4}". When DFS exits, it rolls back to the previous stack size so sibling subtrees start from a clean state.`,
   };
   yield {
     state: labelMatrix(
@@ -148,7 +160,7 @@ function* rollbackDfs() {
       ],
     ),
     highlight: { found: ['t2:answer', 't4:answer'], active: ['state2:dsuState'] },
-    explanation: 'Each leaf sees a different DSU state because the DFS path contains exactly the edge intervals active at that time.',
+    explanation: `Each leaf sees a different DSU state because the DFS path contains exactly the edge intervals active at that time. At t2 A-C is ${answerT2} (both edges alive), but at t4 A-C is ${answerT4} (only B-C remains).`,
   };
   yield {
     state: labelMatrix(
@@ -168,7 +180,7 @@ function* rollbackDfs() {
       ],
     ),
     highlight: { found: ['rollback:mode', 'rollback:tradeoff'], compare: ['ett:mode'] },
-    explanation: 'Rollback DSU is the pragmatic choice when queries can be processed offline. It avoids much harder fully dynamic connectivity machinery.',
+    explanation: `Rollback DSU is the pragmatic choice when queries can be processed offline. It avoids ${alternativeCount} harder alternatives — normal DSU (no deletion), Euler Tour Trees, and Link-Cut Trees — by requiring all queries upfront.`,
   };
 }
 
@@ -181,6 +193,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/rollback-dsu-offline-connectivity.gif', alt: 'Animated walkthrough of the rollback dsu offline connectivity visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     { heading: 'Why this exists', paragraphs: [
       {
         type: 'callout',

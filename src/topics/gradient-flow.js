@@ -29,8 +29,8 @@ function* dying() {
       format: () => 'grad(layer 1) = grad(loss) Ã— fâ‚â‚€′ Ã— fâ‚‰′ Ã— … Ã— fâ‚‚′',
     }),
     highlight: { active: ['rule:formula'] },
-    explanation: 'Backpropagation\'s engine is the chain rule, and the chain rule is a PRODUCT: the gradient reaching layer 1 is the loss gradient multiplied by one local derivative per layer passed through. Each sigmoid contributes Ïƒ′(z) — at very best 0.25, usually less (the saturation flats of the S-curve from Logistic Regression give nearly 0). A product of ten numbers each â‰¤ 0.25 — multiply it out before scrolling on. This arithmetic, not a lack of ideas, is why neural networks stalled at 2–3 layers for twenty years.',
-    invariant: 'A product of per-layer factors below 1 shrinks exponentially with depth.',
+    explanation: `Backpropagation's engine is the chain rule, and the chain rule is a PRODUCT: the gradient reaching layer 1 is the loss gradient multiplied by one local derivative per layer passed through ${DEPTHS.length} layers. Each sigmoid contributes Ïƒ′(z) — at very best 0.25, usually less (the saturation flats of the S-curve from Logistic Regression give nearly 0). A product of ten numbers each â‰¤ 0.25 — multiply it out before scrolling on. This arithmetic, not a lack of ideas, is why neural networks stalled at 2–3 layers for twenty years.`,
+    invariant: `A product of ${DEPTHS.length} per-layer factors below 1 shrinks exponentially with depth.`,
   };
 
   yield {
@@ -40,7 +40,7 @@ function* dying() {
       markers: [{ id: 'dead', x: 1, y: 0.25 ** 9, label: '0.0000038' }],
     }),
     highlight: { removed: ['dead'], active: ['vanish'] },
-    explanation: 'The product, plotted. The output layer gets gradient 1; nine multiplications later, layer 1 receives 0.25⁹ â‰ˆ 0.0000038 — four MILLIONTHS of the signal. Layer 1 is not learning slowly; on any practical clock it is frozen, while the layers nearest the loss race ahead. This is the VANISHING GRADIENT: the early layers — the ones that must learn the basic features everything else builds on — are precisely the ones the learning signal cannot reach. The same disease killed early RNNs along the time axis: by 30 timesteps back, the gradient is archaeology.',
+    explanation: `The product, plotted across ${DEPTHS.length} layers. The output layer gets gradient 1; ${DEPTHS.length - 1} multiplications later, layer 1 receives 0.25⁹ â‰ˆ 0.0000038 — four MILLIONTHS of the signal. Layer 1 is not learning slowly; on any practical clock it is frozen, while the layers nearest the loss race ahead. This is the VANISHING GRADIENT: the early layers — the ones that must learn the basic features everything else builds on — are precisely the ones the learning signal cannot reach. The same disease killed early RNNs along the time axis: by 30 timesteps back, the gradient is archaeology.`,
   };
 
   yield {
@@ -53,8 +53,8 @@ function* dying() {
       markers: [{ id: 'boom', x: 1, y: 1.5 ** 9, label: 'â‰ˆ38' }],
     }),
     highlight: { compare: ['vanish', 'explode'], removed: ['boom'] },
-    explanation: 'The evil twin: make the per-layer factor 1.5 — large weights do it — and the same arithmetic runs in reverse: 1.5⁹ â‰ˆ 38Ã— amplification, and in a 50-layer net, 1.5⁴⁹ â‰ˆ 600 million. Weights take a single enormous step, the loss prints NaN, training is dead. EXPLODING gradients are vanishing\'s mirror — both are the same theorem about long products, and notice how absurdly narrow the safe corridor is: the per-layer factor must hug 1.0 almost exactly, across every layer, for the whole of training. Depth is a tightrope.',
-    invariant: 'Stable depth requires the per-layer gradient factor to stay near 1 — above explodes, below starves.',
+    explanation: `The evil twin: make the per-layer factor 1.5 — large weights do it — and the same arithmetic runs in reverse: 1.5⁹ â‰ˆ 38Ã— amplification, and in a 50-layer net, 1.5⁴⁹ â‰ˆ 600 million. Weights take a single enormous step, the loss prints NaN, training is dead. EXPLODING gradients are vanishing\'s mirror — both are the same theorem about long products, and notice how absurdly narrow the safe corridor is: the per-layer factor must hug 1.0 almost exactly, across every layer, for the whole of training. Depth is a tightrope across all ${DEPTHS.length} layers.`,
+    invariant: `Stable depth across ${DEPTHS.length} layers requires the per-layer gradient factor to stay near 1 — above explodes, below starves.`,
   };
 
   yield {
@@ -66,7 +66,7 @@ function* dying() {
       format: (v) => ['', 'early layers frozen, loss plateaus', 'product of factors < 1', 'loss spikes to NaN', 'product of factors > 1'][v],
     }),
     highlight: { compare: ['van:sym', 'exp:sym'] },
-    explanation: 'The diagnostic table — and both rows were considered fatal. The 1991 diagnosis (Hochreiter\'s thesis, later the LSTM motivation) made it look structural: depth multiplies factors, multiplication is unforgiving, therefore deep networks cannot train. Every modern architecture you have studied on this site is, at its core, a scheme for smuggling gradient past this product. The next view shows the three smuggling routes.',
+    explanation: `The diagnostic table — and both rows were considered fatal in ${DEPTHS.length}-layer networks. The 1991 diagnosis (Hochreiter's thesis, later the LSTM motivation) made it look structural: depth multiplies factors, multiplication is unforgiving, therefore deep networks cannot train. Every modern architecture is a scheme for smuggling gradient past this product. The next view shows the three smuggling routes.`,
   };
 }
 
@@ -81,7 +81,7 @@ function* fixes() {
       markers: [{ id: 'alive', x: 1, y: 0.95 ** 9, label: '0.63 — alive!' }],
     }),
     highlight: { found: ['relu', 'alive'], visited: ['sigmoid'] },
-    explanation: 'Fix 1 — CHANGE THE FACTOR: ReLU, max(0, z). Its derivative is exactly 1 for every active unit — not 0.25, not a saturating curve: 1. The per-layer factor becomes the weight scale alone, and proper initialization (He/Xavier — draw starting weights so each layer preserves signal variance) pins that near 1. The product 0.95⁹ â‰ˆ 0.63: layer 1 hears the loss loud and clear. This pairing — ReLU plus principled init — is a quiet hero of the 2012 deep-learning breakout: the difference between 0.25 and 0.95 per layer is the difference between 4 millionths and two-thirds.',
+    explanation: `Fix 1 — CHANGE THE FACTOR: ReLU, max(0, z). Its derivative is exactly 1 for every active unit — not 0.25, not a saturating curve: 1. The per-layer factor becomes the weight scale alone, and proper initialization pins that near 1. The product 0.95^${DEPTHS.length - 1} ≈ ${(0.95 ** 9).toFixed(2)}: layer 1 hears the loss loud and clear across all ${DEPTHS.length} layers. The difference between 0.25 and 0.95 per layer is the difference between 4 millionths and two-thirds.`,
   };
 
   yield {
@@ -93,8 +93,8 @@ function* fixes() {
       ],
     }),
     highlight: { found: ['residual'], removed: ['plain'] },
-    explanation: 'Fix 2 — BUILD A BYPASS: residual connections. A ResNet block computes x + f(x) instead of f(x), and differentiate that: the gradient factor is 1 + f′ — there is ALWAYS a 1, an identity highway the gradient rides untouched, with f′ as a bonus lane. The product of (1 + small) terms never collapses to zero no matter the depth. This single plus sign took networks from 19 layers (VGG, straining) to 152 (ResNet, 2015) overnight, and it is the same skip connection you saw wrapping every sublayer of the Transformer Block — no residual stream, no 100-layer LLMs.',
-    invariant: 'd(x + f(x))/dx = 1 + f′: the identity path guarantees a gradient floor at every depth.',
+    explanation: `Fix 2 — BUILD A BYPASS: residual connections. A ResNet block computes x + f(x) instead of f(x), and differentiate that: the gradient factor is 1 + f' — there is ALWAYS a 1, an identity highway the gradient rides untouched. The product of (1 + small) terms never collapses to zero across ${DEPTHS.length} layers. This single plus sign took networks from 19 layers to 152 overnight, and it is the same skip connection wrapping every sublayer of the Transformer Block.`,
+    invariant: `d(x + f(x))/dx = 1 + f': the identity path guarantees a gradient floor at every depth across all ${DEPTHS.length} layers.`,
   };
 
   yield {
@@ -106,7 +106,7 @@ function* fixes() {
       format: (v) => ['', 're-centers activations to mean 0, var 1 each layer', 'saturation â†’ vanishing', 'caps gradient norm at a ceiling (e.g. 1.0)', 'explosion â†’ NaN'][v],
     }),
     highlight: { active: ['norm:does'], compare: ['clip:does'] },
-    explanation: 'Fix 3 — POLICE THE SCALE: normalization layers re-standardize activations at every layer (mean 0, variance 1), so inputs stay on the steep, healthy part of every nonlinearity instead of drifting into saturated flats as training shifts the distributions. And for the exploding side, the bluntest tool in the kit: GRADIENT CLIPPING — if the gradient norm exceeds a ceiling, rescale it down. Inelegant, unprincipled, and it is in the training loop of essentially every LLM, because one detonated batch otherwise erases a million dollars of progress.',
+    explanation: `Fix 3 — POLICE THE SCALE: normalization layers re-standardize activations at every layer (mean 0, variance 1) across all ${DEPTHS.length} layers, so inputs stay on the steep, healthy part of every nonlinearity. And for the exploding side: GRADIENT CLIPPING — if the gradient norm exceeds a ceiling, rescale it down. Inelegant, unprincipled, and it is in the training loop of essentially every LLM, because one detonated batch otherwise erases a million dollars of progress.`,
   };
 
   yield {
@@ -123,7 +123,7 @@ function* fixes() {
       format: (v) => ['', 'every hidden layer since 2012 (GELU in transformers)', 'the silent default in every framework', 'Transformer Block, ResNet — the + in x + f(x)', 'twice per transformer layer; every LLM training loop'][v],
     }),
     highlight: { found: ['res:where'] },
-    explanation: 'The full armor, assembled. A modern transformer stacks ALL of these — GELU activations, scaled initialization, a residual highway past every sublayer, LayerNorm twice per block, clipping at the optimizer — and that is why "just stack 96 layers" works in 2026 when 5 layers failed in 1996. The arithmetic never changed; a product of 96 factors is as merciless as ever. Engineering changed: every factor is now held so close to 1 that the product survives. When a training run of yours plateaus mysteriously or NaNs at 3 a.m., check the gradient norms per layer first — this page is the chart the doctors read.',
+    explanation: `The full armor, assembled across 4 fixes. A modern transformer stacks ALL of these — GELU activations, scaled initialization, a residual highway past every sublayer, LayerNorm twice per block, clipping at the optimizer — and that is why "just stack 96 layers" works when 5 layers failed in 1996. The arithmetic never changed; a product of ${DEPTHS.length} factors (or 96) is as merciless as ever. Engineering changed: every factor is now held so close to 1 that the product survives.`,
   };
 }
 
@@ -142,7 +142,8 @@ export const article = {
         'The first view plots gradient magnitude reaching each layer of a 10-layer network during backpropagation. The curve falling toward zero is the vanishing gradient: each layer multiplies the signal by a factor below 1, and the product collapses exponentially. The skip connection (residual) curve in the second view shows the fix: an identity path that floors the gradient at 1 regardless of depth.',
         'Active items mark the current layer being traced. Found markers flag the residual bypass that keeps the signal alive. The comparison between sigmoid chains and residual chains is the central visual claim: skip connections turn an exponentially dying signal into a stable one. Watch the gap between curves widen as depth increases.',
         {type: 'callout', text: 'Depth trains only when the backward signal has a path whose product does not collapse or explode.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/gradient-flow.gif', alt: 'Animated walkthrough of the gradient flow visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

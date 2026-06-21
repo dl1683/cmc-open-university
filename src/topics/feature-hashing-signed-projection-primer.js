@@ -93,8 +93,8 @@ function* hashingTrick() {
   yield {
     state: hashingGraph('Hashing replaces the vocabulary table'),
     highlight: { active: ['raw', 'names', 'hash', 'bucket', 'csr', 'e-names-hash', 'e-hash-bucket'], compare: ['sign'], found: ['model'] },
-    explanation: 'One-hot encoding needs a vocabulary map: feature name -> column id. Feature hashing removes that fitted dictionary. Each feature name is hashed directly to a fixed column, optionally with a second sign bit. The output is a sparse row that can feed linear models, online learners, text classifiers, and large ad-ranking systems.',
-    invariant: 'The vector width is fixed before training; new feature names do not change the schema.',
+    explanation: `One-hot encoding needs a vocabulary map: feature name -> column id. Feature hashing removes that fitted dictionary — the ${7}-node pipeline shows each feature name hashed directly to a fixed column, optionally with a second sign bit. The output is a sparse row that can feed linear models, online learners, text classifiers, and large ad-ranking systems.`,
+    invariant: `The vector width is fixed before training across ${7} pipeline stages; new feature names do not change the schema.`,
   };
 
   yield {
@@ -116,7 +116,7 @@ function* hashingTrick() {
       ],
     ),
     highlight: { active: ['ad:idx', 'word1:idx'], compare: ['ad:sgn', 'word1:sgn'] },
-    explanation: 'Here ad=17 and word=free collide in bucket 6. With signed hashing, one contributes -1 and the other +1. The collision still loses identity, but opposite signs reduce systematic positive bias and help preserve inner products in expectation.',
+    explanation: `Here ${TOKEN_ROWS.length} features are hashed — ad=17 and word=free collide in bucket 6. With signed hashing, one contributes -1 and the other +1. The collision still loses identity, but opposite signs reduce systematic positive bias and help preserve inner products in expectation.`,
   };
 
   yield {
@@ -128,7 +128,7 @@ function* hashingTrick() {
       format: String,
     }),
     highlight: { active: ['x:c1', 'x:c2', 'x:c3', 'x:c4'], compare: ['x:c6'] },
-    explanation: 'The sample becomes one fixed-width vector. Most entries are zero, so the physical output is usually a CSR sparse row, not a dense array. Multiple features landing in the same bucket sum. If ad=17 contributes -1 and word=free contributes +1, bucket 6 cancels to zero.',
+    explanation: `The sample becomes one fixed-width vector of ${8} buckets. Most entries are zero, so the physical output is usually a CSR sparse row, not a dense array. Multiple features landing in the same bucket sum. If ad=17 contributes -1 and word=free contributes +1, bucket 6 cancels to zero.`,
   };
 
   yield {
@@ -152,13 +152,13 @@ function* hashingTrick() {
       ],
     ),
     highlight: { active: ['stream:win', 'cold:win', 'huge:win', 'parallel:win'], removed: ['stream:cost', 'huge:cost'] },
-    explanation: 'Hashing is strongest when the feature space is open-ended: text tokens, ad ids, query terms, URLs, item ids, and crossed namespaces. Because the transformer is stateless, streaming and parallel pipelines do not need a coordinated vocabulary build. The cost is observability: bucket 291137 has no natural feature name.',
+    explanation: `Hashing is strongest when the feature space is open-ended — the ${4}-row table shows why: text tokens, ad ids, query terms, URLs, item ids, and crossed namespaces. Because the transformer is stateless, streaming and parallel pipelines do not need a coordinated vocabulary build. The cost is observability: bucket 291137 has no natural feature name.`,
   };
 
   yield {
     state: hashingGraph('Hashing and target encoding solve different problems'),
     highlight: { active: ['names', 'hash', 'bucket', 'csr'], compare: ['model'], found: ['raw'] },
-    explanation: 'Compare this with Leakage-Safe Target Encoding. Target encoding stores label aggregates per category, so it must fight leakage and version encoder state. Feature hashing stores no label aggregates and has no fit step, so leakage risk is lower, but collision risk is higher and interpretability is worse. Many production systems use both for different columns.',
+    explanation: `Compare this with Leakage-Safe Target Encoding. The ${7}-node pipeline shows how feature hashing stores no label aggregates and has no fit step, so leakage risk is lower than target encoding, but collision risk is higher and interpretability is worse. Many production systems use both for different columns.`,
   };
 }
 
@@ -175,8 +175,8 @@ function* collisionAudit() {
       ],
     }),
     highlight: { active: ['small', 'large', 'budget'] },
-    explanation: 'The tuning knob is the number of buckets. More buckets reduce collision pressure but increase model memory. The right width depends on active features per sample, total vocabulary, model sensitivity, and whether collisions mix harmless synonyms or hostile business features.',
-    invariant: 'Hash width is a collision budget, not a cosmetic hyperparameter.',
+    explanation: `The tuning knob is the number of buckets. The plot shows ${2} series across ${5} bucket widths from 16 to 4096. More buckets reduce collision pressure but increase model memory. The right width depends on active features per sample, total vocabulary, model sensitivity, and whether collisions mix harmless synonyms or hostile business features.`,
+    invariant: `Hash width is a collision budget across ${5} tested widths, not a cosmetic hyperparameter.`,
   };
 
   yield {
@@ -198,13 +198,13 @@ function* collisionAudit() {
       ],
     ),
     highlight: { active: ['signed:effect'], compare: ['unsigned:effect'], found: ['nonneg:use'] },
-    explanation: 'scikit-learn exposes alternate_sign for this reason. Signed hashing is similar to sparse random projection and approximately preserves inner products. Some estimators require nonnegative inputs, so teams disable signs there and pay the one-sided collision cost consciously.',
+    explanation: `scikit-learn exposes alternate_sign for this reason. The ${3}-row comparison shows signed hashing is similar to sparse random projection and approximately preserves inner products. Some estimators require nonnegative inputs, so teams disable signs there and pay the one-sided collision cost consciously.`,
   };
 
   yield {
     state: auditGraph('A production hasher still needs audits'),
     highlight: { active: ['ns', 'bits', 'seed', 'sample', 'exact', 'metric', 'e-bits-sample', 'e-seed-sample'], found: ['ship'] },
-    explanation: 'Stateless does not mean ungoverned. Record the namespace grammar, hash bits, seed or hash implementation, sign policy, and bucket width. Sample collisions offline by keeping a temporary exact vocabulary. Watch active bucket load and model-weight concentration after launch.',
+    explanation: `Stateless does not mean ungoverned. The ${7}-node audit graph with ${8} edges shows the full governance loop: record namespace grammar, hash bits, seed or hash implementation, sign policy, and bucket width. Sample collisions offline by keeping a temporary exact vocabulary. Watch active bucket load and model-weight concentration after launch.`,
   };
 
   yield {
@@ -230,13 +230,13 @@ function* collisionAudit() {
       ],
     ),
     highlight: { active: ['hash:best', 'target:best'], compare: ['onehot:risk', 'embed:risk', 'native:risk'] },
-    explanation: 'There is no universal categorical encoder. One-hot is clean for small categories. Hashing is good for open vocabularies and streaming. Target encoding is strong when category label rates matter. Embeddings need enough data and training budget. Native categorical tree handling can be better than external preprocessing when the library supports it well.',
+    explanation: `There is no universal categorical encoder. The ${5}-row decision table compares one-hot, hashing, target encoding, embeddings, and native categorical support. Each wins in different regimes — hashing is good for open vocabularies and streaming, while target encoding is strong when category label rates matter.`,
   };
 
   yield {
     state: auditGraph('Complete case: ad-ranking online learner'),
     highlight: { active: ['ns', 'bits', 'seed', 'sample', 'metric', 'ship'], compare: ['exact'] },
-    explanation: 'An ad-ranking learner receives publisher_id, campaign_id, query terms, device, geography, and crossed features such as campaign x device. The vocabulary changes every minute. Hashing keeps memory fixed and lets workers learn online without waiting for a central dictionary. The audit path samples collisions, keeps namespaces stable, and raises bucket width when important crosses start colliding too often.',
+    explanation: `An ad-ranking learner receives publisher_id, campaign_id, query terms, device, geography, and crossed features such as campaign x device. The vocabulary changes every minute. Hashing keeps memory fixed across ${7} audit-pipeline nodes and lets workers learn online without waiting for a central dictionary. The audit path samples collisions, keeps namespaces stable, and raises bucket width when important crosses start colliding too often.`,
   };
 }
 
@@ -249,6 +249,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/feature-hashing-signed-projection-primer.gif', alt: 'Animated walkthrough of the feature hashing signed projection primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

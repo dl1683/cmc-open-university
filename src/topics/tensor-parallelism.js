@@ -57,17 +57,20 @@ function layerGraph(title) {
 }
 
 function* columnAndRowSplits() {
+  const numGPUs = 2;
+  const splitStrategies = ['column-wise', 'row-wise', 'sequence-wise', 'replicated'];
+
   yield {
     state: layerGraph('Column split: each GPU owns output features'),
     highlight: { active: ['x', 'gpu0', 'gpu1', 'e-x-g0', 'e-x-g1'], found: ['partial0', 'partial1'] },
-    explanation: 'The two GPU branches are shards of one logical layer. In a column-wise split, every rank sees the same input, multiplies by its own output-feature columns, and produces a different slice of Y.',
+    explanation: `The ${numGPUs} GPU branches are shards of one logical layer. In a column-wise split, every rank sees the same input, multiplies by its own output-feature columns, and produces a different slice of Y.`,
   };
 
   yield {
     state: layerGraph('All-gather can assemble the full output'),
     highlight: { active: ['partial0', 'partial1', 'collective', 'e-p0-c', 'e-p1-c'], found: ['y'] },
-    explanation: 'If the next operation needs the full output, the slices are all-gathered. If the next operation is row-wise parallel, the system can keep the output sharded and avoid an immediate gather.',
-    invariant: 'Tensor parallelism preserves the logical layer; it changes where pieces of the tensor live.',
+    explanation: `If the next operation needs the full output, the ${numGPUs} slices are all-gathered. If the next operation is row-wise parallel, the system can keep the output sharded and avoid an immediate gather.`,
+    invariant: `Tensor parallelism preserves the logical layer across ${numGPUs} ranks; it changes where pieces of the tensor live.`,
   };
 
   yield {
@@ -92,9 +95,10 @@ function* columnAndRowSplits() {
       ],
     ),
     highlight: { active: ['column:partition', 'row:collective'], found: ['sequence:shape'] },
-    explanation: 'The split dimension determines the repair operation. Split output features and you concatenate slices. Split input features and each rank computes a partial sum, so you reduce those partial sums.',
+    explanation: `This table covers ${splitStrategies.length} split strategies: ${splitStrategies.join(', ')}. The split dimension determines the repair operation. Split output features and you concatenate slices. Split input features and each rank computes a partial sum, so you reduce those partial sums.`,
   };
 
+  const scenarios = ['huge layer', 'small layer', 'inside one node', 'cross-node'];
   yield {
     state: labelMatrix(
       'When tensor parallelism is worth it',
@@ -116,11 +120,14 @@ function* columnAndRowSplits() {
       ],
     ),
     highlight: { found: ['huge:benefit', 'node:benefit'], compare: ['small:risk', 'cross:risk'] },
-    explanation: 'Tensor parallelism is strongest for very large layers on fast interconnects. It is not a universal speedup: if communication costs more than the local matmul saved, the split is a loss.',
+    explanation: `This ${scenarios.length}-scenario comparison (${scenarios.join(', ')}) shows that tensor parallelism is strongest for very large layers on fast interconnects. If communication costs more than the local matmul saved, the split is a loss.`,
   };
 }
 
 function* transformerBlock() {
+  const blockLayers = ['QKV projection', 'attention heads', 'MLP expansion', 'MLP projection'];
+  const parallelDimensions = ['data parallel', 'tensor parallel', 'pipeline parallel', 'ZeRO/FSDP'];
+
   yield {
     state: labelMatrix(
       'Transformer parallelization plan',
@@ -142,13 +149,13 @@ function* transformerBlock() {
       ],
     ),
     highlight: { active: ['qkv:split', 'mlpup:split'], found: ['mlpdown:communication'] },
-    explanation: 'Each row is a layout decision inside the transformer block. QKV and MLP expansion are natural output-feature splits; output projection and MLP down-projection create partial sums that must be reduced.',
+    explanation: `Each of the ${blockLayers.length} rows is a layout decision inside the transformer block: ${blockLayers.join(', ')}. QKV and MLP expansion are natural output-feature splits; output projection and MLP down-projection create partial sums that must be reduced.`,
   };
 
   yield {
     state: layerGraph('A row-wise projection reduces partial sums'),
     highlight: { active: ['partial0', 'partial1', 'collective'], found: ['e-p0-c', 'e-p1-c', 'e-c-y'] },
-    explanation: 'In a row-wise linear layer, each rank owns input-feature rows and computes a partial output. The partial outputs must be summed, so the repair collective is all-reduce rather than all-gather.',
+    explanation: `In a row-wise linear layer, each rank owns input-feature rows and computes a partial output. Across the ${blockLayers.length} transformer sub-layers, partial outputs must be summed, so the repair collective is all-reduce rather than all-gather.`,
   };
 
   yield {
@@ -172,9 +179,10 @@ function* transformerBlock() {
       ],
     ),
     highlight: { active: ['tensor:splits', 'tensor:communication'], found: ['pipeline:splits', 'zero:splits'] },
-    explanation: 'Large model training composes several dimensions of splitting. Tensor parallelism handles single-layer width; pipeline parallelism handles depth; data parallelism handles examples; ZeRO handles redundant state.',
+    explanation: `Large model training composes ${parallelDimensions.length} dimensions of splitting: ${parallelDimensions.join(', ')}. Tensor parallelism handles single-layer width; pipeline handles depth; data handles examples; ZeRO handles redundant state.`,
   };
 
+  const debugCategories = ['shape mismatch', 'layout drift', 'no overlap', 'numerics'];
   yield {
     state: labelMatrix(
       'Debugging questions',
@@ -196,7 +204,7 @@ function* transformerBlock() {
       ],
     ),
     highlight: { active: ['shape:question', 'layout:question'], compare: ['overlap:symptom', 'numerics:symptom'] },
-    explanation: 'Most tensor-parallel bugs are layout bugs. Always ask what each rank owns before and after the layer, and what collective restores the layout expected by the next operation.',
+    explanation: `Most tensor-parallel bugs fall into ${debugCategories.length} categories: ${debugCategories.join(', ')}. Always ask what each rank owns before and after the layer, and what collective restores the layout expected by the next operation.`,
   };
 }
 
@@ -209,6 +217,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/tensor-parallelism.gif', alt: 'Animated walkthrough of the tensor parallelism visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

@@ -142,7 +142,8 @@ export const article = {
         {type: 'callout', text: 'A trie turns every prefix into an addressable state, so prefix search starts at the prefix node instead of scanning complete keys.'},
         'Active (highlighted) nodes show the path the algorithm is walking right now. Found nodes have an end-of-word marker: the full root-to-node path is a complete stored word, not just a prefix. Visited nodes mark trail already covered.',
         'Watch two things during insertion. First, how many existing nodes the walk reuses (shared prefix) versus how many it creates (unique suffix). Second, notice that "car" and "cat" share root-c-a, so three characters of storage serve both words. During autocomplete, the shaded subtree below the prefix node is the entire result set. Everything outside is never examined. When a prefix is missing, the walk hits a dead edge and the empty answer is proven in one failed child lookup.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/trie.gif', alt: 'Animated walkthrough of the trie visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

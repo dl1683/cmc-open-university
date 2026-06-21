@@ -48,16 +48,18 @@ function catalogGraph(title) {
 }
 
 function* catalogBridges() {
+  const catalogs = [
+    { id: 'l1', label: 'L1', values: [24,64,65,80,93] },
+    { id: 'l2', label: 'L2', values: [23,25,26] },
+    { id: 'l3', label: 'L3', values: [13,44,62,66] },
+    { id: 'l4', label: 'L4', values: [11,35,46,79,81] },
+  ];
+  const queryVal = 50;
   yield {
     state: labelMatrix(
       'Naive repeated search',
-      [
-        { id: 'l1', label: 'L1' },
-        { id: 'l2', label: 'L2' },
-        { id: 'l3', label: 'L3' },
-        { id: 'l4', label: 'L4' },
-      ],
-      [{ id: 'list', label: 'sorted list' }, { id: 'work', label: 'work for x=50' }],
+      catalogs.map(({ id, label }) => ({ id, label })),
+      [{ id: 'list', label: 'sorted list' }, { id: 'work', label: `work for x=${queryVal}` }],
       [
         ['24,64,65,80,93', 'binary search'],
         ['23,25,26', 'binary search'],
@@ -66,19 +68,22 @@ function* catalogBridges() {
       ],
     ),
     highlight: { active: ['l1:work', 'l2:work', 'l3:work', 'l4:work'] },
-    explanation: 'The problem fractional cascading solves is repeated predecessor or successor search for the same value across related sorted lists. Searching each list independently costs k binary searches.',
-    invariant: 'The query value is the same; only the catalog changes.',
+    explanation: `The problem fractional cascading solves is repeated predecessor or successor search for x=${queryVal} across ${catalogs.length} related sorted lists. Searching each list independently costs ${catalogs.length} binary searches.`,
+    invariant: `The query value ${queryVal} is the same across all ${catalogs.length} catalogs; only the catalog changes.`,
   };
 
+  const augmented = ['m1', 'm2', 'm3', 'm4'];
   yield {
     state: catalogGraph('Copy a fraction of each later catalog backward'),
     highlight: { active: ['m1', 'm2', 'm3', 'm4', 'e-m1-m2', 'e-m2-m3'], compare: ['q'] },
-    explanation: 'Fractional cascading augments each catalog with sampled items from the next catalog. Each augmented item stores bridge positions into its own original list and the next augmented list.',
+    explanation: `Fractional cascading augments each of the ${catalogs.length} catalogs (${augmented.join(' -> ')}) with sampled items from the next catalog. Each augmented item stores bridge positions into its own original list and the next augmented list.`,
   };
 
+  const binarySearches = 1;
+  const bridgeFollows = catalogs.length - binarySearches;
   yield {
     state: labelMatrix(
-      'Query x=50 after preprocessing',
+      `Query x=${queryVal} after preprocessing`,
       [
         { id: 'first', label: 'M1' },
         { id: 'second', label: 'M2' },
@@ -94,19 +99,20 @@ function* catalogBridges() {
       ],
     ),
     highlight: { found: ['first:cost', 'second:cost', 'third:cost', 'fourth:cost'] },
-    explanation: 'After the first binary search, every later catalog starts near the answer. A constant number of comparisons fixes the position in each list.',
-    invariant: 'Query time becomes O(log n + k) instead of O(k log n).',
+    explanation: `After ${binarySearches} binary search in M1, the remaining ${bridgeFollows} catalogs each start near the answer via bridge pointers. A constant number of comparisons fixes the position in each list.`,
+    invariant: `Query time becomes O(log n + ${catalogs.length}) instead of O(${catalogs.length} log n).`,
   };
 
+  const tradeoffDims = [
+    { id: 'space', label: 'space' },
+    { id: 'build', label: 'build' },
+    { id: 'query', label: 'query' },
+    { id: 'updates', label: 'updates' },
+  ];
   yield {
     state: labelMatrix(
       'What the extra pointers buy',
-      [
-        { id: 'space', label: 'space' },
-        { id: 'build', label: 'build' },
-        { id: 'query', label: 'query' },
-        { id: 'updates', label: 'updates' },
-      ],
+      tradeoffDims,
       [{ id: 'effect', label: 'effect' }, { id: 'tradeoff', label: 'tradeoff' }],
       [
         ['linear extra samples', 'more metadata'],
@@ -116,20 +122,21 @@ function* catalogBridges() {
       ],
     ),
     highlight: { found: ['query:effect'], compare: ['updates:tradeoff'] },
-    explanation: 'This is a classic space-for-query-time structure. It is elegant when catalogs are static or rebuilt in batches, and less attractive when every list changes constantly.',
+    explanation: `This structure trades across ${tradeoffDims.length} dimensions (${tradeoffDims.map(t => t.label).join(', ')}). It is elegant when ${catalogs.length} catalogs are static or rebuilt in batches, and less attractive when every list changes constantly.`,
   };
 }
 
 function* segmentTreeQueries() {
+  const treeNodes = [
+    { id: 'node1', label: 'node [0,3]', size: 4 },
+    { id: 'node2', label: 'node [4,7]', size: 4 },
+    { id: 'node3', label: 'node [8,11]', size: 4 },
+    { id: 'node4', label: 'node [12,15]', size: 4 },
+  ];
   yield {
     state: labelMatrix(
       'Merge-sort tree range query',
-      [
-        { id: 'node1', label: 'node [0,3]' },
-        { id: 'node2', label: 'node [4,7]' },
-        { id: 'node3', label: 'node [8,11]' },
-        { id: 'node4', label: 'node [12,15]' },
-      ],
+      treeNodes.map(({ id, label }) => ({ id, label })),
       [{ id: 'catalog', label: 'sorted catalog' }, { id: 'query', label: 'count <= x' }],
       [
         ['2,5,7,9', 'binary search'],
@@ -139,24 +146,25 @@ function* segmentTreeQueries() {
       ],
     ),
     highlight: { active: ['node1:query', 'node2:query', 'node3:query', 'node4:query'] },
-    explanation: 'A range query over a merge-sort tree may touch several segment-tree nodes. Each node has a sorted catalog, so a naive implementation binary-searches each one.',
+    explanation: `A range query over a merge-sort tree may touch ${treeNodes.length} segment-tree nodes, each with a sorted catalog of ${treeNodes[0].size} elements. A naive implementation binary-searches each one independently.`,
   };
 
   yield {
     state: catalogGraph('Bridge the catalogs visited by the query'),
     highlight: { active: ['q', 'm1', 'm2', 'm3', 'm4'], found: ['ans'] },
-    explanation: 'Fractional cascading can store cross-catalog links so the query performs one binary search at the first relevant node, then follows links into the next visited catalogs.',
+    explanation: `Fractional cascading can store cross-catalog links across ${treeNodes.length} visited nodes so the query performs one binary search at the first relevant node, then follows links into the remaining ${treeNodes.length - 1} catalogs.`,
   };
 
+  const caseStudyRows = [
+    { id: 'input', label: 'input array' },
+    { id: 'tree', label: 'segment tree' },
+    { id: 'query', label: '[l,r], x' },
+    { id: 'answer', label: 'successor' },
+  ];
   yield {
     state: labelMatrix(
       'Case study: many range successor queries',
-      [
-        { id: 'input', label: 'input array' },
-        { id: 'tree', label: 'segment tree' },
-        { id: 'query', label: '[l,r], x' },
-        { id: 'answer', label: 'successor' },
-      ],
+      caseStudyRows,
       [{ id: 'structure', label: 'structure' }, { id: 'reason', label: 'reason' }],
       [
         ['static values', 'can preprocess'],
@@ -166,18 +174,19 @@ function* segmentTreeQueries() {
       ],
     ),
     highlight: { active: ['query:reason'], found: ['answer:structure'] },
-    explanation: 'The complete case is a static array with many queries asking for the smallest value >= x inside a range. The query decomposes into catalogs; fractional cascading reduces the repeated search cost.',
+    explanation: `The complete case has ${caseStudyRows.length} layers: ${caseStudyRows.map(r => r.label).join(', ')}. A static array with many queries asking for the smallest value >= x inside a range decomposes into catalogs; fractional cascading reduces the repeated search cost across ${treeNodes.length} nodes.`,
   };
 
+  const antipatterns = [
+    { id: 'few', label: 'few queries' },
+    { id: 'dynamic', label: 'many updates' },
+    { id: 'single', label: 'one catalog' },
+    { id: 'simple', label: 'small n' },
+  ];
   yield {
     state: labelMatrix(
       'When not to use it',
-      [
-        { id: 'few', label: 'few queries' },
-        { id: 'dynamic', label: 'many updates' },
-        { id: 'single', label: 'one catalog' },
-        { id: 'simple', label: 'small n' },
-      ],
+      antipatterns,
       [{ id: 'issue', label: 'issue' }, { id: 'simpler_choice', label: 'simpler choice' }],
       [
         ['preprocessing not repaid', 'plain binary search'],
@@ -187,7 +196,7 @@ function* segmentTreeQueries() {
       ],
     ),
     highlight: { compare: ['dynamic:issue', 'few:issue'], found: ['single:simpler_choice'] },
-    explanation: 'Fractional cascading is powerful because it targets a narrow bottleneck. If the bottleneck is not repeated sorted-list search for the same key, it is probably the wrong tool.',
+    explanation: `${antipatterns.length} antipatterns show when fractional cascading is the wrong tool: ${antipatterns.map(a => a.label).join(', ')}. If the bottleneck is not repeated sorted-list search for the same key, it adds complexity without benefit.`,
   };
 }
 
@@ -200,6 +209,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/fractional-cascading.gif', alt: 'Animated walkthrough of the fractional cascading visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

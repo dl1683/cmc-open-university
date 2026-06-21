@@ -225,7 +225,8 @@ export const article = {
         {type: 'callout', text: 'Rabin-Karp is exact because hashing only rejects windows; every accepted candidate still passes a byte comparison.'},
         'The matrix view below the pipeline shows concrete hash values for each window. Windows highlighted as compare were rejected by a single integer comparison -- no characters examined. Windows highlighted as found passed both the hash check and the byte verification.',
         'In the "collisions and uses" view, a deliberately tiny modulus forces different windows to produce the same hash. The verdict column shows the byte check catching every collision. Watch how many windows are rejected by one integer comparison versus how many require the full m-character scan. That ratio is the entire point of the algorithm.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/rolling-hash-rabin-karp.gif', alt: 'Animated walkthrough of the rolling hash rabin karp visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

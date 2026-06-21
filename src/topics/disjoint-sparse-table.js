@@ -30,17 +30,18 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 const columns = Array.from({ length: 8 }, (_, i) => ({ id: `i${i}`, label: String(i) }));
 
 function* buildLevels() {
+  const arr = [5, 2, 7, 1, 4, 6, 3, 8];
   yield {
     state: matrixState({
       title: 'Static array',
       rows: [{ id: 'a', label: 'A[i]' }],
       columns,
-      values: [[5, 2, 7, 1, 4, 6, 3, 8]],
+      values: [arr],
       format: String,
     }),
-    highlight: { active: ['a:i0', 'a:i1', 'a:i2', 'a:i3', 'a:i4', 'a:i5', 'a:i6', 'a:i7'] },
-    explanation: 'A disjoint sparse table is for immutable arrays and associative operations such as min, max, gcd, xor, sum, or string concatenation. It spends preprocessing to make every later query constant time.',
-    invariant: 'The operation must be associative: (a op b) op c equals a op (b op c).',
+    highlight: { active: columns.map(c => `a:${c.id}`) },
+    explanation: `A disjoint sparse table is for immutable arrays of ${arr.length} elements (${arr.join(', ')}) and associative operations such as min, max, gcd, xor, sum, or string concatenation. It spends preprocessing to make every later query constant time.`,
+    invariant: `The operation over ${arr.length} elements must be associative: (a op b) op c equals a op (b op c).`,
   };
 
   yield {
@@ -51,38 +52,41 @@ function* buildLevels() {
       [['suffix 0..1', 'suffix 1..1', 'prefix 2..2', 'prefix 2..3', 'suffix 4..5', 'suffix 5..5', 'prefix 6..6', 'prefix 6..7']],
     ),
     highlight: { active: ['l2:i0', 'l2:i1', 'l2:i2', 'l2:i3'], compare: ['l2:i4', 'l2:i5', 'l2:i6', 'l2:i7'] },
-    explanation: 'Each level partitions the array into blocks. Inside a block, store suffix aggregates on the left side of the midpoint and prefix aggregates on the right side. Any range crossing the midpoint can be answered by one suffix and one prefix.',
+    explanation: `Each level partitions the ${columns.length}-element array into blocks. Inside a block, store suffix aggregates on the left side of the midpoint and prefix aggregates on the right side. Any range crossing the midpoint can be answered by one suffix and one prefix.`,
   };
 
+  const levels = [
+    { id: 'l1', label: 'level 1' },
+    { id: 'l2', label: 'level 2' },
+    { id: 'l3', label: 'level 3' },
+  ];
+  const blockSizes = [2, 4, 8];
   yield {
     state: labelMatrix(
       'Levels choose larger crossing blocks',
-      [
-        { id: 'l1', label: 'level 1' },
-        { id: 'l2', label: 'level 2' },
-        { id: 'l3', label: 'level 3' },
-      ],
+      levels,
       [{ id: 'block', label: 'block size' }, { id: 'covers', label: 'covers ranges that split at' }],
       [
-        ['2', 'neighbor pairs'],
-        ['4', 'middle bit differs at 2'],
-        ['8', 'middle bit differs at 4'],
+        [String(blockSizes[0]), 'neighbor pairs'],
+        [String(blockSizes[1]), 'middle bit differs at 2'],
+        [String(blockSizes[2]), 'middle bit differs at 4'],
       ],
     ),
     highlight: { active: ['l2:block', 'l3:covers'], found: ['l1:covers'] },
-    explanation: 'For query [l, r], pick the highest bit where l and r differ. That level has a block whose midpoint separates l and r, so the answer is table[level][l] op table[level][r].',
-    invariant: 'The selected level makes the two precomputed aggregates disjoint and complete.',
+    explanation: `For query [l, r] over ${columns.length} elements, pick the highest bit where l and r differ across ${levels.length} levels (block sizes ${blockSizes.join(', ')}). That level has a block whose midpoint separates l and r, so the answer is table[level][l] op table[level][r].`,
+    invariant: `The selected level from ${levels.length} options makes the two precomputed aggregates disjoint and complete.`,
   };
 
+  const alternatives = [
+    { id: 'classic', label: 'Sparse Table' },
+    { id: 'disjoint', label: 'Disjoint Sparse Table' },
+    { id: 'segment', label: 'Segment Tree' },
+    { id: 'prefix', label: 'Prefix Sum' },
+  ];
   yield {
     state: labelMatrix(
       'Compared with classic Sparse Table',
-      [
-        { id: 'classic', label: 'Sparse Table' },
-        { id: 'disjoint', label: 'Disjoint Sparse Table' },
-        { id: 'segment', label: 'Segment Tree' },
-        { id: 'prefix', label: 'Prefix Sum' },
-      ],
+      alternatives,
       [{ id: 'query', label: 'query' }, { id: 'operation', label: 'operation fit' }],
       [
         ['O(1) for idempotent ops', 'min/max/gcd overlap safely'],
@@ -92,22 +96,28 @@ function* buildLevels() {
       ],
     ),
     highlight: { found: ['disjoint:query', 'disjoint:operation'], compare: ['segment:query'] },
-    explanation: 'Classic Sparse Table answers min/max in O(1) by overlapping ranges, which only works for idempotent operations. Disjoint Sparse Table avoids overlap, so associativity is enough.',
+    explanation: `Among ${alternatives.length} structures (${alternatives.map(a => a.label).join(', ')}), classic Sparse Table answers min/max in O(1) by overlapping ranges, which only works for idempotent operations. ${alternatives[1].label} avoids overlap, so associativity is enough.`,
   };
 }
 
 function* rangeQuery() {
+  const queryL = 1;
+  const queryR = 6;
+  const queryLen = queryR - queryL + 1;
   yield {
     state: labelMatrix(
-      'Query sum over [1, 6]',
+      `Query sum over [${queryL}, ${queryR}]`,
       [{ id: 'q', label: 'query' }],
       columns,
-      [['outside', 'l=1', 'inside', 'inside', 'inside', 'inside', 'r=6', 'outside']],
+      [['outside', `l=${queryL}`, 'inside', 'inside', 'inside', 'inside', `r=${queryR}`, 'outside']],
     ),
     highlight: { active: ['q:i1', 'q:i2', 'q:i3', 'q:i4', 'q:i5', 'q:i6'], compare: ['q:i0', 'q:i7'] },
-    explanation: 'The query endpoints 1 and 6 differ first at a high bit that selects the block covering 0..7. The midpoint separates the range into [1..3] and [4..6].',
+    explanation: `The query endpoints ${queryL} and ${queryR} (${queryLen} elements) differ first at a high bit that selects the block covering 0..${columns.length - 1}. The midpoint separates the range into [${queryL}..3] and [4..${queryR}].`,
   };
 
+  const leftSum = 10;
+  const rightSum = 13;
+  const totalSum = leftSum + rightSum;
   yield {
     state: labelMatrix(
       'Combine two disjoint precomputed cells',
@@ -119,26 +129,27 @@ function* rangeQuery() {
       ],
       [{ id: 'range', label: 'range' }, { id: 'value', label: 'value' }],
       [
-        ['A[1..3]', '2 + 7 + 1 = 10'],
-        ['A[4..6]', '4 + 6 + 3 = 13'],
-        ['left + right', '23'],
-        ['sum[1..6]', '23'],
+        [`A[${queryL}..3]`, `2 + 7 + 1 = ${leftSum}`],
+        [`A[4..${queryR}]`, `4 + 6 + 3 = ${rightSum}`],
+        ['left + right', String(totalSum)],
+        [`sum[${queryL}..${queryR}]`, String(totalSum)],
       ],
     ),
     highlight: { active: ['left:value', 'right:value'], found: ['answer:value'] },
-    explanation: 'The two table cells do not overlap. That is the whole trick. Because the operation is associative, leftAggregate op rightAggregate is exactly the range answer.',
-    invariant: 'No element is counted twice and no element is skipped.',
+    explanation: `The two table cells do not overlap. That is the whole trick. Left suffix = ${leftSum}, right prefix = ${rightSum}, total = ${totalSum}. Because the operation is associative, leftAggregate op rightAggregate is exactly the range answer.`,
+    invariant: `No element in the ${queryLen}-element range is counted twice and no element is skipped.`,
   };
 
+  const caseRows = [
+    { id: 'load', label: 'load segment' },
+    { id: 'build', label: 'build table' },
+    { id: 'query', label: 'serve dashboards' },
+    { id: 'rotate', label: 'new segment' },
+  ];
   yield {
     state: labelMatrix(
       'Case study: immutable analytics segment',
-      [
-        { id: 'load', label: 'load segment' },
-        { id: 'build', label: 'build table' },
-        { id: 'query', label: 'serve dashboards' },
-        { id: 'rotate', label: 'new segment' },
-      ],
+      caseRows,
       [{ id: 'work', label: 'work' }, { id: 'reason', label: 'reason' }],
       [
         ['append closes file', 'data no longer changes'],
@@ -148,18 +159,19 @@ function* rangeQuery() {
       ],
     ),
     highlight: { found: ['query:work'], active: ['build:reason'], compare: ['rotate:work'] },
-    explanation: 'Disjoint sparse tables are natural for immutable chunks: log segments, OLAP fragments, precomputed telemetry windows, and competitive-programming static arrays. If data changes, use a Segment Tree instead.',
+    explanation: `Disjoint sparse tables follow a ${caseRows.length}-phase lifecycle (${caseRows.map(r => r.label).join(', ')}), natural for immutable chunks: log segments, OLAP fragments, precomputed telemetry windows, and competitive-programming static arrays of ${columns.length} or more elements. If data changes, use a Segment Tree instead.`,
   };
 
+  const checkRows = [
+    { id: 'size', label: 'power of two' },
+    { id: 'bit', label: 'highest differing bit' },
+    { id: 'identity', label: 'single element' },
+    { id: 'order', label: 'operation order' },
+  ];
   yield {
     state: labelMatrix(
       'Implementation checklist',
-      [
-        { id: 'size', label: 'power of two' },
-        { id: 'bit', label: 'highest differing bit' },
-        { id: 'identity', label: 'single element' },
-        { id: 'order', label: 'operation order' },
-      ],
+      checkRows,
       [{ id: 'detail', label: 'detail' }, { id: 'bug', label: 'bug to avoid' }],
       [
         ['pad or handle ragged end', 'reading past array'],
@@ -169,7 +181,7 @@ function* rangeQuery() {
       ],
     ),
     highlight: { active: ['bit:detail', 'order:detail'], found: ['identity:bug'] },
-    explanation: 'The table works for associative operations, not necessarily commutative ones. For string concatenation, matrix multiplication, or function composition, left-to-right order must be preserved.',
+    explanation: `The ${checkRows.length} implementation checks (${checkRows.map(r => r.label).join(', ')}) ensure the table works for associative operations, not necessarily commutative ones. For string concatenation, matrix multiplication, or function composition, left-to-right order must be preserved.`,
   };
 }
 
@@ -193,7 +205,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/disjoint-sparse-table.gif', alt: 'Animated walkthrough of the disjoint sparse table visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

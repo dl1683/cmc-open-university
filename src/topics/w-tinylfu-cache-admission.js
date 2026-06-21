@@ -28,26 +28,43 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* admissionPipeline() {
+  const pipelineNodes = [
+    { id: 'req', label: 'request', x: 0.8, y: 2.8, note: 'key' },
+    { id: 'sketch', label: 'sketch', x: 2.4, y: 2.8, note: 'freq' },
+    { id: 'window', label: 'window', x: 4.0, y: 2.8, note: 'recency' },
+    { id: 'admit', label: 'admit?', x: 5.7, y: 2.8, note: 'vs victim' },
+    { id: 'main', label: 'main', x: 7.4, y: 2.8, note: 'keep hot' },
+    { id: 'reject', label: 'reject', x: 9.0, y: 2.8, note: 'drop noise' },
+  ];
+  const pipelineEdges = [
+    { id: 'e-req-sketch', from: 'req', to: 'sketch', weight: '' },
+    { id: 'e-sketch-window', from: 'sketch', to: 'window', weight: '' },
+    { id: 'e-window-admit', from: 'window', to: 'admit', weight: '' },
+    { id: 'e-admit-main', from: 'admit', to: 'main', weight: '' },
+    { id: 'e-main-reject', from: 'main', to: 'reject', weight: '' },
+  ];
+  const newFreq = '5';
+  const victimFreq = '12';
+  const sketchRows = [
+    { id: 'row0', label: 'hash 0' },
+    { id: 'row1', label: 'hash 1' },
+    { id: 'row2', label: 'hash 2' },
+    { id: 'row3', label: 'hash 3' },
+  ];
+  const sketchCols = [
+    { id: 'a', label: 'a' },
+    { id: 'b', label: 'b' },
+    { id: 'c', label: 'c' },
+    { id: 'd', label: 'd' },
+  ];
+
   yield {
     state: graphState({
-      nodes: [
-        { id: 'req', label: 'request', x: 0.8, y: 2.8, note: 'key' },
-        { id: 'sketch', label: 'sketch', x: 2.4, y: 2.8, note: 'freq' },
-        { id: 'window', label: 'window', x: 4.0, y: 2.8, note: 'recency' },
-        { id: 'admit', label: 'admit?', x: 5.7, y: 2.8, note: 'vs victim' },
-        { id: 'main', label: 'main', x: 7.4, y: 2.8, note: 'keep hot' },
-        { id: 'reject', label: 'reject', x: 9.0, y: 2.8, note: 'drop noise' },
-      ],
-      edges: [
-        { id: 'e-req-sketch', from: 'req', to: 'sketch', weight: '' },
-        { id: 'e-sketch-window', from: 'sketch', to: 'window', weight: '' },
-        { id: 'e-window-admit', from: 'window', to: 'admit', weight: '' },
-        { id: 'e-admit-main', from: 'admit', to: 'main', weight: '' },
-        { id: 'e-main-reject', from: 'main', to: 'reject', weight: '' },
-      ],
+      nodes: pipelineNodes,
+      edges: pipelineEdges,
     }, { title: 'Window TinyLFU separates recency from admission' }),
     highlight: { active: ['sketch', 'window', 'admit'], found: ['main'] },
-    explanation: 'W-TinyLFU gives new items a small recency window, but it does not automatically let them evict valuable main-cache entries. A frequency sketch estimates whether the newcomer deserves admission.',
+    explanation: `W-TinyLFU routes each request through ${pipelineNodes.length} stages (${pipelineNodes.map(n => n.label).join(' → ')}), but does not automatically let newcomers evict valuable main-cache entries. A ${pipelineNodes[1].label} estimates whether the newcomer deserves admission.`,
   };
 
   yield {
@@ -63,31 +80,21 @@ function* admissionPipeline() {
         { id: 'policy', label: 'policy' },
       ],
       [
-        ['5', 'challenger'],
-        ['12', 'resident'],
+        [newFreq, 'challenger'],
+        [victimFreq, 'resident'],
         ['reject', 'keep victim'],
       ],
     ),
     highlight: { active: ['new:freq', 'victim:freq'], found: ['decision:freq'] },
-    explanation: 'TinyLFU is admission, not eviction. The eviction candidate is chosen by the main cache policy; TinyLFU asks whether the incoming item has enough estimated frequency to replace it.',
-    invariant: 'A miss can still be rejected from the main cache.',
+    explanation: `TinyLFU is admission, not eviction. Here the newcomer has freq ${newFreq} vs the victim's ${victimFreq}, so the newcomer is rejected. TinyLFU asks whether the incoming item has enough estimated frequency to replace the resident.`,
+    invariant: `A miss can still be rejected: freq ${newFreq} < ${victimFreq} means the newcomer loses despite being requested.`,
   };
 
   yield {
     state: labelMatrix(
       'Tiny frequency sketch',
-      [
-        { id: 'row0', label: 'hash 0' },
-        { id: 'row1', label: 'hash 1' },
-        { id: 'row2', label: 'hash 2' },
-        { id: 'row3', label: 'hash 3' },
-      ],
-      [
-        { id: 'a', label: 'a' },
-        { id: 'b', label: 'b' },
-        { id: 'c', label: 'c' },
-        { id: 'd', label: 'd' },
-      ],
+      sketchRows,
+      sketchCols,
       [
         ['4', '8', '2', '1'],
         ['5', '7', '3', '2'],
@@ -96,53 +103,63 @@ function* admissionPipeline() {
       ],
     ),
     highlight: { active: ['row0:b', 'row1:b', 'row2:b', 'row3:b'] },
-    explanation: 'The sketch is Count-Min-like: multiple hashed counters estimate recent frequency compactly. Production implementations age the sketch so old popularity fades.',
+    explanation: `The sketch is Count-Min-like: ${sketchRows.length} hash rows × ${sketchCols.length} columns estimate recent frequency compactly. Production implementations age the ${sketchRows.length * sketchCols.length}-cell sketch so old popularity fades.`,
   };
+
+  const caffeineNodes = [
+    { id: 'window', label: '1% win', x: 1.0, y: 2.8, note: 'new items' },
+    { id: 'prob', label: 'prob', x: 3.1, y: 3.5, note: 'warm' },
+    { id: 'prot', label: 'prot', x: 5.1, y: 3.5, note: 'hot' },
+    { id: 'sketch', label: 'sketch', x: 3.1, y: 2.1, note: 'history' },
+    { id: 'hill', label: 'tune win', x: 7.1, y: 2.8, note: 'adapt' },
+  ];
+  const caffeineEdges = [
+    { id: 'e-window-prob', from: 'window', to: 'prob', weight: '' },
+    { id: 'e-prob-prot', from: 'prob', to: 'prot', weight: '' },
+    { id: 'e-sketch-prob', from: 'sketch', to: 'prob', weight: '' },
+    { id: 'e-prot-hill', from: 'prot', to: 'hill', weight: '' },
+    { id: 'e-hill-window', from: 'hill', to: 'window', weight: '' },
+  ];
+  const windowLabel = caffeineNodes[0].label;
 
   yield {
     state: graphState({
-      nodes: [
-        { id: 'window', label: '1% win', x: 1.0, y: 2.8, note: 'new items' },
-        { id: 'prob', label: 'prob', x: 3.1, y: 3.5, note: 'warm' },
-        { id: 'prot', label: 'prot', x: 5.1, y: 3.5, note: 'hot' },
-        { id: 'sketch', label: 'sketch', x: 3.1, y: 2.1, note: 'history' },
-        { id: 'hill', label: 'tune win', x: 7.1, y: 2.8, note: 'adapt' },
-      ],
-      edges: [
-        { id: 'e-window-prob', from: 'window', to: 'prob', weight: '' },
-        { id: 'e-prob-prot', from: 'prob', to: 'prot', weight: '' },
-        { id: 'e-sketch-prob', from: 'sketch', to: 'prob', weight: '' },
-        { id: 'e-prot-hill', from: 'prot', to: 'hill', weight: '' },
-        { id: 'e-hill-window', from: 'hill', to: 'window', weight: '' },
-      ],
+      nodes: caffeineNodes,
+      edges: caffeineEdges,
     }, { title: 'Caffeine-style policy structure' }),
     highlight: { active: ['window', 'sketch', 'prob', 'prot'], found: ['hill'] },
-    explanation: 'Caffeine describes a small window LRU feeding a larger segmented LRU, with a frequency sketch and hill climbing to adapt the window size to workload shifts.',
+    explanation: `Caffeine arranges ${caffeineNodes.length} components: a small "${windowLabel}" window LRU feeding a segmented LRU (${caffeineNodes[1].label} → ${caffeineNodes[2].label}), with a frequency sketch and hill climbing (${caffeineNodes[4].label}) to adapt the window size.`,
   };
 }
 
 function* scanResistance() {
+  const lruScanDip = 0.35;
+  const tinyAtScan = 0.72;
+  const lruPoints = [{ x: 0, y: 0.82 }, { x: 25, y: 0.78 }, { x: 50, y: lruScanDip }, { x: 75, y: 0.42 }, { x: 100, y: 0.70 }];
+  const tinyPoints = [{ x: 0, y: 0.82 }, { x: 25, y: 0.80 }, { x: 50, y: tinyAtScan }, { x: 75, y: 0.76 }, { x: 100, y: 0.81 }];
+  const workloadShapes = [
+    { id: 'burst', label: 'burst' },
+    { id: 'scan', label: 'scan' },
+    { id: 'stable', label: 'stable hot' },
+    { id: 'shift', label: 'shift' },
+  ];
+
   yield {
     state: plotState({
       axes: { x: { label: 'request index', min: 0, max: 100 }, y: { label: 'hit rate', min: 0, max: 1.0 } },
       series: [
-        { id: 'lru', label: 'LRU under scan', points: [{ x: 0, y: 0.82 }, { x: 25, y: 0.78 }, { x: 50, y: 0.35 }, { x: 75, y: 0.42 }, { x: 100, y: 0.70 }] },
-        { id: 'tiny', label: 'W-TinyLFU', points: [{ x: 0, y: 0.82 }, { x: 25, y: 0.80 }, { x: 50, y: 0.72 }, { x: 75, y: 0.76 }, { x: 100, y: 0.81 }] },
+        { id: 'lru', label: 'LRU under scan', points: lruPoints },
+        { id: 'tiny', label: 'W-TinyLFU', points: tinyPoints },
       ],
     }),
     highlight: { active: ['tiny'], compare: ['lru'] },
-    explanation: 'A one-time scan can flush LRU. TinyLFU-style admission filters scan noise by asking whether the new item has enough estimated reuse to displace an existing resident.',
+    explanation: `A one-time scan drops LRU to ${lruScanDip} while W-TinyLFU holds at ${tinyAtScan}. Admission filtering rejects scan noise by requiring enough estimated reuse to displace an existing resident.`,
   };
 
   yield {
     state: labelMatrix(
       'Workload shapes',
-      [
-        { id: 'burst', label: 'burst' },
-        { id: 'scan', label: 'scan' },
-        { id: 'stable', label: 'stable hot' },
-        { id: 'shift', label: 'shift' },
-      ],
+      workloadShapes,
       [
         { id: 'LRU', label: 'LRU' },
         { id: 'Tiny', label: 'W-TinyLFU' },
@@ -155,41 +172,46 @@ function* scanResistance() {
       ],
     ),
     highlight: { found: ['scan:Tiny', 'shift:Tiny'], compare: ['scan:LRU'] },
-    explanation: 'The window protects recency bursts; the sketch protects long-term frequency. The combination covers more workload shapes than either pure recency or pure frequency alone.',
+    explanation: `Across ${workloadShapes.length} workload shapes (${workloadShapes.map(s => s.label).join(', ')}), the window protects recency bursts while the sketch protects long-term frequency. The combination covers more patterns than either pure recency or pure frequency alone.`,
   };
+
+  const tradeoffNodes = [
+    { id: 'lat', label: 'latency', x: 0.9, y: 3.5, note: 'miss cost' },
+    { id: 'hit', label: 'hit rate', x: 2.8, y: 3.5, note: 'policy' },
+    { id: 'mem', label: 'memory', x: 4.7, y: 2.1, note: 'sketch' },
+    { id: 'cpu', label: 'CPU', x: 4.7, y: 3.5, note: 'counters' },
+    { id: 'ops', label: 'ops', x: 6.7, y: 2.8, note: 'tune' },
+    { id: 'prod', label: 'cache SLA', x: 8.5, y: 2.8, note: 'goal' },
+  ];
+  const tradeoffEdges = [
+    { id: 'e-lat-hit', from: 'lat', to: 'hit', weight: '' },
+    { id: 'e-hit-cpu', from: 'hit', to: 'cpu', weight: '' },
+    { id: 'e-hit-mem', from: 'hit', to: 'mem', weight: '' },
+    { id: 'e-cpu-ops', from: 'cpu', to: 'ops', weight: '' },
+    { id: 'e-mem-ops', from: 'mem', to: 'ops', weight: '' },
+    { id: 'e-ops-prod', from: 'ops', to: 'prod', weight: '' },
+  ];
 
   yield {
     state: graphState({
-      nodes: [
-        { id: 'lat', label: 'latency', x: 0.9, y: 3.5, note: 'miss cost' },
-        { id: 'hit', label: 'hit rate', x: 2.8, y: 3.5, note: 'policy' },
-        { id: 'mem', label: 'memory', x: 4.7, y: 2.1, note: 'sketch' },
-        { id: 'cpu', label: 'CPU', x: 4.7, y: 3.5, note: 'counters' },
-        { id: 'ops', label: 'ops', x: 6.7, y: 2.8, note: 'tune' },
-        { id: 'prod', label: 'cache SLA', x: 8.5, y: 2.8, note: 'goal' },
-      ],
-      edges: [
-        { id: 'e-lat-hit', from: 'lat', to: 'hit', weight: '' },
-        { id: 'e-hit-cpu', from: 'hit', to: 'cpu', weight: '' },
-        { id: 'e-hit-mem', from: 'hit', to: 'mem', weight: '' },
-        { id: 'e-cpu-ops', from: 'cpu', to: 'ops', weight: '' },
-        { id: 'e-mem-ops', from: 'mem', to: 'ops', weight: '' },
-        { id: 'e-ops-prod', from: 'ops', to: 'prod', weight: '' },
-      ],
+      nodes: tradeoffNodes,
+      edges: tradeoffEdges,
     }, { title: 'A cache policy is a production tradeoff' }),
     highlight: { active: ['hit', 'mem', 'cpu'], found: ['prod'] },
-    explanation: 'Better hit rate is valuable only if policy overhead stays small. W-TinyLFU is attractive because it makes an admission decision with compact approximate counters.',
+    explanation: `Better ${tradeoffNodes[1].label} is valuable only if policy overhead (${tradeoffNodes[2].label}, ${tradeoffNodes[3].label}) stays small. W-TinyLFU reaches the ${tradeoffNodes[5].label} goal using compact approximate counters across ${tradeoffEdges.length} dependency edges.`,
   };
+
+  const auditRows = [
+    { id: 'ttl', label: 'TTL' },
+    { id: 'size', label: 'size' },
+    { id: 'write', label: 'writes' },
+    { id: 'trace', label: 'traces' },
+  ];
 
   yield {
     state: labelMatrix(
       'Audit questions',
-      [
-        { id: 'ttl', label: 'TTL' },
-        { id: 'size', label: 'size' },
-        { id: 'write', label: 'writes' },
-        { id: 'trace', label: 'traces' },
-      ],
+      auditRows,
       [
         { id: 'risk', label: 'risk' },
         { id: 'check', label: 'check' },
@@ -202,7 +224,7 @@ function* scanResistance() {
       ],
     ),
     highlight: { found: ['ttl:check', 'size:check', 'trace:check'] },
-    explanation: 'Production cache quality needs trace replay, value-size accounting, expiration, invalidation, and write behavior. Admission policy is powerful, but it is only one part of the cache contract.',
+    explanation: `Production cache quality spans ${auditRows.length} concerns (${auditRows.map(r => r.label).join(', ')}): trace replay, value-size accounting, expiration, invalidation, and write behavior. Admission policy is powerful, but it is only one part of the cache contract.`,
   };
 }
 
@@ -215,6 +237,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/w-tinylfu-cache-admission.gif', alt: 'Animated walkthrough of the w tinylfu cache admission visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: "Why this exists",
       paragraphs: [

@@ -120,7 +120,8 @@ export const article = {
         "The returning path at the end traces the winner back to the root. The gap between greedy's result and beam's result is the price of committing too early to a locally dominant token.",
         {type: "callout", text: "Beam search spends fixed memory to keep several plausible prefixes alive until cumulative probability can outrank the locally best token."},
         {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/3/3b/Beam_search_%28search_width_2%29.svg", alt: "Beam search tree with search width 2, showing how two hypotheses are kept at each level while others are pruned", caption: "Beam search with width 2: at each depth, only the top 2 scored paths survive. (Source: Wikimedia Commons)"},
-      ],
+      
+        {type: 'image', src: './assets/gifs/beam-search.gif', alt: 'Animated walkthrough of the beam search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

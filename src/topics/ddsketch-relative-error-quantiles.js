@@ -94,11 +94,22 @@ function relPlot(title) {
 }
 
 function* logBuckets() {
+  const bucketNodes = 8;
+  const bucketEdges = 7;
+  const numBuckets = 4;
+  const bucketFields = 3;
+  const plotMarkers = 3;
+  const errorPct = 5;
+  const lowVal = 10;
+  const highVal = 1000;
+  const lowError = lowVal * errorPct / 100;
+  const highError = highVal * errorPct / 100;
+
   yield {
     state: bucketGraph('DDSketch maps values into logarithmic buckets'),
     highlight: { active: ['value', 'map', 'b1', 'b2', 'e-value-map', 'e-map-b1', 'e-map-b2'], compare: ['rank'] },
-    explanation: 'DDSketch gives a relative-error value guarantee. Instead of promising only that the returned value has a nearby rank, it maps each observed value to a logarithmic bucket whose representative is within a chosen relative error.',
-    invariant: 'Bucket width grows with value, so the same relative accuracy applies at milliseconds and seconds.',
+    explanation: `DDSketch gives a relative-error value guarantee across ${bucketNodes} pipeline nodes connected by ${bucketEdges} edges. Instead of promising only that the returned value has a nearby rank, it maps each observed value to one of ${numBuckets} logarithmic buckets whose representative is within a chosen relative error.`,
+    invariant: `Bucket width grows with value, so the same relative accuracy applies across all ${numBuckets} buckets from milliseconds to seconds.`,
   };
 
   yield {
@@ -123,27 +134,36 @@ function* logBuckets() {
       ],
     ),
     highlight: { active: ['b1:count', 'b2:count'], found: ['b3:count'] },
-    explanation: 'Counts, not raw samples, are stored. Higher-value buckets are wider in absolute milliseconds but similar in relative error. That is why the structure fits long-tailed latency.',
+    explanation: `Counts, not raw samples, are stored across ${numBuckets} buckets with ${bucketFields} fields each. Higher-value buckets are wider in absolute milliseconds but similar in relative error. That is why the structure fits long-tailed latency.`,
   };
 
   yield {
     state: relPlot('Relative error scales with the value'),
     highlight: { active: ['err', 'm500', 'm1000'], compare: ['m10'] },
-    explanation: 'A 5% value error means +/-0.5ms near 10ms and +/-50ms near 1s. This scale-aware contract is often closer to how humans and SLOs experience latency.',
+    explanation: `A ${errorPct}% value error means +/-${lowError}ms near ${lowVal}ms and +/-${highError}ms near ${highVal / 1000}s. The plot marks ${plotMarkers} reference points showing this scale-aware contract, which is often closer to how humans and SLOs experience latency.`,
   };
 
   yield {
     state: bucketGraph('Quantile query walks cumulative bucket counts'),
     highlight: { active: ['b0', 'b1', 'b2', 'b3', 'rank', 'answer', 'e-b2-rank', 'e-rank-answer'], found: ['answer'] },
-    explanation: 'To answer p99, the sketch walks bucket counts until cumulative count reaches the requested rank, then returns the bucket representative. The returned value has the configured relative accuracy if it remains in retained buckets.',
+    explanation: `To answer p99, the sketch walks all ${numBuckets} bucket counts until cumulative count reaches the requested rank, then returns the bucket representative. The returned value has the configured relative accuracy if it remains in the retained buckets.`,
   };
 }
 
 function* mergeDistributions() {
+  const mergeNodes = 6;
+  const mergeEdges = 5;
+  const serviceSources = 3;
+  const sketchVariants = 4;
+  const rollupColumns = 3;
+  const contractColumns = 2;
+  const totalEvents = '15M';
+  const fleetP99 = '500ms';
+
   yield {
     state: mergeGraph('DDSketch merges by summing matching bucket counts'),
     highlight: { active: ['api', 'search', 'billing', 'add', 'e-api-add', 'e-search-add', 'e-billing-add'], compare: ['global'] },
-    explanation: 'DDSketch is fully mergeable when sketches use the same mapping. A coordinator adds matching bucket counts, then queries the combined distribution.',
+    explanation: `DDSketch is fully mergeable when sketches use the same mapping. ${serviceSources} service sketches feed into the ${mergeNodes}-node merge graph through ${mergeEdges} edges. A coordinator adds matching bucket counts, then queries the combined distribution.`,
   };
 
   yield {
@@ -168,13 +188,13 @@ function* mergeDistributions() {
       ],
     ),
     highlight: { active: ['api:bins', 'search:bins', 'bill:bins'], found: ['fleet:p99'] },
-    explanation: 'The fleet percentile is computed from the merged distribution, not by averaging per-service p99s. This connects directly to Tail Latency & p99 Thinking.',
+    explanation: `The fleet percentile of ${fleetP99} is computed from the merged distribution of ${totalEvents} events across ${serviceSources} services with ${rollupColumns} tracked columns, not by averaging per-service p99s. This connects directly to Tail Latency & p99 Thinking.`,
   };
 
   yield {
     state: mergeGraph('Production case: APM distributions roll up by tags'),
     highlight: { active: ['add', 'global', 'p99', 'e-add-global', 'e-global-p99'], compare: ['api', 'search', 'billing'] },
-    explanation: 'A tracing or metrics backend can keep DDSketch distributions by service, route, status code, and version. Rollups preserve approximate distributions across time windows and tags.',
+    explanation: `A tracing or metrics backend can keep DDSketch distributions across ${serviceSources} services by route, status code, and version. Rollups preserve approximate distributions across time windows and tags via the ${mergeEdges}-edge merge pipeline.`,
   };
 
   yield {
@@ -198,7 +218,7 @@ function* mergeDistributions() {
       ],
     ),
     highlight: { active: ['dds:promise', 'dds:best'], compare: ['gk:promise', 'kll:promise'] },
-    explanation: 'The distinguishing move is the promise. DDSketch is built for relative error in the quantile value, which is often what latency dashboards and operators actually care about.',
+    explanation: `The distinguishing move is the promise. Across ${sketchVariants} sketch variants compared on ${contractColumns} contract dimensions, DDSketch is the one built for relative error in the quantile value, which is often what latency dashboards and operators actually care about.`,
   };
 }
 
@@ -218,7 +238,8 @@ export const article = {
         {type: 'callout', text: 'DDSketch turns latency percentiles into a mergeable log-bucket count problem, so p99 rollups can preserve value accuracy without storing raw samples.'},
         'The "merge distributions" view shows three service-level sketches combining into one fleet sketch. Active edges carry bucket counts from each source into the addition step. The found marker is the merged p99, computed from the combined distribution rather than averaged from per-service percentiles.',
         'In both views, compared nodes show state that is relevant context but not the current operation. Watch how bucket width grows with value in the first view, and how merge is just count addition in the second.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/ddsketch-relative-error-quantiles.gif', alt: 'Animated walkthrough of the ddsketch relative error quantiles visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

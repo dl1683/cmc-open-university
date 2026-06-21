@@ -54,10 +54,15 @@ function iselGraph(title) {
 }
 
 function* loweringPipeline() {
+  const nodeCount = 8;
+  const edgeCount = 9;
+  const stageCount = 4;
+  const firstStage = 'legalize';
+  const lastStage = 'post-isel';
   yield {
     state: iselGraph('Instruction selection maps IR to the target ISA'),
     highlight: { active: ['ir', 'legal', 'combine', 'e-ir-legal', 'e-ir-combine'], compare: ['asm'] },
-    explanation: 'The compiler backend starts with target-independent IR operations and prepares them for a real instruction set by legalizing types and simplifying patterns.',
+    explanation: `The compiler backend starts with target-independent IR operations and prepares them for a real instruction set by legalizing types and simplifying patterns across ${nodeCount} pipeline nodes.`,
   };
   yield {
     state: labelMatrix(
@@ -80,21 +85,24 @@ function* loweringPipeline() {
       ],
     ),
     highlight: { active: ['select:input', 'select:output'], found: ['combine:output'], compare: ['legal:output'] },
-    explanation: 'Selection is not one table lookup. The backend may rewrite illegal operations, fold equivalent forms, then choose concrete opcodes.',
-    invariant: 'Selected instructions must preserve IR semantics while satisfying target legality.',
+    explanation: `Selection is not one table lookup. The backend walks ${stageCount} stages from ${firstStage} to ${lastStage}, rewriting illegal operations, folding equivalent forms, then choosing concrete opcodes.`,
+    invariant: `Selected instructions must preserve IR semantics while satisfying target legality across all ${stageCount} lowering stages.`,
   };
   yield {
     state: iselGraph('Machine IR becomes the input to allocation and scheduling'),
     highlight: { active: ['mir', 'reg', 'sched', 'asm', 'e-mir-reg', 'e-mir-sched'], found: ['pat'] },
-    explanation: 'After selection, the code is target-shaped but still uses virtual registers and still needs register allocation, frame layout, and final emission.',
+    explanation: `After selection, the code is target-shaped but still uses virtual registers across ${edgeCount} data-flow edges and still needs register allocation, frame layout, and final emission.`,
   };
 }
 
 function* patternMatch() {
+  const patternCount = 4;
+  const pipelineNodes = 8;
+  const exampleOpcodes = ['ADD', 'LEA', 'SHL', 'LOAD'];
   yield {
     state: iselGraph('Pattern matching chooses instructions by shape'),
     highlight: { active: ['combine', 'pat', 'mir', 'e-combine-pat', 'e-pat-mir'], compare: ['legal'] },
-    explanation: 'A target rule might turn add(x, 1) into INC when the ISA has that form, or turn multiply-by-power-of-two into a shift if the target prefers it.',
+    explanation: `A target rule might turn add(x, 1) into INC when the ISA has that form, or turn multiply-by-power-of-two into a shift -- the selector evaluates ${patternCount} pattern categories to find the best match.`,
   };
   yield {
     state: labelMatrix(
@@ -117,12 +125,12 @@ function* patternMatch() {
       ],
     ),
     highlight: { active: ['lea:shape', 'lea:opcode', 'load:opcode'], found: ['mul2:opcode'] },
-    explanation: 'Instruction selection sees addressing modes and ISA tricks that earlier IR should not have to encode directly.',
+    explanation: `Instruction selection sees addressing modes and ISA tricks -- opcodes like ${exampleOpcodes.join(', ')} -- that earlier IR should not have to encode directly.`,
   };
   yield {
     state: iselGraph('GlobalISel keeps selection on Machine IR'),
     highlight: { active: ['ir', 'mir', 'pat', 'e-pat-mir'], compare: ['combine'], found: ['asm'] },
-    explanation: 'LLVM GlobalISel is a newer framework that translates LLVM IR to generic Machine IR, legalizes it, and then selects target instructions without a separate SelectionDAG IR.',
+    explanation: `LLVM GlobalISel is a newer framework that translates LLVM IR to generic Machine IR across ${pipelineNodes} pipeline nodes, legalizes it, and then selects target instructions without a separate SelectionDAG IR.`,
   };
 }
 
@@ -135,6 +143,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/instruction-selection-dag-globalisel.gif', alt: 'Animated walkthrough of the instruction selection dag globalisel visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

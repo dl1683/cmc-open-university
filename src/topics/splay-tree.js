@@ -76,35 +76,37 @@ function* zigZigAccess() {
   yield {
     state: t(startTree, 'n8', 'Access key 1 in a deep left-left path'),
     highlight: { active: ['n1'], compare: ['n8', 'n4', 'n2'] },
-    explanation: 'A splay tree starts as an ordinary binary search tree. Search finds key 1, then the tree pays extra work immediately: it rotates the accessed key toward the root instead of leaving the shape unchanged.',
-    invariant: 'The in-order key order must remain sorted after every rotation.',
+    explanation: `A splay tree starts as an ordinary binary search tree with ${startTree.length} nodes rooted at ${startTree[0].value}. Search finds key 1, then the tree pays extra work immediately: it rotates the accessed key toward the root instead of leaving the shape unchanged.`,
+    invariant: `The in-order key order across all ${startTree.length} nodes must remain sorted after every rotation.`,
   };
 
   yield {
     state: t(afterZigZig, 'n2', 'Zig-zig: rotate grandparent, then parent'),
     highlight: { active: ['n1', 'n2'], found: ['n2'], compare: ['n4', 'n8'] },
-    explanation: 'Because 1 is a left child of 2 and 2 is a left child of 4, the splay step uses zig-zig. The double rotation lifts the whole accessed side, reducing the long path more aggressively than one rotation would.',
+    explanation: `Because 1 is a left child of ${afterZigZig[0].value} and ${afterZigZig[0].value} is a left child of ${afterZigZig[2].value}, the splay step uses zig-zig. The double rotation lifts the whole accessed side, reducing the long path more aggressively than one rotation would.`,
   };
 
   yield {
     state: t(afterZig, 'n1', 'Final zig puts the accessed key at the root'),
     highlight: { found: ['n1'], compare: ['n2', 'n4', 'n8'] },
-    explanation: 'The last single rotation moves key 1 to the root. Recently touched keys become cheap to touch again, and nearby keys tend to move closer too. This is why splay trees reward temporal and sequential locality.',
+    explanation: `The last single rotation moves key ${afterZig[0].value} to the root. Recently touched keys become cheap to touch again, and nearby keys tend to move closer too. This is why splay trees reward temporal and sequential locality.`,
   };
 
+  const splayRows = [
+    { id: 'zig', label: 'zig' },
+    { id: 'zigzig', label: 'zig-zig' },
+    { id: 'zigzag', label: 'zig-zag' },
+    { id: 'result', label: 'result' },
+  ];
+  const splayCols = [
+    { id: 'when', label: 'when' },
+    { id: 'effect', label: 'effect' },
+  ];
   yield {
     state: labelMatrix(
       'Splay steps',
-      [
-        { id: 'zig', label: 'zig' },
-        { id: 'zigzig', label: 'zig-zig' },
-        { id: 'zigzag', label: 'zig-zag' },
-        { id: 'result', label: 'result' },
-      ],
-      [
-        { id: 'when', label: 'when' },
-        { id: 'effect', label: 'effect' },
-      ],
+      splayRows,
+      splayCols,
       [
         ['parent is root', 'one rotation'],
         ['same-side chain', 'two same-direction rotations'],
@@ -113,20 +115,21 @@ function* zigZigAccess() {
       ],
     ),
     highlight: { active: ['zigzig:effect'], found: ['result:effect'] },
-    explanation: 'The algorithm has no stored heights, colors, or priorities. Its balancing information is the access sequence itself.',
+    explanation: `The algorithm uses ${splayRows.length - 1} rotation cases (plus the final result) and stores no heights, colors, or priorities. Its balancing information is the access sequence itself.`,
   };
 }
 
 function* workingSetBehavior() {
+  const accessRows = [
+    { id: 'a1', label: 'access 8' },
+    { id: 'a2', label: 'access 6' },
+    { id: 'a3', label: 'access 8' },
+    { id: 'a4', label: 'access 10' },
+  ];
   yield {
     state: labelMatrix(
       'Access sequence with locality',
-      [
-        { id: 'a1', label: 'access 8' },
-        { id: 'a2', label: 'access 6' },
-        { id: 'a3', label: 'access 8' },
-        { id: 'a4', label: 'access 10' },
-      ],
+      accessRows,
       [
         { id: 'tree', label: 'tree reaction' },
         { id: 'payoff', label: 'payoff' },
@@ -139,24 +142,25 @@ function* workingSetBehavior() {
       ],
     ),
     highlight: { found: ['a1:payoff', 'a3:payoff'], compare: ['a4:payoff'] },
-    explanation: 'Splay trees are adaptive. They do not promise every single access is cheap, but they make repeated and clustered access patterns cheap over time.',
+    explanation: `Splay trees are adaptive. Across ${accessRows.length} accesses they do not promise every single operation is cheap, but they make repeated and clustered access patterns cheap over time.`,
   };
 
   yield {
     state: t(afterZig, 'n1', 'A hot item is deliberately kept at the root'),
     highlight: { found: ['n1'], compare: ['n2', 'n4', 'n8'] },
-    explanation: 'A balanced tree minimizes worst-case height for all keys. A splay tree asks a different question: what if the next query is likely related to the last query? The last accessed key is made the root.',
+    explanation: `A balanced tree minimizes worst-case height for all ${afterZig.length} keys. A splay tree asks a different question: what if the next query is likely related to the last query? The last accessed key ${afterZig[0].value} is made the root.`,
   };
 
+  const promiseRows = [
+    { id: 'single', label: 'one unlucky access' },
+    { id: 'sequence', label: 'long sequence' },
+    { id: 'working', label: 'working-set effect' },
+    { id: 'static', label: 'static optimality intuition' },
+  ];
   yield {
     state: labelMatrix(
       'Amortized promises',
-      [
-        { id: 'single', label: 'one unlucky access' },
-        { id: 'sequence', label: 'long sequence' },
-        { id: 'working', label: 'working-set effect' },
-        { id: 'static', label: 'static optimality intuition' },
-      ],
+      promiseRows,
       [
         { id: 'cost', label: 'cost' },
         { id: 'meaning', label: 'meaning' },
@@ -169,18 +173,19 @@ function* workingSetBehavior() {
       ],
     ),
     highlight: { active: ['sequence:cost', 'working:meaning'], compare: ['single:cost'] },
-    explanation: 'The hard idea is amortization. A dramatic restructure on one access is not wasted work; it stores credit in the shape of the tree for later accesses.',
+    explanation: `The hard idea is amortization. Across ${promiseRows.length} cost scenarios, a dramatic restructure on one access is not wasted work; it stores credit in the shape of the tree for later accesses.`,
   };
 
+  const treeChoiceRows = [
+    { id: 'rb', label: 'Red-Black Tree' },
+    { id: 'avl', label: 'AVL Tree' },
+    { id: 'splay', label: 'Splay Tree' },
+    { id: 'treap', label: 'Treap' },
+  ];
   yield {
     state: labelMatrix(
       'Choose the right tree',
-      [
-        { id: 'rb', label: 'Red-Black Tree' },
-        { id: 'avl', label: 'AVL Tree' },
-        { id: 'splay', label: 'Splay Tree' },
-        { id: 'treap', label: 'Treap' },
-      ],
+      treeChoiceRows,
       [
         { id: 'best', label: 'best when' },
         { id: 'tradeoff', label: 'tradeoff' },
@@ -193,7 +198,7 @@ function* workingSetBehavior() {
       ],
     ),
     highlight: { found: ['splay:best'], compare: ['rb:tradeoff', 'treap:best'] },
-    explanation: 'Splay trees are a conceptually important counterpoint to AVL and Red-Black trees: not all balance has to be stored in node metadata.',
+    explanation: `Compared against ${treeChoiceRows.length - 1} alternatives, splay trees are a conceptually important counterpoint to AVL and Red-Black trees: not all balance has to be stored in node metadata.`,
   };
 }
 
@@ -212,7 +217,8 @@ export const article = {
         'The zig-zig access view starts with a nine-node BST holding keys 1 through 14, rooted at 8. Highlighted (active) nodes trace the search path down to the target. Found markers land on nodes that have reached their final position after a rotation. Compare markers flag nodes whose depth changed as a side effect -- they were not the target, but the rotation moved them anyway.',
         {type: 'callout', text: 'Splaying turns the last access into tree shape: recent and nearby keys move toward the root without stored balance metadata.'},
         'Each frame applies one of three rotation cases: zig (single rotation when the target\'s parent is the root), zig-zig (two same-direction rotations when target and parent sit on the same side), or zig-zag (two opposite rotations when the path bends). In every frame, check that in-order sorted order survives the rotation and notice how bystander nodes also drift toward the root. The working-set view replaces the tree with access-sequence tables showing how repeated or clustered lookups become cheaper over time.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/splay-tree.gif', alt: 'Animated walkthrough of the splay tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

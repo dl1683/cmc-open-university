@@ -217,7 +217,8 @@ export const article = {
         },
         'Watch for the moment the algorithm gets stuck — no unused edges leave the current vertex. It pops that vertex onto the final path and backtracks up the stack. This backtracking is where sub-tour splicing happens: the algorithm revisits a vertex that still has unused edges, extends from there, and weaves the new sub-tour into the result.',
         'In circuit mode, every vertex has even degree, so the walk ends where it started. In path mode, exactly two vertices have odd degree; the walk starts at one and finishes at the other. The final step shows the complete edge sequence.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/euler-path-circuit.gif', alt: 'Animated walkthrough of the euler path circuit visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

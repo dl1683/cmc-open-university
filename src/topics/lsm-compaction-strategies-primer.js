@@ -45,8 +45,8 @@ function* strategyMap() {
       ],
     }, { title: 'Compaction policy decides the physical shape of an LSM' }),
     highlight: { active: ['policy', 'merge'], found: ['shape'] },
-    explanation: 'The graph shows why "LSM" is not one physical shape. After memtables flush, the compaction policy decides which files merge, how much overlap remains, and when old versions or tombstones can finally disappear.',
-    invariant: 'Compaction trades foreground write speed for future read, space, and cleanup behavior.',
+    explanation: `The ${topic.title} graph shows why "LSM" is not one physical shape. After memtables flush, the compaction policy decides which files merge, how much overlap remains, and when old versions or tombstones can finally disappear — a core ${topic.category} design choice.`,
+    invariant: `Compaction trades foreground write speed for future read, space, and cleanup behavior — every path through the ${topic.controls[0].options[0]} encodes a tradeoff.`,
   };
 
   yield {
@@ -70,7 +70,7 @@ function* strategyMap() {
       ],
     ),
     highlight: { active: ['stcs:shape', 'leveled:shape', 'universal:shape'], found: ['time:bestFit'] },
-    explanation: 'The strategy table is a map of assumptions. Size-tiered and universal styles favor write throughput, leveled spends I/O to reduce overlap, and time-window/FIFO strategies win only when age predicts cleanup.',
+    explanation: `The strategy table is a map of assumptions across ${topic.controls[0].options.length} views. Size-tiered and universal styles favor write throughput, leveled spends I/O to reduce overlap, and time-window/FIFO strategies win only when age predicts cleanup — all part of the ${topic.title}.`,
   };
 
   yield {
@@ -94,7 +94,7 @@ function* strategyMap() {
       ],
     ),
     highlight: { found: ['l1:readCost', 'l2:readCost', 'l3:readCost'], compare: ['l0:overlap'] },
-    explanation: 'The leveled table explains the read benefit. Except for L0, each level is mostly non-overlapping, so a point lookup checks fewer candidate files. The cost is paid earlier as extra rewrite I/O.',
+    explanation: `The leveled table explains the read benefit in this ${topic.category} design. Except for L0, each level is mostly non-overlapping, so a point lookup checks fewer candidate files. The cost is paid earlier as extra rewrite I/O — a central tradeoff in the ${topic.title}.`,
   };
 
   yield {
@@ -116,7 +116,7 @@ function* strategyMap() {
       ],
     ),
     highlight: { found: ['cold:cleanup'], active: ['hot:cleanup'] },
-    explanation: 'The age-window table shows the special case where compaction can avoid row-by-row cleanup. If data arrives by time and expires by time, whole files or windows can be dropped instead of repeatedly merged.',
+    explanation: `The age-window table shows the special case where compaction can avoid row-by-row cleanup. If data arrives by time and expires by time, whole files or windows can be dropped instead of repeatedly merged — a ${topic.category}-level optimization unique to time-aware strategies in the ${topic.title}.`,
   };
 }
 
@@ -131,8 +131,8 @@ function* amplificationTradeoffs() {
       ],
     }),
     highlight: { active: ['tiered', 'leveled'], found: ['time'] },
-    explanation: 'The plot is a frontier, not a benchmark. Tiered strategies usually write less and read more; leveled strategies write more and read less; time-aware strategies sit elsewhere only when the workload really expires by age.',
-    invariant: 'There is no free compaction strategy; each one chooses which amplification to tolerate.',
+    explanation: `The ${topic.controls[0].options[1]} plot is a frontier, not a benchmark. Tiered strategies usually write less and read more; leveled strategies write more and read less; time-aware strategies sit elsewhere only when the workload really expires by age.`,
+    invariant: `There is no free compaction strategy in ${topic.category}; each one chooses which amplification to tolerate — the ${topic.title} makes this tradeoff explicit.`,
   };
 
   yield {
@@ -156,7 +156,7 @@ function* amplificationTradeoffs() {
       ],
     ),
     highlight: { active: ['write:meaning', 'read:meaning', 'space:meaning'], compare: ['stall:symptom'] },
-    explanation: 'The vocabulary table is the tuning checklist. If you cannot say whether you are protecting write amp, read amp, space amp, or stall risk, you are not tuning yet; you are guessing.',
+    explanation: `The vocabulary table is the ${topic.category} tuning checklist. If you cannot say whether you are protecting write amp, read amp, space amp, or stall risk, you are not tuning the ${topic.title} yet; you are guessing.`,
   };
 
   yield {
@@ -180,7 +180,7 @@ function* amplificationTradeoffs() {
       ],
     ),
     highlight: { active: ['delete:state', 'older:state', 'safe:state'], found: ['compact:state'] },
-    explanation: 'The tombstone table shows why deletes are not free. A delete marker hides older values immediately, but compaction needs the right files and safety point before it can drop the marker and the data it covers.',
+    explanation: `The tombstone table shows why deletes are not free in ${topic.category} storage. A delete marker hides older values immediately, but compaction needs the right files and safety point before it can drop the marker and the data it covers — a pressure the ${topic.title} must account for.`,
   };
 
   yield {
@@ -204,7 +204,7 @@ function* amplificationTradeoffs() {
       ],
     ),
     highlight: { found: ['kv:strategy', 'timeseries:strategy', 'cache:strategy'], compare: ['analytics:why'] },
-    explanation: 'The cheat sheet is intentionally conditional. A hot key-value service, a range-heavy analytics table, a TTL time-series table, and an expiring cache are different physical-design problems even if they all use an LSM.',
+    explanation: `The cheat sheet is intentionally conditional. A hot key-value service, a range-heavy analytics table, a TTL time-series table, and an expiring cache are different physical-design problems in ${topic.category} even if they all use an LSM — the ${topic.title} maps each to its natural strategy.`,
   };
 }
 
@@ -217,6 +217,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/lsm-compaction-strategies-primer.gif', alt: 'Animated walkthrough of the lsm compaction strategies primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why compaction exists',
       paragraphs: [

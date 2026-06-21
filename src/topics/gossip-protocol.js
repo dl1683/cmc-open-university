@@ -115,7 +115,8 @@ export const article = {
         {type: 'callout', text: 'Gossip trades exact delivery paths for repeated random exposure, so no single sender, edge, or schedule becomes load bearing.'},
         'Redundant messages (hitting an already-informed node) are visible as edges into green nodes. They look wasteful, but they are the reason the protocol tolerates failures: every path is disposable because another path exists.',
         'Switch to the "3 nodes offline" view and watch gossip route around the dead nodes without any failure-handling code. No edge was ever essential.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/gossip-protocol.gif', alt: 'Animated walkthrough of the gossip protocol visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -290,7 +290,8 @@ export const article = {
         'The two-sampled-queues view shows one routing decision. A request arrives, the balancer samples two backends, reads their active-request counts, and sends the request to the shorter queue. Green highlights mark the chosen server; blue marks the rejected candidate. The comparison node is the entire algorithm: not a full scan, not blind random, just one comparison between two random samples.',
         {type: 'callout', text: 'Two choices add one comparison, but they create negative feedback: a busy server becomes less likely to receive the next request.'},
         'The balls-into-bins view replays the same fixed request stream under one-choice (blind random) and two-choice routing side by side. Watch the "effect" column: "relieved" means two choices placed fewer jobs on that server than random did. The production-caveats view adds the operational wrapper: health checks, weights, stale counters, zone locality, and fallback behavior that surround the simple core in any real deployment.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/power-of-two-choices-load-balancing.gif', alt: 'Animated walkthrough of the power of two choices load balancing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

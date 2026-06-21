@@ -59,33 +59,51 @@ function intervalGraph(title) {
 }
 
 function* overlapQuery() {
+  const nodeCount = 7;
+  const queryLow = 22;
+  const queryHigh = 25;
+  const rootMax = 30;
+  const rootInterval = '[16,21]';
+  const leftMax = 23;
+  const overlapResult1 = '[15,23]';
+  const overlapResult2 = '[25,30]';
+  const totalOverlaps = 2;
+
   yield {
     state: intervalGraph('Intervals are ordered by start, augmented by subtree max'),
     highlight: { active: ['n16', 'n8', 'n25'], found: ['query'] },
-    explanation: 'An interval tree starts as a balanced Binary Search Tree ordered by low endpoint. Each node also stores the maximum high endpoint in its subtree. That extra number is the pruning signal.',
-    invariant: 'node.max = max(node.high, left.max, right.max).',
+    explanation: `An interval tree stores ${nodeCount} intervals as a balanced BST ordered by low endpoint. Each node also stores the maximum high endpoint in its subtree — the root's max is ${rootMax}. That extra number is the pruning signal.`,
+    invariant: `node.max = max(node.high, left.max, right.max) — here the root's max is ${rootMax}.`,
   };
 
   yield {
     state: intervalGraph('Query [22,25]: root does not overlap'),
     highlight: { active: ['query', 'n16'], compare: ['n16'], found: ['n8'] },
-    explanation: 'The root interval [16,21] does not overlap [22,25]. But the left child has max 23, so the left subtree might still contain an interval reaching into the query. The search descends left before discarding it.',
+    explanation: `The root interval ${rootInterval} does not overlap [${queryLow},${queryHigh}]. But the left child has max ${leftMax} >= ${queryLow}, so the left subtree might still contain an interval reaching into the query. The search descends left before discarding it.`,
   };
 
   yield {
     state: intervalGraph('Left subtree finds [15,23]'),
     highlight: { active: ['n8', 'n15', 'e-8-15'], found: ['n15', 'e-query-15'], removed: ['n5'] },
-    explanation: 'The [8,9] node does not overlap, and [5,8] cannot reach the query. The right child [15,23] does overlap. The max endpoint made the search skip irrelevant intervals without scanning the whole set.',
+    explanation: `The [8,9] node does not overlap, and [5,8] cannot reach [${queryLow},${queryHigh}]. The right child ${overlapResult1} does overlap. The max endpoint made the search skip irrelevant intervals without scanning all ${nodeCount} stored intervals.`,
   };
 
   yield {
     state: intervalGraph('Right subtree can also be explored for all overlaps'),
     highlight: { active: ['n25', 'e-query-25'], found: ['n15', 'n25'], compare: ['n17', 'n26'] },
-    explanation: 'To find one overlap, the search can stop at [15,23]. To find all overlaps, continue exploring branches whose max endpoints and starts make overlap possible. The same structure powers calendars, genome ranges, and compiler liveness ranges.',
+    explanation: `To find one overlap, the search can stop at ${overlapResult1}. To find all ${totalOverlaps} overlaps (${overlapResult1} and ${overlapResult2}), continue exploring branches whose max endpoints and starts make overlap possible. The same structure powers calendars, genome ranges, and compiler liveness ranges.`,
   };
 }
 
 function* maintainMaxEndpoint() {
+  const newInterval = '[6,14]';
+  const newLow = 6;
+  const newHigh = 14;
+  const pathLength = 3;
+  const useCaseCount = 4;
+  const neighborCount = 4;
+  const maxRotations = 3;
+
   yield {
     state: labelMatrix(
       'Insert a new interval [6,14]',
@@ -108,13 +126,13 @@ function* maintainMaxEndpoint() {
       ],
     ),
     highlight: { active: ['root:compare', 'left:compare', 'child:compare'], found: ['child:newmax', 'new:newmax'] },
-    explanation: 'Insertion follows the ordinary binary-search-tree rule on low endpoints. Then the path back to the root recomputes max endpoints. The augmentation is local, which is why the structure stays efficient.',
+    explanation: `Insertion of ${newInterval} follows the ordinary BST rule on low endpoints — ${newLow} is compared at ${pathLength} nodes along the path. Then the walk back to the root recomputes max endpoints; [5,8]'s max updates from 10 to ${newHigh}. The augmentation is local, which is why the structure stays efficient.`,
   };
 
   yield {
     state: intervalGraph('Rotations preserve order but require max recomputation'),
     highlight: { active: ['n16', 'n8', 'e-16-8'], compare: ['n15', 'n5'] },
-    explanation: 'Most implementations use a Red-Black Tree or AVL Tree Rotations underneath. Rotations keep intervals ordered by start, but max endpoints must be recomputed for rotated nodes before queries remain correct.',
+    explanation: `Most implementations use a Red-Black or AVL tree underneath. Rotations keep intervals ordered by start, but max endpoints must be recomputed for rotated nodes — at most ${maxRotations} rotations per insert or delete — before queries remain correct.`,
   };
 
   yield {
@@ -138,7 +156,7 @@ function* maintainMaxEndpoint() {
       ],
     ),
     highlight: { found: ['calendar:why', 'compiler:why', 'observability:why'], active: ['genome:query'] },
-    explanation: 'Interval trees are a clean example of augmentation: take a familiar tree and add exactly one summary value that unlocks a new query pattern.',
+    explanation: `Across ${useCaseCount} domains — calendar, genome, compiler, observability — interval trees show the same pattern: augment a familiar tree with exactly one summary value (max endpoint) that unlocks a new query pattern.`,
   };
 
   yield {
@@ -162,7 +180,7 @@ function* maintainMaxEndpoint() {
       ],
     ),
     highlight: { active: ['interval:best', 'interval:shape'], compare: ['segment:best', 'rtree:shape'] },
-    explanation: 'The right range structure depends on the question. Segment trees aggregate over coordinates. Interval trees find overlapping intervals. R-trees handle multidimensional rectangles.',
+    explanation: `Among ${neighborCount} neighboring structures, the right choice depends on the question. Segment trees aggregate over coordinates. Interval trees find overlapping intervals. R-trees handle multidimensional rectangles. B-trees index scalar keys on disk.`,
   };
 }
 
@@ -181,7 +199,8 @@ export const article = {
         'Each node is one interval drawn as a labeled bar with a start and end value. The tree arranges these intervals into a BST ordered by the low endpoint. Every node carries a "max" annotation: the largest high endpoint anywhere in its subtree. During a query, active (highlighted) nodes are being examined. Found nodes overlap the query range. Removed or dimmed nodes belong to subtrees that were pruned -- their max endpoint proved no interval inside could possibly reach the query.',
         {type: 'callout', text: 'The max endpoint is a pruning certificate: it proves an entire subtree ends before the query begins.'},
         'Switch between the two views to see both halves of the design. The overlap-query view traces a search through the tree, showing where the max annotation lets the algorithm skip entire branches. The maintain-max-endpoint view shows the cost side: how insertions propagate max updates back toward the root, and why rotations must recompute max before queries stay correct.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/interval-tree.gif', alt: 'Animated walkthrough of the interval tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

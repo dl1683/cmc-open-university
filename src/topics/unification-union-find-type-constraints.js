@@ -54,76 +54,93 @@ function unifyGraph(title) {
 }
 
 function* unifyVariables() {
+  const graphTitle1 = 'Type inference reduces usage to equations';
+  const freshNote = 'a,b,c';
+  const eqsNote = 'constraints';
   yield {
-    state: unifyGraph('Type inference reduces usage to equations'),
+    state: unifyGraph(graphTitle1),
     highlight: { active: ['ast', 'fresh', 'eqs', 'e-ast-fresh', 'e-ast-eqs'], compare: ['subst'] },
-    explanation: 'A type inferencer assigns fresh type variables to unknown expressions and emits equality constraints from how those expressions are used.',
+    explanation: `A type inferencer assigns fresh type variables (${freshNote}) to unknown expressions and emits equality ${eqsNote} from how those expressions are used.`,
   };
+  const constraintRows = [
+    { id: 'lit', label: 'x = 1' },
+    { id: 'arg', label: 'f(x)' },
+    { id: 'ret', label: 'f returns' },
+    { id: 'use', label: 'use as bool' },
+  ];
+  const constraintActions = [
+    ['a = int', 'bind a'],
+    ['f = a -> b', 'decompose'],
+    ['b = c', 'union b,c'],
+    ['c = bool', 'bind class'],
+  ];
+  const substNote = 'MGU';
   yield {
     state: labelMatrix(
       'Constraint solving',
-      [
-        { id: 'lit', label: 'x = 1' },
-        { id: 'arg', label: 'f(x)' },
-        { id: 'ret', label: 'f returns' },
-        { id: 'use', label: 'use as bool' },
-      ],
+      constraintRows,
       [
         { id: 'constraint', label: 'constraint' },
         { id: 'action', label: 'solver action' },
       ],
-      [
-        ['a = int', 'bind a'],
-        ['f = a -> b', 'decompose'],
-        ['b = c', 'union b,c'],
-        ['c = bool', 'bind class'],
-      ],
+      constraintActions,
     ),
     highlight: { active: ['arg:constraint', 'ret:action'], found: ['use:action'], compare: ['lit:action'] },
-    explanation: 'Unification repeatedly solves the simplest equation. Equal variables are merged. A variable equal to a concrete type becomes a binding for its whole class.',
-    invariant: 'The solver should return the most general unifier, not an over-specific guess.',
+    explanation: `Unification repeatedly solves the simplest equation across ${constraintRows.length} constraint cases. Equal variables are merged. A variable equal to a concrete type becomes a binding for its whole class.`,
+    invariant: `The solver should return the ${substNote} (most general unifier), not an over-specific guess — ${constraintActions.length} actions show the minimal forced moves.`,
   };
+  const graphTitle2 = 'Union-Find stores equal type variables compactly';
+  const ufNote = 'classes';
+  const bindNote = 'a=int';
   yield {
-    state: unifyGraph('Union-Find stores equal type variables compactly'),
+    state: unifyGraph(graphTitle2),
     highlight: { active: ['uf', 'bind', 'subst', 'e-uf-bind', 'e-bind-subst'], found: ['type'] },
-    explanation: 'Union-Find groups type variables that must be equal. A class may later receive a structure such as int, bool, list a, or a function type.',
+    explanation: `Union-Find groups type variables into equivalence ${ufNote}. A class may later receive a binding like ${bindNote}, or a structure such as bool, list a, or a function type.`,
   };
 }
 
 function* occursCheck() {
+  const occursTitle = 'The occurs check rejects infinite self-reference';
+  const occursNodeNote = 'a in t?';
+  const dangerousEq = 'a = a -> b';
   yield {
-    state: unifyGraph('The occurs check rejects infinite self-reference'),
+    state: unifyGraph(occursTitle),
     highlight: { active: ['uf', 'occurs', 'e-uf-occurs'], compare: ['bind'], found: ['subst'] },
-    explanation: 'The dangerous equation is a = a -> b. Binding a to a type that contains a would create an infinite type. The occurs check catches that before the substitution is accepted.',
-    invariant: 'If variable a occurs inside type t, do not bind a := t unless the language intentionally supports recursive types.',
+    explanation: `The dangerous equation is ${dangerousEq}. Binding a to a type that contains a would create an infinite type. The occurs check (${occursNodeNote}) catches that before the substitution is accepted.`,
+    invariant: `If variable a occurs inside type t (${occursNodeNote}), do not bind a := t unless the language intentionally supports recursive types.`,
   };
+  const caseRows = [
+    { id: 'same', label: 'a = a' },
+    { id: 'var', label: 'a = int' },
+    { id: 'func', label: 'a->b = int->c' },
+    { id: 'bad', label: 'a = list a' },
+  ];
+  const caseResults = [
+    ['same rep', 'no-op'],
+    ['bind var', 'a:=int'],
+    ['decompose', 'a=int,b=c'],
+    ['occurs', 'reject'],
+  ];
   yield {
     state: labelMatrix(
       'Unification cases',
-      [
-        { id: 'same', label: 'a = a' },
-        { id: 'var', label: 'a = int' },
-        { id: 'func', label: 'a->b = int->c' },
-        { id: 'bad', label: 'a = list a' },
-      ],
+      caseRows,
       [
         { id: 'rule', label: 'rule' },
         { id: 'result', label: 'result' },
       ],
-      [
-        ['same rep', 'no-op'],
-        ['bind var', 'a:=int'],
-        ['decompose', 'a=int,b=c'],
-        ['occurs', 'reject'],
-      ],
+      caseResults,
     ),
     highlight: { active: ['func:rule', 'func:result'], removed: ['bad:result'], found: ['var:result'] },
-    explanation: 'Structured types unify by matching their constructors and recursively unifying their fields. Different constructors fail. Self-containing bindings fail the occurs check.',
+    explanation: `Structured types unify by matching their constructors across ${caseRows.length} cases and recursively unifying their fields. Different constructors fail. Self-containing bindings like ${caseRows[3].label} ${caseResults[3][1]} via the occurs check.`,
   };
+  const errorTitle = 'A good error points to the constraint source';
+  const astLabel = 'AST';
+  const typeNote = 'result';
   yield {
-    state: unifyGraph('A good error points to the constraint source'),
+    state: unifyGraph(errorTitle),
     highlight: { active: ['ast', 'eqs', 'occurs'], compare: ['type'], found: ['e-ast-eqs'] },
-    explanation: 'Production compilers keep source spans and blame paths for constraints. The user should see the expression that forced the impossible equation, not just a solver-internal variable name.',
+    explanation: `Production compilers keep source spans from the ${astLabel} and blame paths for constraints. The user should see the expression that forced the impossible equation, not just a solver-internal variable name that hides the ${typeNote}.`,
   };
 }
 
@@ -144,7 +161,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/unification-union-find-type-constraints.gif', alt: 'Animated walkthrough of the unification union find type constraints visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

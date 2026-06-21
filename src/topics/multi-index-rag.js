@@ -63,12 +63,14 @@ function pipeline(title) {
 }
 
 function* hybridRetrieval() {
+  const indexCount = 4;
   yield {
     state: pipeline('Production RAG fans out to multiple indexes'),
     highlight: { active: ['query', 'bm25', 'splade', 'vector', 'meta', 'e-q-bm25', 'e-q-splade', 'e-q-vector', 'e-q-meta'], compare: ['fusion', 'rerank'] },
-    explanation: 'Read the fanout as a refusal to bet the whole answer on one geometry. Terms, embeddings, metadata, and graph links each catch a different kind of evidence, then the system reconciles them.',
+    explanation: `Read the fanout to ${indexCount} indexes as a refusal to bet the whole answer on one geometry. Terms, embeddings, metadata, and graph links each catch a different kind of evidence, then the system reconciles them.`,
   };
 
+  const queryShapes = 5;
   yield {
     state: labelMatrix(
       'Each index wins on a different query shape',
@@ -92,16 +94,18 @@ function* hybridRetrieval() {
       ],
     ),
     highlight: { active: ['exact:best', 'sparse:best', 'semantic:best', 'fresh:best', 'entity:best'] },
-    explanation: 'The right index depends on the question. A support bot asking about "SOC2-CC7.2" needs exact terms. A user asking a paraphrase needs Embeddings & Similarity. A permissions question may need graph context.',
-    invariant: 'Retrieval coverage is a union problem; ranking is a precision problem.',
+    explanation: `Across ${queryShapes} query shapes, the right index depends on the question. A support bot asking about "SOC2-CC7.2" needs exact terms. A user asking a paraphrase needs Embeddings & Similarity. A permissions question may need graph context.`,
+    invariant: `Retrieval coverage is a union problem across ${queryShapes} failure modes; ranking is a precision problem.`,
   };
 
+  const fusionInputs = 3;
   yield {
     state: pipeline('Candidates are merged before the expensive judge'),
     highlight: { active: ['fusion', 'e-bm25-fusion', 'e-vector-fusion', 'e-graph-fusion'], found: ['rerank', 'prompt'] },
-    explanation: 'Fusion is the handoff between recall and precision. It keeps candidates from several indexes alive long enough for the slower reranker to make a better judgment.',
+    explanation: `Fusion merges ${fusionInputs} ranked lists and is the handoff between recall and precision. It keeps candidates from several indexes alive long enough for the slower reranker to make a better judgment.`,
   };
 
+  const evalMetrics = 4;
   yield {
     state: labelMatrix(
       'Index composition changes the evaluation plan',
@@ -123,14 +127,16 @@ function* hybridRetrieval() {
       ],
     ),
     highlight: { found: ['recall:measure', 'precision:measure', 'faith:measure', 'latency:measure'] },
-    explanation: 'Multi-index RAG must be evaluated in layers. If recall fails, add or fix retrievers. If precision fails, tune fusion and reranking. If faithfulness fails, the generator or prompt contract is broken.',
+    explanation: `Multi-index RAG must be evaluated across ${evalMetrics} layers. If recall fails, add or fix retrievers. If precision fails, tune fusion and reranking. If faithfulness fails, the generator or prompt contract is broken.`,
   };
 }
 
 function* fusionAndRerank() {
+  const retrieverCount = 3;
+  const rankDepth = 4;
   yield {
     state: labelMatrix(
-      'Three retrievers return different ranked lists',
+      `${retrieverCount} retrievers return different ranked lists`,
       [
         { id: 'rank1', label: 'rank 1' },
         { id: 'rank2', label: 'rank 2' },
@@ -150,9 +156,10 @@ function* fusionAndRerank() {
       ],
     ),
     highlight: { active: ['rank1:bm25', 'rank2:vector', 'rank3:graph'], compare: ['rank4:bm25', 'rank4:vector'] },
-    explanation: 'Raw scores from different indexes are not comparable. BM25 scores, cosine similarities, and graph distances live on different scales. Fusion methods work with ranks so the lists can be combined without fragile normalization.',
+    explanation: `Raw scores from ${retrieverCount} indexes are not comparable. BM25 scores, cosine similarities, and graph distances live on different scales. Fusion methods work with ranks so the ${rankDepth}-deep lists can be combined without fragile normalization.`,
   };
 
+  const docCount = 4;
   yield {
     state: labelMatrix(
       'Reciprocal Rank Fusion rewards broad agreement',
@@ -176,17 +183,20 @@ function* fusionAndRerank() {
       ],
     ),
     highlight: { found: ['policy:rrf', 'refund:rrf'], compare: ['owner:rrf'] },
-    explanation: 'RRF adds a small score for each list position, commonly 1 / (k + rank). Documents that appear near the top of several lists rise above documents that are only one retriever\'s favorite.',
-    invariant: 'Fusion creates candidates; reranking decides final context.',
+    explanation: `RRF scores ${docCount} candidate documents by adding 1 / (k + rank) for each list position. Documents that appear near the top of several lists rise above documents that are only one retriever's favorite.`,
+    invariant: `Fusion creates candidates from ${retrieverCount} sources; reranking decides final context.`,
   };
 
+  const poolSize = 50;
+  const contextSize = 5;
+  const stages = 4;
   yield {
     state: labelMatrix(
       'A reranker spends more compute on fewer candidates',
       [
-        { id: 'top50', label: 'top 50 fused' },
+        { id: 'top50', label: `top ${poolSize} fused` },
         { id: 'cross', label: 'cross-encoder' },
-        { id: 'final', label: 'top 5 context' },
+        { id: 'final', label: `top ${contextSize} context` },
         { id: 'prompt', label: 'answer prompt' },
       ],
       [
@@ -201,9 +211,10 @@ function* fusionAndRerank() {
       ],
     ),
     highlight: { active: ['top50:action', 'cross:action', 'final:action'], found: ['prompt:reason'] },
-    explanation: 'The reranker can compare the query and chunk with richer interaction than a vector dot product. That is expensive, so it runs after cheap indexes have narrowed the pool.',
+    explanation: `The reranker narrows ${poolSize} fused candidates to ${contextSize} across ${stages} stages. It can compare the query and chunk with richer interaction than a vector dot product. That is expensive, so it runs after cheap indexes have narrowed the pool.`,
   };
 
+  const failureModes = 4;
   yield {
     state: labelMatrix(
       'Operational failure modes',
@@ -225,7 +236,7 @@ function* fusionAndRerank() {
       ],
     ),
     highlight: { active: ['stale:fix', 'dup:fix', 'acl:fix', 'budget:fix'] },
-    explanation: 'The warning frame is the production lesson: a multi-index stack inherits every upstream data problem. Bad ACLs, stale chunks, duplicate copies, and weak packing can erase the benefit of better retrieval.',
+    explanation: `The ${failureModes} failure modes are the production lesson: a multi-index stack inherits every upstream data problem. Bad ACLs, stale chunks, duplicate copies, and weak packing can erase the benefit of better retrieval.`,
   };
 }
 
@@ -245,7 +256,8 @@ export const article = {
         'The "fusion and rerank" view zooms into what happens after retrieval. Three ranked lists arrive with different orderings. Reciprocal Rank Fusion merges them by rank position, not raw score. The reranker then spends heavier compute on the fused pool. Found markers indicate documents that survived into the final prompt context.',
         'At each frame, read the matrix labels. The rows are query types or pipeline stages; the columns show which index wins and where each index fails. The invariant at the bottom of key frames states the contract that frame is proving.',
         {type: 'callout', text: 'Multi-index RAG is a recall contract: each index exists only when it rescues a failure mode the others miss.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/multi-index-rag.gif', alt: 'Animated walkthrough of the multi index rag visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

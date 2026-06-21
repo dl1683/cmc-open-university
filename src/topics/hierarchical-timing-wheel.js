@@ -71,11 +71,19 @@ function hierarchyFlow(title) {
 }
 
 function* hashedWheel() {
+  const wheelSize = 8;
+  const timers = [
+    { name: 'A', delay: 3 },
+    { name: 'B', delay: 9 },
+    { name: 'C', delay: 17 },
+    { name: 'D', delay: 33 },
+  ];
+
   yield {
     state: wheelFlow('A timer wheel is a circular array of buckets'),
     highlight: { active: ['timer', 'slot'], found: ['tick', 'fire'] },
-    explanation: 'A timing wheel stores timers in buckets by deadline tick. Each tick advances the hand to the next slot and expires the timers waiting there.',
-    invariant: 'Insertion chooses a bucket by deadline; expiry scans only the current bucket.',
+    explanation: `A timing wheel stores timers in ${wheelSize} buckets by deadline tick. Each tick advances the hand to the next slot and expires the timers waiting there.`,
+    invariant: `Insertion chooses a bucket by deadline mod ${wheelSize}; expiry scans only the current bucket.`,
   };
 
   yield {
@@ -99,7 +107,7 @@ function* hashedWheel() {
       ],
     ),
     highlight: { active: ['b:slot', 'c:slot', 'd:slot'], compare: ['b:rounds', 'c:rounds', 'd:rounds'] },
-    explanation: 'A hashed wheel can store far-future timers in the same slot with a rounds counter. Slot 1 holds +9, +17, and +33, but each needs a different number of full rotations before firing.',
+    explanation: `A hashed ${wheelSize}-slot wheel can store far-future timers in the same slot with a rounds counter. Slot ${timers[1].delay % wheelSize} holds +${timers[1].delay}, +${timers[2].delay}, and +${timers[3].delay}, but each needs ${Math.floor(timers[1].delay / wheelSize)}, ${Math.floor(timers[2].delay / wheelSize)}, and ${Math.floor(timers[3].delay / wheelSize)} full rotations before firing.`,
   };
 
   yield {
@@ -123,22 +131,26 @@ function* hashedWheel() {
       ],
     ),
     highlight: { found: ['start:wheel', 'tick:wheel'], compare: ['start:heap', 'expire:heap'] },
-    explanation: 'A heap is precise and general. A wheel is excellent for many approximate timeouts with bounded resolution, especially when cancellation and insertion must be cheap.',
+    explanation: `A heap is precise and general. A ${wheelSize}-slot wheel is excellent for many approximate timeouts like these ${timers.length} timers, especially when cancellation and insertion must be O(1).`,
   };
 
   yield {
     state: wheelFlow('Timing wheels trade precision for throughput'),
     highlight: { active: ['tick', 'fire'], compare: ['slot'], found: ['list'] },
-    explanation: 'The tick duration is the precision contract. With a 100 ms tick, a timer fires on a nearby tick boundary. That is fine for network timeouts and retries, but not for high-resolution scheduling.',
+    explanation: `The tick duration is the precision contract across the ${wheelSize} slots. With a 100 ms tick, each of the ${timers.length} timers fires on a nearby tick boundary. That is fine for network timeouts and retries, but not for high-resolution scheduling.`,
   };
 }
 
 function* hierarchicalTimers() {
+  const levels = 3;
+  const ticksPerLevel = [1, 8, 64];
+  const kafkaOps = ['produce ack', 'fetch wait', 'watch list', 'timeout'];
+
   yield {
     state: hierarchyFlow('Outer wheels handle far-future deadlines'),
     highlight: { active: ['near', 'mid', 'far'], found: ['cascade'] },
-    explanation: 'A hierarchy uses several wheels with coarser resolutions. Near timers go into the inner wheel. Far timers wait in outer wheels until time advances enough to cascade them inward.',
-    invariant: 'Hierarchy avoids huge round counters or a massive single wheel.',
+    explanation: `A ${levels}-level hierarchy uses wheels with coarser resolutions (${ticksPerLevel.join(', ')} ticks). Near timers go into L0. Far timers wait in outer wheels until time advances enough to cascade them inward.`,
+    invariant: `The ${levels}-level hierarchy avoids huge round counters or a massive single wheel.`,
   };
 
   yield {
@@ -162,7 +174,7 @@ function* hierarchicalTimers() {
       ],
     ),
     highlight: { active: ['l1:stores', 'l2:stores'], found: ['due:stores'] },
-    explanation: 'As each outer slot becomes current, its timers are redistributed into the lower level. The cost is paid when deadlines become close enough to matter.',
+    explanation: `As each outer slot becomes current, its timers are redistributed into the lower level. With resolutions of ${ticksPerLevel.join(', ')} ticks across ${levels} levels, the cost is paid when deadlines become close enough to matter.`,
   };
 
   yield {
@@ -186,13 +198,13 @@ function* hierarchicalTimers() {
       ],
     ),
     highlight: { found: ['produce:wheel role', 'fetch:wheel role', 'timeout:wheel role'], active: ['watch:wheel role'] },
-    explanation: 'Kafka request purgatory combines event-driven watchers with timeout timers. A delayed request can complete because its condition becomes true or because the wheel reaches its deadline.',
+    explanation: `Kafka request purgatory combines ${kafkaOps.length} operation types (${kafkaOps.join(', ')}) with timeout timers across a ${levels}-level wheel. A delayed request can complete because its condition becomes true or because the wheel reaches its deadline.`,
   };
 
   yield {
     state: hierarchyFlow('Use wheels for timeout scale, not exact alarms'),
     highlight: { active: ['cascade', 'expire'], compare: ['far'], found: ['near'] },
-    explanation: 'The final design test: if timers are numerous, approximate, cancelable, and mostly timeouts, wheels shine. If every deadline needs strict ordering and exact precision, a heap or high-resolution timer path may be better.',
+    explanation: `The final design test: if timers are numerous, approximate, cancelable, and mostly timeouts, ${levels}-level wheels with resolutions ${ticksPerLevel.join('/')} shine. If every deadline needs strict ordering and exact precision, a heap or high-resolution timer path may be better.`,
   };
 }
 
@@ -205,6 +217,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/hierarchical-timing-wheel.gif', alt: 'Animated walkthrough of the hierarchical timing wheel visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

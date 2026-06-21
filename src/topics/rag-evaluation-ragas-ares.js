@@ -57,10 +57,14 @@ function evalPipeline(title) {
 }
 
 function* componentMetrics() {
+  const metricCount = 4; // recall, precision, faithfulness, relevance
+  const pipelineStages = 7; // nodes in the eval pipeline graph
+  const maxTopK = 20; // max x-axis in the plot
+
   yield {
     state: evalPipeline('RAG evals split the pipeline into layers'),
     highlight: { active: ['query', 'retriever', 'ranker', 'generator', 'judge'], found: ['matrix'] },
-    explanation: 'A RAG answer can fail because retrieval missed evidence, ranking buried it, generation ignored it, or the judge misread it. Component metrics keep those failures separate.',
+    explanation: `A RAG answer can fail at any of ${pipelineStages} pipeline stages because retrieval missed evidence, ranking buried it, generation ignored it, or the judge misread it. Component metrics keep those ${metricCount} failure dimensions separate.`,
   };
 
   yield {
@@ -84,8 +88,8 @@ function* componentMetrics() {
       ],
     ),
     highlight: { active: ['recall:debugs', 'precision:debugs', 'faith:debugs', 'relevance:debugs'] },
-    explanation: 'RAGAS-style evaluation separates retriever quality from generator quality. That matters because fixing the wrong layer wastes time and can make the product worse.',
-    invariant: 'A faithful answer cannot cite evidence that retrieval never found.',
+    explanation: `RAGAS-style evaluation separates retriever quality from generator quality across ${metricCount} metrics. That matters because fixing the wrong layer wastes time and can make the product worse.`,
+    invariant: `A faithful answer cannot cite evidence that retrieval never found — ${metricCount} metrics exist precisely to isolate which layer broke.`,
   };
 
   yield {
@@ -97,7 +101,7 @@ function* componentMetrics() {
       ],
     }),
     highlight: { active: ['recall'], compare: ['precision'] },
-    explanation: 'Adding more chunks can improve recall while lowering precision. The right top-k is a context-budget decision, not a universal constant.',
+    explanation: `Adding more chunks (up to ${maxTopK}) can improve recall while lowering precision. The right top-k is a context-budget decision, not a universal constant.`,
   };
 
   yield {
@@ -121,15 +125,19 @@ function* componentMetrics() {
       ],
     ),
     highlight: { found: ['lowrecall:likely fix', 'lowprec:likely fix', 'lowfaith:likely fix', 'lowrel:likely fix'] },
-    explanation: 'The score matrix should point to action. Low recall is an index problem. Low precision is a ranking/context-packing problem. Low faithfulness is a grounding or generator problem.',
+    explanation: `The score matrix should point to action across all ${metricCount} dimensions. Low recall is an index problem. Low precision is a ranking/context-packing problem. Low faithfulness is a grounding or generator problem.`,
   };
 }
 
 function* judgeAndHoldout() {
+  const judgeDesigns = 4; // RAGAS, ARES, RAG Triad, human
+  const holdoutQueues = 4; // dev, holdout, fresh, slices
+  const monitorSignals = 4; // recall proxy, faith proxy, latency, cost
+
   yield {
     state: evalPipeline('Automated judges need calibration and holdouts'),
     highlight: { active: ['judge', 'matrix', 'e-judge-matrix'], compare: ['claims'], found: ['query'] },
-    explanation: 'RAGAS, ARES, and the RAG Triad all make automated evaluation faster, but a judge score is not truth. Calibrate it against human labels and keep a holdout set that prompt changes do not train on.',
+    explanation: `All ${judgeDesigns} judge designs (RAGAS, ARES, RAG Triad, human) make automated evaluation faster, but a judge score is not truth. Calibrate it against human labels and keep a holdout set that prompt changes do not train on.`,
   };
 
   yield {
@@ -153,7 +161,7 @@ function* judgeAndHoldout() {
       ],
     ),
     highlight: { active: ['ragas:move', 'ares:move', 'triad:move'], compare: ['human:risk'] },
-    explanation: 'The frameworks differ, but the decomposition is similar: judge context relevance, answer support, and answer usefulness separately rather than relying on a single pleasantness score.',
+    explanation: `The ${judgeDesigns} frameworks differ, but the decomposition is similar: judge context relevance, answer support, and answer usefulness separately rather than relying on a single pleasantness score.`,
   };
 
   yield {
@@ -177,8 +185,8 @@ function* judgeAndHoldout() {
       ],
     ),
     highlight: { active: ['holdout:purpose', 'fresh:purpose', 'slices:purpose'], removed: ['holdout:misuse'] },
-    explanation: 'RAG systems overfit evals too. If every prompt tweak is optimized against the same public examples, the score becomes a training artifact.',
-    invariant: 'Keep separate dev, holdout, and production-failure queues.',
+    explanation: `RAG systems overfit evals too. Maintain ${holdoutQueues} separate queues so that every prompt tweak is not optimized against the same public examples, turning the score into a training artifact.`,
+    invariant: `Keep all ${holdoutQueues} queues (dev, holdout, fresh failures, risk slices) separate — leaking between them destroys generalization evidence.`,
   };
 
   yield {
@@ -202,7 +210,7 @@ function* judgeAndHoldout() {
       ],
     ),
     highlight: { active: ['recall:alert', 'faith:alert', 'latency:alert'], found: ['cost:signal'] },
-    explanation: 'Offline evals catch known failures. Production monitors catch drift: corpus changes, user-language shifts, embedding upgrades, retriever outages, and slow rerankers.',
+    explanation: `Offline evals catch known failures. ${monitorSignals} production monitor signals catch drift: corpus changes, user-language shifts, embedding upgrades, retriever outages, and slow rerankers.`,
   };
 }
 
@@ -215,6 +223,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/rag-evaluation-ragas-ares.gif', alt: 'Animated walkthrough of the rag evaluation ragas ares visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

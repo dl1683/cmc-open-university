@@ -201,7 +201,8 @@ export const article = {
         `In the ravine view, watch why one learning rate fails. The steep y-direction forces plain gradient descent to use a cautious global step, so the shallow x-direction barely moves. Momentum cancels alternating wall-to-wall motion and keeps the along-valley component. Adam adds per-coordinate scaling so steep coordinates shrink and quiet coordinates get a usable step.`,
         `In the inside-Adam view, read m as direction memory and v as scale memory. Bias correction is a startup repair, not a cosmetic formula. AdamW then separates weight decay from adaptive scaling so the regularization knob behaves like a leash instead of being divided away by the variance estimate.`,
         `The practical habit is to log optimizer behavior as part of the experiment, not as an afterthought. Learning rate, betas, weight decay, warmup, clipping, and optimizer-state memory are part of the result because changing them can change both training dynamics and final model behavior.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/adam-optimizer.gif', alt: 'Animated walkthrough of the adam optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `The obvious approach`,

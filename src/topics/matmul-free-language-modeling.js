@@ -54,7 +54,7 @@ function* ternaryWeights() {
       ],
     ),
     highlight: { active: ['tern:operation', 'zero:operation'], compare: ['fp:operation'] },
-    explanation: 'The MatMul-free paper restricts many weights to {-1, 0, +1}. Multiplication by +1 becomes addition, by -1 becomes subtraction, and by 0 becomes a skipped contribution.',
+    explanation: `The ${topic.title} paper restricts many weights to {-1, 0, +1}. Multiplication by +1 becomes addition, by -1 becomes subtraction, and by 0 becomes a skipped contribution.`,
   };
 
   yield {
@@ -79,8 +79,8 @@ function* ternaryWeights() {
       ],
     ),
     highlight: { active: ['x1:contrib', 'x2:contrib', 'x3:contrib'], found: ['sum:contrib'] },
-    explanation: 'The arithmetic is still a dot product shape, but the weight side has been simplified so hardware can use additions, subtractions, skips, and compact weight storage.',
-    invariant: 'The model buys efficiency by limiting the set of possible weights.',
+    explanation: `The arithmetic is still a dot product shape, but the weight side has been simplified so hardware can use additions, subtractions, skips, and compact weight storage in ${topic.title}.`,
+    invariant: `The model buys efficiency by limiting the set of possible weights to ${'{-1, 0, +1}'} — only ${3} values.`,
   };
 
   yield {
@@ -100,7 +100,7 @@ function* ternaryWeights() {
       ],
     }, { title: 'Fused BitLinear reduces memory traffic' }),
     highlight: { active: ['norm', 'quant', 'tern'], found: ['accum'] },
-    explanation: 'The local writeup highlights fused BitLinear: combine normalization, quantization, and ternary accumulation so data does not bounce repeatedly between slow and fast memory.',
+    explanation: `The ${topic.title} writeup highlights fused BitLinear: combine normalization, quantization, and ternary accumulation so data does not bounce repeatedly between slow and fast memory.`,
   };
 
   yield {
@@ -116,7 +116,7 @@ function* ternaryWeights() {
       ],
     }),
     highlight: { active: ['gap'], found: ['scale'] },
-    explanation: 'The paper reports that the performance gap narrows with scale. That is the research bet: simpler operations may become more attractive as the architecture and kernels mature.',
+    explanation: `The ${topic.title} paper reports that the performance gap narrows with scale. That is the research bet: simpler operations may become more attractive as the architecture and kernels mature.`,
   };
 }
 
@@ -141,7 +141,7 @@ function* mlgruAndBitLinear() {
       ],
     }, { title: 'MatMul-free LM keeps token and channel mixers' }),
     highlight: { active: ['mlgru', 'bit', 'glu'], found: ['out'] },
-    explanation: 'The architecture still needs a token mixer and a channel mixer. It swaps attention-like dense matrix work for MLGRU and dense feed-forward work for BitLinear plus GLU-style gating.',
+    explanation: `The ${topic.title} architecture still needs a token mixer and a channel mixer. It swaps attention-like dense matrix work for MLGRU and dense feed-forward work for BitLinear plus GLU-style gating.`,
   };
 
   yield {
@@ -165,7 +165,7 @@ function* mlgruAndBitLinear() {
       ],
     ),
     highlight: { active: ['attn:replacement', 'ffn:replacement', 'norm:replacement'], compare: ['grad:replacement'] },
-    explanation: 'The method is not just quantization. It redesigns the architecture around operations that can survive ternary weights and low-precision activations.',
+    explanation: `The ${topic.title} method is not just quantization. It redesigns the architecture around operations that can survive ternary weights and low-precision activations.`,
   };
 
   yield {
@@ -187,8 +187,8 @@ function* mlgruAndBitLinear() {
       ],
     ),
     highlight: { found: ['fpga:strength'], compare: ['gpu:challenge', 'cpu:challenge'] },
-    explanation: 'A MatMul-free model is partly an architecture claim and partly a hardware claim. If accelerators are optimized for dense matmul, the new operations need excellent kernels or custom hardware to win.',
-    invariant: 'The best algorithm on paper must match the machine that runs it.',
+    explanation: `A ${topic.title.split(' ').slice(0, 2).join('-')} model is partly an architecture claim and partly a hardware claim. If accelerators are optimized for dense matmul, the new operations need excellent kernels or custom hardware to win.`,
+    invariant: `The best algorithm on paper must match the machine that runs it — ${topic.title}'s value depends on the target hardware.`,
   };
 
   yield {
@@ -212,7 +212,7 @@ function* mlgruAndBitLinear() {
       ],
     ),
     highlight: { found: ['quant:question', 'rwkv:question', 'mamba:question', 'roof:question'] },
-    explanation: 'MatMul-free LMs belong to the same efficiency family as quantization, RWKV, Mamba, and roofline-aware serving: change the operation mix, then measure the new bottleneck.',
+    explanation: `${topic.title} belongs to the same efficiency family as quantization, RWKV, Mamba, and roofline-aware serving: change the operation mix, then measure the new bottleneck.`,
   };
 }
 
@@ -233,7 +233,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: 'callout', text: 'MatMul-free language modeling changes the primitive operation, so the real question is quality per watt on the hardware that will actually run it.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/matmul-free-language-modeling.gif', alt: 'Animated walkthrough of the matmul free language modeling visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

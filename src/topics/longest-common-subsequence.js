@@ -129,7 +129,8 @@ export const article = {
         {type: 'callout', text: 'LCS works because every cell is a promise about two prefixes, so the full sequence problem becomes a grid of reusable prefix facts.'},
         'Active cells (highlighted) are the row currently being filled. Visited cells mark the neighbors that determined the active cell\'s value: the diagonal cell (used when characters match) and the cells above and to the left (used when they do not). When a character match occurs, the value increases by one from the diagonal. When there is no match, the value copies the larger of the two neighbors.',
         'After the table is complete, the found marker lands on the bottom-right corner — the LCS length for the full sequences. The backtrack path then lights up, tracing from that corner back toward the origin. Each diagonal step corresponds to a matched character in the LCS. Horizontal and vertical steps skip characters that are not part of the LCS.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/longest-common-subsequence.gif', alt: 'Animated walkthrough of the longest common subsequence visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

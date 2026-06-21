@@ -173,7 +173,8 @@ export const article = {
         { type: 'callout', text: '0/1 knapsack works because every item decision reduces to two already-solved subproblems: skip it, or take it and spend its capacity.' },
         'Active cells (highlighted) are the row being filled. Visited cells (dimmed) are the row above, which the current row consults. Each cell makes one binary decision about the current item: skip it (copy the value straight down from dp[i-1][w]) or take it (look up dp[i-1][w - weight_i], add the item\'s value, compare). The larger result wins.',
         'After every row is filled, the traceback walks from dp[n][W] upward. Where dp[i][w] differs from dp[i-1][w], item i was included and the path shifts left by that item\'s weight. Where they match, the item was skipped and the path moves straight up. The traced path identifies the optimal subset.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/knapsack.gif', alt: 'Animated walkthrough of the knapsack visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

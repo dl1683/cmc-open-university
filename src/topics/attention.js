@@ -62,17 +62,20 @@ export function* run(input) {
   const words = parseWordList(input.text, { min: 2, max: 5, label: 'words' });
   const tokens = words.map((w) => w.toLowerCase());
   const n = tokens.length;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const r4 = (v) => Math.round(v * 10000) / 10000;
 
   const dims = Array.from({ length: D }, (_, j) => ({ id: `d${j}`, label: `d${j}` }));
   const qRows = tokens.map((t, i) => ({ id: `q${i}`, label: t }));
   const kCols = tokens.map((t, i) => ({ id: `k${i}`, label: t }));
   const pct = (v) => `${Math.round(v * 100)}%`;
+  const fmtVec = (v) => `[${v.map(r2).join(', ')}]`;
 
   const E = tokens.map(embed);
   yield {
     state: matrixState({ title: 'Embeddings E (one row per token)', rows: qRows, columns: dims, values: E }),
     highlight: {},
-    explanation: `Step one of any language model: each token becomes a VECTOR of numbers — here ${D} dimensions per token (real models use thousands). These are toy embeddings, but everything we do with them from now on is the real attention computation.`,
+    explanation: `Step one of any language model: each token becomes a VECTOR of numbers — here ${D} dimensions per token (real models use thousands). "${tokens[0]}" embeds to ${fmtVec(E[0])}${n > 1 ? `, "${tokens[1]}" to ${fmtVec(E[1])}` : ''}. These are toy embeddings, but everything we do with them from now on is the real attention computation.`,
   };
 
   const Q = matMul(E, Wq);
@@ -82,12 +85,17 @@ export function* run(input) {
   yield {
     state: matrixState({ title: 'Queries Q = E·Wq', rows: qRows, columns: dims, values: Q }),
     highlight: {},
-    explanation: 'Each embedding is multiplied by a learned matrix Wq to make a QUERY — a vector that encodes "what am I looking for?". A pronoun might query for its referent; a verb might query for its subject.',
+    explanation: `Each embedding is multiplied by the learned matrix Wq to make a QUERY — a vector that encodes "what am I looking for?". "${tokens[0]}"'s query is ${fmtVec(Q[0])}. A pronoun might query for its referent; a verb might query for its subject.`,
   };
   yield {
     state: matrixState({ title: 'Keys K = E·Wk', rows: qRows, columns: dims, values: K }),
     highlight: {},
-    explanation: 'A second matrix Wk makes each token a KEY — "what do I offer?". A third (Wv) makes VALUES — the actual information a token hands over if attended to. Three different projections of the same embedding, three different roles.',
+    explanation: `A second matrix Wk makes each token a KEY — "what do I offer?". "${tokens[0]}"'s key is ${fmtVec(K[0])}. A third (Wv) makes VALUES — the actual information a token hands over if attended to. Three different projections of the same embedding, three different roles.`,
+  };
+  yield {
+    state: matrixState({ title: 'Values V = E·Wv', rows: qRows, columns: dims, values: V }),
+    highlight: {},
+    explanation: `The value matrix V carries the actual payload: if a token is attended to, its value vector is what gets read. "${tokens[0]}"'s value is ${fmtVec(V[0])}${n > 1 ? `, "${tokens[1]}"'s is ${fmtVec(V[1])}` : ''}. Keys decide WHO gets read; values decide WHAT information flows.`,
   };
 
   const scale = Math.sqrt(D);
@@ -95,16 +103,18 @@ export function* run(input) {
   yield {
     state: matrixState({ title: 'Scores = Q·Kᵀ / √d', rows: qRows, columns: kCols, values: scores }),
     highlight: {},
-    explanation: `Now every query meets every key: score[i][j] is the DOT PRODUCT of token i's query with token j's key — how well "what I want" matches "what you offer". Dividing by √${D} keeps the numbers tame so the next step doesn't saturate. This all-pairs table is why attention costs O(n²) in sequence length.`,
+    explanation: `Now every query meets every key: score[i][j] = dot(Q_i, K_j) / sqrt(${D}). For example, "${tokens[0]}" vs "${tokens[n > 1 ? 1 : 0]}": raw dot = ${r2(dot(Q[0], K[n > 1 ? 1 : 0]))}, scaled by 1/${r2(scale)} = ${r2(scores[0][n > 1 ? 1 : 0])}. Dividing by sqrt(${D}) = ${r2(scale)} keeps the numbers tame so the next step doesn't saturate. This ${n}x${n} all-pairs table is why attention costs O(n^2) in sequence length.`,
   };
 
   const weights = scores.map(softmax);
   for (let i = 0; i < n; i += 1) {
     const best = weights[i].indexOf(Math.max(...weights[i]));
+    const rawExps = scores[i].map((s) => Math.exp(s - Math.max(...scores[i])));
+    const expSum = rawExps.reduce((a, b) => a + b, 0);
     yield {
       state: matrixState({ title: 'Attention weights (softmax per row)', rows: qRows, columns: kCols, values: weights, format: pct }),
       highlight: { active: [`q${i}`], range: kCols.map((c) => `q${i}:${c.id}`) },
-      explanation: `Softmax turns row "${tokens[i]}" into weights that are positive and sum to exactly 100% — a budget of attention to spend. "${tokens[i]}" spends ${pct(weights[i][best])} of its budget on "${tokens[best]}".`,
+      explanation: `Softmax on "${tokens[i]}": exp of scores ${fmtVec(scores[i].map(r2))} gives unnormalized weights summing to ${r2(expSum)}. After normalizing: ${tokens.map((t, j) => `"${t}" ${pct(weights[i][j])}`).join(', ')}. "${tokens[i]}" spends ${pct(weights[i][best])} of its budget on "${tokens[best]}".`,
       invariant: 'Each row of the attention matrix sums to 100%.',
     };
   }
@@ -112,20 +122,20 @@ export function* run(input) {
   yield {
     state: matrixState({ title: 'The attention pattern', rows: qRows, columns: kCols, values: weights, format: pct }),
     highlight: {},
-    explanation: 'This heatmap IS attention — the thing the papers draw. Read it row by row: each token is deciding which other tokens matter for understanding itself. In a trained model, heads specialize: one tracks syntax, another coreference, another nearby words.',
+    explanation: `This heatmap IS attention — the thing the papers draw. Read it row by row: ${tokens.map((t, i) => { const b = weights[i].indexOf(Math.max(...weights[i])); return `"${t}" focuses on "${tokens[b]}" (${pct(weights[i][b])})`; }).join('; ')}. In a trained model, heads specialize: one tracks syntax, another coreference, another nearby words.`,
   };
 
   const output = matMul(weights, V);
   yield {
     state: matrixState({ title: 'Output = weights · V', rows: qRows, columns: dims, values: output }),
     highlight: {},
-    explanation: 'Finally each token rebuilds itself as a WEIGHTED AVERAGE of everyone\'s values, using its attention row as the weights. Information has now flowed between tokens — "cat" is literally mixed into the vector for "sat". No loops, no recurrence: just three matrix multiplies and a softmax.',
+    explanation: `Each token rebuilds itself as a WEIGHTED AVERAGE of everyone's values. "${tokens[0]}"'s output = ${tokens.map((t, j) => `${pct(weights[0][j])}*V("${t}")`).join(' + ')} = ${fmtVec(output[0])}. Information has now flowed between tokens — no loops, no recurrence: just three matrix multiplies and a softmax.`,
   };
 
   yield {
     state: matrixState({ title: 'The attention pattern', rows: qRows, columns: kCols, values: weights, format: pct }),
     highlight: {},
-    explanation: 'That single operation — run with many heads in parallel, stacked dozens of layers deep, with learned weights — is the Transformer ("Attention Is All You Need", 2017), and it is the architecture behind essentially every modern LLM. You just watched the whole trick.',
+    explanation: `That single operation — ${n} tokens, ${n * n} scores, ${n} softmax distributions, ${n} output vectors — run with many heads in parallel, stacked dozens of layers deep, with learned weights — is the Transformer ("Attention Is All You Need", 2017), and it is the architecture behind essentially every modern LLM. You just watched the whole trick.`,
   };
 }
 
@@ -139,7 +149,8 @@ export const article = {
         'The score matrix is n-by-n. Cell (i, j) is the scaled dot product of token i\'s query with token j\'s key. After softmax, each row becomes the attention weights for that token: positive numbers summing to 100%. Active highlights mark which token\'s row is being examined. A bright heatmap cell means high weight; a dark cell means the query and key barely matched.',
         'The final output matrix is n-by-4 again. Each row is a weighted average of all value vectors, using that token\'s attention weights. Information has flowed between tokens through pure matrix arithmetic.',
         {type: 'callout', text: 'Attention is a learned routing table: queries choose addresses, keys compete for selection, and values carry the information that moves.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/attention.gif', alt: 'Animated walkthrough of the attention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

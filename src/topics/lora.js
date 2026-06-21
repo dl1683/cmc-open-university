@@ -97,7 +97,8 @@ export const article = {
         'The animation shows four frames. The first is a frozen weight matrix W, colored to show it never changes. The second shows the two skinny trainable matrices A and B that form the LoRA adapter. The third multiplies A and B into a full-size correction. The fourth adds that correction to the frozen base, producing the adapted layer.',
         {type: 'callout', text: 'LoRA treats adaptation as a low-rank delta, so task behavior moves while the pretrained matrix stays fixed.'},
         'Frozen means no gradients, no optimizer state, no modification. Trainable means these values receive gradient updates during fine-tuning. The rank control lets you compare rank 1 (one direction of change, every row a scaled copy of the same pattern) against rank 2 (two directions, richer corrections). Watch how few numbers move to reshape the entire layer.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/lora.gif', alt: 'Animated walkthrough of the lora visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

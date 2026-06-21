@@ -79,6 +79,13 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/finite-state-machine.gif', alt: 'Animated walkthrough of the finite state machine visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Finite state machines exist for systems that should only occupy one legal situation at a time. A regex matcher is either before the first character, inside the repeating section, accepted, or rejected. A protocol is listening, handshaking, established, closing, or failed. A checkout flow is collecting shipping, collecting payment, confirming, complete, or canceled. The common structure is not the domain. It is the finite set of legal states and the finite set of events that move between them.',

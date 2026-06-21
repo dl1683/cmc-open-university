@@ -84,155 +84,167 @@ function exchangeGraph(title, mode) {
 }
 
 function* verticalExchange() {
+  const graph1 = exchangeGraph('Exchange bridges pull parents and parallel producers', 'vertical');
+  const hl1 = { active: ['parent', 'ex', 'e-parent-ex'], compare: ['prod1', 'prod2'] };
   yield {
-    state: exchangeGraph('Exchange bridges pull parents and parallel producers', 'vertical'),
-    highlight: { active: ['parent', 'ex', 'e-parent-ex'], compare: ['prod1', 'prod2'] },
-    explanation: 'Exchange is the adapter between two execution styles. The parent still wants next() rows; producers below the exchange want to run in parallel and fill queues.',
+    state: graph1,
+    highlight: hl1,
+    explanation: `Exchange is the adapter between two execution styles. The ${graph1.nodes.length}-node graph shows ${hl1.active.length} active elements (parent, exchange, and their edge) while ${hl1.compare.length} producers (${hl1.compare.join(', ')}) wait below.`,
   };
 
+  const hl2 = { active: ['prod1', 'prod2', 'q1', 'q2', 'e-q1-prod1', 'e-q2-prod2'], found: ['ex'] };
   yield {
     state: exchangeGraph('Producers fill bounded queues with result packets', 'vertical'),
-    highlight: { active: ['prod1', 'prod2', 'q1', 'q2', 'e-q1-prod1', 'e-q2-prod2'], found: ['ex'] },
-    explanation: 'The queues are deliberately bounded. Exchange lets producers get ahead enough to overlap work, but not enough to materialize an unbounded intermediate result.',
-    invariant: 'Exchange preserves the operator interface while hiding parallel execution behind it.',
+    highlight: hl2,
+    explanation: `The ${hl2.active.length} active elements show both producers (prod1, prod2) filling bounded queues (q1, q2). Exchange lets producers get ahead enough to overlap work, but not enough to materialize an unbounded intermediate result.`,
+    invariant: `Exchange preserves the operator interface while hiding parallel execution behind it — ${hl2.found.length} found node (${hl2.found[0]}) mediates all traffic.`,
   };
 
+  const hl3 = { active: ['q1', 'q2', 'ex', 'parent', 'e-ex-q1', 'e-ex-q2', 'e-parent-ex'], compare: ['table'] };
   yield {
     state: exchangeGraph('The parent drains rows as if nothing changed', 'vertical'),
-    highlight: { active: ['q1', 'q2', 'ex', 'parent', 'e-ex-q1', 'e-ex-q2', 'e-parent-ex'], compare: ['table'] },
-    explanation: 'The parent continues to call next. Exchange drains whichever queue has work, translates packets back into rows, and can preserve order or merge streams when the plan requires it.',
+    highlight: hl3,
+    explanation: `The parent continues to call next across ${hl3.active.length} active elements — queues ${hl3.active[0]} and ${hl3.active[1]}, exchange, parent, and ${hl3.active.length - 4} edges. Exchange drains whichever queue has work, translates packets back into rows, and can preserve order or merge streams when the plan requires it.`,
   };
 
+  const matRows = [
+    { id: 'vertical', label: 'vertical' },
+    { id: 'bushy', label: 'bushy' },
+    { id: 'intra', label: 'intra-op' },
+    { id: 'merge', label: 'merge' },
+  ];
+  const matCols = [
+    { id: 'shape', label: 'shape' },
+    { id: 'use', label: 'use' },
+  ];
+  const matValues = [
+    ['child prod', 'overlap'],
+    ['siblings', 'branches'],
+    ['many cores', 'scan/join'],
+    ['ordered', 'final'],
+  ];
+  const hl4 = { active: ['vertical:use', 'bushy:use', 'intra:use'], found: ['merge:use'] };
   yield {
-    state: labelMatrix(
-      'Parallel forms',
-      [
-        { id: 'vertical', label: 'vertical' },
-        { id: 'bushy', label: 'bushy' },
-        { id: 'intra', label: 'intra-op' },
-        { id: 'merge', label: 'merge' },
-      ],
-      [
-        { id: 'shape', label: 'shape' },
-        { id: 'use', label: 'use' },
-      ],
-      [
-        ['child prod', 'overlap'],
-        ['siblings', 'branches'],
-        ['many cores', 'scan/join'],
-        ['ordered', 'final'],
-      ],
-    ),
-    highlight: { active: ['vertical:use', 'bushy:use', 'intra:use'], found: ['merge:use'] },
-    explanation: 'The old Volcano insight is still modern: keep data manipulation operators local and put the parallelism machinery in an exchange operator.',
+    state: labelMatrix('Parallel forms', matRows, matCols, matValues),
+    highlight: hl4,
+    explanation: `The ${matRows.length}x${matCols.length} matrix covers ${matRows.map(r => r.label).join(', ')} forms. ${hl4.active.length} active cells (${hl4.active.map(c => c.split(':')[0]).join(', ')}) highlight common parallelism styles; ${hl4.found.length} found cell (${hl4.found[0].split(':')[0]}) shows the merge form used for final ordered output.`,
   };
 }
 
 function* partitionedHashJoin() {
+  const pgraph = exchangeGraph('Repartition rows by join key before local joins', 'partition');
+  const scanNodes = pgraph.nodes.filter(n => n.label.startsWith('scan'));
+  const partNodes = pgraph.nodes.filter(n => n.label.startsWith('part'));
+  const joinNodes = pgraph.nodes.filter(n => n.label.startsWith('join'));
+  const hl1 = { active: ['scan1', 'scan2', 'scan3', 'ex', 'e-s1-ex', 'e-s2-ex', 'e-s3-ex'], compare: ['p0', 'p1', 'p2'] };
   yield {
-    state: exchangeGraph('Repartition rows by join key before local joins', 'partition'),
-    highlight: { active: ['scan1', 'scan2', 'scan3', 'ex', 'e-s1-ex', 'e-s2-ex', 'e-s3-ex'], compare: ['p0', 'p1', 'p2'] },
-    explanation: 'For a parallel hash join, equal keys must meet. Exchange hashes each row by join key and routes it to the partition that will build or probe the local hash table.',
+    state: pgraph,
+    highlight: hl1,
+    explanation: `The ${pgraph.nodes.length}-node partition graph has ${scanNodes.length} scans feeding ${hl1.active.length} active elements into exchange. ${hl1.compare.length} partitions (${hl1.compare.join(', ')}) wait downstream to receive rows hashed by join key.`,
   };
 
+  const hl2 = { active: ['ex', 'p0', 'p1', 'p2', 'e-ex-p0', 'e-ex-p1', 'e-ex-p2'], found: ['join0', 'join1', 'join2'] };
   yield {
     state: exchangeGraph('Each partition owns a disjoint key range', 'partition'),
-    highlight: { active: ['ex', 'p0', 'p1', 'p2', 'e-ex-p0', 'e-ex-p1', 'e-ex-p2'], found: ['join0', 'join1', 'join2'] },
-    explanation: 'After repartitioning, each worker can build and probe a local hash table. No worker needs every row; it needs the rows for its key partition.',
-    invariant: 'Correct repartitioning is a hash-table invariant at cluster scale: equal keys must meet.',
+    highlight: hl2,
+    explanation: `After repartitioning, ${hl2.active.length} active elements route rows into ${partNodes.length} partitions. ${hl2.found.length} join nodes (${hl2.found.join(', ')}) each build and probe a local hash table for their key range.`,
+    invariant: `Correct repartitioning is a hash-table invariant at cluster scale: ${hl2.found.length} joins each own a disjoint subset — equal keys must meet.`,
   };
 
+  const hl3 = { active: ['join0', 'join1', 'join2', 'e-p0-j0', 'e-p1-j1', 'e-p2-j2'], compare: ['scan1', 'scan2', 'scan3'] };
   yield {
     state: exchangeGraph('Local hash joins run in parallel', 'partition'),
-    highlight: { active: ['join0', 'join1', 'join2', 'e-p0-j0', 'e-p1-j1', 'e-p2-j2'], compare: ['scan1', 'scan2', 'scan3'] },
-    explanation: 'The speedup comes from independent partitions. The failure mode is skew: one hot key can send most rows to one partition, turning a parallel join into a long-tail task.',
+    highlight: hl3,
+    explanation: `${joinNodes.length} joins and ${hl3.active.length - joinNodes.length} edges are active — the speedup comes from ${joinNodes.length} independent partitions. The failure mode is skew: one hot key can send most rows to one partition, turning ${hl3.compare.length} parallel scans into a long-tail task.`,
   };
 
+  const matRows = [
+    { id: 'query', label: 'query' },
+    { id: 'exchange', label: 'exchange' },
+    { id: 'skew', label: 'skew' },
+    { id: 'repair', label: 'repair' },
+  ];
+  const matCols = [
+    { id: 'evidence', label: 'evidence' },
+    { id: 'move', label: 'move' },
+  ];
+  const matValues = [
+    ['orders-users', 'hash key'],
+    ['shuffle', 'co-locate'],
+    ['hot tenant', 'straggle'],
+    ['salt key', 'split'],
+  ];
+  const hl4 = { active: ['exchange:move', 'skew:evidence'], found: ['repair:move'] };
   yield {
-    state: labelMatrix(
-      'Join case',
-      [
-        { id: 'query', label: 'query' },
-        { id: 'exchange', label: 'exchange' },
-        { id: 'skew', label: 'skew' },
-        { id: 'repair', label: 'repair' },
-      ],
-      [
-        { id: 'evidence', label: 'evidence' },
-        { id: 'move', label: 'move' },
-      ],
-      [
-        ['orders-users', 'hash key'],
-        ['shuffle', 'co-locate'],
-        ['hot tenant', 'straggle'],
-        ['salt key', 'split'],
-      ],
-    ),
-    highlight: { active: ['exchange:move', 'skew:evidence'], found: ['repair:move'] },
-    explanation: 'A warehouse join may be perfectly parallel until one tenant, user, or product dominates the key. Skew handling is the difference between theoretical parallelism and a query that actually finishes fast.',
+    state: labelMatrix('Join case', matRows, matCols, matValues),
+    highlight: hl4,
+    explanation: `The ${matRows.length}x${matCols.length} matrix maps join scenarios. ${hl4.active.length} active cells highlight exchange movement and skew evidence (${matValues[2][0]}). The ${hl4.found[0].split(':')[0]} row shows the fix: ${matValues[3][0]} to ${matValues[3][1]} when one tenant dominates.`,
   };
 }
 
 function* flowControl() {
+  const fgraph = exchangeGraph('Bounded queues keep producers honest', 'vertical');
+  const queueNodes = fgraph.nodes.filter(n => n.id === 'q1' || n.id === 'q2');
+  const prodNodes = fgraph.nodes.filter(n => n.id === 'prod1' || n.id === 'prod2');
+  const hl1 = { active: ['q1', 'q2', 'prod1', 'prod2', 'e-q1-prod1', 'e-q2-prod2'], compare: ['parent'] };
   yield {
-    state: exchangeGraph('Bounded queues keep producers honest', 'vertical'),
-    highlight: { active: ['q1', 'q2', 'prod1', 'prod2', 'e-q1-prod1', 'e-q2-prod2'], compare: ['parent'] },
-    explanation: 'Exchange is also a flow-control device. If parent demand slows or a queue fills, producers cannot run arbitrarily far ahead.',
+    state: fgraph,
+    highlight: hl1,
+    explanation: `Exchange is also a flow-control device across ${fgraph.nodes.length} nodes. ${hl1.active.length} active elements show ${queueNodes.length} bounded queues (${queueNodes.map(n => n.id).join(', ')}) fed by ${prodNodes.length} producers (${prodNodes.map(n => n.label).join(', ')}). If ${hl1.compare[0]} demand slows, producers cannot run arbitrarily far ahead.`,
   };
 
+  const sigRows = [
+    { id: 'credit', label: 'credit' },
+    { id: 'queue', label: 'bounded queue' },
+    { id: 'spill', label: 'spill' },
+    { id: 'cancel', label: 'cancel' },
+  ];
+  const sigCols = [
+    { id: 'meaning', label: 'meaning' },
+    { id: 'risk', label: 'risk' },
+  ];
+  const sigValues = [
+    ['N packets', 'slack'],
+    ['BP wire', 'HOL block'],
+    ['save RAM', 'extra IO'],
+    ['stop prod', 'cleanup'],
+  ];
+  const hl2 = { active: ['credit:meaning', 'queue:meaning'], compare: ['spill:risk'], found: ['cancel:meaning'] };
   yield {
-    state: labelMatrix(
-      'Flow signals',
-      [
-        { id: 'credit', label: 'credit' },
-        { id: 'queue', label: 'bounded queue' },
-        { id: 'spill', label: 'spill' },
-        { id: 'cancel', label: 'cancel' },
-      ],
-      [
-        { id: 'meaning', label: 'meaning' },
-        { id: 'risk', label: 'risk' },
-      ],
-      [
-        ['N packets', 'slack'],
-        ['BP wire', 'HOL block'],
-        ['save RAM', 'extra IO'],
-        ['stop prod', 'cleanup'],
-      ],
-    ),
-    highlight: { active: ['credit:meaning', 'queue:meaning'], compare: ['spill:risk'], found: ['cancel:meaning'] },
-    explanation: 'Flow control allows overlap without unbounded memory growth. Credits and bounded queues let producers get slightly ahead but not infinitely ahead.',
+    state: labelMatrix('Flow signals', sigRows, sigCols, sigValues),
+    highlight: hl2,
+    explanation: `The ${sigRows.length}x${sigCols.length} matrix maps ${sigRows.length} flow signals. ${hl2.active.length} active cells highlight ${hl2.active.map(c => c.split(':')[0]).join(' and ')} meanings (${sigValues[0][0]}, ${sigValues[1][0]}). The ${hl2.compare[0].split(':')[0]} risk (${sigValues[2][1]}) warns of the tradeoff, while ${hl2.found[0].split(':')[0]} (${sigValues[3][0]}) is the last resort.`,
   };
 
+  const hl3 = { active: ['parent', 'ex', 'q1', 'q2'], found: ['prod1', 'prod2'], compare: ['table'] };
   yield {
     state: exchangeGraph('Backpressure crosses the exchange boundary', 'vertical'),
-    highlight: { active: ['parent', 'ex', 'q1', 'q2'], found: ['prod1', 'prod2'], compare: ['table'] },
-    explanation: 'This is Backpressure in query-executor clothing. The slow consumer signal moves through exchange to producers, preventing a parallel plan from becoming an unbounded buffer.',
-    invariant: 'Parallelism without flow control is just a faster way to allocate too much memory.',
+    highlight: hl3,
+    explanation: `Backpressure in query-executor clothing: ${hl3.active.length} active nodes (${hl3.active.join(', ')}) carry the slow-consumer signal to ${hl3.found.length} found producers (${hl3.found.join(', ')}), preventing a parallel plan from becoming an unbounded buffer backed by ${hl3.compare[0]}.`,
+    invariant: `Parallelism without flow control is just a faster way to allocate too much memory — ${hl3.found.length} producers must respect ${hl3.active.length - 2} queue bounds.`,
   };
 
+  const profRows = [
+    { id: 'bytes', label: 'shuffle bytes' },
+    { id: 'queueDepth', label: 'queue depth' },
+    { id: 'skew', label: 'partition skew' },
+    { id: 'spill', label: 'spill rate' },
+  ];
+  const profCols = [
+    { id: 'symptom', label: 'symptom' },
+    { id: 'diagnosis', label: 'diagnosis' },
+  ];
+  const profValues = [
+    ['net hot', 'filter early'],
+    ['full q', 'slow cons'],
+    ['one slow', 'hot key'],
+    ['disk', 'RAM press'],
+  ];
+  const hl4 = { active: ['bytes:diagnosis', 'queueDepth:diagnosis', 'skew:diagnosis'], found: ['spill:diagnosis'] };
   yield {
-    state: labelMatrix(
-      'Profile clues',
-      [
-        { id: 'bytes', label: 'shuffle bytes' },
-        { id: 'queueDepth', label: 'queue depth' },
-        { id: 'skew', label: 'partition skew' },
-        { id: 'spill', label: 'spill rate' },
-      ],
-      [
-        { id: 'symptom', label: 'symptom' },
-        { id: 'diagnosis', label: 'diagnosis' },
-      ],
-      [
-        ['net hot', 'filter early'],
-        ['full q', 'slow cons'],
-        ['one slow', 'hot key'],
-        ['disk', 'RAM press'],
-      ],
-    ),
-    highlight: { active: ['bytes:diagnosis', 'queueDepth:diagnosis', 'skew:diagnosis'], found: ['spill:diagnosis'] },
-    explanation: 'The profile clues are the real production view. Shuffle bytes, queue depth, partition skew, and spill rate tell you whether exchange created useful parallelism or just exposed the bottleneck.',
+    state: labelMatrix('Profile clues', profRows, profCols, profValues),
+    highlight: hl4,
+    explanation: `The ${profRows.length}x${profCols.length} profile matrix covers ${profRows.map(r => r.label).join(', ')}. ${hl4.active.length} active diagnosis cells point to fixes (${profValues[0][1]}, ${profValues[1][1]}, ${profValues[2][1]}); the ${hl4.found[0].split(':')[0]} diagnosis (${profValues[3][1]}) reveals whether exchange created useful parallelism or just exposed the bottleneck.`,
   };
 }
 
@@ -246,6 +258,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/exchange-operator-parallel-query.gif', alt: 'Animated walkthrough of the exchange operator parallel query visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

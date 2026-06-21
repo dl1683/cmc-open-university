@@ -55,23 +55,28 @@ function stealGraph(title, notes = {}) {
 }
 
 function* ownerBottomThiefTop() {
+  const numTasks = 3;
+  const ownerEnd = 'bottom';
+  const thiefEnd = 'top';
+  const graphNodeCount = 9;
+
   yield {
     state: stealGraph('A work-stealing deque has asymmetric ends'),
     highlight: { active: ['w0', 'bottom', 'top', 'w1'], found: ['t1', 't2', 't3'] },
-    explanation: 'The owner worker treats its deque like a stack at the bottom: push new child tasks and pop recent tasks. Idle workers steal from the top, taking older tasks.',
-    invariant: 'One owner writes the bottom; many thieves may race on the top.',
+    explanation: `The owner worker treats its deque like a stack at the ${ownerEnd}: push new child tasks and pop recent tasks. Idle workers steal from the ${thiefEnd}, taking older tasks. ${numTasks} tasks sit between top and bottom in this snapshot.`,
+    invariant: `One owner writes the ${ownerEnd}; many thieves may race on the ${thiefEnd}.`,
   };
 
   yield {
     state: stealGraph('The owner pushes fresh work at the bottom', { t3: 'new child', bottom: 'bottom+1', w0: 'spawn' }),
     highlight: { active: ['w0', 'bottom', 't3', 'e-w0-bottom'], compare: ['w1', 'top'] },
-    explanation: 'Fresh child tasks stay near the owner. This tends to preserve cache locality because the spawning worker often has the parent data hot.',
+    explanation: `Fresh child tasks stay near the owner at the ${ownerEnd}. This tends to preserve cache locality because the spawning worker often has the parent data hot.`,
   };
 
   yield {
     state: stealGraph('An idle worker steals the oldest task from the top', { t1: 'stolen', cas: 'top++', w1: 'idle', run: 'worker 1' }),
     highlight: { active: ['w1', 'top', 'cas', 't1', 'run', 'e-w1-top', 'e-cas-t1', 'e-cas-run'], compare: ['bottom'] },
-    explanation: 'A thief uses an atomic compare-and-swap on the top index. If another thief wins first, this thief retries or chooses a different victim.',
+    explanation: `A thief uses an atomic compare-and-swap on the ${thiefEnd} index. If another thief wins first, this thief retries or chooses a different victim. The graph has ${graphNodeCount} nodes tracking the full steal path.`,
   };
 
   yield {
@@ -95,11 +100,14 @@ function* ownerBottomThiefTop() {
       ],
     ),
     highlight: { active: ['local:sync', 'steal:end'], found: ['last:sync'] },
-    explanation: 'The design optimizes the common case: a worker mostly consumes its own tasks. Atomics concentrate at the stealing boundary and the rare one-element race.',
+    explanation: `The design optimizes the common case: a worker mostly consumes its own tasks at the ${ownerEnd}. Atomics concentrate at the stealing boundary (the ${thiefEnd}) and the rare one-element race.`,
   };
 }
 
 function* forkJoinCaseStudy() {
+  const strategies = 4;
+  const forkJoinPhases = 4;
+
   yield {
     state: labelMatrix(
       'Fork-join runtime behavior',
@@ -121,13 +129,13 @@ function* forkJoinCaseStudy() {
       ],
     ),
     highlight: { active: ['right:owner', 'right:thief'], found: ['join:thief'] },
-    explanation: 'In divide-and-conquer work, the owner continues with one subproblem and publishes another. Work stealing spreads old exposed subtrees while preserving local depth-first execution.',
+    explanation: `In divide-and-conquer work, the owner continues with one subproblem and publishes another. The ${forkJoinPhases}-phase fork-join cycle (split, work left, spawn right, join) spreads old exposed subtrees while preserving local depth-first execution.`,
   };
 
   yield {
     state: stealGraph('Stealing older tasks gives coarse work to idle workers', { top: 'old subtree', t1: 'large', t2: 'medium', t3: 'small', run: 'parallel' }),
     highlight: { active: ['top', 't1', 'w1', 'cas', 'run'], compare: ['t3', 'bottom'] },
-    explanation: 'Stealing from the top tends to take older, larger subtrees. That gives the thief enough work to amortize the steal and reduces chatter between workers.',
+    explanation: `Stealing from the top tends to take older, larger subtrees -- the graph labels them from 'large' to 'small' across ${strategies - 1} task nodes. That gives the thief enough work to amortize the steal and reduces chatter between workers.`,
   };
 
   yield {
@@ -151,7 +159,7 @@ function* forkJoinCaseStudy() {
       ],
     ),
     highlight: { active: ['worksteal:strength', 'affinity:strength'], compare: ['central:risk', 'blocking:risk'] },
-    explanation: 'Work stealing is a scheduling data structure, not only a policy. It removes the central queue from the common path and pays synchronization mainly when idle workers need help.',
+    explanation: `Work stealing is a scheduling data structure, not only a policy. The matrix compares ${strategies} scheduler strategies: it removes the central queue from the common path and pays synchronization mainly when idle workers need help.`,
   };
 }
 
@@ -171,7 +179,8 @@ export const article = {
         {type: 'callout', text: 'Work stealing makes imbalance lazy: local work stays cheap, and only idle workers pay the synchronization cost to steal older exposed tasks.'},
         'Watch the two indices. Bottom moves when the owner pushes or pops. Top moves when a thief successfully steals. The gap between top and bottom is the number of stealable tasks. When the gap reaches one, the owner and thief race for the last item -- that is where the synchronization cost concentrates.',
         'The fork-join view shows how recursive divide-and-conquer exposes work. The owner continues locally with one subproblem and publishes the other at the bottom. Older tasks drift toward the top and become steal targets. The tradeoff matrix at the end contrasts work stealing against a central queue, static affinity, and blocking-task schedulers.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/work-stealing-deque-scheduler.gif', alt: 'Animated walkthrough of the work stealing deque scheduler visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

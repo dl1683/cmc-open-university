@@ -106,7 +106,8 @@ export const article = {
         {type: "callout", text: "WAL makes the log the durable timeline, so recovery can reconstruct committed state even when data pages are stale or half-applied."},
         "Watch the ordering: log records appear before any balance changes. The commit marker is the boundary. A transaction with a commit marker in the log is real; one without it never happened. When the crash fires, recovery reads the log top to bottom, redoes committed work, and erases incomplete work.",
         "At each frame, check: has the log been flushed before the data page changed? That single ordering rule is the entire correctness argument.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/write-ahead-log.gif', alt: 'Animated walkthrough of the write ahead log visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -181,7 +181,8 @@ export const article = {
         {type: 'callout', text: 'The FFT wins by reusing symmetry: each butterfly pays once for information that the direct DFT recomputes many times.'},
         'Each butterfly takes two values separated by half-span positions, multiplies the bottom value by a twiddle factor (a complex root of unity rotating around the unit circle), then writes top + product into the upper position and top - product into the lower position. The formula is X[k] = E[k] + W^k * O[k] and X[k + N/2] = E[k] - W^k * O[k]. Watch the twiddle factor rotate as k increases within each stage: that rotation is what separates different frequency bins.',
         'The final matrix lists each frequency bin X[k] with its complex value and magnitude. X[0] is always the sum of all input values (the DC component). For real-valued inputs, X[k] and X[N-k] are complex conjugates, so the magnitude spectrum is symmetric around the midpoint.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/fft.gif', alt: 'Animated walkthrough of the fft visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -68,7 +68,7 @@ function* fillLive() {
       format: (v) => (v === 0 ? 'Â·' : v.toFixed(1)),
     }),
     highlight: { removed: HIDDEN.map(([i, j]) => `u${i}:m${j}`) },
-    explanation: 'Four users, five movies, thirteen ratings — and seven holes, the cells the business actually cares about: would Alice like Mad Max? Our toy is 65% observed; Netflix-scale matrices are over 99% EMPTY. SVD & Low-Rank Approximation promised that preference matrices are secretly a few "taste" layers — but classical SVD needs every cell filled. MATRIX COMPLETION is the missing-data version of the same bet: assume low rank, fit ONLY the observed cells, and read the predictions out of the holes.',
+    explanation: `${USERS.length} users, ${MOVIES.length} movies, ${MASK.flat().filter(m => m).length} ratings — and ${HIDDEN.length} holes, the cells the business actually cares about: would ${USERS[0]} like ${MOVIES[2]}? Our toy is ${Math.round(MASK.flat().filter(m => m).length / (USERS.length * MOVIES.length) * 100)}% observed; Netflix-scale matrices are over 99% EMPTY. SVD & Low-Rank Approximation promised that preference matrices are secretly a few "taste" layers — but classical SVD needs every cell filled. MATRIX COMPLETION is the missing-data version of the same bet: assume low rank, fit ONLY the observed cells, and read the predictions out of the holes.`,
   };
 
   yield {
@@ -84,8 +84,8 @@ function* fillLive() {
       format: (v) => ['', 'each user: (action affinity, romance affinity)', 'each movie: (action content, romance content)', '18 numbers must explain 20 cells — and predict 7 more'][v],
     }),
     highlight: { active: ['total:what'] },
-    explanation: 'The model: rating(user, movie) â‰ˆ user-taste Â· movie-profile — a dot product of two tiny vectors, exactly one rank-2 layer stack. Every user compresses to two numbers (how much they like action, how much romance), every movie to two. The compression is the point: with fewer parameters than observations, the model CANNOT memorize the 13 ratings individually — it is forced to find the shared structure that explains them, and that same structure then speaks about the unseen cells. (Sound familiar? It is Regularization\'s logic — constraint forces generalization — built into the architecture.)',
-    invariant: 'Fewer parameters than observations: the factorization must generalize because it cannot memorize.',
+    explanation: `The model: rating(user, movie) ≈ user-taste · movie-profile — a dot product of two tiny vectors, exactly one rank-${TRUE_USERS[0].length} layer stack. Every user compresses to ${TRUE_USERS[0].length} numbers (how much they like action, how much romance), every movie to ${TRUE_MOVIES[0].length}. The compression is the point: with ${USERS.length * TRUE_USERS[0].length + MOVIES.length * TRUE_MOVIES[0].length} parameters and ${MASK.flat().filter(m => m).length} observations, the model CANNOT memorize the ratings individually — it is forced to find the shared structure that explains them, and that same structure then speaks about the unseen cells. (Sound familiar? It is Regularization's logic — constraint forces generalization — built into the architecture.)`,
+    invariant: `Fewer parameters (${USERS.length * TRUE_USERS[0].length + MOVIES.length * TRUE_MOVIES[0].length}) than observations (${MASK.flat().filter(m => m).length}): the factorization must generalize because it cannot memorize.`,
   };
 
   yield {
@@ -97,8 +97,8 @@ function* fillLive() {
       format: (v) => v.toFixed(2),
     }),
     highlight: { compare: ['u0:t1', 'u1:t2'] },
-    explanation: 'The fitting trick is ALTERNATING LEAST SQUARES, and this module genuinely runs it: holding the movie profiles fixed, each user\'s best taste vector is a tiny ordinary least-squares solve over just their observed ratings (a 2Ã—2 system — trivial); then hold users fixed and solve every movie the same way; alternate. Each half-step is convex and exact, so the loss only falls — 25 sweeps and it has settled. Read the learned tastes: Alice is the action lover, Bob bleeds romance, Cara likes both, Dev is lukewarm at everything. NOBODY TOLD THE MODEL THESE AXES EXIST — they emerged from thirteen numbers and the low-rank constraint.',
-    invariant: 'ALS alternates two exact convex solves: the training loss is monotonically non-increasing.',
+    explanation: `The fitting trick is ALTERNATING LEAST SQUARES, and this module genuinely runs it: holding the ${MOVIES.length} movie profiles fixed, each user's best taste vector is a tiny ordinary least-squares solve over just their observed ratings (a ${TRUE_USERS[0].length}×${TRUE_USERS[0].length} system — trivial); then hold ${USERS.length} users fixed and solve every movie the same way; alternate. Each half-step is convex and exact, so the loss only falls — 25 sweeps and it has settled. Read the learned tastes: ${USERS[0]} is the action lover, ${USERS[1]} bleeds romance, ${USERS[2]} likes both, ${USERS[3]} is lukewarm at everything. NOBODY TOLD THE MODEL THESE AXES EXIST — they emerged from ${MASK.flat().filter(m => m).length} numbers and the low-rank constraint.`,
+    invariant: `ALS alternates two exact convex solves across ${USERS.length} users and ${MOVIES.length} movies: the training loss is monotonically non-increasing.`,
   };
 
   yield {
@@ -110,7 +110,7 @@ function* fillLive() {
       format: (v) => v.toFixed(2),
     }),
     highlight: { found: HIDDEN.map(([i, j]) => `h${i}${j}:pred`) },
-    explanation: 'The payoff, scored against ratings the model NEVER SAW: the hidden cells come back with a mean error of about a third of a star (worst cell 0.66; on the observed cells, 0.03). The fit-versus-predict gap is honest and instructive — interpolating shared structure is easier than extrapolating it (Learning Curves\' generalization gap, in miniature). This is the algorithm family that won the Netflix Prize era and still beats far fancier models on pure rating prediction: when the signal really is "people are mixtures of a few tastes," eighteen numbers go a very long way.',
+    explanation: `The payoff, scored against ${HIDDEN.length} ratings the model NEVER SAW: the hidden cells come back with a mean error of about a third of a star. The fit-versus-predict gap is honest and instructive — interpolating shared structure is easier than extrapolating it (Learning Curves' generalization gap, in miniature). This is the algorithm family that won the Netflix Prize era and still beats far fancier models on pure rating prediction: when the signal really is "people are mixtures of a few tastes," ${USERS.length * TRUE_USERS[0].length + MOVIES.length * TRUE_MOVIES[0].length} numbers go a very long way.`,
   };
 }
 
@@ -128,8 +128,8 @@ function* coldAndLoops() {
       format: (v) => ['', 'their least-squares solve has NO equations — no vector exists', 'same: nothing connects it to anyone\'s taste', 'popularity fallback, onboarding picks, content features (genre, cast)'][v],
     }),
     highlight: { removed: ['newuser:what', 'newmovie:what'], found: ['fixes:what'] },
-    explanation: 'Failure mode 1 — COLD START, visible right in the ALS algebra: a user\'s taste vector is solved FROM their observed ratings, so zero ratings means zero equations means no vector at all. Same for a new movie. Pure collaborative filtering literally cannot speak about newcomers — which is why every real system is a hybrid: popularity charts for day-zero users, the "pick three movies you love" onboarding ritual (manufacturing equations), and CONTENT features (genre, cast, description embeddings — see Embeddings & Similarity) that give new items a vector before anyone rates them.',
-    invariant: 'Collaborative filtering speaks only of entities with observations: cold entities need a different signal.',
+    explanation: `Failure mode 1 — COLD START, visible right in the ALS algebra: a user's taste vector is solved FROM their observed ratings, so zero ratings means zero equations means no vector at all. Same for a new movie. Pure collaborative filtering literally cannot speak about newcomers — which is why every real system is a hybrid: popularity charts for day-zero users, the "pick three movies you love" onboarding ritual (manufacturing equations), and CONTENT features (genre, cast, description embeddings — see Embeddings & Similarity) that give new items a vector before anyone rates them. Our ${USERS.length}×${MOVIES.length} toy hides this because every user has at least ${Math.min(...MASK.map(r => r.filter(m => m).length))} ratings.`,
+    invariant: `Collaborative filtering speaks only of entities with observations: cold entities need a different signal.`,
   };
 
   yield {
@@ -146,8 +146,8 @@ function* coldAndLoops() {
       format: (v) => ['', 'a reasonable guess', 'recommendations gate exposure', 'data collection is now biased by step 2', 'the rich get richer; the unseen stay unseen'][v],
     }),
     highlight: { removed: ['step4:note'], compare: ['step2:note'] },
-    explanation: 'Failure mode 2 — the FEEDBACK LOOP: in production, users mostly rate what the recommender showed them, so the training data for tomorrow is filtered by today\'s model. Popular items accumulate evidence and confidence; obscure-but-excellent items never get the exposure to prove themselves — popularity bias compounds with every retrain. The cure is deliberate EXPLORATION: spend a slice of recommendations on uncertain items to buy information — which is exactly Thompson Sampling\'s explore/exploit trade, running inside every serious recommender. A recommender without exploration is Data Leakage & Contamination\'s cousin: a system quietly grading its own homework.',
-    invariant: 'Recommendations gate the data: without exploration, the model only ever learns about what it already liked.',
+    explanation: `Failure mode 2 — the FEEDBACK LOOP: in production, users mostly rate what the recommender showed them, so the training data for tomorrow is filtered by today's model. Popular items accumulate evidence and confidence; obscure-but-excellent items never get the exposure to prove themselves — popularity bias compounds with every retrain. The cure is deliberate EXPLORATION: spend a slice of recommendations on uncertain items to buy information — which is exactly Thompson Sampling's explore/exploit trade, running inside every serious recommender. A recommender without exploration is Data Leakage & Contamination's cousin: a system quietly grading its own homework.`,
+    invariant: `Recommendations gate the data: without exploration, the model only ever learns about what it already liked. With ${MOVIES.length} items, the unseen ones stay unseen.`,
   };
 
   yield {
@@ -163,7 +163,7 @@ function* coldAndLoops() {
       format: (v) => ['', 'clicks, dwell time, skips — confidence-weighted, not 1–5 stars', 'neural nets EMBED users and items; score = dot product, still', 'entity â†’ small vector; preference â†’ dot product'][v],
     }),
     highlight: { active: ['heart:what'] },
-    explanation: 'Where the field went from here: real systems rarely see stars — they see CLICKS and watch-time (implicit feedback, weighted by confidence since an un-click is not a dislike), and the linear factors grew into neural "two-tower" models where deep networks embed users and items. But look at what survived every generation: each entity becomes a small vector, and preference is their DOT PRODUCT — the same shape as Embeddings & Similarity, retrieved at scale by HNSW-style indexes. Matrix completion was the field\'s proof that taste is low-dimensional; everything since is a richer way of learning the same two towers this page fit with 2Ã—2 least squares.',
+    explanation: `Where the field went from here: real systems rarely see stars — they see CLICKS and watch-time (implicit feedback, weighted by confidence since an un-click is not a dislike), and the linear factors grew into neural "two-tower" models where deep networks embed users and items. But look at what survived every generation: each entity becomes a small vector, and preference is their DOT PRODUCT — the same shape as Embeddings & Similarity, retrieved at scale by HNSW-style indexes. ${topic.title} was the field's proof that taste is low-dimensional; everything since is a richer way of learning the same two towers this page fit with ${TRUE_USERS[0].length}×${TRUE_USERS[0].length} least squares.`,
   };
 }
 
@@ -183,7 +183,8 @@ export const article = {
         'The second view demonstrates failure modes. Cold-start frames show what happens when a user or item has zero observations: the least-squares system has no equations and produces no vector. Feedback-loop frames trace how recommendations filter tomorrow\'s training data, compounding popularity bias with every retrain cycle.',
         'At each frame, read the explanation text for the invariant being preserved or violated. When predicted values appear next to held-out truth, compare the error: the gap between interpolation (shared structure) and extrapolation (unseen combinations) is the generalization story of matrix completion.',
         {type: 'callout', text: 'Matrix completion is useful only when missing cells are constrained by shared low-rank structure rather than independent guesses.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/matrix-completion.gif', alt: 'Animated walkthrough of the matrix completion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

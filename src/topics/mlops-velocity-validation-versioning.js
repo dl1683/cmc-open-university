@@ -56,6 +56,11 @@ function mlLoop(title) {
 }
 
 function* threeVLoop() {
+  const vCount = 3; // velocity, validation, versioning
+  const loopStages = 6; // data, experiment, validate, deploy, monitor, version
+  const validationStages = 5; // offline, shadow, canary, ab, full
+  const versionedArtifacts = 5; // code, data, features, model, eval
+
   yield {
     state: labelMatrix(
       'The 3V frame for operational ML',
@@ -75,14 +80,14 @@ function* threeVLoop() {
       ],
     ),
     highlight: { active: ['velocity:means', 'validation:means', 'versioning:means'] },
-    explanation: 'The interview study summarizes production ML success around three variables: velocity, validation, and versioning. ML teams need to move quickly, but every movement changes data, code, features, model state, and evaluation assumptions.',
+    explanation: `The interview study summarizes production ML success around ${vCount} variables: velocity, validation, and versioning. ML teams need to move quickly, but every movement changes data, code, features, model state, and evaluation assumptions.`,
   };
 
   yield {
     state: mlLoop('Operational ML is a continual loop, not a one-time deploy'),
     highlight: { active: ['data', 'experiment', 'validate', 'deploy', 'monitor'], found: ['version'] },
-    explanation: 'The loop is data collection, experimentation, staged validation, deployment, monitoring, and back to data. A model is not a static artifact; it is a maintained dependency inside a changing data system.',
-    invariant: 'Production ML is a feedback loop with lineage, not a final model file.',
+    explanation: `The loop connects ${loopStages} stages: data collection, experimentation, staged validation, deployment, monitoring, and back to data. A model is not a static artifact; it is a maintained dependency inside a changing data system.`,
+    invariant: `Production ML is a feedback loop across ${loopStages} stages with lineage, not a final model file.`,
   };
 
   yield {
@@ -102,7 +107,7 @@ function* threeVLoop() {
       ],
     }, { title: 'Validation is staged, not one gate' }),
     highlight: { active: ['offline', 'shadow', 'canary', 'ab'], found: ['full'] },
-    explanation: 'Validation begins with offline metrics but does not end there. Shadow mode, canaries, feature flags, A/B tests, and drift monitors each catch different failures.',
+    explanation: `Validation is staged across ${validationStages} gates: offline metrics, shadow mode, canaries, A/B tests, and full rollout. Each catches different failures that earlier stages miss.`,
   };
 
   yield {
@@ -128,11 +133,16 @@ function* threeVLoop() {
       ],
     ),
     highlight: { found: ['code:artifact', 'data:artifact', 'features:artifact', 'model:artifact', 'eval:artifact'] },
-    explanation: 'Versioning is the machinery that lets velocity and validation coexist. Without lineage, a bad rollout cannot be explained, reproduced, or safely rolled back.',
+    explanation: `Versioning tracks ${versionedArtifacts} artifacts (code, data, features, model, eval) so velocity and validation can coexist. Without lineage, a bad rollout cannot be explained, reproduced, or safely rolled back.`,
   };
 }
 
 function* failureModes() {
+  const antiPatterns = 4;
+  const monitorDays = 30;
+  const lineageNodes = 6; // modelA, features, data, eval, code, incident
+  const checklistItems = 4;
+
   yield {
     state: labelMatrix(
       'Common MLOps anti-patterns',
@@ -154,7 +164,7 @@ function* failureModes() {
       ],
     ),
     highlight: { active: ['offline:symptom', 'feature:symptom'], found: ['feature:control'] },
-    explanation: 'The interview-study lesson is operational, not only statistical. Most failures are handoff failures: experiment to deployment, offline metric to online behavior, feature definition to serving lookup, prediction to delayed label.',
+    explanation: `The interview-study lesson identifies ${antiPatterns} common anti-patterns, all operational rather than statistical. Most failures are handoff failures: experiment to deployment, offline metric to online behavior, feature definition to serving lookup, prediction to delayed label.`,
   };
 
   yield {
@@ -173,8 +183,8 @@ function* failureModes() {
       ],
     }),
     highlight: { active: ['metric'], found: ['trip'] },
-    explanation: 'A model can pass launch checks and decay later as data changes. Monitoring turns validation from a gate into a continuing obligation.',
-    invariant: 'Validation after deploy is still validation.',
+    explanation: `A model can pass launch checks and decay over ${monitorDays} days as data changes. Monitoring turns validation from a gate into a continuing obligation.`,
+    invariant: `Validation after deploy is still validation -- drift can emerge anywhere across ${monitorDays} days of serving.`,
   };
 
   yield {
@@ -197,7 +207,7 @@ function* failureModes() {
       ],
     }, { title: 'Version lineage makes incidents debuggable' }),
     highlight: { active: ['modelA', 'features', 'data', 'eval', 'code'], found: ['incident'] },
-    explanation: 'When an incident happens, the team needs to reconstruct the exact model, training data, feature definitions, evaluation suite, and code that produced the behavior. Versioning is incident response infrastructure.',
+    explanation: `When an incident happens, the team traces ${lineageNodes} lineage nodes -- model, features, data, eval, code, and the incident itself -- to reconstruct the exact behavior. Versioning is incident response infrastructure.`,
   };
 
   yield {
@@ -221,7 +231,7 @@ function* failureModes() {
       ],
     ),
     highlight: { found: ['metric:question', 'skew:question', 'rollback:question', 'owner:question'] },
-    explanation: 'MLOps is software engineering under statistical uncertainty. The discipline is not a tool brand; it is the set of controls that keep learning systems observable and reversible.',
+    explanation: `The readiness checklist distills MLOps into ${checklistItems} questions: what must not regress, does offline equal online, how to revert, and who responds. The discipline is the set of controls that keep learning systems observable and reversible.`,
   };
 }
 
@@ -234,6 +244,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/mlops-velocity-validation-versioning.gif', alt: 'Animated walkthrough of the mlops velocity validation versioning visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -88,7 +88,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: "callout", text: "Binary exponentiation treats each exponent bit as one square and each 1-bit as one multiply, turning exponent value into exponent length."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/binary-exponentiation.gif', alt: 'Animated walkthrough of the binary exponentiation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -70,7 +70,8 @@ export const article = {
         {type: 'callout', text: 'The sorted prefix is the invariant: every step preserves it while absorbing exactly one new value.'},
         'The active highlight marks the value being inserted. The compare highlights show it being tested against sorted-prefix values from right to left. Each comparison that finds a larger value triggers a shift: that larger value copies one slot right, opening a gap. When the walk stops, the found highlight marks where the active value lands.',
         'Watch the sorted prefix (marked in green) grow by one element each round. If the active value is already in place, no shifting happens and the prefix just extends. On nearly-sorted input most rounds look like that. On reversed input every round shifts the entire prefix.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/insertion-sort.gif', alt: 'Animated walkthrough of the insertion sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

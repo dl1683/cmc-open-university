@@ -56,23 +56,27 @@ function ringState(title) {
 }
 
 function* ringChoreography() {
+  const numGPUs = 4;
+  const ringEdges = 4;
+  const collectives = ['all-reduce', 'reduce-scatter', 'all-gather', 'all-to-all'];
+
   yield {
     state: ringState('Each GPU starts with a local contribution'),
     highlight: { active: ['g0', 'g1', 'g2', 'g3'], compare: ['bucket'] },
-    explanation: 'The four GPU nodes are ranks holding different local contributions to the same gradient bucket. The goal is not to send everything to one master; the goal is for every rank to end with the same reduced tensor.',
+    explanation: `The ${numGPUs} GPU nodes are ranks holding different local contributions to the same gradient bucket. The goal is not to send everything to one master; the goal is for every rank to end with the same reduced tensor.`,
   };
 
   yield {
     state: ringState('Reduce-scatter: chunks circulate and get summed'),
     highlight: { active: ['e01', 'e12', 'e23', 'e30'], found: ['bucket'] },
-    explanation: 'A bandwidth-efficient implementation cuts the tensor into chunks. Chunks move around the ring; each GPU adds its local contribution as a chunk passes. After reduce-scatter, every rank owns one fully reduced slice.',
-    invariant: 'The data moves in chunks so links stay busy instead of waiting for one giant transfer.',
+    explanation: `A bandwidth-efficient implementation cuts the tensor into ${numGPUs} chunks. Chunks move around the ring across ${ringEdges} edges; each GPU adds its local contribution as a chunk passes. After ${numGPUs - 1} steps, every rank owns one fully reduced slice.`,
+    invariant: `The data moves in ${numGPUs} chunks so all ${ringEdges} links stay busy instead of waiting for one giant transfer.`,
   };
 
   yield {
     state: ringState('All-gather: reduced chunks circulate back to everyone'),
     highlight: { found: ['e01', 'e12', 'e23', 'e30'], active: ['g0', 'g1', 'g2', 'g3'] },
-    explanation: 'The second half gathers the reduced chunks so every rank receives every slice. NCCL exposes this as AllReduce, and also exposes ReduceScatter and AllGather separately for systems that want to compose them.',
+    explanation: `The second half gathers the reduced chunks in another ${numGPUs - 1} steps so every rank receives every slice. NCCL exposes this as AllReduce, and also exposes ReduceScatter and AllGather separately for systems that want to compose them.`,
   };
 
   yield {
@@ -97,11 +101,18 @@ function* ringChoreography() {
       ],
     ),
     highlight: { active: ['allreduce:output', 'reducescatter:output', 'allgather:used'], compare: ['alltoall:used'] },
-    explanation: 'The names are contracts about where the result lives. All-reduce replicates the reduction everywhere. Reduce-scatter reduces and shards. All-gather reverses sharding. All-to-all exchanges different chunks with different peers.',
+    explanation: `This table covers ${collectives.length} collective contracts: ${collectives.join(', ')}. The names define where the result lives. All-reduce replicates the reduction everywhere. Reduce-scatter reduces and shards. All-gather reverses sharding. All-to-all exchanges different chunks with different peers.`,
   };
 }
 
 function* trainingStep() {
+  const numRanks = 4;
+  const batchSize = 128;
+  const examplesPerRank = batchSize / numRanks;
+  const phases = ['mini-batch split', 'forward pass', 'backward pass', 'all-reduce', 'optimizer step'];
+  const failures = ['mismatched call', 'slow rank', 'tiny buckets', 'bad topology'];
+  const downstream = ['data parallelism', 'ZeRO', 'tensor parallelism', 'mixture of experts'];
+
   yield {
     state: labelMatrix(
       'Synchronous data-parallel step',
@@ -127,7 +138,7 @@ function* trainingStep() {
       ],
     ),
     highlight: { active: ['sync:rank0', 'sync:rank1', 'sync:rank2', 'sync:rank3'], found: ['step:rank0', 'step:rank3'] },
-    explanation: 'Each row is one phase of a synchronous training step. The all-reduce row is the barrier where local gradients become one shared averaged gradient, which is why the optimizer step keeps every replica identical.',
+    explanation: `Each of the ${phases.length} rows is one phase of a synchronous training step across ${numRanks} ranks processing ${examplesPerRank} examples each. The all-reduce row is the barrier where local gradients become one shared averaged gradient, which is why the optimizer step keeps every replica identical.`,
   };
 
   yield {
@@ -151,13 +162,13 @@ function* trainingStep() {
       ],
     ),
     highlight: { active: ['mismatch:symptom', 'straggler:symptom'], found: ['small:fix', 'topology:fix'] },
-    explanation: 'A collective is a distributed rendezvous, not an ordinary function call. Every participant must call the same collective with compatible buffers; otherwise the group can hang or corrupt results.',
+    explanation: `A collective is a distributed rendezvous across ${numRanks} ranks, not an ordinary function call. This table lists ${failures.length} failure modes: ${failures.join(', ')}. Every participant must call the same collective with compatible buffers; otherwise the group can hang or corrupt results.`,
   };
 
   yield {
     state: ringState('Overlap communication with backward computation'),
     highlight: { active: ['bucket', 'e01', 'e12', 'e23', 'e30'], found: ['g0', 'g1', 'g2', 'g3'] },
-    explanation: 'Modern training stacks bucket gradients and start communication while later layers are still computing backward gradients. The useful mental model is an assembly line: compute fills buckets, communication drains them.',
+    explanation: `Modern training stacks bucket gradients across ${numRanks} ranks and start communication while later layers are still computing backward gradients. The useful mental model is an assembly line: compute fills buckets, communication drains them.`,
   };
 
   yield {
@@ -181,7 +192,7 @@ function* trainingStep() {
       ],
     ),
     highlight: { found: ['ddp:collective', 'zero:collective', 'tensor:collective'], compare: ['moe:collective'] },
-    explanation: 'All-reduce is the first collective to learn because it appears everywhere. Once the contract is clear, ZeRO, tensor parallelism, and expert routing become compositions instead of magic.',
+    explanation: `All-reduce is the first collective to learn because it appears in all ${downstream.length} downstream topics: ${downstream.join(', ')}. Once the contract is clear, ZeRO, tensor parallelism, and expert routing become compositions instead of magic.`,
   };
 }
 
@@ -194,6 +205,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/gpu-allreduce.gif', alt: 'Animated walkthrough of the gpu allreduce visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

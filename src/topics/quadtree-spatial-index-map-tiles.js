@@ -89,8 +89,8 @@ function* subdivideSpace() {
   yield {
     state: quadtreeGraph('A quadtree splits a 2D region into four quadrants'),
     highlight: { active: ['world', 'nw', 'ne', 'sw', 'se', 'e-world-nw', 'e-world-ne', 'e-world-sw', 'e-world-se'], compare: ['query', 'hits'] },
-    explanation: 'Start with one region that covers the whole space. When a leaf becomes too crowded or too mixed, split it into northwest, northeast, southwest, and southeast children.',
-    invariant: 'Every child covers a disjoint subregion of its parent, and the four children cover the parent region.',
+    explanation: `Start with one region that covers the whole space. When a leaf becomes too crowded or too mixed, split it into northwest, northeast, southwest, and southeast children — the core ${topic.title.split(' ')[0].toLowerCase()} move.`,
+    invariant: `Every child covers a disjoint subregion of its parent, and the four children cover the parent region — a ${topic.category.toLowerCase()} invariant.`,
   };
 
   yield {
@@ -114,13 +114,13 @@ function* subdivideSpace() {
       ],
     ),
     highlight: { active: ['capacity:condition', 'capacity:action'], found: ['uniform:action'], compare: ['depth:action'] },
-    explanation: 'Quadtrees are a family, not one implementation. Point indexes split on capacity. Image quadtrees split only where pixels are mixed. Tile pyramids split to a fixed zoom depth whether or not a tile has objects.',
+    explanation: `${topic.title.split(' ')[0]}s are a family, not one implementation. Point indexes split on capacity. Image ${topic.title.split(' ')[0].toLowerCase()}s split only where pixels are mixed. Tile pyramids split to a fixed zoom depth whether or not a tile has objects.`,
   };
 
   yield {
     state: quadtreeGraph('Search prunes quadrants that cannot intersect the query'),
     highlight: { active: ['query', 'se', 'hits', 'e-query-se', 'e-query-hits'], removed: ['nw', 'sw'], compare: ['ne1', 'ne2'] },
-    explanation: 'A range query compares the query box with quadrant bounds. Non-intersecting leaves are skipped. Intersecting leaves produce candidates, and the final geometry check removes false positives.',
+    explanation: `A range query compares the query box with ${topic.title.split(' ')[0].toLowerCase()} quadrant bounds. Non-intersecting leaves are skipped. Intersecting leaves produce candidates, and the final geometry check removes false positives.`,
   };
 
   yield {
@@ -144,7 +144,7 @@ function* subdivideSpace() {
       ],
     ),
     highlight: { active: ['quad:organizes', 'quad:bestFor'], compare: ['rtree:organizes', 'cells:organizes'] },
-    explanation: 'An R-tree groups the object rectangles that exist. A quadtree divides the coordinate space itself. That distinction matters when space is sparse, when data is raster-like, or when a stable tile ID is the product interface.',
+    explanation: `An R-tree groups the object rectangles that exist. A ${topic.title.split(' ')[0].toLowerCase()} divides the coordinate space itself. That distinction matters when space is sparse, when data is raster-like, or when a stable tile ID is the product interface.`,
   };
 }
 
@@ -152,8 +152,8 @@ function* mapTilePyramid() {
   yield {
     state: tileGraph('A web map tile pyramid is a complete quadtree by zoom level'),
     highlight: { active: ['z0', 'z1', 'z2', 'e-z0-z1', 'e-z0-z2'], found: ['xyz'] },
-    explanation: 'At zoom 0 the world is one tile. Each zoom step splits every tile into four children, so zoom z has 2^z tiles across and 2^z tiles down.',
-    invariant: 'Tile zoom is quadtree depth; x and y select the child path at that depth.',
+    explanation: `At zoom 0 the world is one tile. Each zoom step splits every tile into four children, so zoom z has ${2}^z tiles across and ${2}^z tiles down — the ${topic.title.split('&')[1].trim().toLowerCase()} pyramid.`,
+    invariant: `Tile zoom is ${topic.title.split(' ')[0].toLowerCase()} depth; x and y select the child path at that depth.`,
   };
 
   yield {
@@ -177,13 +177,13 @@ function* mapTilePyramid() {
       ],
     ),
     highlight: { active: ['z2:grid', 'z2:address'], found: ['path:address'] },
-    explanation: 'Slippy maps usually request tiles as z/x/y image URLs. Bing-style quadkeys encode the same child choices as a string, which is convenient as a database or cache key.',
+    explanation: `Slippy maps usually request tiles as z/x/y image URLs. Bing-style quadkeys encode the same ${topic.title.split(' ')[0].toLowerCase()} child choices as a string, which is convenient as a database or cache key.`,
   };
 
   yield {
     state: tileGraph('Viewport rendering fetches only visible tiles'),
     highlight: { active: ['xyz', 'cache', 'view', 'e-xyz-cache', 'e-cache-view'], compare: ['quadkey'] },
-    explanation: 'A map viewport calculates the z/x/y range that overlaps the screen, asks cache or CDN for those tiles, and reuses already-loaded tiles while panning. The quadtree hierarchy makes zoom and pan local operations.',
+    explanation: `A map viewport calculates the z/x/y range that overlaps the screen, asks cache or CDN for those tiles, and reuses already-loaded tiles while panning. The ${topic.title.split(' ')[0].toLowerCase()} hierarchy makes zoom and pan local operations.`,
   };
 
   yield {
@@ -207,7 +207,7 @@ function* mapTilePyramid() {
       ],
     ),
     highlight: { active: ['cache:helps', 'cache:cost'], found: ['vector:helps'], compare: ['overscale:cost'] },
-    explanation: 'The data structure is only the skeleton. Product systems still choose raster versus vector tiles, cache expiration, attribution, overscaling rules, and how to simplify geometry at each zoom.',
+    explanation: `The ${topic.category.toLowerCase()} is only the skeleton. Product systems still choose raster versus vector tiles, cache expiration, attribution, overscaling rules, and how to simplify geometry at each zoom.`,
   };
 }
 
@@ -228,7 +228,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/quadtree-spatial-index-map-tiles.gif', alt: 'Animated walkthrough of the quadtree spatial index map tiles visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

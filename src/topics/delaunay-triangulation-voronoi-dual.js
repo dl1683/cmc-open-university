@@ -76,17 +76,23 @@ function voronoiGraph(title) {
 }
 
 function* edgeFlips() {
+  const siteCount = 5;         // p1-p5 sites
+  const triNodes = 7;          // total nodes including cc and dual
+  const triEdges = 10;         // edges in triangulation graph
+  const flipSteps = 4;         // rows in edge flip matrix
+  const algorithmVariants = 4; // rows in algorithms matrix
+
   yield {
     state: triangulationGraph('Start with a triangulation of the point set'),
     highlight: { active: ['p1', 'p2', 'p3', 'p4', 'p5'], compare: ['cc'] },
-    explanation: 'A triangulation connects points with non-crossing edges until the convex hull is filled with triangles. Delaunay chooses the triangulation whose local triangles pass the empty-circumcircle test.',
+    explanation: `A triangulation connects ${siteCount} points with non-crossing edges until the convex hull is filled with triangles. Delaunay chooses the triangulation whose local triangles pass the empty-circumcircle test across all ${triEdges} edges.`,
   };
 
   yield {
     state: triangulationGraph('Illegal edge: a point lies inside a neighbor circumcircle'),
     highlight: { active: ['p2', 'p3', 'p4', 'cc', 'e-23', 'e-24', 'e-34'], compare: ['p5'] },
-    explanation: 'For two adjacent triangles, test whether the opposite point lies inside the circumcircle. If it does, the shared diagonal is illegal because the triangles are too skinny for the local point set.',
-    invariant: 'A Delaunay triangle has no input site strictly inside its circumcircle.',
+    explanation: `For two adjacent triangles sharing a diagonal among ${siteCount} sites, test whether the opposite point lies inside the circumcircle. If it does, the shared diagonal is illegal because the triangles are too skinny for the local point set.`,
+    invariant: `A Delaunay triangle has no input site (out of ${siteCount} total) strictly inside its circumcircle.`,
   };
 
   yield {
@@ -110,13 +116,13 @@ function* edgeFlips() {
       ],
     ),
     highlight: { active: ['test:state', 'flip:state'], found: ['after:why'] },
-    explanation: 'Edge flipping is powerful because the repair is local. Repeatedly fix illegal diagonals until no local violation remains.',
+    explanation: `Edge flipping walks through ${flipSteps} stages (before, test, flip, after) because the repair is local. Repeatedly fix illegal diagonals until no local violation remains.`,
   };
 
   yield {
     state: triangulationGraph('The output favors well-shaped triangles'),
     highlight: { found: ['e-12', 'e-24', 'e-34', 'e-35', 'e-45'], compare: ['e-23'] },
-    explanation: 'Delaunay maximizes the minimum angle among triangulations in a useful sense, which is why it is common in meshing, interpolation, and terrain modeling.',
+    explanation: `Delaunay maximizes the minimum angle among triangulations of ${siteCount} sites in a useful sense, which is why it is common in meshing, interpolation, and terrain modeling.`,
   };
 
   yield {
@@ -140,15 +146,22 @@ function* edgeFlips() {
       ],
     ),
     highlight: { active: ['quad:structure', 'flip:idea'], found: ['incremental:structure'] },
-    explanation: 'The triangulation is not just a set of triangles. Efficient implementations need adjacency operations: walk neighboring triangles, flip an edge, and update the dual Voronoi structure.',
+    explanation: `The triangulation across ${triNodes} nodes is not just a set of triangles. All ${algorithmVariants} algorithm families need adjacency operations: walk neighboring triangles, flip an edge, and update the dual Voronoi structure.`,
   };
 }
 
 function* voronoiDual() {
+  const voronoiNodes = 7;      // a-d, v1, v2, query
+  const voronoiEdges = 7;      // edges in voronoi graph
+  const siteCount = 4;         // A, B, C, D sites
+  const voronoiVertices = 2;   // v1, v2
+  const dualRows = 4;          // rows in dual interpretation matrix
+  const caseStudies = 4;       // rows in case studies matrix
+
   yield {
     state: voronoiGraph('Voronoi cells are the dual of Delaunay triangles'),
     highlight: { active: ['a', 'b', 'c', 'd', 'v1', 'v2', 'e-v1-v2'], compare: ['e-a-b', 'e-b-c', 'e-c-d'] },
-    explanation: 'Put a Voronoi vertex at the circumcenter of each Delaunay triangle. Adjacent Delaunay triangles become connected Voronoi vertices. Sites share a Delaunay edge exactly when their Voronoi cells touch.',
+    explanation: `Put a Voronoi vertex at the circumcenter of each Delaunay triangle, producing ${voronoiVertices} vertices for ${siteCount} sites. Adjacent Delaunay triangles become connected Voronoi vertices. Sites share a Delaunay edge exactly when their Voronoi cells touch.`,
   };
 
   yield {
@@ -172,13 +185,13 @@ function* voronoiDual() {
       ],
     ),
     highlight: { active: ['edge:delaunay', 'edge:voronoi'], found: ['tri:voronoi'] },
-    explanation: 'Delaunay is good for triangles and adjacency. Voronoi is good for nearest-site regions. They are two views of the same planar subdivision.',
+    explanation: `The ${dualRows} dual correspondences show that Delaunay is good for triangles and adjacency while Voronoi is good for nearest-site regions. They are two views of the same planar subdivision across ${voronoiEdges} edges.`,
   };
 
   yield {
     state: voronoiGraph('Nearest-site query follows the Voronoi cell'),
     highlight: { active: ['query', 'd', 'e-query-d'], found: ['d'], compare: ['a', 'b', 'c'] },
-    explanation: 'A point belongs to the Voronoi cell of the site nearest to it. That makes Voronoi diagrams useful for facility regions, nearest tower coverage, and spatial interpolation.',
+    explanation: `A point belongs to the Voronoi cell of the site nearest to it among ${siteCount} candidates. That makes Voronoi diagrams useful for facility regions, nearest tower coverage, and spatial interpolation.`,
   };
 
   yield {
@@ -202,13 +215,13 @@ function* voronoiDual() {
       ],
     ),
     highlight: { active: ['mesh:uses', 'terrain:uses'], found: ['wireless:watch'] },
-    explanation: 'Delaunay/Voronoi structures are excellent geometric scaffolds. They do not replace domain rules such as radio propagation, water flow, road access, or gameplay constraints.',
+    explanation: `Across ${caseStudies} domains, Delaunay/Voronoi structures are excellent geometric scaffolds. They do not replace domain rules such as radio propagation, water flow, road access, or gameplay constraints.`,
   };
 
   yield {
     state: voronoiGraph('Complete case: build triangles, read cells, answer nearest regions'),
     highlight: { active: ['a', 'b', 'c', 'd', 'v1', 'v2'], found: ['query', 'd'] },
-    explanation: 'The full workflow often builds a Delaunay triangulation because it is easier to update and navigate, then derives Voronoi cells when nearest-region explanations or cell boundaries are needed.',
+    explanation: `The full workflow builds a Delaunay triangulation of ${siteCount} sites because it is easier to update and navigate, then derives ${voronoiVertices} Voronoi vertices when nearest-region explanations or cell boundaries are needed.`,
   };
 }
 
@@ -221,6 +234,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/delaunay-triangulation-voronoi-dual.gif', alt: 'Animated walkthrough of the delaunay triangulation voronoi dual visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

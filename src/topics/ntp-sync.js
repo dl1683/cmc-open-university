@@ -186,6 +186,13 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/ntp-sync.gif', alt: 'Animated walkthrough of the ntp sync visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: 'Why clock sync exists',
       paragraphs: [
         'Distributed systems need clocks even though clocks are unreliable. Logs need timestamps. TLS certificates expire. Databases enforce leases. Schedulers fire timers. Tracing systems merge events from many machines. Humans want one timeline, but each computer has a quartz oscillator that drifts, a kernel that may pause work, and a network path with variable delay. The hard problem is not merely asking a trusted server for the time. The hard problem is learning how far your local clock is from that server while the message itself spent an unknown amount of time in flight.',

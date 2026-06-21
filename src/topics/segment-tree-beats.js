@@ -34,6 +34,18 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* chminUpdate() {
+  const capValue = 6;
+  const max1 = 9;
+  const max2 = 5;
+  const maxCount = 2;
+  const rootSum = 42;
+  const delta = (max1 - capValue) * maxCount;
+  const rightSumBefore = 23;
+  const rightSumAfter = rightSumBefore - delta;
+  const perElementDrop = max1 - capValue;
+  const fieldCount = 4;
+  const operationCount = 4;
+
   yield {
     state: labelMatrix(
       'Node summary before range chmin(6)',
@@ -57,7 +69,7 @@ function* chminUpdate() {
       ],
     ),
     highlight: { active: ['range:max1', 'range:max2', 'range:maxc'], found: ['range:sum'] },
-    explanation: 'Segment Tree Beats augments each node with more than sum. For range chmin(x), the decisive fields are maximum, strict second maximum, and count of maximum values.',
+    explanation: `Segment Tree Beats augments each node with ${fieldCount} fields. For range chmin(${capValue}), the decisive fields are max1=${max1}, strict second maximum max2=${max2}, and maxCount=${maxCount}.`,
   };
 
   yield {
@@ -81,8 +93,8 @@ function* chminUpdate() {
       ],
     ),
     highlight: { active: ['beat:meaning', 'beat:action'], compare: ['descend:action'] },
-    explanation: 'If x lies strictly between max1 and max2, only the maximum values are clipped. The sum drops by (max1 - x) * max_count, and the node can be updated without visiting children.',
-    invariant: 'Beats wins when a range update affects only the top value layer of a covered node.',
+    explanation: `Since ${max2} < ${capValue} < ${max1}, only the ${maxCount} maximum values are clipped. The sum drops by (${max1} - ${capValue}) * ${maxCount} = ${delta}, and the node can be updated without visiting children.`,
+    invariant: `Beats wins when max2 < x < max1: here ${max2} < ${capValue} < ${max1}, so the update affects only the top value layer.`,
   };
 
   yield {
@@ -108,7 +120,7 @@ function* chminUpdate() {
       ],
     ),
     highlight: { found: ['delta:sum', 'after:sum'], active: ['after:max1', 'tag:sum'] },
-    explanation: 'The node update is arithmetic: two maximum values drop from 9 to 6, so the sum drops by 3 * 2 = 6. Children are updated only when a later operation needs to inspect them.',
+    explanation: `The node update is arithmetic: ${maxCount} maximum values drop from ${max1} to ${capValue}, so the sum drops by ${perElementDrop} * ${maxCount} = ${delta}. The right node sum goes from ${rightSumBefore} to ${rightSumAfter}.`,
   };
 
   yield {
@@ -132,11 +144,18 @@ function* chminUpdate() {
       ],
     ),
     highlight: { found: ['chmin:metadata', 'chmax:metadata'], active: ['sum:result'] },
-    explanation: 'Full Segment Tree Beats pairs max-side and min-side summaries. That supports range chmin, range chmax, range add, and range sum in one structure.',
+    explanation: `Full Segment Tree Beats pairs max-side and min-side summaries across ${operationCount} operations: range chmin, range chmax, range add, and range sum in one structure.`,
   };
 }
 
 function* whyAmortized() {
+  const updateTypes = 4;
+  const easyCondition = 'max2 < x < max1';
+  const hardCondition = 'x <= max2';
+  const hazardCount = 4;
+  const structureChoices = 4;
+  const amortizedBound = 'O(log^2 n)';
+
   yield {
     state: labelMatrix(
       'Why ordinary lazy propagation is not enough',
@@ -158,7 +177,7 @@ function* whyAmortized() {
       ],
     ),
     highlight: { active: ['chmin:lazy', 'chmin:why'], compare: ['add:lazy', 'assign:lazy'] },
-    explanation: 'A plain lazy tag works when every element in a segment changes the same way. chmin is conditional: values above x change, values below x do not.',
+    explanation: `Of ${updateTypes} update types, a plain lazy tag works for add and assign but not chmin: values above x change, values below x do not.`,
   };
 
   yield {
@@ -182,7 +201,7 @@ function* whyAmortized() {
       ],
     ),
     highlight: { active: ['hard:event', 'drop:effect'], found: ['budget:effect'] },
-    explanation: 'The reason it works is amortization. Expensive descents happen when the cap crosses multiple value levels, but that collapse reduces future diversity inside the tree.',
+    explanation: `Easy nodes satisfy ${easyCondition} and update in O(1). Hard descents occur when ${hardCondition}, but each collapse reduces future diversity, yielding ${amortizedBound} amortized cost.`,
   };
 
   yield {
@@ -206,7 +225,7 @@ function* whyAmortized() {
       ],
     ),
     highlight: { active: ['push:risk', 'merge:risk'], compare: ['proof:discipline'] },
-    explanation: 'Segment Tree Beats is powerful but brittle. The code is mostly about maintaining summary invariants across pushes, caps, adds, and merges.',
+    explanation: `Segment Tree Beats is powerful but brittle. Across ${hazardCount} hazard categories, the code is mostly about maintaining summary invariants across pushes, caps, adds, and merges.`,
   };
 
   yield {
@@ -230,7 +249,7 @@ function* whyAmortized() {
       ],
     ),
     highlight: { found: ['beats:best'], compare: ['fenwick:tradeoff', 'lazy:tradeoff'] },
-    explanation: 'Segment Tree Beats is not the default. It is the tool you reach for when ordinary lazy propagation cannot summarize a conditional range update.',
+    explanation: `Among ${structureChoices} interval structures, Segment Tree Beats is not the default. It is the tool you reach for when ordinary lazy propagation cannot summarize a conditional range update.`,
   };
 }
 
@@ -250,7 +269,8 @@ export const article = {
         'Watch for the moment a node stops instead of recursing. That stop is the whole point of Beats: the cap lies between max1 and max2, so only the top-layer values change, and the node can compute the exact sum adjustment in O(1). If the cap is at or below max2, the highlight moves downward because the parent lacks enough information.',
         'The amortized view explains why expensive descents do not accumulate into bad total cost. When a descent happens, it collapses value layers inside children, which means future caps encounter less diversity and stop higher. The potential argument tracks total distinct-maximum changes across all nodes, not per-operation worst case.',
         {type: 'callout', text: 'Beats is lazy propagation with a certificate: max2 proves when a conditional cap only touches the current top value layer.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/segment-tree-beats.gif', alt: 'Animated walkthrough of the segment tree beats visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

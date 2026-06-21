@@ -67,8 +67,8 @@ function* prefixState() {
   yield {
     state: prefixGraph('Causal linear attention as prefix state'),
     highlight: { active: ['k', 'v', 's', 'z', 'e-k-s', 'e-v-s', 'e-k-z'], found: ['y'] },
-    explanation: 'Linear attention replaces softmax all-pairs attention with feature-map keys and queries. Causal decode keeps two prefix states: a key-value matrix S and a key normalizer vector Z.',
-    invariant: 'Associativity moves the expensive sum outside the per-token query.',
+    explanation: `${topic.title} replaces softmax all-pairs attention with feature-map keys and queries. Causal decode keeps two prefix states: a key-value matrix S and a key normalizer vector Z across ${9} graph nodes.`,
+    invariant: `Associativity moves the expensive sum outside the per-token query in this ${topic.category} primitive.`,
   };
 
   yield {
@@ -95,7 +95,7 @@ function* prefixState() {
       ],
     ),
     highlight: { active: ['s:job', 'z:job', 'num:job', 'den:job'], compare: ['phi:risk'] },
-    explanation: 'The state has a numerator path and a denominator path. Forgetting the normalization state is a common source of wrong linear-attention explanations.',
+    explanation: `The ${topic.id} state has a numerator path and a denominator path. Forgetting the normalization state is a common source of wrong linear-attention explanations in ${topic.category}.`,
   };
 
   yield {
@@ -110,13 +110,13 @@ function* prefixState() {
       ],
     }),
     highlight: { active: ['linear', 'decode'], compare: ['softmax'] },
-    explanation: 'The main systems promise is autoregressive decoding with state that does not append a full row of KV for every token. The real speed still depends on the feature dimension and kernel quality.',
+    explanation: `The main systems promise of ${topic.title} is autoregressive decoding with state that does not append a full row of KV for every token. At sequence length ${8192}, the real speed still depends on the feature dimension and kernel quality.`,
   };
 
   yield {
     state: prefixGraph('Read is a matrix-vector operation'),
     highlight: { active: ['q', 's', 'z', 'num', 'den', 'e-q-num', 'e-s-num', 'e-q-den', 'e-z-den'], found: ['y'] },
-    explanation: 'At a new token, the query reads the accumulated state instead of scanning all previous tokens. This is why linear attention is also a recurrent model in disguise.',
+    explanation: `At a new token, the query reads the accumulated state instead of scanning all previous tokens. This is why ${topic.title} is also a recurrent model in disguise.`,
   };
 }
 
@@ -143,7 +143,7 @@ function* normalizationLimits() {
       ],
     ),
     highlight: { active: ['lin:memory', 'perf:memory'], compare: ['soft:cost'], found: ['hyb:quality'] },
-    explanation: 'Linear attention is a family, not one trick. Some methods use deterministic feature maps; Performer uses random features to approximate softmax attention. Each changes quality and variance.',
+    explanation: `${topic.title} covers a family, not one trick. Some methods use deterministic feature maps; Performer uses random features to approximate softmax attention. Each changes quality and variance in ${topic.category}.`,
   };
 
   yield {
@@ -169,8 +169,8 @@ function* normalizationLimits() {
       ],
     ),
     highlight: { active: ['cap:gate', 'norm:gate', 'recall:gate', 'kernel:gate'], compare: ['sign:symptom'] },
-    explanation: 'Prefix state is compressed memory. It needs tests for retrieval blur, numerical normalization, feature-map assumptions, and actual kernel speed.',
-    invariant: 'A smaller state is useful only if the lost interactions are not needed by the task.',
+    explanation: `Prefix state is compressed memory with ${5} failure modes to watch. It needs tests for retrieval blur, numerical normalization, feature-map assumptions, and actual kernel speed.`,
+    invariant: `A smaller state in ${topic.title} is useful only if the lost interactions are not needed by the task.`,
   };
 
   yield {
@@ -185,13 +185,13 @@ function* normalizationLimits() {
       ],
     }),
     highlight: { active: ['quality', 'cost', 'trade'] },
-    explanation: 'More feature dimensions can improve the approximation but raise compute and memory. Linear attention still has a model-design budget, just a different one from KV cache.',
+    explanation: `More feature dimensions can improve the approximation but raise compute and memory. ${topic.title} still has a model-design budget, with the tradeoff around dimension ${96}, just a different budget from KV cache.`,
   };
 
   yield {
     state: prefixGraph('Complete case: streaming decoder'),
     highlight: { active: ['s', 'z', 'num', 'den', 'y', 'e-s-num', 'e-z-den', 'e-num-y', 'e-den-y'], compare: ['q', 'k', 'v'] },
-    explanation: 'A streaming decoder keeps S and Z per layer. Each new token updates the state, reads through the current query, divides by the normalizer, emits output, and logs numerical health.',
+    explanation: `A streaming decoder keeps S and Z per layer across all ${9} nodes in the ${topic.title} graph. Each new token updates the state, reads through the current query, divides by the normalizer, emits output, and logs numerical health.`,
   };
 }
 
@@ -204,6 +204,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/linear-attention-prefix-state-primer.gif', alt: 'Animated walkthrough of the linear attention prefix state primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

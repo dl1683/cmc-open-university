@@ -52,8 +52,8 @@ function* slidingMatches() {
   yield {
     state: lzFlow('LZ77 turns repeated text into back-references'),
     highlight: { active: ['hist', 'look', 'match'], found: ['tokens'] },
-    explanation: 'LZ77 keeps a window over bytes already emitted. If the next lookahead bytes occurred recently, the encoder emits a pointer back into history instead of repeating the bytes.',
-    invariant: 'The decoder can copy from its own already-produced output, so no external dictionary is needed.',
+    explanation: `${topic.title} keeps a window over bytes already emitted. If the next lookahead bytes occurred recently, the encoder emits a pointer back into history instead of repeating the bytes.`,
+    invariant: `The decoder can copy from its own already-produced output, so no external dictionary is needed — the ${topic.category.toLowerCase()} behind ${topic.title} rely on this invariant.`,
   };
 
   yield {
@@ -82,7 +82,7 @@ function* slidingMatches() {
       ],
     ),
     highlight: { active: ['p3:best', 'p6:best'], found: ['p0:best', 'p1:best', 'p2:best'] },
-    explanation: 'After the first abc is literal history, the next six bytes abcabc match bytes three positions back. The token can be length 6, distance 3. The final x is new, so it stays literal.',
+    explanation: `After the first abc is literal history, the next six bytes abcabc match bytes three positions back. The ${topic.title} token can be length 6, distance 3. The final x is new, so it stays literal.`,
   };
 
   yield {
@@ -106,13 +106,13 @@ function* slidingMatches() {
       ],
     ),
     highlight: { active: ['len:means', 'dist:means'], compare: ['lit:cost'], found: ['win:cost'] },
-    explanation: 'An LZ77 stream alternates literals with length-distance pairs. The window bounds memory and also bounds how far a reference may point.',
+    explanation: `An ${topic.title} stream alternates literals with length-distance pairs. The window bounds memory and also bounds how far a reference may point.`,
   };
 
   yield {
     state: lzFlow('Match finding is the data-structure hot path', { hist: 'hash chains', look: 'prefix', match: 'longest', tokens: 'sequence', coder: 'Huffman/ANS' }),
     highlight: { active: ['hist', 'match'], found: ['tokens'], compare: ['coder'] },
-    explanation: 'The simple idea hides an engineering problem: finding good matches quickly. Real encoders use hash tables, rolling hashes, suffix-like structures, lazy matching, and level knobs to trade CPU for ratio.',
+    explanation: `The simple ${topic.title} idea hides an engineering problem: finding good matches quickly. Real encoders use hash tables, rolling hashes, suffix-like structures, lazy matching, and level knobs to trade CPU for ratio.`,
   };
 }
 
@@ -141,8 +141,8 @@ function* tokensAndDecode() {
       ],
     ),
     highlight: { active: ['t3:kind', 't3:payload'], found: ['t3:out'], compare: ['t0:payload'] },
-    explanation: 'Decoding is deterministic. A literal appends one byte. A back-reference copies length bytes from distance bytes behind the current output cursor.',
-    invariant: 'A valid reference must point into bytes the decoder has already reconstructed.',
+    explanation: `Decoding in ${topic.title} is deterministic. A literal appends one byte. A back-reference copies length bytes from distance bytes behind the current output cursor.`,
+    invariant: `A valid ${topic.title} reference must point into bytes the decoder has already reconstructed.`,
   };
 
   yield {
@@ -166,7 +166,7 @@ function* tokensAndDecode() {
       ],
     ),
     highlight: { active: ['c1:token', 'c2:token', 'c3:token'], found: ['c3:out'] },
-    explanation: 'LZ77 can copy from bytes it is currently writing. With distance 1 and length 5, one literal a expands to aaaaaa. This is why runs compress so well.',
+    explanation: `${topic.title} can copy from bytes it is currently writing. With distance 1 and length 5, one literal a expands to ${'a'.repeat(6)}. This is why runs compress so well.`,
   };
 
   yield {
@@ -190,13 +190,13 @@ function* tokensAndDecode() {
       ],
     ),
     highlight: { active: ['deflate:match', 'zstd:coder'], compare: ['lz4:coder'] },
-    explanation: 'Many compressors share the LZ family idea and differ in match search, entropy coding, framing, dictionaries, and speed-vs-ratio policy.',
+    explanation: `Many compressors share the ${topic.title.split(' ')[0]} family idea and differ in match search, entropy coding, framing, dictionaries, and speed-vs-ratio policy.`,
   };
 
   yield {
     state: lzFlow('LZ77 feeds an entropy coder rather than replacing one', { tokens: 'lit/len/dist', coder: 'short codes' }),
     highlight: { active: ['tokens', 'coder'], found: ['match'], compare: ['input'] },
-    explanation: 'LZ77 removes repeated byte strings. Huffman, Arithmetic Coding, or ANS then compress the token values that remain. Model first, code second.',
+    explanation: `${topic.title} removes repeated byte strings. Huffman, Arithmetic Coding, or ANS then compress the token values that remain. Model first, code second.`,
   };
 }
 
@@ -219,7 +219,8 @@ export const article = {
           text: 'When a back-reference has distance smaller than length, the copy overlaps with bytes being written. The decoder handles this by copying one byte at a time, so newly written bytes become available for the rest of the copy. This is not a bug -- it is how LZ77 compresses long runs from a single seed.',
         },
         {type: 'callout', text: 'LZ77 works because the decoder output is also the dictionary: every back-reference points backward into bytes already reconstructed.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/lz77-sliding-window-compression.gif', alt: 'Animated walkthrough of the lz77 sliding window compression visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

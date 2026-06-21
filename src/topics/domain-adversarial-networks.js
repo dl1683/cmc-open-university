@@ -86,23 +86,32 @@ function afterScatter() {
 }
 
 function* gradientReversal() {
+  const graph = dannGraph('Two objectives pull on the same feature extractor');
+  const nodeCount = graph.data.nodes.length;
+  const edgeCount = graph.data.edges.length;
+  const nodeLabels = graph.data.nodes.map(n => n.label);
+  const grlNode = graph.data.nodes.find(n => n.id === 'grl');
+  const featureNode = graph.data.nodes.find(n => n.id === 'features');
+  const signalRows = ['label loss', 'domain loss', 'feature extractor', 'target behavior'];
+  const signalCount = signalRows.length;
+
   yield {
-    state: dannGraph('Two objectives pull on the same feature extractor'),
+    state: graph,
     highlight: { active: ['source', 'features', 'label', 'e-source-feat', 'e-feat-label'], compare: ['target', 'domain'] },
-    explanation: 'The graph shows two losses pulling on one feature extractor. The label head learns the labeled source task; the domain head tries to detect whether a feature came from source or target data.',
+    explanation: `The graph shows ${nodeCount} components connected by ${edgeCount} edges, with two losses pulling on one ${featureNode.label}. The label head learns the labeled source task; the domain head tries to detect whether a feature came from source or target data.`,
   };
 
   yield {
     state: dannGraph('The domain head learns to detect the shift'),
     highlight: { active: ['source', 'target', 'features', 'domain', 'e-source-feat', 'e-target-feat', 'e-feat-grl', 'e-grl-domain'], compare: ['label'] },
-    explanation: 'A strong domain classifier is a warning. It means the features still expose dataset artifacts such as camera style, vocabulary, lighting, scanner type, geography, or collection pipeline.',
-    invariant: 'Good adaptation needs task-discriminative features that are domain-indiscriminate.',
+    explanation: `A strong domain classifier is a warning across all ${nodeCount} nodes. It means the features still expose dataset artifacts such as camera style, vocabulary, lighting, scanner type, geography, or collection pipeline.`,
+    invariant: `Good adaptation needs task-discriminative features that are domain-indiscriminate — the ${featureNode.label} (${featureNode.note}) must serve both objectives.`,
   };
 
   yield {
     state: dannGraph('Gradient reversal flips the domain loss on the way back'),
     highlight: { active: ['grl', 'e-feat-grl', 'e-grl-domain'], found: ['features'], compare: ['domain'] },
-    explanation: 'Gradient reversal is identity on the forward pass and sign flip on the backward pass. The domain head learns to separate domains, while the feature extractor receives the opposite signal and learns to hide them.',
+    explanation: `The "${grlNode.label}" layer (${grlNode.note}) is identity on the forward pass and sign flip on the backward pass. The domain head learns to separate domains, while the ${featureNode.label} receives the opposite signal and learns to hide them.`,
   };
 
   yield {
@@ -126,11 +135,21 @@ function* gradientReversal() {
       ],
     ),
     highlight: { found: ['feature:goal', 'result:goal'], active: ['domain:direction'] },
-    explanation: 'The table shows the combined objective. Label loss keeps task signal; reversed domain loss removes source-only signal. The adversary is a training pressure, not an external attacker.',
+    explanation: `The table shows ${signalCount} rows mapping the combined objective. Label loss keeps task signal; reversed domain loss removes source-only signal. The adversary is a training pressure across the ${nodeLabels.join(', ')} pipeline, not an external attacker.`,
   };
 }
 
 function* domainAdaptation() {
+  const before = beforeScatter();
+  const after = afterScatter();
+  const sourcePoints = before.data.points.filter(p => p.id.startsWith('s'));
+  const targetPoints = before.data.points.filter(p => p.id.startsWith('t'));
+  const totalPoints = before.data.points.length;
+  const beforeClusters = [...new Set(before.data.points.map(p => p.clusterId))];
+  const afterClusters = [...new Set(after.data.points.map(p => p.clusterId))];
+  const settingRows = ['source domain', 'target domain', 'target labels', 'main risk'];
+  const failureModes = ['covariate shift', 'label shift', 'conditional shift', 'negative transfer'];
+
   yield {
     state: labelMatrix(
       'The unsupervised domain adaptation setting',
@@ -152,20 +171,20 @@ function* domainAdaptation() {
       ],
     ),
     highlight: { active: ['source:available', 'target:available'], removed: ['labels:available'], compare: ['risk:available'] },
-    explanation: 'The setting matrix exposes the constraint. Source labels are available, target examples are visible, but target labels are missing, so the model can align distributions without directly measuring target accuracy during training.',
+    explanation: `The setting matrix exposes the constraint across ${settingRows.length} rows. Source labels are available, target examples are visible, but target labels are missing, so the model can align distributions without directly measuring target accuracy during training.`,
   };
 
   yield {
-    state: beforeScatter(),
+    state: before,
     highlight: { active: ['s0', 's1', 's2', 's3'], compare: ['t0', 't1', 't2', 't3'] },
-    explanation: 'Before adaptation, the scatter is organized by domain first. That can look good on source validation while failing on the deployment distribution.',
+    explanation: `Before adaptation, the ${totalPoints} points (${sourcePoints.length} source, ${targetPoints.length} target) scatter into ${beforeClusters.length} domain-separated clusters (${beforeClusters.join(', ')}). That can look good on source validation while failing on the deployment distribution.`,
   };
 
   yield {
-    state: afterScatter(),
+    state: after,
     highlight: { found: ['s0', 't0', 's1', 't1', 's2', 't2', 's3', 't3'] },
-    explanation: 'After alignment, source and target examples mix inside each class. The label boundary can transfer only because the representation kept class structure while reducing domain structure.',
-    invariant: 'Alignment is useful only if it preserves task structure.',
+    explanation: `After alignment, source and target examples mix into ${afterClusters.length} class-based clusters (${afterClusters.join(', ')}). The label boundary can transfer only because the representation kept class structure while reducing domain structure.`,
+    invariant: `Alignment is useful only if it preserves task structure — the ${afterClusters.length} post-adaptation clusters must reflect class identity, not domain identity.`,
   };
 
   yield {
@@ -189,7 +208,7 @@ function* domainAdaptation() {
       ],
     ),
     highlight: { found: ['covariate:risk'], removed: ['conditional:risk', 'negative:risk'], compare: ['labelshift:risk'] },
-    explanation: 'The failure table names the tax. If labels, class priors, or conditional relationships changed, forced alignment can erase useful structure and lower target accuracy.',
+    explanation: `The failure table names ${failureModes.length} shift types: ${failureModes.join(', ')}. If labels, class priors, or conditional relationships changed, forced alignment can erase useful structure and lower target accuracy.`,
   };
 }
 
@@ -202,6 +221,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/domain-adversarial-networks.gif', alt: 'Animated walkthrough of the domain adversarial networks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

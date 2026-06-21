@@ -49,8 +49,8 @@ function* origami() {
       { id: 'crease', x: 0, y: 0, z: 0, label: 'the crease: xâ‚ + xâ‚‚ = 0' },
     ]),
     highlight: { active: ['crease'] },
-    explanation: 'One neuron, watched in 3D. The neuron computes ReLU(xâ‚ + xâ‚‚): a weighted sum (a flat tilted plane, as Neural Network Forward Pass built it) passed through ReLU, which clamps negatives to zero. The geometric result is the entire story of modern deep learning in one shape: HALF the input plane is dead flat at zero, the other half rises as an untouched plane, and between them runs a perfectly straight CREASE — the line xâ‚ + xâ‚‚ = 0 where the neuron switches on. One neuron = one fold in space. Hold that exchange rate; we are about to spend more neurons.',
-    invariant: 'A ReLU neuron is flat where its input is negative and linear where positive: one neuron, one crease.',
+    explanation: `One neuron, watched in 3D over a ${RES}×${RES} grid from ${RANGE.min} to ${RANGE.max}. The neuron computes ReLU(xâ‚ + xâ‚‚): a weighted sum (a flat tilted plane, as Neural Network Forward Pass built it) passed through ReLU, which clamps negatives to zero. The geometric result is the entire story of modern deep learning in one shape: HALF the input plane is dead flat at zero, the other half rises as an untouched plane, and between them runs a perfectly straight CREASE — the line xâ‚ + xâ‚‚ = 0 where the neuron switches on. One neuron = one fold in space. Hold that exchange rate; we are about to spend ${NEURONS.length - 1} more neurons.`,
+    invariant: `A ReLU neuron with weights [${NEURONS[0].w}] and bias ${NEURONS[0].b} is flat where its input is negative and linear where positive: one neuron, one crease.`,
   };
 
   yield {
@@ -59,8 +59,8 @@ function* origami() {
       { id: 'c2', x: 1, y: 1, z: layer(relu)(1, 1) - 0.6 * relu(-1 + 0.5), label: 'crease 2' },
     ]),
     highlight: { compare: ['c1', 'c2'] },
-    explanation: 'Add the second neuron — ReLU(xâ‚ âˆ’ xâ‚‚), creased along the other diagonal — and SUM the two. The terrain now has TWO creases crossing at the origin, dividing the plane into four sectors, each a flat facet with its own tilt: one sector where neither neuron fires (the dead floor), two where exactly one fires, one where both do. The layer\'s output is piecewise-linear EVERYWHERE — planes joined at folds — because sums of folded planes are folded planes. This is what "neural networks are piecewise-linear functions" actually looks like.',
-    invariant: 'Summing ReLU neurons superimposes their creases: n neurons partition the input into convex linear regions.',
+    explanation: `Add the second neuron — ReLU(xâ‚ âˆ’ xâ‚‚), creased along the other diagonal — and SUM the ${NEURONS.slice(0, 2).length}. The terrain now has TWO creases crossing at the origin, dividing the plane into four sectors, each a flat facet with its own tilt: one sector where neither neuron fires (the dead floor), two where exactly one fires, one where both do. The layer's output is piecewise-linear EVERYWHERE — planes joined at folds — because sums of folded planes are folded planes. This is what "neural networks are piecewise-linear functions" actually looks like.`,
+    invariant: `Summing ${NEURONS.slice(0, 2).length} ReLU neurons (output weights ${NEURONS[0].out} and ${NEURONS[1].out}) superimposes their creases: n neurons partition the input into convex linear regions.`,
   };
 
   yield {
@@ -68,8 +68,8 @@ function* origami() {
       { id: 'c3', x: 0.5, y: -1.2, z: layer(relu)(0.5, -1.2), label: 'crease 3: xâ‚ = 0.5' },
     ]),
     highlight: { found: ['c3'] },
-    explanation: 'The third neuron adds a vertical crease at xâ‚ = 0.5, and the origami now has SIX facets. Here is the result that makes depth special: a single layer of n neurons makes O(n) creases and polynomially many regions — but STACK layers, and each new layer folds the already-folded paper, multiplying regions toward EXPONENTIAL in depth (Montúfar et al., 2014). A 50-layer network is a sheet of paper folded fifty times: the creases of late layers are themselves bent by every fold beneath them. That compounding origami — not any single neuron\'s cleverness — is where deep networks get their expressive power.',
-    invariant: 'Width adds creases; depth folds existing folds: region count grows exponentially with depth.',
+    explanation: `The ${NEURONS.length}rd neuron (bias ${NEURONS[2].b}, weights [${NEURONS[2].w}]) adds a vertical crease at xâ‚ = 0.5, and the origami now has SIX facets. Here is the result that makes depth special: a single layer of n neurons makes O(n) creases and polynomially many regions — but STACK layers, and each new layer folds the already-folded paper, multiplying regions toward EXPONENTIAL in depth (Montúfar et al., 2014). A 50-layer network is a sheet of paper folded fifty times: the creases of late layers are themselves bent by every fold beneath them. That compounding origami — not any single neuron's cleverness — is where deep networks get their expressive power.`,
+    invariant: `Width adds creases (${NEURONS.length} here); depth folds existing folds: region count grows exponentially with depth.`,
   };
 
   yield {
@@ -77,7 +77,7 @@ function* origami() {
       { id: 'level', x: -0.4, y: 0.9, z: 1.0, label: 'decision contour: output = 1.0' },
     ]),
     highlight: { active: ['level'] },
-    explanation: 'Why a CLASSIFIER cares about origami: a decision boundary is a horizontal slice through this terrain — "predict spam where output > 1.0". Slice a piecewise-linear surface and you get a POLYGONAL path: straight segments that turn exactly at the creases. Every ReLU network\'s decision boundary, however curvy it looks zoomed out, is a polygon with astronomically many sides — each side inherited from some neuron\'s crease. Logistic Regression drew ONE straight boundary; this three-neuron layer already draws a boundary with several bends. Depth buys bends, and bends are exactly what separating real data requires.',
+    explanation: `Why a CLASSIFIER cares about origami: a decision boundary is a horizontal slice through this ${RES}×${RES} terrain — "predict spam where output > 1.0". Slice a piecewise-linear surface and you get a POLYGONAL path: straight segments that turn exactly at the creases. Every ReLU network's decision boundary, however curvy it looks zoomed out, is a polygon with astronomically many sides — each side inherited from some neuron's crease. Logistic Regression drew ONE straight boundary; this ${NEURONS.length}-neuron layer already draws a boundary with several bends. Depth buys bends, and bends are exactly what separating real data requires.`,
   };
 }
 
@@ -87,8 +87,8 @@ function* smoothCountry() {
       { id: 'plateau', x: -1.7, y: -1.7, z: layer(sigmoid)(-1.7, -1.7), label: 'the saturation plateau' },
     ]),
     highlight: { removed: ['plateau'] },
-    explanation: 'Same three neurons, same weights — swap ReLU for SIGMOID and the origami melts into rolling hills: no creases, smooth everywhere, gentle S-curved slopes. Beautiful — and look at the corners of the map: far from the creases\' old locations the terrain goes utterly FLAT, because sigmoid saturates at 0 and 1. Flat terrain means zero gradient, and zero gradient means nothing to learn from: this plateau is the literal landscape of Vanishing & Exploding Gradients — a neuron stuck out here receives no teaching signal no matter how wrong it is. The hills are lovely; the plateaus are where learning goes to die.',
-    invariant: 'Sigmoid saturation = flat terrain at the edges: gradients vanish exactly where corrections are largest.',
+    explanation: `Same ${NEURONS.length} neurons, same weights — swap ReLU for SIGMOID and the origami melts into rolling hills: no creases, smooth everywhere, gentle S-curved slopes. Beautiful — and look at the corners of the [${RANGE.min}, ${RANGE.max}] map: far from the creases' old locations the terrain goes utterly FLAT, because sigmoid saturates at 0 and 1. Flat terrain means zero gradient, and zero gradient means nothing to learn from: this plateau at (${-1.7}, ${-1.7}) is the literal landscape of Vanishing & Exploding Gradients — a neuron stuck out here receives no teaching signal no matter how wrong it is. The hills are lovely; the plateaus are where learning goes to die.`,
+    invariant: `Sigmoid saturation = flat terrain at the edges of the ${RES}×${RES} grid: gradients vanish exactly where corrections are largest.`,
   };
 
   yield {
@@ -96,14 +96,14 @@ function* smoothCountry() {
       { id: 'soft', x: 0, y: 0, z: layer(gelu)(0, 0), label: 'the rounded crease' },
     ]),
     highlight: { active: ['soft'] },
-    explanation: 'The modern compromise: GELU — the default inside every Transformer Block. Watch its terrain: from a distance it is ReLU\'s origami (linear growth, no saturation ceiling, regions clearly visible), but zoom toward any crease and the fold is ROUNDED — a smooth fillet instead of a sharp edge (the raw GELU curve itself even dips slightly below zero just before its fold, though the dips wash out in this summed terrain). The rounding keeps gradients well-defined and non-zero through the transition zone (no abrupt dead-switch like ReLU\'s, which can strand "dead neurons" permanently off), while inheriting ReLU\'s open-ended slope. Origami with sanded edges: the geometry explains the empirical win.',
-    invariant: 'GELU â‰ˆ ReLU with a smooth crease: linear wings, differentiable fold, no saturation ceiling.',
+    explanation: `The modern compromise: GELU — the default inside every Transformer Block. Watch its ${NEURONS.length}-neuron terrain over the [${RANGE.min}, ${RANGE.max}] grid: from a distance it is ReLU's origami (linear growth, no saturation ceiling, regions clearly visible), but zoom toward any crease and the fold is ROUNDED — a smooth fillet instead of a sharp edge (the raw GELU curve itself even dips slightly below zero just before its fold, though the dips wash out in this summed terrain). The rounding keeps gradients well-defined and non-zero through the transition zone (no abrupt dead-switch like ReLU's, which can strand "dead neurons" permanently off), while inheriting ReLU's open-ended slope. Origami with sanded edges: the geometry explains the empirical win.`,
+    invariant: `GELU (approximation coefficient ${1.702}) ≈ ReLU with a smooth crease: linear wings, differentiable fold, no saturation ceiling.`,
   };
 
   yield {
     state: terrain(grid(relu)),
     highlight: {},
-    explanation: 'The closing map, one activation per geometry: SIGMOID/TANH — smooth hills with deadly plateaus (historic, now mostly gates and output layers); RELU — sharp origami, cheap to compute, gradients alive everywhere it is active, at the price of dead-flat zero regions that can permanently silence a neuron; GELU/SiLU — rounded origami, the transformer era\'s default. Every choice is the same trade read off the terrain: where is the surface FLAT (no learning), where is it STEEP (fast learning), and how violently does it bend (how hard is the function to optimize — Loss Landscapes & Optimization Geometry\'s smoothness story, one level down). Activation functions are usually taught as 1-D squiggles; they are better understood as what they do to the whole sheet of space — and now you have watched all three fold it.',
+    explanation: `The closing map, one activation per geometry across all ${NEURONS.length} neurons on a ${RES}×${RES} grid: SIGMOID/TANH — smooth hills with deadly plateaus (historic, now mostly gates and output layers); RELU — sharp origami, cheap to compute, gradients alive everywhere it is active, at the price of dead-flat zero regions that can permanently silence a neuron; GELU/SiLU — rounded origami, the transformer era's default. Every choice is the same trade read off the terrain: where is the surface FLAT (no learning), where is it STEEP (fast learning), and how violently does it bend (how hard is the function to optimize — Loss Landscapes & Optimization Geometry's smoothness story, one level down). Activation functions are usually taught as 1-D squiggles; they are better understood as what they do to the whole sheet of space — and now you have watched all ${['relu', 'sigmoid', 'gelu'].length} fold it.`,
   };
 }
 
@@ -128,7 +128,8 @@ export const article = {
         },
         'At each frame, ask: how many flat regions exist, where are the boundaries between them, and what happens to gradient flow on the flat parts versus the sloped parts.',
         {type: 'callout', text: 'Activation geometry is input-space folding: each nonlinear unit creates regions where different linear maps become active.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/activation-geometry-3d.gif', alt: 'Animated walkthrough of the activation geometry 3d visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

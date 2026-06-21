@@ -186,7 +186,8 @@ export const article = {
         },
         '"Found" markers highlight the natural gradient path. "Visited" markers highlight the plain GD path. The matrix view shows the Fisher information entries and their interpretation. At each frame, ask: how much did the distribution actually change, and does the step size reflect that?',
         {type: 'callout', text: 'Natural gradient changes the ruler: the step is measured by distribution distance, not by raw coordinate movement.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/natural-gradient.gif', alt: 'Animated walkthrough of the natural gradient visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

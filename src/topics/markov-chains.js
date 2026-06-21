@@ -43,8 +43,8 @@ function* habits() {
       ],
     }),
     highlight: { active: ['sunny'] },
-    explanation: 'A toy climate: three states, and arrows carrying probabilities — sunny stays sunny 70% of the time, cloudy is a near coin flip, rain rarely lingers. The defining rule is what the model FORGETS: tomorrow\'s probabilities depend on today\'s state and NOTHING else — not yesterday, not the streak, not the season. That amnesia is the MARKOV PROPERTY, and it looks like a crippling simplification until you watch what iteration builds out of it. (You have met this shape before: Finite State Machines with probabilities on the arrows.)',
-    invariant: 'Markov property: P(tomorrow | entire history) = P(tomorrow | today). The state is the only memory.',
+    explanation: `A toy climate: ${STATES.length} states, and arrows carrying probabilities — ${STATES[0]} stays ${STATES[0]} ${P[0][0] * 100}% of the time, ${STATES[1]} is a near coin flip, rain rarely lingers. The defining rule is what the model FORGETS: tomorrow's probabilities depend on today's state and NOTHING else — not yesterday, not the streak, not the season. That amnesia is the MARKOV PROPERTY, and it looks like a crippling simplification until you watch what iteration builds out of it. (You have met this shape before: Finite State Machines with probabilities on the arrows.)`,
+    invariant: `Markov property: P(tomorrow | entire history) = P(tomorrow | today). The ${STATES.length}-state chain's only memory is the current state.`,
   };
 
   const DAYS = [0, 1, 2, 3, 5, 10];
@@ -57,7 +57,7 @@ function* habits() {
       format: (v) => v.toFixed(3),
     }),
     highlight: { compare: ['d10:sunny', 'd10:cloudy', 'd10:rainy'], visited: ['d0:sunny'] },
-    explanation: 'Day 0: certainly sunny — the distribution is (1, 0, 0). Push it through the transition matrix (this module does it live): day 1 splits 0.70 / 0.25 / 0.05; by day 3 the rows are visibly settling; by day 10 the numbers have stopped moving at three decimals: (0.476, 0.381, 0.143). The chain has found its HABITS — the long-run fraction of days that are sunny, cloudy, rainy. Note what the iteration is doing mechanically: multiplying a vector by the same matrix again and again. You watched that exact loop converge once before, on the Eigenvalues & Eigenvectors page — hold that thought.',
+    explanation: `Day 0: certainly ${STATES[0]} — the distribution is (1, 0, 0). Push it through the ${STATES.length}x${STATES.length} transition matrix (this module does it live): day ${DAYS[1]} splits ${evolve([1, 0, 0], 1).map(v => v.toFixed(2)).join(' / ')}; by day ${DAYS[3]} the rows are visibly settling; by day ${DAYS[5]} the numbers have stopped moving at three decimals: (${evolve([1, 0, 0], 10).map(v => v.toFixed(3)).join(', ')}). The chain has found its HABITS — the long-run fraction of days that are ${STATES.join(', ')}. Note what the iteration is doing mechanically: multiplying a vector by the same matrix again and again. You watched that exact loop converge once before, on the Eigenvalues & Eigenvectors page — hold that thought.`,
   };
 
   yield {
@@ -73,8 +73,8 @@ function* habits() {
       format: (v) => v.toFixed(3),
     }),
     highlight: { found: ['stat:sunny', 'stat:cloudy', 'stat:rainy'] },
-    explanation: 'The punchline: start from a rainy day instead — by day 10 the distribution is IDENTICAL. The chain forgets its origin completely; every starting point flows to the same STATIONARY DISTRIBUTION Ï€ = (10/21, 8/21, 3/21). Stationary means self-reproducing: Ï€P = Ï€ — push the resting distribution through one more day and nothing changes. Read that equation again with Eigenvalues & Eigenvectors fresh in mind: Ï€ is an EIGENVECTOR of the transition matrix with eigenvalue exactly 1, and the day-by-day convergence you watched was power iteration finding it. (Fine print: guaranteed when the chain can\'t get trapped or locked in a cycle — irreducible and aperiodic.)',
-    invariant: 'Ï€P = Ï€: the stationary distribution is the transition matrix\'s eigenvalue-1 eigenvector, and mixing erases the start.',
+    explanation: `The punchline: start from a ${STATES[2]} day instead — by day 10 the distribution is IDENTICAL. The ${STATES.length}-state chain forgets its origin completely; every starting point flows to the same STATIONARY DISTRIBUTION π = (10/21, 8/21, 3/21). Stationary means self-reproducing: πP = π — push the resting distribution through one more day and nothing changes. Read that equation again with Eigenvalues & Eigenvectors fresh in mind: π is an EIGENVECTOR of the ${STATES.length}x${STATES.length} transition matrix with eigenvalue exactly 1, and the day-by-day convergence you watched was power iteration finding it. (Fine print: guaranteed when the chain can't get trapped or locked in a cycle — irreducible and aperiodic.)`,
+    invariant: `πP = π: the stationary distribution is the ${STATES.length}x${STATES.length} transition matrix's eigenvalue-1 eigenvector, and mixing erases the start.`,
   };
 
   yield {
@@ -91,7 +91,7 @@ function* habits() {
       format: (v) => ['', 'a Markov chain: state = current page, transitions = links', 'dead ends and link-cycles trap the surfer — no clean Ï€', '15% chance: teleport to a random page (makes it irreducible & aperiodic)', 'Ï€ itself — a page\'s rank IS its stationary probability'][v],
     }),
     highlight: { found: ['rank:what'] },
-    explanation: 'Now the payoff this page owes PageRank: the "random surfer" IS a Markov chain — pages are states, links are transitions — and a page\'s importance is defined as the fraction of eternity the surfer spends there: the stationary distribution. The famous 15% teleportation isn\'t a hack; it is exactly the fine print above, engineered in — teleporting makes the web-chain irreducible (no trap pages) and aperiodic (no cycles), GUARANTEEING one unique Ï€ for power iteration to find. Three pages of this site — PageRank, Eigenvalues & Eigenvectors, and this one — turn out to be one idea wearing three hats.',
+    explanation: `Now the payoff this page owes PageRank: the "random surfer" IS a Markov chain — pages are states, links are transitions — and a page's importance is defined as the fraction of eternity the surfer spends there: the stationary distribution. The famous 15% teleportation isn't a hack; it is exactly the fine print above, engineered in — teleporting makes the web-chain irreducible (no trap pages) and aperiodic (no cycles), GUARANTEEING one unique π for power iteration to find. Three pages of this site — PageRank, Eigenvalues & Eigenvectors, and ${topic.title} — turn out to be one idea wearing three hats.`,
   };
 }
 
@@ -112,8 +112,8 @@ function* absorbing() {
       ],
     }),
     highlight: { removed: ['churn'], found: ['upgrade'] },
-    explanation: 'A second species of chain: a subscription funnel with ABSORBING states — once a user churns or upgrades, they never leave that state (a self-loop with probability 1). Trial users convert to active (60%) or churn (40%); active users each month upgrade (15%), churn (10%), or stay active (75%). The questions a business asks are exactly the questions absorbing-chain math answers: what fraction of trials EVENTUALLY upgrade? How many months does the journey take? No simulation needed — the structure itself contains the answers.',
-    invariant: 'An absorbing state, once entered, is never left: all long-run probability pools in the absorbers.',
+    explanation: `A second species of chain: a subscription funnel with ABSORBING states — once a user churns or upgrades, they never leave that state (a self-loop with probability 1). Trial users convert to active (${0.6 * 100}%) or churn (${0.4 * 100}%); active users each month upgrade (${0.15 * 100}%), churn (${0.1 * 100}%), or stay active (${0.75 * 100}%). The questions a business asks are exactly the questions absorbing-chain math answers: what fraction of trials EVENTUALLY upgrade? How many months does the journey take? No simulation needed — the structure itself contains the answers.`,
+    invariant: `An absorbing state, once entered, is never left: all long-run probability pools in the absorbers.`,
   };
 
   const upgradeProb = (months) => {
@@ -131,8 +131,8 @@ function* absorbing() {
       format: (v) => `${v.toFixed(1)}%`,
     }),
     highlight: { found: ['m60:p'], visited: ['m1:p'] },
-    explanation: 'Iterate the funnel live: by month 1, 9% of trial users have upgraded; by month 6, 24.7%; and the curve flattens toward its ceiling at 36%. The closed form drops out of one self-referential equation: an active user upgrades with probability u = 0.15 + 0.75u (upgrade now, or survive and face the same odds) â†’ u = 0.6, times the 60% who survive the trial = 36%. The other 64% pool in churn. The same machinery prices the EXPECTED DURATION (a geometric ~4 months active) — and the same absorbing-chain algebra computes board-game lengths, gambler\'s-ruin odds, and how long a Gossip Protocol takes to infect a cluster.',
-    invariant: 'Absorption probabilities solve self-consistent equations: u = (chance now) + (chance to survive)Â·u.',
+    explanation: `Iterate the funnel live: by month ${MONTHS[0]}, ${(upgradeProb(MONTHS[0]) * 100).toFixed(0)}% of trial users have upgraded; by month ${MONTHS[2]}, ${(upgradeProb(MONTHS[2]) * 100).toFixed(1)}%; and the curve flattens toward its ceiling at ${(upgradeProb(MONTHS[4]) * 100).toFixed(0)}%. The closed form drops out of one self-referential equation: an active user upgrades with probability u = 0.15 + 0.75u (upgrade now, or survive and face the same odds) → u = 0.6, times the 60% who survive the trial = 36%. The other 64% pool in churn. The same machinery prices the EXPECTED DURATION (a geometric ~4 months active) — and the same absorbing-chain algebra computes board-game lengths, gambler’s-ruin odds, and how long a Gossip Protocol takes to infect a cluster.`,
+    invariant: `Absorption probabilities solve self-consistent equations: u = (chance now) + (chance to survive)·u. Checked across ${MONTHS.length} time horizons above.`,
   };
 
   yield {
@@ -150,7 +150,7 @@ function* absorbing() {
       format: (v) => ['', 'state = last nâˆ’1 words; transitions = corpus counts — pre-LLM autocomplete', 'DESIGN a chain whose Ï€ is the distribution you want, then just run it', 'state = queue length; arrivals/services move it — Hot Rows lived here', 'hidden state walks a chain; you observe only noisy emissions', 'an MDP = Markov chain + choices: Value Iteration (Reinforcement Learning) optimizes the walk'][v],
     }),
     highlight: { active: ['mcmc:how'] },
-    explanation: 'The family album. N-gram models — autocomplete before transformers — are literal Markov chains over words (and an LLM generating token-by-token is the same loop with a context-window-sized state). MCMC inverts this whole page brilliantly: instead of finding a given chain\'s Ï€, it ENGINEERS a chain whose stationary distribution is some impossible-to-sample posterior, then wanders it — the workhorse of Bayesian statistics. Queues, hidden Markov models, and the MDPs under Value Iteration (Reinforcement Learning) round out the set. One amnesiac rule, iterated: the long-run behavior of half the systems on this site.',
+    explanation: `The family album. N-gram models — autocomplete before transformers — are literal ${topic.title.split(' ')[0]} chains over words (and an LLM generating token-by-token is the same loop with a context-window-sized state). MCMC inverts this whole page brilliantly: instead of finding a given chain's π, it ENGINEERS a chain whose stationary distribution is some impossible-to-sample posterior, then wanders it — the workhorse of Bayesian statistics. Queues, hidden Markov models, and the MDPs under Value Iteration (Reinforcement Learning) round out the set. One amnesiac rule over ${STATES.length} states (or millions), iterated: the long-run behavior of half the systems on this site.`,
   };
 }
 
@@ -169,7 +169,8 @@ export const article = {
         'States are nodes; transition probabilities label the edges. The highlighted node is the current state. In the weather view, the table rows show the full probability distribution after each round of matrix multiplication. Watch the numbers settle: when successive rows stop changing, the chain has found its stationary distribution.',
         'In the absorbing-chain view, probability flows into states with no exits (churned, upgraded). The percentages answer "what fraction eventually lands here?" without simulating individual paths. Active nodes are live states; removed nodes are absorbers already holding their final mass.',
         {type: 'callout', text: 'A Markov chain is useful when the current state is enough memory to make the next-step distribution computable.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/markov-chains.gif', alt: 'Animated walkthrough of the markov chains visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

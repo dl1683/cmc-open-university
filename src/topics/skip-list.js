@@ -124,7 +124,8 @@ export const article = {
         {type: 'callout', text: 'A skip list is fast because each downward move keeps the same predecessor while revealing a denser lane.'},
         'Forward pointers connect consecutive nodes on the same lane. Vertical pointers link copies of the same value across levels. The highlighted node is the current search position. Visited nodes mark the path already taken. Found marks the target.',
         'The search always moves in two directions: right along a lane while the next value does not overshoot, and down one level when the next value is too large or the lane ends. The path never moves left. Each rightward hop on a high lane skips every unpromoted node below it. Each drop refines position on a denser lane.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/skip-list.gif', alt: 'Animated walkthrough of the skip list visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -81,110 +81,134 @@ function dpoGraph(title) {
 }
 
 function* rlhfPipeline() {
+  const graph1 = rlhfGraph('RLHF turns demonstrations and comparisons into policy updates');
+  const totalNodes = graph1.graph.nodes.length;
+  const totalEdges = graph1.graph.edges.length;
+  const baseNode = graph1.graph.nodes[0];
+  const sftNode = graph1.graph.nodes[1];
+  const alignedNode = graph1.graph.nodes[totalNodes - 1];
+
   yield {
-    state: rlhfGraph('RLHF turns demonstrations and comparisons into policy updates'),
+    state: graph1,
     highlight: { active: ['base', 'sft', 'e-base-sft'], compare: ['prefs', 'rm', 'ppo'] },
-    explanation: 'Read the highlighted path left to right. Pretraining gives language ability, supervised demonstrations teach the response shape, and only then does preference optimization push behavior. SFT is the naive baseline and the reference RLHF must avoid damaging.',
+    explanation: `Read the highlighted path left to right across all ${totalNodes} stages. Pretraining gives language ability (${baseNode.note}), supervised demonstrations teach the response shape (${sftNode.label}), and only then does preference optimization push behavior toward the ${alignedNode.label} stage.`,
   };
 
+  const graph2 = rlhfGraph('Human preference data trains a reward model');
+  const samplesNode = graph2.graph.nodes[2];
+  const prefsNode = graph2.graph.nodes[3];
+  const rmNode = graph2.graph.nodes[4];
+
   yield {
-    state: rlhfGraph('Human preference data trains a reward model'),
+    state: graph2,
     highlight: { active: ['samples', 'prefs', 'rm', 'e-samples-prefs', 'e-prefs-rm'], compare: ['sft'] },
-    explanation: 'The samples node creates alternatives, the preference node records chosen versus rejected outputs, and the reward model compresses those comparisons into a scalar score. That scalar is useful because PPO needs rewards, but it is still a proxy for human preference.',
-    invariant: 'The reward model is a proxy for preference, not preference itself.',
+    explanation: `The ${samplesNode.label} node creates alternatives, the ${prefsNode.label} node records ${prefsNode.note}, and the ${rmNode.label} compresses those comparisons into a scalar score. That scalar is useful because PPO needs rewards, but it is still a proxy for human preference.`,
+    invariant: `The ${rmNode.label} is a proxy for preference, not preference itself -- it ${rmNode.note} but does not embody judgment.`,
   };
 
+  const graph3 = rlhfGraph('PPO optimizes reward while KL keeps the model near the reference');
+  const ppoNode = graph3.graph.nodes[5];
+  const klNode = graph3.graph.nodes[6];
+
   yield {
-    state: rlhfGraph('PPO optimizes reward while KL keeps the model near the reference'),
+    state: graph3,
     highlight: { found: ['ppo', 'kl', 'aligned', 'e-rm-ppo', 'e-kl-ppo', 'e-ppo-aligned'] },
-    explanation: 'The PPO node treats the language model as a policy over tokens and pushes outputs that the reward model scores highly. The KL node is the brake: without it, reward pressure can move the model away from the fluent supervised policy that collected the data.',
+    explanation: `The ${ppoNode.label} node treats the language model as a ${ppoNode.note} over tokens and pushes outputs that the reward model scores highly. The ${klNode.label} node is the brake (${klNode.note}): without it, reward pressure can move the model away from the fluent supervised policy that collected the data.`,
   };
 
+  const failureRows = [
+    { id: 'rewardhack', label: 'reward hacking' },
+    { id: 'bias', label: 'labeler bias' },
+    { id: 'drift', label: 'KL drift' },
+    { id: 'eval', label: 'eval overfit' },
+  ];
+  const failureCols = [
+    { id: 'symptom', label: 'symptom' },
+    { id: 'response', label: 'response' },
+  ];
+  const failureData = [
+    ['model exploits reward model', 'red-team and refresh RM'],
+    ['preferences encode policy choices', 'guidelines and audits'],
+    ['language quality degrades', 'KL control'],
+    ['wins benchmark, hurts users', 'held-out human evals'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'RLHF failure modes',
-      [
-        { id: 'rewardhack', label: 'reward hacking' },
-        { id: 'bias', label: 'labeler bias' },
-        { id: 'drift', label: 'KL drift' },
-        { id: 'eval', label: 'eval overfit' },
-      ],
-      [
-        { id: 'symptom', label: 'symptom' },
-        { id: 'response', label: 'response' },
-      ],
-      [
-        ['model exploits reward model', 'red-team and refresh RM'],
-        ['preferences encode policy choices', 'guidelines and audits'],
-        ['language quality degrades', 'KL control'],
-        ['wins benchmark, hurts users', 'held-out human evals'],
-      ],
-    ),
+    state: labelMatrix('RLHF failure modes', failureRows, failureCols, failureData),
     highlight: { active: ['rewardhack:response', 'drift:response', 'eval:response'], compare: ['bias:symptom'] },
-    explanation: 'Each row names a way the proxy can fail and the control that catches it. RLHF optimizes the reward model, not true human welfare, so red-team data, label audits, KL checks, and held-out human evals are part of the algorithm.',
+    explanation: `Each of the ${failureRows.length} rows names a way the proxy can fail (${failureCols[0].label}) and the control that catches it (${failureCols[1].label}). RLHF optimizes the reward model, not true human welfare, so red-team data, label audits, KL checks, and held-out human evals are part of the algorithm.`,
   };
 }
 
 function* dpoShortcut() {
+  const dGraph1 = dpoGraph('DPO trains directly from chosen/rejected pairs');
+  const dpoNodes = dGraph1.graph.nodes;
+  const dpoEdges = dGraph1.graph.edges;
+  const chosenNode = dpoNodes[1];
+  const rejectNode = dpoNodes[2];
+  const lossNode = dpoNodes[3 + 2]; // index 5 = 'DPO loss'
+
   yield {
-    state: dpoGraph('DPO trains directly from chosen/rejected pairs'),
+    state: dGraph1,
     highlight: { active: ['chosen', 'reject', 'policy', 'loss', 'e-chosen-policy', 'e-reject-policy', 'e-policy-loss'], compare: ['ref'] },
-    explanation: 'DPO keeps the preference pair and removes the explicit reward-model/PPO loop. The chosen and rejected responses feed one classification-style loss: raise the chosen response relative to the rejected one for the same prompt.',
+    explanation: `DPO keeps the preference pair and removes the explicit reward-model/PPO loop across ${dpoNodes.length} nodes. The ${chosenNode.label} and ${rejectNode.label} feed one ${lossNode.note}-style loss: raise the chosen response relative to the rejected one for the same prompt.`,
   };
 
+  const dGraph2 = dpoGraph('The frozen reference model anchors the update');
+  const refNode = dGraph2.graph.nodes[4];
+  const updatedNode = dGraph2.graph.nodes[6];
+
   yield {
-    state: dpoGraph('The frozen reference model anchors the update'),
+    state: dGraph2,
     highlight: { active: ['ref', 'e-ref-loss'], found: ['loss', 'updated'] },
-    explanation: 'The reference model is the anchor line in the graph. It tells the loss how far the trainable policy has moved, so preference tuning has both direction (chosen over rejected) and restraint (do not drift without bound).',
-    invariant: 'Preference tuning needs both direction and restraint.',
+    explanation: `The ${refNode.label} (${refNode.note}) is the anchor line in the graph. It tells the loss how far the trainable policy has moved, so preference tuning has both direction (chosen over rejected) and restraint (do not drift without bound toward the ${updatedNode.label}).`,
+    invariant: `Preference tuning needs both direction and restraint -- the ${refNode.label} stays ${refNode.note} to provide the restraint.`,
   };
 
+  const compRows = [
+    { id: 'data', label: 'preference data' },
+    { id: 'rm', label: 'reward model' },
+    { id: 'online', label: 'online sampling' },
+    { id: 'control', label: 'drift control' },
+  ];
+  const compCols = [
+    { id: 'ppo', label: 'PPO-style RLHF' },
+    { id: 'dpo', label: 'DPO' },
+  ];
+  const compData = [
+    ['needed', 'needed'],
+    ['separate model', 'implicit in loss'],
+    ['yes', 'no for basic training'],
+    ['KL penalty', 'reference likelihood ratio'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'RLHF versus DPO',
-      [
-        { id: 'data', label: 'preference data' },
-        { id: 'rm', label: 'reward model' },
-        { id: 'online', label: 'online sampling' },
-        { id: 'control', label: 'drift control' },
-      ],
-      [
-        { id: 'ppo', label: 'PPO-style RLHF' },
-        { id: 'dpo', label: 'DPO' },
-      ],
-      [
-        ['needed', 'needed'],
-        ['separate model', 'implicit in loss'],
-        ['yes', 'no for basic training'],
-        ['KL penalty', 'reference likelihood ratio'],
-      ],
-    ),
+    state: labelMatrix('RLHF versus DPO', compRows, compCols, compData),
     highlight: { found: ['rm:dpo', 'online:dpo'], compare: ['rm:ppo', 'online:ppo'] },
-    explanation: 'The table shows the operational simplification: DPO removes the separate reward model and basic online sampling loop. It does not remove the identification problem; the preference pairs still define what behavior the model will learn.',
+    explanation: `The table compares ${compCols.length} approaches across ${compRows.length} dimensions. DPO removes the ${compRows[1].label} (${compData[1][1]}) and basic ${compRows[2].label} loop. It does not remove the identification problem; the ${compRows[0].label} still defines what behavior the model will learn.`,
   };
 
+  const checkRows = [
+    { id: 'prompts', label: 'prompt coverage' },
+    { id: 'rubric', label: 'labeling rubric' },
+    { id: 'disagree', label: 'disagreement' },
+    { id: 'safety', label: 'safety slices' },
+  ];
+  const checkCols = [
+    { id: 'check', label: 'check' },
+    { id: 'risk', label: 'risk if weak' },
+  ];
+  const checkData = [
+    ['real user distribution', 'overfit toy prompts'],
+    ['explicit tradeoffs', 'inconsistent labels'],
+    ['measure labeler variance', 'false certainty'],
+    ['separate evals', 'capability-safety tradeoff hidden'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Preference data quality checklist',
-      [
-        { id: 'prompts', label: 'prompt coverage' },
-        { id: 'rubric', label: 'labeling rubric' },
-        { id: 'disagree', label: 'disagreement' },
-        { id: 'safety', label: 'safety slices' },
-      ],
-      [
-        { id: 'check', label: 'check' },
-        { id: 'risk', label: 'risk if weak' },
-      ],
-      [
-        ['real user distribution', 'overfit toy prompts'],
-        ['explicit tradeoffs', 'inconsistent labels'],
-        ['measure labeler variance', 'false certainty'],
-        ['separate evals', 'capability-safety tradeoff hidden'],
-      ],
-    ),
+    state: labelMatrix('Preference data quality checklist', checkRows, checkCols, checkData),
     highlight: { found: ['prompts:check', 'rubric:check', 'disagree:check', 'safety:check'] },
-    explanation: 'The checklist is the data-quality gate. Prompt coverage, a clear rubric, measured disagreement, and safety slices decide whether the loss learns the intended behavior or only labeler habits and missing edge cases.',
+    explanation: `The checklist covers ${checkRows.length} quality dimensions, each with a ${checkCols[0].label} and a ${checkCols[1].label}. ${checkRows[0].label}, a clear ${checkRows[1].label}, measured ${checkRows[2].label}, and ${checkRows[3].label} decide whether the loss learns the intended behavior or only labeler habits and missing edge cases.`,
   };
 }
 
@@ -204,7 +228,8 @@ export const article = {
         {type: 'callout', text: 'Preference optimization works by turning comparative human judgment into a gradient while keeping the policy near a trusted reference.'},
         'The DPO shortcut view shows the simplified path: chosen and rejected responses feed a single loss that updates the policy directly, anchored by a frozen reference model. Found markers indicate components whose values are fixed.',
         'Preference pairs are the raw material. A pair is one prompt with two completions and a human label saying which is better. Reward scores are the numbers the reward model assigns to each completion. Policy updates are the gradient steps that make the language model more likely to produce preferred-style outputs.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/rlhf-preference-optimization.gif', alt: 'Animated walkthrough of the rlhf preference optimization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

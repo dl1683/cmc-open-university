@@ -263,7 +263,8 @@ export const article = {
         `The visual point is not just that the estimate is noisy. It is that the update direction can be correct in expectation and still painful to use. A single episode can say the unlucky good action was bad or the lucky weak action was great. Batches, baselines, value functions, and PPO-style trust-region controls are all ways of making that noisy voting process usable without changing the basic score-function identity.`,
         {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/1/1b/Reinforcement_learning_diagram.svg`, alt: `Reinforcement learning loop from agent to action to environment to reward and state`, caption: `Policy gradients learn from this sampled loop: the agent only sees actions, states, and rewards, not a derivative through the environment. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Reinforcement_learning_diagram.svg.`},
         `The first panels compare the true gradient with sampled gradient estimates. The raw estimator is unbiased, so its mean points the right way, but the spread is large because each episode is a noisy vote. The baseline panel subtracts average reward before scaling the log-probability gradient; below-average actions now push down instead of weakly pushing up. The invariant is E[baseline * grad log policy] = 0, so subtracting a constant changes variance without changing the expected gradient. In the PPO view, read the x-axis as the new policy\'s probability ratio to the old policy. The clipped flat regions are the safety mechanism: once a good action is pushed far enough, the objective stops paying for a bigger move.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/policy-gradients.gif', alt: 'Animated walkthrough of the policy gradients visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `How it works`,

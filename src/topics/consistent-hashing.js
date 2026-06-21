@@ -109,7 +109,8 @@ export const article = {
         'The circle is the hash ring -- a continuous space from 0 to 2^32 (shown here as 0 to 359 degrees for clarity). Server nodes sit at fixed positions on the ring. Keys also hash onto the ring, and each key belongs to the first server found by walking clockwise from the key\'s position. The label on each key shows its current owner.',
         {type: 'callout', text: 'Consistent hashing makes membership churn local by naming ownership as clockwise intervals on a stable ring.'},
         'When a server is added, watch which keys change labels. Only keys sitting between the new server and its counter-clockwise neighbor move. Every other key still finds the same first-clockwise server. When a server is removed, only that server\'s keys continue clockwise to the next live node. The animation makes the local-movement property visible: ring changes are neighborhood events, not global reshuffles.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/consistent-hashing.gif', alt: 'Animated walkthrough of the consistent hashing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

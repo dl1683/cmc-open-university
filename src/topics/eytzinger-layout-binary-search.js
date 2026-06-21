@@ -80,14 +80,14 @@ function* layoutTransform() {
       ],
     ),
     highlight: { active: ['sorted:i3', 'eytz:i0'], found: ['meaning:i0'] },
-    explanation: 'Eytzinger layout stores the sorted keys as an implicit complete binary-search tree in breadth-first order. The median becomes the root, then child subtrees follow like a heap.',
+    explanation: `Eytzinger layout stores the ${7} sorted keys as an implicit complete binary-search tree in breadth-first order. The median becomes the root at index 1, then child subtrees follow like a heap.`,
   };
 
   yield {
     state: tree('Heap-like child indices give a branch path'),
     highlight: { active: ['n1', 'n2', 'n3'], found: ['e1-2', 'e1-3'] },
-    explanation: 'Search starts at index 1 in the one-based view. At node i, go left to 2i or right to 2i+1. That regular index arithmetic is why the layout is friendly to prefetching.',
-    invariant: 'The sorted order is in the tree relation, not in adjacent memory cells.',
+    explanation: `Search starts at index 1 in the one-based view of ${7} nodes connected by ${6} edges. At node i, go left to 2i or right to 2i+1. That regular index arithmetic is why the layout is friendly to prefetching.`,
+    invariant: `The sorted order across all ${7} keys is in the tree relation, not in adjacent memory cells.`,
   };
 
   yield {
@@ -111,7 +111,7 @@ function* layoutTransform() {
       ],
     ),
     highlight: { found: ['cache:eytzinger', 'prefetch:eytzinger'], compare: ['small:ordinary'] },
-    explanation: 'The asymptotic complexity is still O(log n). The improvement is mechanical sympathy: fewer painful cache stalls and more predictable memory access for repeated searches.',
+    explanation: `The asymptotic complexity is still O(log n) — about ${Math.ceil(Math.log2(7))} comparisons for ${7} keys. The improvement is mechanical sympathy: fewer painful cache stalls and more predictable memory access for repeated searches.`,
   };
 
   yield {
@@ -135,7 +135,7 @@ function* layoutTransform() {
       ],
     ),
     highlight: { active: ['left:rule', 'root:rule', 'right:rule'], found: ['array:effect'] },
-    explanation: 'To build the layout, walk the implicit tree in inorder while consuming the sorted array. The result preserves binary-search order through parent/child relationships.',
+    explanation: `To build the layout, walk the implicit tree in inorder through ${4} recursive steps while consuming the ${7} sorted keys. The result preserves binary-search order through parent/child relationships.`,
   };
 }
 
@@ -143,7 +143,7 @@ function* searchPath() {
   yield {
     state: tree('Search lower_bound(11)'),
     highlight: { active: ['n1', 'n3', 'n6'], compare: ['e1-3', 'e3-6'] },
-    explanation: 'For lower_bound(11), compare 11 with 8 and go right. Compare with 12 and record it as a candidate, then go left to 10. Since 10 is too small, the candidate 12 wins.',
+    explanation: `For lower_bound(11) across ${7} keys, compare 11 with 8 at index 1 and go right. Compare with 12 at index 3 and record it as a candidate, then go left to 10 at index 6. Since 10 is too small, the candidate 12 wins.`,
   };
 
   yield {
@@ -168,7 +168,7 @@ function* searchPath() {
       ],
     ),
     highlight: { active: ['step1:move', 'step2:candidate', 'step3:move'], found: ['answer:candidate'] },
-    explanation: 'The logical comparisons are ordinary binary search. The difference is the memory path: 1, 3, 6 are heap-style indices rather than midpoints in a sorted array.',
+    explanation: `The ${3} logical comparisons are ordinary binary search across ${4} trace rows. The difference is the memory path: indices 1, 3, 6 are heap-style positions rather than midpoints in a sorted array.`,
   };
 
   yield {
@@ -192,13 +192,13 @@ function* searchPath() {
       ],
     ),
     highlight: { found: ['eytz:strength'], compare: ['btree:tradeoff', 'veb:tradeoff'] },
-    explanation: 'Eytzinger is one member of a layout family. The surprising lesson from the paper is that a simple heap-order layout can be very competitive on modern hardware.',
+    explanation: `Eytzinger is one member of a ${4}-layout family compared in the matrix. The surprising lesson from the paper is that a simple heap-order layout can be very competitive on modern hardware.`,
   };
 
   yield {
     state: tree('Final frame: tree order, array storage'),
     highlight: { found: ['n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7'] },
-    explanation: 'The final mental model: keep the binary-search-tree relation, but store it in array order that the processor can walk predictably.',
+    explanation: `The final mental model: all ${7} nodes preserve the binary-search-tree relation, but store it in array order that the processor can walk predictably through ${6} parent-child edges.`,
   };
 }
 
@@ -221,7 +221,8 @@ export const article = {
         },
         'Active highlights mark the node being compared right now. Found highlights mark the current lower_bound candidate -- the smallest key seen so far that is >= the query. Compare highlights show alternatives being ruled out.',
         'Watch the array indices, not just the values. The point of Eytzinger layout is that the sequence of indices visited during search -- 1, 2 or 3, 4-7, ... -- follows a predictable pattern the CPU can prefetch ahead of time. If you only watch the values, you see ordinary binary search. If you watch the addresses, you see why the layout matters.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/eytzinger-layout-binary-search.gif', alt: 'Animated walkthrough of the eytzinger layout binary search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

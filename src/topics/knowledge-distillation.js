@@ -33,6 +33,7 @@ export function* run(input) {
   }
   const target = soft ? TEACHER : HARD;
 
+  // Step 1: Teacher's raw prediction — highlight the winner
   yield {
     state: matrixState({
       title: 'The teacher (7B params) sees a photo of a cat',
@@ -42,9 +43,36 @@ export function* run(input) {
       format: pct,
     }),
     highlight: { active: ['teacher:c0'] },
-    explanation: 'A huge model is accurate but expensive to serve. We want a model 10× smaller — but training the small one from scratch on the same data gives mediocre results. Distillation\'s insight: the teacher\'s FULL output distribution holds more lessons per example than the right answer alone. Look at this prediction: 78% cat, but 13% dog, 6% fox… and ~0 for car. The teacher is revealing which mistakes are REASONABLE — what the field calls dark knowledge.',
+    explanation: 'A huge model is accurate but expensive to serve. We want a model 10× smaller — but training the small one from scratch gives mediocre results. Look at the teacher\'s prediction: 78% cat is the winner. But the SHAPE of that distribution is the real treasure. Distillation\'s insight: the teacher\'s full output distribution holds more lessons per example than the right answer alone.',
   };
 
+  // Step 2: Focus on the dark knowledge — highlight non-winning classes
+  yield {
+    state: matrixState({
+      title: 'Dark knowledge: what the "wrong" answers reveal',
+      rows: [{ id: 'teacher', label: 'teacher' }],
+      columns: cols,
+      values: [TEACHER],
+      format: pct,
+    }),
+    highlight: { active: ['teacher:c1', 'teacher:c2', 'teacher:c3', 'teacher:c4'] },
+    explanation: 'Now look at the NON-winners. Dog gets 13%, fox gets 6% — but car gets 2% and tree gets 1%. The teacher is saying: "dogs and foxes LOOK like cats; cars and trees do not." This is dark knowledge — the useful information hiding in the losing probabilities. A hard label [1,0,0,0,0] erases all of it: every wrong class is equally wrong. But they are not equally wrong, and the teacher knows it.',
+  };
+
+  // Step 3: Hard labels — all dark knowledge erased
+  yield {
+    state: matrixState({
+      title: 'What hard labels look like: one-hot',
+      rows: [{ id: 'hard', label: 'hard label' }],
+      columns: cols,
+      values: [HARD],
+      format: pct,
+    }),
+    highlight: { active: ['hard:c0'] },
+    explanation: 'A hard label says one thing: "cat." 100% cat, 0% everything else. The fact that a dog resembles a cat more than a car does? Erased. The fact that foxes are cat-like? Gone. A small student model trained on these labels must rediscover every inter-class relationship from raw pixels alone — and it may not have enough capacity to do so.',
+  };
+
+  // Step 4: The training target (soft or hard)
   yield {
     state: matrixState({
       title: soft ? 'Training target: the teacher\'s soft distribution' : 'Training target: the hard label (one-hot)',
@@ -53,37 +81,93 @@ export function* run(input) {
       values: [target],
       format: pct,
     }),
-    highlight: soft ? {} : { active: ['target:c0'] },
+    highlight: soft ? { active: ['target:c0', 'target:c1', 'target:c2'] } : { active: ['target:c0'] },
     explanation: soft
-      ? 'The student\'s training target is the whole row — every probability, not just the winner. One example now teaches: "this is a cat, dogs and foxes are nearby concepts, cars and trees are unrelated." (In practice both models\' logits are softened with a temperature around T=2–4 first — see Softmax & Temperature — which amplifies exactly those small, information-rich probabilities.)'
-      : 'The hard label says one thing: "cat, and nothing else matters." 100% cat, 0% everything — the fact that a dog resembles a cat more than a car does has been erased. The student will have to rediscover all of that structure on its own, example by example.',
+      ? 'The student will train against the teacher\'s FULL distribution — every probability, not just the winner. One example now teaches: "this is a cat, dogs and foxes are nearby concepts, cars and trees are unrelated." The entire ranking is a training signal.'
+      : 'The student will train against the hard label — just the winner. It will learn THAT the answer is cat, but not WHY other classes are more or less plausible. Compare this with the teacher\'s soft distribution: the difference is the dark knowledge being left on the table.',
   };
 
+  // Step 5: Temperature scaling concept
+  const T = 3;
+  const logits = [5.0, 3.0, 1.5, 0.5, 0.1];
+  const softmaxAt = (t) => {
+    const scaled = logits.map((l) => Math.exp(l / t));
+    const sum = scaled.reduce((a, b) => a + b, 0);
+    return scaled.map((s) => s / sum);
+  };
+  const atT1 = softmaxAt(1);
+  const atT3 = softmaxAt(T);
+  yield {
+    state: matrixState({
+      title: 'Temperature scaling: T=1 vs T=3',
+      rows: [{ id: 't1', label: 'T = 1' }, { id: 't3', label: `T = ${T}` }],
+      columns: cols,
+      values: [atT1, atT3],
+      format: pct,
+    }),
+    highlight: { compare: ['t1', 't3'] },
+    explanation: `Before computing soft targets, both teacher and student logits are divided by temperature T. At T=1 (standard softmax) the distribution is sharply peaked: ${pct(atT1[0])} cat, tiny crumbs elsewhere. At T=${T} the distribution SPREADS: ${pct(atT3[0])} cat, ${pct(atT3[1])} dog, ${pct(atT3[2])} fox. The dark knowledge — the relative ranking among wrong classes — becomes a loud, clear training signal. Typical T: 3–20.`,
+    invariant: 'Both rows still sum to 100% — temperature changes the shape, not the validity, of the distribution.',
+  };
+
+  // Step 6: Student starts near-uniform
   let student = [...STUDENT_START];
+  yield {
+    state: matrixState({
+      title: 'The student (tiny model) before training',
+      rows: [{ id: 'e0', label: 'epoch 0' }],
+      columns: cols,
+      values: [STUDENT_START],
+      format: pct,
+    }),
+    highlight: {},
+    explanation: `An untrained student starts near-uniform: ${CLASSES.map((c, j) => `${c} ${pct(STUDENT_START[j])}`).join(', ')}. It has no opinion — every class is roughly equally likely. The question is whether it can absorb the teacher\'s worldview, or whether it must stumble toward accuracy alone.`,
+    invariant: 'The student\'s probabilities sum to 100% — it is a valid softmax output even before learning.',
+  };
+
+  // Steps 7-9: Three epochs of learning with progressive detail
   const rows = [{ id: 'e0', label: 'epoch 0' }];
   const values = [STUDENT_START];
+  const epochDetails = [
+    {
+      soft: 'The student takes its first big step toward the teacher\'s shape. Cat jumps from ~24% toward the target. But notice: dog and fox are ALSO moving — the student is learning the ranking, not just the winner. This is one training step doing the work of many hard-label examples.',
+      hard: 'The student lurches toward the one-hot spike. Cat probability jumps sharply. Dog, fox, car, tree all shrink toward zero — the student is learning to be maximally confident about one class and dismissive of everything else.',
+    },
+    {
+      soft: 'Closer now. The student\'s distribution is starting to resemble the teacher\'s. The KL divergence — the distance between the two distributions — is shrinking. Cat dominant, dog clearly second, fox third. The student is absorbing the teacher\'s sense of inter-class similarity.',
+      hard: 'The spike sharpens. Cat is climbing toward 100% and everything else is collapsing. The student is becoming a confident classifier, but it has no sense of which wrong answers are more plausible than others. On an ambiguous image, it will be confidently wrong rather than usefully uncertain.',
+    },
+    {
+      soft: 'Convergence. The student\'s distribution is very close to the teacher\'s — the teacher\'s worldview has been compressed into a model a fraction of the size. The dark knowledge transferred: cat > dog > fox > car > tree, with proportions that reflect real visual similarity.',
+      hard: 'The student is now a sharp one-hot approximation. High accuracy on clear-cut cases, but it never learned the structure of near-misses. On a borderline cat/dog image, this student has no calibrated doubt to fall back on.',
+    },
+  ];
+
   for (let epoch = 1; epoch <= 3; epoch += 1) {
     student = student.map((s, j) => s + 0.55 * (target[j] - s));
     const total = student.reduce((a, b) => a + b, 0);
     student = student.map((s) => s / total);
     rows.push({ id: `e${epoch}`, label: `epoch ${epoch}` });
     values.push([...student]);
+
+    const detail = epochDetails[epoch - 1];
+    const dist = target.reduce((sum, t, j) => sum + Math.abs(t - student[j]), 0);
+
     yield {
       state: matrixState({
-        title: 'The student (tiny model) learning',
+        title: `Student learning — epoch ${epoch}`,
         rows: rows.map((r) => ({ ...r })),
         columns: cols,
         values: values.map((v) => [...v]),
         format: pct,
       }),
       highlight: { active: [`e${epoch}`] },
-      explanation: `Epoch ${epoch}: the student\'s distribution moves toward the target. ${soft
-        ? `It is absorbing the SHAPE: cat dominant, dog second, fox third — the teacher\'s worldview compressing into a smaller brain.`
-        : `It is collapsing toward the one-hot spike — increasingly confident about "cat," learning nothing about what nearly-cat looks like.`}`,
-      invariant: 'The student row always sums to 100% — it is still a softmax output.',
+      explanation: `Epoch ${epoch} (L1 distance to target: ${dist.toFixed(3)}): ${soft ? detail.soft : detail.hard}`,
+      invariant: 'Every row sums to 100% — the student remains a valid probability distribution at every step.',
     };
   }
 
+  // Step 10: Side-by-side comparison
   yield {
     state: matrixState({
       title: soft ? 'Distilled student vs teacher' : 'Hard-label student vs teacher',
@@ -92,10 +176,31 @@ export function* run(input) {
       values: [[...student], TEACHER],
       format: pct,
     }),
-    highlight: {},
+    highlight: { compare: ['student', 'teacher'] },
     explanation: soft
-      ? 'After full training the student mimics the teacher\'s judgments — including its calibrated doubts — at a fraction of the size. This is not hypothetical: DistilBERT kept ~97% of BERT\'s quality at 40% smaller and 60% faster, and today\'s strongest small LLMs are routinely trained on frontier-model outputs (distillation at dataset scale). Stack Quantization on top of a distilled student and the compression multiplies.'
-      : 'The hard-label student became confidently narrow: high accuracy on easy cases, but it never inherited the teacher\'s sense of which alternatives are plausible — so it generalizes worse on ambiguous inputs. Flip the control to soft labels and compare the final rows: the difference IS the dark knowledge.',
+      ? `Side by side: the student has absorbed the teacher\'s ranking and approximate magnitudes. Cat ${pct(student[0])} vs ${pct(TEACHER[0])}, dog ${pct(student[1])} vs ${pct(TEACHER[1])}, fox ${pct(student[2])} vs ${pct(TEACHER[2])}. The teacher\'s dark knowledge — which wrong answers are reasonable — survived compression. This is not hypothetical: DistilBERT kept ~97% of BERT\'s quality at 40% smaller and 60% faster.`
+      : `Side by side: the student is a spike where the teacher is a curve. Cat is close (${pct(student[0])} vs ${pct(TEACHER[0])}), but the wrong-class structure is gone. The teacher says dog ${pct(TEACHER[1])}, fox ${pct(TEACHER[2])} — the student says near-zero for both. The dark knowledge was never transmitted.`,
+  };
+
+  // Step 11: Final insight — what the student learned or missed
+  const dogDiff = Math.abs(student[1] - TEACHER[1]);
+  const foxDiff = Math.abs(student[2] - TEACHER[2]);
+  yield {
+    state: matrixState({
+      title: soft ? 'What the student inherited' : 'What the student missed',
+      rows: [
+        { id: 'student', label: 'student' },
+        { id: 'teacher', label: 'teacher' },
+        { id: 'hard', label: 'hard label' },
+      ],
+      columns: cols,
+      values: [[...student], TEACHER, HARD],
+      format: pct,
+    }),
+    highlight: soft ? { found: ['student:c1', 'student:c2'] } : { visited: ['student:c1', 'student:c2'] },
+    explanation: soft
+      ? `The distilled student inherited the teacher\'s SHAPE, not just its answer. Dog gap: ${pct(dogDiff)}, fox gap: ${pct(foxDiff)} — close enough that the student will generalize similarly on ambiguous inputs. In practice, the combined loss L = (1−α)·CE_hard + α·T²·KL_soft blends both signals. Stack Quantization on top and the compression multiplies. Today\'s strongest small LLMs are routinely distilled from frontier-model outputs — distillation at dataset scale.`
+      : `The hard-label student missed everything except the winner. Dog gap from teacher: ${pct(dogDiff)}, fox gap: ${pct(foxDiff)}. All that dark knowledge — which wrong answers are plausible, how classes relate to each other — was never in the training signal. The student will generalize worse on ambiguous inputs and have no calibrated uncertainty. Flip the control to "teacher\'s soft labels" and watch what changes.`,
   };
 }
 
@@ -108,7 +213,8 @@ export const article = {
         { type: 'callout', text: 'Knowledge distillation compresses behavior, not just answers: the student learns from the teacher probability shape over all classes.' },
         'The target row shows what the student trains against. Toggle the control to switch between soft labels (the teacher\'s full distribution) and hard labels (one-hot: 100% cat, 0% everything else). The difference between those two rows is the entire point of distillation.',
         'Epoch rows track the student\'s distribution as training progresses. With soft labels, watch the student preserve the teacher\'s ranking among wrong classes: dog > fox > car > tree. With hard labels, the student collapses toward a single spike. The shape difference in the final comparison row is the dark knowledge the hard-label student never received.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/knowledge-distillation.gif', alt: 'Animated walkthrough of the knowledge distillation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

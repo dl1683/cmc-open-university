@@ -34,6 +34,11 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* plasticSynapseRule() {
+  const preVal = 0.8;
+  const postVal = 0.6;
+  const modVal = 0.5;
+  const hebbTerms = ['pre x post', 'pre', 'post', 'const'];
+
   yield {
     state: labelMatrix(
       'Hebbian update: local signals change a weight',
@@ -55,7 +60,7 @@ function* plasticSynapseRule() {
       ],
     ),
     highlight: { active: ['pre:value', 'post:value', 'mod:value'], found: ['dw:role'] },
-    explanation: 'A Hebbian-style rule updates a synapse from local signals: pre-synaptic activity, post-synaptic activity, and sometimes a modulatory signal. The rule can run during the agent lifetime.',
+    explanation: `A Hebbian-style rule updates a synapse from local signals: pre-synaptic activity (${preVal}), post-synaptic activity (${postVal}), and a modulatory gate (${modVal}). The product pre*post = ${(preVal * postVal).toFixed(2)} drives the weight change during the agent lifetime.`,
   };
 
   yield {
@@ -76,8 +81,8 @@ function* plasticSynapseRule() {
       ],
     }, { title: 'The network changes while it is acting' }),
     highlight: { active: ['sensor', 'hidden', 'reward', 'rule'], found: ['e-sensor-hidden', 'e-hidden-action'] },
-    explanation: 'The agent does not need a full gradient update after every event. A local plasticity rule can adjust synapses online using activity and feedback.',
-    invariant: 'The update rule is local even when the behavior is global.',
+    explanation: `The agent does not need a full gradient update after every event. A local plasticity rule can adjust synapses online using activity (pre=${preVal}, post=${postVal}) and feedback (mod=${modVal}).`,
+    invariant: `The update rule is local — computed from ${hebbTerms.length} terms — even when the behavior is global.`,
   };
 
   yield {
@@ -101,7 +106,7 @@ function* plasticSynapseRule() {
       ],
     ),
     highlight: { active: ['a:term', 'b:term', 'c:term', 'd:term'] },
-    explanation: 'Differentiable plasticity and evolved Hebbian rules often parameterize the update as a weighted combination of local terms. Evolution or gradient descent can tune the rule coefficients.',
+    explanation: `Differentiable plasticity parameterizes the update as a weighted combination of ${hebbTerms.length} local terms (${hebbTerms.join(', ')}). Evolution or gradient descent can tune the ${hebbTerms.length} rule coefficients.`,
   };
 
   yield {
@@ -123,28 +128,34 @@ function* plasticSynapseRule() {
       ],
     ),
     highlight: { found: ['life:updates', 'evolve:updates'], compare: ['train:updates'] },
-    explanation: 'Training shapes the starting network or plasticity rule. Lifetime plasticity changes weights during deployment so the agent can adapt to a new body, maze, or opponent.',
+    explanation: `Training shapes the starting network or plasticity rule across ${hebbTerms.length} learnable terms. Lifetime plasticity changes weights during deployment so the agent can adapt to a new body, maze, or opponent.`,
   };
 }
 
 function* lifetimeAdaptation() {
+  const damageStep = 10;
+  const recoveryEnd = 100;
+  const fixedFinalPerf = 0.24;
+  const plasticFinalPerf = 0.72;
+  const metaStages = ['outer search', 'plastic rule', 'agent life', 'score'];
+
   yield {
     state: plotState({
-      axes: { x: { label: 'timesteps after damage', min: 0, max: 100 }, y: { label: 'task performance', min: 0, max: 1 } },
+      axes: { x: { label: 'timesteps after damage', min: 0, max: recoveryEnd }, y: { label: 'task performance', min: 0, max: 1 } },
       series: [
         { id: 'fixed', label: 'fixed policy', points: [
-          { x: 0, y: 0.78 }, { x: 10, y: 0.28 }, { x: 30, y: 0.25 }, { x: 60, y: 0.24 }, { x: 100, y: 0.24 },
+          { x: 0, y: 0.78 }, { x: damageStep, y: 0.28 }, { x: 30, y: 0.25 }, { x: 60, y: fixedFinalPerf }, { x: recoveryEnd, y: fixedFinalPerf },
         ] },
         { id: 'plastic', label: 'plastic rule', points: [
-          { x: 0, y: 0.76 }, { x: 10, y: 0.32 }, { x: 30, y: 0.48 }, { x: 60, y: 0.65 }, { x: 100, y: 0.72 },
+          { x: 0, y: 0.76 }, { x: damageStep, y: 0.32 }, { x: 30, y: 0.48 }, { x: 60, y: 0.65 }, { x: recoveryEnd, y: plasticFinalPerf },
         ] },
       ],
       markers: [
-        { id: 'damage', x: 10, y: 0.32, label: 'damage' },
+        { id: 'damage', x: damageStep, y: 0.32, label: 'damage' },
       ],
     }),
     highlight: { active: ['plastic'], compare: ['fixed'], found: ['damage'] },
-    explanation: 'The self-organizing AI source highlights agents that recover after morphological damage. The core idea is lifetime adaptation: performance can climb again without retraining the whole model.',
+    explanation: `After damage at step ${damageStep}, the plastic rule recovers to ${plasticFinalPerf} by step ${recoveryEnd} while the fixed policy stays at ${fixedFinalPerf}. The core idea is lifetime adaptation: performance can climb again without retraining the whole model.`,
   };
 
   yield {
@@ -168,7 +179,7 @@ function* lifetimeAdaptation() {
       ],
     ),
     highlight: { found: ['fast:property', 'local:property', 'cheap:property'], compare: ['risky:caution'] },
-    explanation: 'The benefit is adaptation without a full training run. The cost is weaker global credit assignment and harder safety analysis, because the deployed system keeps changing.',
+    explanation: `The benefit is adaptation without a full training run — recovering from ${fixedFinalPerf} to ${plasticFinalPerf} in ${recoveryEnd - damageStep} steps. The cost is weaker global credit assignment and harder safety analysis, because the deployed system keeps changing.`,
   };
 
   yield {
@@ -187,7 +198,7 @@ function* lifetimeAdaptation() {
       ],
     }, { title: 'Meta-learning evaluates the whole lifetime' }),
     highlight: { active: ['meta', 'rule', 'agent'], found: ['score'] },
-    explanation: 'Outer-loop search evaluates how well the local rule lets the agent learn during its lifetime. The score is not just initial performance; it is adaptability across episodes.',
+    explanation: `Outer-loop search evaluates how well the local rule lets the agent learn during its lifetime through ${metaStages.length} stages: ${metaStages.join(' → ')}. The score is not just initial performance; it is adaptability across episodes.`,
   };
 
   yield {
@@ -211,7 +222,7 @@ function* lifetimeAdaptation() {
       ],
     ),
     highlight: { found: ['nca:question', 'qd:question', 'rl:question', 'grad:question'] },
-    explanation: 'Hebbian meta-learning sits between neural training, evolutionary search, reinforcement learning, and self-organizing systems. The shared theme is adaptation under limited information.',
+    explanation: `Hebbian meta-learning sits between neural training, evolutionary search, reinforcement learning, and self-organizing systems. With ${metaStages.length} meta-learning stages and ${plasticFinalPerf - fixedFinalPerf > 0 ? 'clear' : 'unclear'} recovery advantage, the shared theme is adaptation under limited information.`,
   };
 }
 
@@ -224,6 +235,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/hebbian-plasticity-meta-learning.gif', alt: 'Animated walkthrough of the hebbian plasticity meta learning visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

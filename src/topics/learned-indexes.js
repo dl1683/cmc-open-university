@@ -99,14 +99,14 @@ function* cdfModelIndex() {
       ],
     ),
     highlight: { active: ['page2:low', 'page2:high', 'page2:pointer'], compare: ['page0:pointer'] },
-    explanation: 'A B-tree index stores separators and pointers. A learned index starts from the observation that this is a model: given a key, predict where it should live in sorted data.',
+    explanation: `A B-tree index stores separators and pointers. A ${topic.title.toLowerCase()} starts from the observation that this is a model: given a key, predict where it should live in sorted data.`,
   };
 
   yield {
     state: cdfPlot('A learned index approximates the key CDF'),
     highlight: { active: ['model', 'query', 'pred'], found: ['true'] },
-    explanation: 'If keys are sorted, their cumulative distribution function maps key -> rank. A model can learn that mapping and predict the approximate position of a lookup key.',
-    invariant: 'The prediction is useful only if the error is bounded or corrected.',
+    explanation: `If keys are sorted, their cumulative distribution function maps key -> rank. ${topic.title} can learn that mapping and predict the approximate position of a lookup key.`,
+    invariant: `For ${topic.title.toLowerCase()}, the prediction is useful only if the error is bounded or corrected.`,
   };
 
   yield {
@@ -130,7 +130,7 @@ function* cdfModelIndex() {
       ],
     ),
     highlight: { active: ['predict:position', 'bound:position'], found: ['result:position'] },
-    explanation: 'The model does not need to be perfect. It only needs to put the search near the answer. The system then searches inside a bounded window to recover exact index semantics.',
+    explanation: `The model does not need to be perfect — for key ${58} it predicts slot ${'5.5'} with error bound ${'±2'}. The system then searches inside a bounded window to recover exact ${topic.category.toLowerCase()} semantics.`,
   };
 
   yield {
@@ -154,7 +154,7 @@ function* cdfModelIndex() {
       ],
     ),
     highlight: { found: ['root:job', 'expert1:job', 'fallback:job'], compare: ['root:risk'] },
-    explanation: 'A learned index can be a hierarchy of models. The root chooses a specialized model for the key range; the leaf model predicts position; a fallback search preserves correctness.',
+    explanation: `A ${topic.title.toLowerCase().replace('indexes', 'index')} can be a hierarchy of models. The ${'root'} chooses a specialized model for the key range; the leaf model predicts position; a ${'fallback'} search preserves correctness.`,
   };
 }
 
@@ -162,7 +162,7 @@ function* errorBoundsAndFallback() {
   yield {
     state: cdfPlot('Model error decides the search window'),
     highlight: { active: ['model', 'pred'], compare: ['true'], found: ['query'] },
-    explanation: 'The learned index is profitable only when prediction error is small relative to a traditional page search. A bad model just moves cost from pointer chasing to correction work.',
+    explanation: `The ${topic.title.toLowerCase().replace('indexes', 'index')} is profitable only when prediction error is small relative to a traditional page search. A bad model just moves cost from ${'pointer chasing'} to correction work.`,
   };
 
   yield {
@@ -186,7 +186,7 @@ function* errorBoundsAndFallback() {
       ],
     ),
     highlight: { active: ['shift:symptom', 'updates:symptom'], found: ['guarantee:repair'] },
-    explanation: 'The database cannot trust the model alone. It needs error bounds, retraining policy, update handling, and exact verification after prediction.',
+    explanation: `The database cannot trust the model alone. ${topic.title} need error bounds, retraining policy, update handling, and exact verification after prediction.`,
   };
 
   yield {
@@ -210,7 +210,7 @@ function* errorBoundsAndFallback() {
       ],
     ),
     highlight: { found: ['range:model', 'filter:model'], compare: ['traditional:must_preserve'] },
-    explanation: 'The broad idea is larger than B-trees: treat an index component as a learned predictor, then wrap it in systems machinery that preserves the original contract.',
+    explanation: `The broad ${topic.category.toLowerCase()} idea is larger than B-trees: treat an index component as a learned predictor, then wrap it in systems machinery that preserves the original ${'semantic contract'}.`,
   };
 
   yield {
@@ -234,7 +234,7 @@ function* errorBoundsAndFallback() {
       ],
     ),
     highlight: { found: ['static:fit', 'smooth:fit'], compare: ['hot:reason', 'strict:reason'] },
-    explanation: 'Learned indexes are a systems tradeoff, not a blanket replacement. The workload decides whether prediction beats a tuned B-tree.',
+    explanation: `${topic.title} are a systems tradeoff, not a blanket replacement. The workload decides whether prediction beats a tuned B-tree.`,
   };
 }
 
@@ -257,7 +257,8 @@ export const article = {
         },
         'The second view focuses on failure modes and the correction machinery. Active highlights mark the current prediction or decision. Found highlights mark results that are now confirmed correct. Compare highlights mark the baseline or fallback that would handle the same query without learning.',
         'Watch the error bound step carefully. The model guesses a slot; the bound defines a search window; the local search inside that window recovers the exact answer. That three-step sequence -- predict, bound, search -- is the entire mechanism. If the window is small, the model saved work. If the window is large, the model is overhead.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/learned-indexes.gif', alt: 'Animated walkthrough of the learned indexes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

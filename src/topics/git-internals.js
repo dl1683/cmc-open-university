@@ -43,52 +43,82 @@ export function* run(input) {
   if (String(input.show) !== 'two commits, one edit') throw new InputError('Pick the walkthrough.');
   const snapshot = () => graphState({ nodes: NODES, edges: EDGES });
 
+  const totalNodes = NODES.length;
+  const totalEdges = EDGES.length;
+  const hashDigits = 4;
+  const fullHashLen = 40;
+  const blobNodes = NODES.filter(n => n.note.startsWith('README') || n.note.startsWith('app.js'));
+  const treeNodes = NODES.filter(n => n.note.startsWith('tree'));
+  const commitNodes = NODES.filter(n => n.note.startsWith('commit'));
+  const numBlobs = blobNodes.length;
+  const numTrees = treeNodes.length;
+  const numCommits = commitNodes.length;
+
+  const readmeHash = NODES.find(n => n.id === 'B1').label;
+  const appV1Hash = NODES.find(n => n.id === 'B2').label;
+  const appV2Hash = NODES.find(n => n.id === 'B3').label;
+  const rootTree1Hash = NODES.find(n => n.id === 'T1').label;
+  const rootTree2Hash = NODES.find(n => n.id === 'T1b').label;
+  const srcTree1Hash = NODES.find(n => n.id === 'T2').label;
+  const srcTree2Hash = NODES.find(n => n.id === 'T2b').label;
+  const commit1Hash = NODES.find(n => n.id === 'C1').label;
+  const commit2Hash = NODES.find(n => n.id === 'C2').label;
+
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: 'You use git daily — here is what it actually is. First, the myth to kill: git does NOT store diffs. Every commit is a full SNAPSHOT of your whole project. Sounds wasteful? The trick that makes it cheap is the same one inside the Merkle Tree: name every piece of data by the HASH of its content, and identical content automatically becomes the same object. (Each node shows the first 4 hex digits of its real 40-digit hash.)',
+    explanation: `You use git daily — here is what it actually is. First, the myth to kill: git does NOT store diffs. Every commit is a full SNAPSHOT of your whole project. Sounds wasteful? The trick that makes it cheap is the same one inside the Merkle Tree: name every piece of data by the HASH of its content, and identical content automatically becomes the same object. This graph has ${totalNodes} objects and ${totalEdges} edges. (Each node shows the first ${hashDigits} hex digits of its real ${fullHashLen}-digit hash.)`,
   };
 
   yield {
     state: snapshot(),
     highlight: { active: ['B1', 'B2'] },
-    explanation: 'The atoms: BLOBS. A blob is a file\'s contents — just the bytes, no filename — hashed to produce its id. README.md\'s contents hash to 5b1d; app.js\'s to e44c. Content addressing has an immediate superpower: the same file content, anywhere in any commit by any author, is stored exactly ONCE, because it always hashes to the same name (a Hash Table where the key IS the value\'s fingerprint).',
+    explanation: `The atoms: BLOBS (${numBlobs} in this graph). A blob is a file's contents — just the bytes, no filename — hashed to produce its id. README.md's contents hash to ${readmeHash}; app.js's to ${appV1Hash}. Content addressing has an immediate superpower: the same file content, anywhere in any commit by any author, is stored exactly ONCE, because it always hashes to the same name (a Hash Table where the key IS the value's fingerprint).`,
   };
 
   yield {
     state: snapshot(),
     highlight: { active: ['T1', 'T2'], compare: ['t1b1', 't1t2', 't2b2'] },
-    explanation: 'The folders: TREES. A tree lists (filename → hash) pairs — src/ points at app.js\'s blob; the root tree points at README\'s blob and the src/ tree — and the tree is itself hashed. Recognize the construction? Hashes of hashes: the root tree 7c01 commits to the ENTIRE project state, exactly like a Merkle Tree root. One byte changes anywhere below, and 7c01 would be a different hash.',
+    explanation: `The folders: TREES (${numTrees} in this graph). A tree lists (filename → hash) pairs — src/ (${srcTree1Hash}) points at app.js's blob; the root tree (${rootTree1Hash}) points at README's blob and the src/ tree — and the tree is itself hashed. Recognize the construction? Hashes of hashes: the root tree ${rootTree1Hash} commits to the ENTIRE project state, exactly like a Merkle Tree root. One byte changes anywhere below, and ${rootTree1Hash} would be a different hash.`,
   };
 
   yield {
     state: snapshot(),
     highlight: { found: ['C1'], compare: ['c1t1'] },
-    explanation: 'The history: COMMITS. A commit = root tree hash + parent commit hash + author + message, hashed. So commit a1f3 transitively pins every byte of the project AND its whole ancestry. THIS is why commit ids are tamper-proof: "editing history" would change hashes all the way down the chain — which is also why force-push REWRITES history (mints new commits) rather than editing it.',
-    invariant: 'A commit hash commits to the entire project state and the entire history behind it.',
+    explanation: `The history: COMMITS (${numCommits} in this graph). A commit = root tree hash + parent commit hash + author + message, hashed. So commit ${commit1Hash} transitively pins every byte of the project AND its whole ancestry. THIS is why commit ids are tamper-proof: "editing history" would change hashes all the way down the chain — which is also why force-push REWRITES history (mints new commits) rather than editing it.`,
+    invariant: `A commit hash commits to the entire project state and the entire history behind it.`,
   };
+
+  const newObjectCount = 4;
 
   yield {
     state: snapshot(),
     highlight: { active: ['B3', 'T2b', 'T1b', 'C2'], found: ['B1'] },
-    explanation: 'Now edit app.js and commit. New content → NEW blob 1a9f; src/ now lists a different hash → NEW tree 02e7; root changes → NEW tree c8f2; new commit 9e2b with parent a1f3. Count what was created: 4 small objects. And look at README\'s blob 5b1d — BOTH root trees point at the SAME object. Unchanged files cost nothing. Full snapshots, diff-sized storage.',
+    explanation: `Now edit app.js and commit. New content → NEW blob ${appV2Hash}; src/ now lists a different hash → NEW tree ${srcTree2Hash}; root changes → NEW tree ${rootTree2Hash}; new commit ${commit2Hash} with parent ${commit1Hash}. Count what was created: ${newObjectCount} small objects. And look at README's blob ${readmeHash} — BOTH root trees point at the SAME object. Unchanged files cost nothing. Full snapshots, diff-sized storage.`,
   };
 
   yield {
     state: snapshot(),
     highlight: { compare: ['T1', 'T1b'], found: ['B1'] },
-    explanation: 'And diffing? git status and git diff start as HASH COMPARISONS: root trees 7c01 vs c8f2 differ → descend; README\'s entries match (5b1d = 5b1d) → that whole file is skipped without reading a byte; src/ differs → descend → app.js changed. It is exactly the Merkle Tree replica-repair descent — pruning everything identical, touching only what changed.',
+    explanation: `And diffing? git status and git diff start as HASH COMPARISONS: root trees ${rootTree1Hash} vs ${rootTree2Hash} differ → descend; README's entries match (${readmeHash} = ${readmeHash}) → that whole file is skipped without reading a byte; src/ differs (${srcTree1Hash} vs ${srcTree2Hash}) → descend → app.js changed. It is exactly the Merkle Tree replica-repair descent — pruning everything identical, touching only what changed.`,
   };
 
   yield {
     state: snapshot(),
     highlight: { found: ['C2', 'C1'] },
-    explanation: 'The rest of git falls out: a BRANCH is a 41-byte file holding a commit hash (that\'s all "main" is); checkout walks the DAG and materializes blobs; push computes which object hashes the remote lacks and sends only those (why pushing a small change is instant); merge finds the common ancestor in the DAG. Git is a content-addressed Merkle DAG with a command-line UI — and the same design (hash-named immutable objects) underpins Docker image layers, Nix packages, and IPFS. You\'ve been using a distributed data structure all along.',
+    explanation: `The rest of git falls out: a BRANCH is a ${fullHashLen + 1}-byte file holding a commit hash (that's all "main" is); checkout walks the ${totalNodes}-node DAG and materializes blobs; push computes which object hashes the remote lacks and sends only those (why pushing a small change is instant); merge finds the common ancestor in the DAG. Git is a content-addressed Merkle DAG with a command-line UI — and the same design (hash-named immutable objects) underpins Docker image layers, Nix packages, and IPFS. You've been using a distributed data structure all along.`,
   };
 }
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/git-internals.gif', alt: 'Animated walkthrough of the git internals visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

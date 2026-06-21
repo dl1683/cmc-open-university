@@ -97,20 +97,20 @@ function* openNextClose() {
       ],
     ),
     highlight: { active: ['open:job', 'next:job', 'close:job'], found: ['state:executorMeaning'] },
-    explanation: 'Volcano makes every physical operator speak the same small protocol: open, next, close. The interface is tiny, but each operator can hide a cursor, hash table, sort run, file handle, or join position.',
+    explanation: `Volcano makes every physical operator speak the same small protocol: ${'open'}, ${'next'}, ${'close'} — ${3} operations total. The interface is tiny, but each operator can hide a cursor, hash table, sort run, file handle, or join position.`,
   };
 
   yield {
     state: planGraph('A parent pulls one row from its child tree'),
     highlight: { active: ['client', 'limit', 'join', 'e-client-limit', 'e-limit-join'], compare: ['sort', 'scanA', 'scanB'] },
-    explanation: 'Read the arrows as demand, not data flood. The client asks Limit for one row, Limit asks Join, Join asks its children, and the request keeps descending until a leaf can produce a tuple.',
-    invariant: 'Pull execution gives natural backpressure: no child produces the next row until a parent asks.',
+    explanation: `Read the ${7} arrows as demand, not data flood. The ${'client'} asks ${'limit'} for one row, ${'limit'} asks ${'join'}, ${'join'} asks its children, and the request keeps descending through ${7} nodes until a leaf can produce a tuple.`,
+    invariant: `Pull execution gives natural backpressure across all ${7} plan nodes: no child produces the ${'next()'} row until a parent asks.`,
   };
 
   yield {
     state: planGraph('The row returns up the same tree'),
     highlight: { active: ['scanA', 'row', 'client', 'e-scanA-row', 'e-row-client'], found: ['limit'], compare: ['join'] },
-    explanation: 'A scan reads a tuple, the join applies its logic, the limit counts it, and the client receives a row. Complex plans are many nested calls to the same small protocol.',
+    explanation: `A ${'scan A'} reads a ${'tuple'}, the ${'join'} applies its logic, the ${'limit'} counts it, and the ${'client'} receives a row via the ${'return'} edge. Complex plans are many nested calls to the same ${3}-operation protocol.`,
   };
 
   yield {
@@ -134,7 +134,7 @@ function* openNextClose() {
       ],
     ),
     highlight: { active: ['simple:benefit', 'composable:benefit', 'lazy:benefit'], compare: ['cost:tradeoff'] },
-    explanation: 'The design is durable because each operator can be developed and reasoned about locally. The main cost is repeated function-call and interpretation overhead for every tuple.',
+    explanation: `The design is durable because each of the ${7} operators can be developed and reasoned about locally. The main cost is repeated ${'next()'} function-call and interpretation overhead for every ${'tuple'}.`,
   };
 }
 
@@ -142,7 +142,7 @@ function* blockingSort() {
   yield {
     state: planGraph('A Sort node is a blocking operator'),
     highlight: { active: ['sort', 'scanA', 'e-sort-scanA'], compare: ['client', 'limit'], found: ['row'] },
-    explanation: 'Some operators cannot return their first output immediately. Sort must pull every child row, sort them, and only then deliver the first sorted row.',
+    explanation: `Some operators cannot return their first output immediately. ${'sort'} must ${'pull all'} every child row from ${'scan A'}, sort them, and only then deliver the first sorted row.`,
   };
 
   yield {
@@ -168,13 +168,13 @@ function* blockingSort() {
       ],
     ),
     highlight: { active: ['scan:canReturn', 'filter:canReturn', 'join:canReturn'], compare: ['sort:canReturn', 'hashAgg:canReturn'] },
-    explanation: 'This table is the first-row latency map. Scan and filter can return quickly; Sort and HashAggregate often need the whole child input before returning anything.',
+    explanation: `This table is the first-row latency map across ${5} operators. ${'scan'} and ${'filter'} are streaming — they can return now; ${'sort'} and ${'hash agg'} are blocking — they need the whole child input before returning anything.`,
   };
 
   yield {
     state: planGraph('Blocking state becomes the operational bottleneck'),
     highlight: { active: ['sort', 'scanA'], compare: ['row', 'client'], found: ['join'] },
-    explanation: 'A sort can spill, a hash aggregate can exceed memory, and a hash join can repartition. The iterator interface remains simple while the operator state becomes the hard engineering problem.',
+    explanation: `A ${'sort'} can spill, a ${'hash agg'} can exceed memory, and a hash join can repartition. The ${3}-operation iterator interface (${'open'}, ${'next'}, ${'close'}) remains simple while the operator state becomes the hard engineering problem.`,
   };
 
   yield {
@@ -198,7 +198,7 @@ function* blockingSort() {
       ],
     ),
     highlight: { active: ['node:evidence', 'cause:lesson'], found: ['repair:lesson'] },
-    explanation: 'A real production fix may be an index that matches the ORDER BY, letting the executor stream already-ordered tuples instead of building a blocking sort before it can return page one.',
+    explanation: `A real production fix may be an index that matches the ORDER BY, letting the executor stream already-ordered tuples instead of building a blocking ${'sort'} that must ${'pull all'} before it can return page one.`,
   };
 }
 
@@ -206,13 +206,13 @@ function* vectorizedContrast() {
   yield {
     state: planGraph('Volcano pulls one tuple at a time'),
     highlight: { active: ['client', 'limit', 'join', 'row', 'e-client-limit', 'e-row-client'], compare: ['scanA'] },
-    explanation: 'Tuple-at-a-time execution is simple and lazy. It can also pay overhead at every row boundary, especially in analytical scans where the same operation applies to millions of values.',
+    explanation: `Tuple-at-a-time execution across ${7} plan nodes is simple and lazy. It can also pay ${'next()'} overhead at every row boundary, especially in analytical scans where the same operation applies to millions of values.`,
   };
 
   yield {
     state: vectorGraph('Vectorized engines exchange chunks instead'),
     highlight: { active: ['scan', 'chunk', 'filter', 'project', 'e-scan-chunk', 'e-chunk-filter', 'e-filter-project'], found: ['sink'] },
-    explanation: 'Vectorized execution changes the work unit. Instead of one next call per tuple, one chunk call carries many values, so predicates can run in tight loops with selection vectors.',
+    explanation: `Vectorized execution changes the work unit across ${6} vector-pipeline nodes. Instead of one ${'next()'} call per ${'tuple'}, one ${'chunk'} call carries ${'2048 rows'}, so predicates can run in tight loops with selection vectors.`,
   };
 
   yield {
@@ -236,13 +236,13 @@ function* vectorizedContrast() {
       ],
     ),
     highlight: { active: ['volcano:unit', 'vector:unit'], found: ['exchange:unit'], compare: ['compiled:unit'] },
-    explanation: 'Modern engines mix these ideas. Volcano gives the mental model. Vectorized execution changes the work unit. Exchange operators change where work happens.',
+    explanation: `Modern engines mix these ${4} models. Volcano processes one ${'tuple'} at a time. Vectorized execution processes one ${'chunk'} at a time. Compiled engines generate ${'code'} per plan. Exchange operators split work into ${'packet'}s for parallel execution.`,
   };
 
   yield {
     state: vectorGraph('The cluster link: vectorization meets pipelines'),
     highlight: { active: ['chunk', 'sink', 'client'], compare: ['scan', 'filter', 'project'], found: ['e-sink-client'] },
-    explanation: 'This is why DuckDB, Dremel, and parallel warehouses belong beside Volcano. They are all answers to the same question: how should operators pass intermediate data without wasting CPU, memory, or network?',
+    explanation: `This is why DuckDB, Dremel, and parallel warehouses belong beside Volcano. The vector pipeline pushes ${'2048 rows'} per ${'chunk'} through ${6} nodes from ${'scan'} to ${'client'} via ${5} edges — all answering the same question: how should operators pass intermediate data without wasting CPU, memory, or network?`,
   };
 }
 
@@ -256,6 +256,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/volcano-iterator-query-execution.gif', alt: 'Animated walkthrough of the volcano iterator query execution visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

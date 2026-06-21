@@ -51,12 +51,15 @@ function treeGraph(title) {
 }
 
 function* jumpTable() {
+  const rootId = 'n1';
+  const baseLevel = 0;
   yield {
     state: treeGraph('Root the tree and record parent/depth'),
-    highlight: { active: ['n1', 'n2', 'n3', 'e-1-2', 'e-1-3'], compare: ['jump'] },
-    explanation: 'Binary lifting starts with a rooted tree. DFS records depth and the immediate parent up[v][0] for every node.',
-    invariant: 'up[v][k] means the 2^k-th ancestor of v, or null above the root.',
+    highlight: { active: [rootId, 'n2', 'n3', 'e-1-2', 'e-1-3'], compare: ['jump'] },
+    explanation: `Binary lifting starts with a rooted tree. DFS records depth and the immediate parent up[v][${baseLevel}] for every node.`,
+    invariant: `up[v][k] means the 2^k-th ancestor of v, or null above the root at ${rootId}.`,
   };
+  const jumpSizes = [1, 2, 4];
   yield {
     state: labelMatrix(
       'Jump table recurrence',
@@ -68,15 +71,18 @@ function* jumpTable() {
       ],
       [{ id: 'formula', label: 'formula' }, { id: 'meaning' }],
       [
-        ['parent[v]', '1 step'],
-        ['up[up[v][0]][0]', '2 steps'],
-        ['up[up[v][1]][1]', '4 steps'],
+        ['parent[v]', `${jumpSizes[0]} step`],
+        ['up[up[v][0]][0]', `${jumpSizes[1]} steps`],
+        ['up[up[v][1]][1]', `${jumpSizes[2]} steps`],
         ['decompose d in binary', 'combine jumps'],
       ],
     ),
     highlight: { found: ['k1:formula', 'k2:formula'], active: ['query:meaning'] },
-    explanation: 'Each larger jump is two smaller jumps chained together. That is the same doubling idea as sparse tables and binary exponentiation.',
+    explanation: `Each larger jump is two smaller jumps chained together — a jump of ${jumpSizes[2]} is two jumps of ${jumpSizes[1]}. That is the same doubling idea as sparse tables and binary exponentiation.`,
   };
+  const node5Parent = 2;
+  const node5Grandparent = 1;
+  const maxColumns = 3;
   yield {
     state: labelMatrix(
       'Example table entries',
@@ -88,15 +94,17 @@ function* jumpTable() {
       ],
       [{ id: 'up0', label: '2^0' }, { id: 'up1', label: '2^1' }, { id: 'up2', label: '2^2' }],
       [
-        ['2', '1', 'null'],
-        ['2', '1', 'null'],
-        ['3', '1', 'null'],
+        [`${node5Parent}`, `${node5Grandparent}`, 'null'],
+        [`${node5Parent}`, `${node5Grandparent}`, 'null'],
+        ['3', `${node5Grandparent}`, 'null'],
         ['null', 'null', 'null'],
       ],
     ),
     highlight: { active: ['n5:up0', 'n5:up1'], compare: ['root:up0'] },
-    explanation: 'For node 5, the one-step ancestor is 2 and the two-step ancestor is 1. Larger jumps are null because the root is reached.',
+    explanation: `For node 5, the one-step ancestor is ${node5Parent} and the two-step ancestor is ${node5Grandparent}. Larger jumps past column ${maxColumns} are null because the root is reached.`,
   };
+  const queryCost = 'O(log n)';
+  const buildCost = 'O(n log n)';
   yield {
     state: labelMatrix(
       'Costs and uses',
@@ -108,28 +116,34 @@ function* jumpTable() {
       ],
       [{ id: 'cost' }, { id: 'use' }],
       [
-        ['O(n log n)', 'build table'],
-        ['O(log n)', 'jump by binary bits'],
-        ['O(log n)', 'lift and converge'],
-        ['O(log n)', 'max/min on jump edges'],
+        [buildCost, 'build table'],
+        [queryCost, 'jump by binary bits'],
+        [queryCost, 'lift and converge'],
+        [queryCost, 'max/min on jump edges'],
       ],
     ),
     highlight: { found: ['ancestor:cost', 'lca:cost'], compare: ['pre:cost'] },
-    explanation: 'Binary lifting is cheap memory for fast repeated tree ancestry queries, especially when the tree topology is fixed.',
+    explanation: `Binary lifting preprocesses in ${buildCost} and answers each query in ${queryCost}, making it cheap memory for fast repeated tree ancestry queries on a fixed topology.`,
   };
 }
 
 function* lcaQuery() {
+  const nodeU = 5;
+  const nodeV = 7;
+  const sharedDepth = 2;
   yield {
-    state: treeGraph('Find LCA(5, 7)'),
+    state: treeGraph(`Find LCA(${nodeU}, ${nodeV})`),
     highlight: { active: ['n5', 'n7'], compare: ['n2', 'n3'], found: ['n1'] },
-    explanation: 'To find an LCA, first lift the deeper node so both nodes have the same depth. Here 5 and 7 already match at depth 2.',
+    explanation: `To find an LCA, first lift the deeper node so both nodes have the same depth. Here ${nodeU} and ${nodeV} already match at depth ${sharedDepth}.`,
   };
+  const parentOfU = 2;
+  const parentOfV = 3;
+  const lcaNode = 1;
   yield {
     state: labelMatrix(
       'Lift both nodes from high powers down',
       [
-        { id: 'start', label: 'start 5,7' },
+        { id: 'start', label: `start ${nodeU},${nodeV}` },
         { id: 'try2', label: 'try 2^1' },
         { id: 'try1', label: 'try 2^0' },
         { id: 'answer', label: 'parent after loop' },
@@ -137,28 +151,31 @@ function* lcaQuery() {
       [{ id: 'action' }, { id: 'result' }],
       [
         ['same depth', 'continue'],
-        ['both jump to 1', 'too far together'],
-        ['5->2 and 7->3', 'different, accept'],
-        ['parent(2)=1', 'LCA is 1'],
+        [`both jump to ${lcaNode}`, 'too far together'],
+        [`${nodeU}->${parentOfU} and ${nodeV}->${parentOfV}`, 'different, accept'],
+        [`parent(${parentOfU})=${lcaNode}`, `LCA is ${lcaNode}`],
       ],
     ),
     highlight: { active: ['try1:result'], found: ['answer:result'], compare: ['try2:result'] },
-    explanation: 'The loop tries big jumps first. If the two candidates after jumping are different, both jumps are safe because the LCA is still above them.',
-    invariant: 'During convergence, u and v stay below the LCA until the final parent step.',
+    explanation: `The loop tries big jumps first. If the two candidates after jumping are different (${parentOfU} and ${parentOfV}), both jumps are safe because the LCA is still above them.`,
+    invariant: `During convergence, u and v stay below the LCA (node ${lcaNode}) until the final parent step.`,
   };
+  const associativeOps = ['max edge', 'min edge', 'xor'];
   yield {
     state: treeGraph('LCA splits a tree path into two ancestor climbs'),
     highlight: { active: ['n5', 'n2', 'n1', 'n3', 'n7'], found: ['n1'], compare: ['jump'] },
-    explanation: 'Once LCA is known, a path query can be split into u-to-lca and v-to-lca. Jump-table metadata can accumulate max edge, min edge, xor, or other associative facts.',
+    explanation: `Once LCA is known, a path query can be split into ${nodeU}-to-lca and ${nodeV}-to-lca. Jump-table metadata can accumulate ${associativeOps.join(', ')}, or other associative facts.`,
   };
+  const tools = ['Binary Lifting', 'Heavy-Light', 'Euler + Sparse Table', 'Link-Cut Tree'];
+  const queryCost = 'O(log n)';
   yield {
     state: labelMatrix(
       'Choose with neighboring tools',
       [
-        { id: 'binary', label: 'Binary Lifting' },
-        { id: 'hld', label: 'Heavy-Light' },
-        { id: 'sparse', label: 'Euler + Sparse Table' },
-        { id: 'dynamic', label: 'Link-Cut Tree' },
+        { id: 'binary', label: tools[0] },
+        { id: 'hld', label: tools[1] },
+        { id: 'sparse', label: tools[2] },
+        { id: 'dynamic', label: tools[3] },
       ],
       [{ id: 'best' }, { id: 'limit' }],
       [
@@ -169,7 +186,7 @@ function* lcaQuery() {
       ],
     ),
     highlight: { found: ['binary:best', 'hld:best'], compare: ['dynamic:limit'] },
-    explanation: 'Binary lifting is the simplest strong default for static trees when O(log n) queries are good enough.',
+    explanation: `${tools[0]} is the simplest strong default for static trees when ${queryCost} queries are good enough — ${tools.length - 1} alternatives exist for specialized needs.`,
   };
 }
 
@@ -182,6 +199,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/binary-lifting-lca.gif', alt: 'Animated walkthrough of the binary lifting lca visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -34,6 +34,11 @@ export function* run(input) {
     throw new InputError('Pick a scenario.');
   }
 
+  const numParticipants = PARTICIPANTS.length;
+  const numNodes = NODES.length;
+  const numEdges = EDGES.length;
+  const participantLabels = NODES.filter(n => n.id !== 'C').map(n => n.label).join(', ');
+
   const status = new Map([['C', 'coordinator'], ['P1', 'idle'], ['P2', 'idle'], ['P3', 'idle']]);
   let coordinatorAlive = true;
   const snapshot = () => graphState({
@@ -44,15 +49,15 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { active: ['C'] },
-    explanation: 'One checkout, three databases: payments must debit, inventory must reserve, orders must create — ALL or NOTHING. On a single machine the Write-Ahead Log (WAL) buys atomicity; across machines, nobody\'s local log can speak for the others. Two-phase commit appoints a COORDINATOR (C) to orchestrate a distributed promise.',
+    explanation: `One checkout, ${numParticipants} databases (${participantLabels}): payments must debit, inventory must reserve, orders must create — ALL or NOTHING. On a single machine the Write-Ahead Log (WAL) buys atomicity; across ${numParticipants} machines, nobody's local log can speak for the others. Two-phase commit appoints a COORDINATOR (C) to orchestrate a distributed promise.`,
   };
 
   for (const p of PARTICIPANTS) status.set(p, 'preparing…');
   yield {
     state: snapshot(),
     highlight: { active: EDGES.map((e) => e.id), compare: PARTICIPANTS },
-    explanation: 'PHASE 1 — PREPARE: C asks every participant "can you commit this?" Each one does the actual work, writes it durably to its own WAL, LOCKS the affected rows… but does not finalize. A YES vote is a binding promise: "I am now ABLE to commit, and will hold this state until you decide."',
-    invariant: 'A participant that votes YES must be able to commit even if it crashes and recovers (its WAL guarantees this).',
+    explanation: `PHASE 1 — PREPARE: C sends ${numEdges} PREPARE messages — one per edge — asking every participant "can you commit this?" Each of the ${numParticipants} participants does the actual work, writes it durably to its own WAL, LOCKS the affected rows… but does not finalize. A YES vote is a binding promise: "I am now ABLE to commit, and will hold this state until you decide."`,
+    invariant: `A participant that votes YES must be able to commit even if it crashes and recovers — all ${numParticipants} WALs guarantee this independently.`,
   };
 
   if (scenario === 'one votes no') {
@@ -62,13 +67,13 @@ export function* run(input) {
     yield {
       state: snapshot(),
       highlight: { swap: ['P2'], found: ['P1', 'P3'] },
-      explanation: 'The votes arrive: payments YES, orders YES… but inventory votes NO — the last unit just sold out. Unanimity failed, and 2PC requires ALL yes votes.',
+      explanation: `The votes arrive: ${NODES[1].label} YES, ${NODES[3].label} YES… but ${NODES[2].label} votes NO — the last unit just sold out. Unanimity across ${numParticipants} participants failed, and 2PC requires ALL yes votes.`,
     };
     for (const p of PARTICIPANTS) status.set(p, 'rolled back');
     yield {
       state: snapshot(),
       highlight: { active: EDGES.map((e) => e.id) },
-      explanation: 'PHASE 2 — ABORT: C broadcasts the decision; every participant undoes its prepared work via its WAL and releases its locks. The customer sees one clean "out of stock" — never a charged card with no order. Atomicity held; the transaction just answered "no".',
+      explanation: `PHASE 2 — ABORT: C broadcasts the decision across ${numEdges} edges; every participant undoes its prepared work via its WAL and releases its locks. The customer sees one clean "out of stock" — never a charged card with no order. Atomicity held across all ${numParticipants} participants; the transaction just answered "no".`,
     };
     return;
   }
@@ -77,7 +82,7 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { found: PARTICIPANTS },
-    explanation: 'All three vote YES. Every participant is now PREPARED: work written, locks held, fate suspended. Only one thing remains — the coordinator\'s decision, which it writes to its OWN log first (the decision itself must survive a crash).',
+    explanation: `All ${numParticipants} vote YES. Every participant is now PREPARED: work written, locks held, fate suspended. Only one thing remains — the coordinator's decision, which it writes to its OWN log first (the decision itself must survive a crash).`,
   };
 
   if (scenario === 'coordinator crashes') {
@@ -86,13 +91,13 @@ export function* run(input) {
     yield {
       state: snapshot(),
       highlight: { swap: PARTICIPANTS },
-      explanation: '⚡ C crashes after collecting the votes but BEFORE broadcasting a decision. Now witness 2PC\'s famous flaw: the participants are STUCK. Commit on their own? Maybe C decided abort. Abort on their own? Maybe C decided commit and told someone. They can do nothing — holding locks, blocking every other transaction that touches those rows — until C recovers and reads its log.',
-      invariant: 'Prepared participants cannot decide unilaterally — that is precisely what makes 2PC correct, and what makes it BLOCKING.',
+      explanation: `⚡ C crashes after collecting ${numParticipants} YES votes but BEFORE broadcasting a decision. Now witness 2PC's famous flaw: the ${numParticipants} participants (${participantLabels}) are STUCK. Commit on their own? Maybe C decided abort. Abort on their own? Maybe C decided commit and told someone. They can do nothing — holding locks, blocking every other transaction that touches those rows — until C recovers and reads its log.`,
+      invariant: `${numParticipants} prepared participants cannot decide unilaterally — coordinatorAlive is ${coordinatorAlive}, so no edges remain. That is precisely what makes 2PC correct, and what makes it BLOCKING.`,
     };
     yield {
       state: snapshot(),
       highlight: {},
-      explanation: 'This blocking is why 2PC is treated with caution: one machine\'s nap halts many. The fixes shape modern infrastructure — replicate the COORDINATOR\'S decision with consensus so a backup can answer (Raft Log Replication: Spanner and CockroachDB run 2PC over Raft groups), or sidestep atomic commits entirely with SAGAS: a chain of local transactions plus compensating undo actions, the standard microservices answer. Compare the CAP Theorem: 2PC chooses consistency and pays in availability.',
+      explanation: `This blocking is why 2PC is treated with caution: 1 coordinator's nap halts ${numParticipants} participants. The fixes shape modern infrastructure — replicate the COORDINATOR's decision with consensus so a backup can answer (Raft Log Replication: Spanner and CockroachDB run 2PC over Raft groups), or sidestep atomic commits entirely with SAGAS: a chain of local transactions plus compensating undo actions, the standard microservices answer. Compare the CAP Theorem: 2PC chooses consistency and pays in availability.`,
     };
     return;
   }
@@ -101,13 +106,13 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { active: EDGES.map((e) => e.id), found: PARTICIPANTS },
-    explanation: 'PHASE 2 — COMMIT: C logs "commit", then broadcasts it. Each participant finalizes its prepared work and releases its locks. All three databases changed as one: the card was charged, the unit reserved, the order created — atomically, across machines.',
+    explanation: `PHASE 2 — COMMIT: C logs "commit", then broadcasts it across ${numEdges} edges. Each of the ${numParticipants} participants finalizes its prepared work and releases its locks. All ${numParticipants} databases (${participantLabels}) changed as one: the card was charged, the unit reserved, the order created — atomically, across machines.`,
   };
 
   yield {
     state: snapshot(),
     highlight: { found: ['C', ...PARTICIPANTS] },
-    explanation: 'That is 2PC at its best: two network round-trips buy cross-machine atomicity, and it powers XA transactions in relational databases and distributed SQL engines to this day. But re-run this with "coordinator crashes" before trusting it everywhere — the failure mode, not the happy path, is why consensus protocols and sagas exist.',
+    explanation: `That is 2PC at its best: two network round-trips across ${numEdges} edges buy cross-machine atomicity for ${numNodes} nodes, and it powers XA transactions in relational databases and distributed SQL engines to this day. But re-run this with "coordinator crashes" before trusting it everywhere — the "${scenario}" happy path is not the whole story; the failure mode is why consensus protocols and sagas exist.`,
   };
 }
 
@@ -120,7 +125,8 @@ export const article = {
         {type: `callout`, text: `Two-phase commit makes every participant durable before any participant becomes visible, then lets one logged coordinator decision resolve all local promises.`},
         `When edges light up, the coordinator is sending PREPARE requests (phase 1) or COMMIT/ABORT decisions (phase 2). When participant nodes show "voted YES" or "voted NO," that participant has written its vote durably and replied. "committed" means the participant finalized its local work and released locks.`,
         `Run the "coordinator crashes" scenario to see the blocking problem. The coordinator disappears, participants show "BLOCKED," and no edges remain. Those participants are holding locks on real rows with no way to learn the outcome. That frozen state is 2PC's defining tradeoff.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/two-phase-commit.gif', alt: 'Animated walkthrough of the two phase commit visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -51,6 +51,11 @@ function patriciaShape(title) {
 }
 
 function* compressedBits() {
+  const keys = ['000101', '001100', '101000', '101111'];
+  const keyCount = keys.length;
+  const bitLen = keys[0].length;
+  const newKey = '101011';
+
   yield {
     state: labelMatrix(
       'Plain binary trie has many one-child chains',
@@ -62,26 +67,26 @@ function* compressedBits() {
       ],
       [{ id: 'bits', label: 'bits' }, { id: 'first_diff', label: 'first differing bit' }],
       [
-        ['000101', '1'],
-        ['001100', '2'],
-        ['101000', '1'],
-        ['101111', '4'],
+        [keys[0], '1'],
+        [keys[1], '2'],
+        [keys[2], '1'],
+        [keys[3], '4'],
       ],
     ),
     highlight: { active: ['a:first_diff', 'b:first_diff'], compare: ['c:first_diff', 'd:first_diff'] },
-    explanation: 'A plain binary trie stores one level per bit. If keys share long prefixes, most internal nodes have only one child. PATRICIA keeps only the bit positions where a real choice exists.',
-    invariant: 'Branch nodes correspond to distinguishing bits, not every bit.',
+    explanation: `A plain binary trie stores one level per bit. With ${keyCount} keys of ${bitLen} bits each, most internal nodes have only one child when prefixes overlap. PATRICIA keeps only the bit positions where a real choice exists.`,
+    invariant: `Branch nodes correspond to distinguishing bits, not all ${bitLen}.`,
   };
 
   yield {
     state: patriciaShape('PATRICIA removes non-branching paths'),
     highlight: { active: ['root', 'one', 'ten', 'ten1'], found: ['best'], compare: ['zero'] },
-    explanation: 'The compressed trie jumps from one meaningful decision bit to the next. Leaves still store full keys or prefixes, so lookup can verify the candidate after following compressed decisions.',
+    explanation: `The compressed trie jumps from one meaningful decision bit to the next. With ${keyCount} keys, only the distinguishing bit positions produce branch nodes. Leaves still store full keys so lookup can verify the candidate after following compressed decisions.`,
   };
 
   yield {
     state: labelMatrix(
-      'Insert 101011',
+      `Insert ${newKey}`,
       [
         { id: 'walk', label: 'walk existing path' },
         { id: 'compare', label: 'compare full key' },
@@ -90,14 +95,14 @@ function* compressedBits() {
       ],
       [{ id: 'work', label: 'work' }, { id: 'result', label: 'result' }],
       [
-        ['follow 1 -> 0 -> 1', 'candidate 101111'],
-        ['101011 vs 101111', 'mismatch at bit 4'],
+        ['follow 1 -> 0 -> 1', `candidate ${keys[3]}`],
+        [`${newKey} vs ${keys[3]}`, 'mismatch at bit 4'],
         ['create branch bit 4', 'two children'],
         ['old and new leaves', 'compressed again'],
       ],
     ),
     highlight: { active: ['compare:work', 'split:result'], found: ['attach:result'] },
-    explanation: 'Insertion finds the first bit where the new key and the found key differ, then inserts exactly one branch node for that bit. The tree remains compact because it does not materialize skipped bits.',
+    explanation: `Insertion of ${newKey} finds the first bit where it and the candidate ${keys[3]} differ, then inserts exactly one branch node for that bit. The tree grows to ${keyCount + 1} keys but remains compact because it does not materialize skipped bits.`,
   };
 
   yield {
@@ -118,37 +123,41 @@ function* compressedBits() {
       ],
     ),
     highlight: { found: ['patricia:unit', 'art:best_for'], compare: ['trie:unit'] },
-    explanation: 'PATRICIA is not just "a trie with fewer nodes." Its branch labels are bit positions, which makes it natural for routing tables, binary keys, and compact dictionaries.',
+    explanation: `PATRICIA is not just "a trie with fewer nodes." Its branch labels are bit positions -- unlike the character-level branching of a standard trie. With ${bitLen}-bit keys, it tests only the distinguishing positions, making it natural for routing tables and compact dictionaries.`,
   };
 }
 
 function* longestPrefixMatch() {
+  const dest = '101101';
+  const prefixes = ['1*', '10*', '101*'];
+  const bestPrefix = prefixes[prefixes.length - 1];
+
   yield {
     state: patriciaShape('Router lookup remembers the last terminal prefix'),
     highlight: { active: ['root', 'one', 'ten', 'ten1', 'e-ten-ten1'], found: ['best'], compare: ['eleven'] },
-    explanation: 'Longest-prefix match walks the destination bits. Every time the path crosses a terminal route, remember it. If the exact path later stops, return the deepest remembered prefix.',
-    invariant: 'Correct lookup returns the most specific matching prefix, not just the last node reached.',
+    explanation: `Longest-prefix match walks the destination bits of ${dest}. Every time the path crosses a terminal route, remember it. With ${prefixes.length} candidate prefixes, the goal is to return the deepest match.`,
+    invariant: `Correct lookup returns the most specific matching prefix (${bestPrefix}), not just the last node reached.`,
   };
 
   yield {
     state: labelMatrix(
-      'Lookup destination 101101',
+      `Lookup destination ${dest}`,
       [
-        { id: 'p1', label: '1*' },
-        { id: 'p2', label: '10*' },
-        { id: 'p3', label: '101*' },
+        { id: 'p1', label: prefixes[0] },
+        { id: 'p2', label: prefixes[1] },
+        { id: 'p3', label: prefixes[2] },
         { id: 'stop', label: 'next bit missing' },
       ],
       [{ id: 'status', label: 'status' }, { id: 'best', label: 'best so far' }],
       [
-        ['matches', 'default for 1*'],
-        ['matches', 'more specific 10*'],
-        ['matches', 'most specific 101*'],
-        ['stop', 'return 101*'],
+        ['matches', `default for ${prefixes[0]}`],
+        ['matches', `more specific ${prefixes[1]}`],
+        ['matches', `most specific ${prefixes[2]}`],
+        ['stop', `return ${bestPrefix}`],
       ],
     ),
     highlight: { active: ['p1:status', 'p2:status', 'p3:status'], found: ['stop:best'] },
-    explanation: 'The key detail is that lookup can end at a missing branch while the answer is an ancestor. Prefix data structures need this "best so far" variable because successful search and best route are different events.',
+    explanation: `Looking up ${dest}, the walk crosses ${prefixes.length} matching prefixes before hitting a missing branch. The key detail is that the answer (${bestPrefix}) is an ancestor, not the last node reached. Prefix data structures need this "best so far" variable because successful search and best route are different events.`,
   };
 
   yield {
@@ -169,7 +178,7 @@ function* longestPrefixMatch() {
       ],
     ),
     highlight: { active: ['lookup:touches', 'insert:touches'], compare: ['delete:risk'] },
-    explanation: 'In a routing table, updates are local but correctness is unforgiving. The trie can be small and fast, yet a single bad split or merge can route a whole prefix incorrectly.',
+    explanation: `In a routing table with prefixes like ${prefixes.join(', ')}, updates are local but correctness is unforgiving. The trie can be small and fast, yet a single bad split or merge can route a whole prefix like ${bestPrefix} incorrectly.`,
   };
 
   yield {
@@ -190,7 +199,7 @@ function* longestPrefixMatch() {
       ],
     ),
     highlight: { found: ['memory:lesson', 'verify:lesson'], compare: ['cache:effect'] },
-    explanation: 'PATRICIA teaches a recurring data-structure lesson: compression removes redundant shape, but you must keep enough original data around to verify the compressed path.',
+    explanation: `PATRICIA teaches a recurring data-structure lesson: compression removes redundant shape, but you must keep enough original data (the full ${dest.length}-bit key at each leaf) to verify the compressed path.`,
   };
 }
 
@@ -210,7 +219,8 @@ export const article = {
         { type: 'callout', text: 'PATRICIA keeps only branch bits, then verifies the full key so compression cannot invent a match.' },
         'The "longest prefix match" view walks a destination address through a routing trie. Active nodes trace the path taken. Found marks the deepest terminal prefix remembered along that path. The key detail: lookup can end at a missing branch, but the answer is the last terminal ancestor, not the last node visited.',
         'In both views, the matrix frames show the logical steps (compare, split, attach) that produce each structural change. Read the "work" column for what the algorithm does, and the "result" column for what the structure becomes.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/patricia-trie.gif', alt: 'Animated walkthrough of the patricia trie visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

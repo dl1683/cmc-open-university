@@ -56,6 +56,14 @@ function outboxGraph(title) {
 }
 
 function* dualWriteFailure() {
+  const crashScenarios = 4;
+  const dualWriteColumns = 2;
+  const outboxFields = 4;
+  const solvedCount = 2;
+  const unsolvedCount = 2;
+  const graphNodeCount = 7;
+  const graphEdgeCount = 6;
+
   yield {
     state: labelMatrix(
       'The dual-write trap',
@@ -77,14 +85,14 @@ function* dualWriteFailure() {
       ],
     ),
     highlight: { active: ['dbfirst:event', 'publishfirst:state'], removed: ['publishfail:event', 'dbfail:state'] },
-    explanation: 'A service often needs to update its database and publish an event. If those are two independent writes, every crash point can create inconsistency.',
+    explanation: `A service often needs to update its database and publish an event. If those are ${dualWriteColumns} independent writes, every crash point across ${crashScenarios} scenarios can create inconsistency.`,
   };
 
   yield {
     state: outboxGraph('Put business change and event intent in one transaction'),
     highlight: { active: ['service', 'db', 'order', 'outbox', 'e-service-db', 'e-db-order', 'e-db-outbox'], compare: ['broker'] },
-    explanation: 'The outbox pattern moves the event publish intent into the same database transaction as the business change. Commit once: either both order row and event row exist, or neither exists.',
-    invariant: 'Atomicity is borrowed from the local database transaction.',
+    explanation: `The outbox pattern moves the event publish intent into the same database transaction as the business change. Across ${graphNodeCount} components linked by ${graphEdgeCount} edges, commit once: either both order row and event row exist, or neither exists.`,
+    invariant: `Atomicity is borrowed from the local database transaction — ${dualWriteColumns} writes collapsed into 1 commit.`,
   };
 
   yield {
@@ -108,7 +116,7 @@ function* dualWriteFailure() {
       ],
     ),
     highlight: { found: ['id:consumer', 'aggregate:consumer', 'type:purpose'] },
-    explanation: 'The event row is a durable message envelope. It should carry an idempotency key, aggregate identity, type, timestamp, and payload so downstream consumers can process safely.',
+    explanation: `The event row is a durable message envelope with ${outboxFields} fields. It should carry an idempotency key, aggregate identity, type, timestamp, and payload so downstream consumers can process safely.`,
   };
 
   yield {
@@ -132,15 +140,21 @@ function* dualWriteFailure() {
       ],
     ),
     highlight: { found: ['atomic:status', 'publish:status'], compare: ['exactly:requirement', 'schema:requirement'] },
-    explanation: 'The outbox fixes the dual-write gap. It does not remove at-least-once delivery, consumer deduplication, ordering decisions, or schema compatibility work.',
+    explanation: `The outbox fixes the dual-write gap: ${solvedCount} concerns solved, ${unsolvedCount} remain. It does not remove at-least-once delivery, consumer deduplication, ordering decisions, or schema compatibility work.`,
   };
 }
 
 function* outboxCdc() {
+  const relayDesigns = 4;
+  const consumerReqs = 4;
+  const neighborPatterns = 4;
+  const cdcPipelineSteps = 3;
+  const neighborColumns = 2;
+
   yield {
     state: outboxGraph('CDC turns committed outbox rows into broker events'),
     highlight: { active: ['outbox', 'cdc', 'broker', 'e-outbox-cdc', 'e-cdc-broker'], found: ['consumer'] },
-    explanation: 'A CDC connector such as Debezium tails the database log, sees committed outbox rows, transforms them into event records, and publishes them to Kafka.',
+    explanation: `A CDC connector such as Debezium tails the database log across ${cdcPipelineSteps} pipeline stages (outbox, relay, broker), sees committed outbox rows, transforms them into event records, and publishes them to Kafka.`,
   };
 
   yield {
@@ -164,8 +178,8 @@ function* outboxCdc() {
       ],
     ),
     highlight: { active: ['cdc:benefit'], compare: ['poller:risk', 'brokerTx:risk'] },
-    explanation: 'CDC is popular because the database log already records committed order. Pollers can work too, but need careful locking, batching, and retry behavior.',
-    invariant: 'Publish order should follow committed database order for the aggregate when consumers rely on ordering.',
+    explanation: `Among ${relayDesigns} relay designs, CDC is popular because the database log already records committed order. Pollers can work too, but need careful locking, batching, and retry behavior.`,
+    invariant: `Publish order should follow committed database order for the aggregate — ${relayDesigns} designs each handle this differently when consumers rely on ordering.`,
   };
 
   yield {
@@ -189,7 +203,7 @@ function* outboxCdc() {
       ],
     ),
     highlight: { found: ['dedupe:why', 'idempotent:why', 'ordering:why'], compare: ['replay:failure'] },
-    explanation: 'Outbox events are normally delivered at least once. Downstream services must dedupe by event id and design handlers so repeated delivery is safe.',
+    explanation: `Outbox events are normally delivered at least once. Downstream services must satisfy ${consumerReqs} requirements — dedupe by event id and design handlers so repeated delivery is safe.`,
   };
 
   yield {
@@ -213,7 +227,7 @@ function* outboxCdc() {
       ],
     ),
     highlight: { found: ['saga:connection', 'idempotency:lesson', 'kafka:lesson', 'wal:lesson'] },
-    explanation: 'The transactional outbox is a small pattern with large consequences: it replaces hope between services with a durable, replayable handoff.',
+    explanation: `The transactional outbox is a small pattern with large consequences: ${neighborPatterns} related patterns across ${neighborColumns} dimensions show it replaces hope between services with a durable, replayable handoff.`,
   };
 }
 
@@ -261,7 +275,8 @@ export const article = {
         'In the dual-write failure view, the matrix shows the four crash windows a service creates when it treats database state and event publication as separate effects. The broken cells are not rare corner cases. They are exactly what happens when a process dies, a network call times out, or a broker acknowledgement is lost.',
         'In the outbox CDC view, the graph shows the durable handoff: command handler, database transaction, domain table, outbox table, relay, broker, consumer. The important boundary is the database commit. Everything before that is atomic local state. Everything after that is asynchronous delivery that must tolerate retries.',
         'The consumer node is marked idempotent for a reason. The outbox removes the lost-event gap, but the relay can still publish the same event more than once after a retry or restart. Safe consumers are part of the design.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/transactional-outbox.gif', alt: 'Animated walkthrough of the transactional outbox visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'How it works',

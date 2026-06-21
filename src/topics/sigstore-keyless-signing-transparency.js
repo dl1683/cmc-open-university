@@ -90,21 +90,24 @@ function verifyGraph(title) {
 }
 
 function* signingFlow() {
+  const signingNodes = 8;
+  const signingRecords = 4;
+
   yield {
     state: signingGraph('Keyless signing starts with identity, not a long-lived key'),
     highlight: { active: ['oidc', 'ephemeral', 'fulcio', 'e-oidc-fulcio', 'e-ephemeral-fulcio'], compare: ['artifact'] },
-    explanation: 'The signer authenticates to an OIDC identity provider and generates an ephemeral key. Fulcio verifies the token and can issue a short-lived certificate binding identity to that key.',
-    invariant: 'The long-lived secret is replaced by identity plus short-lived proof.',
+    explanation: `The signer authenticates to an OIDC identity provider and generates an ephemeral key. Fulcio verifies the token across ${signingNodes} nodes and can issue a short-lived certificate binding identity to that key.`,
+    invariant: `The long-lived secret is replaced by identity plus short-lived proof across all ${signingNodes} signing components.`,
   };
   yield {
     state: signingGraph('Fulcio issues a short-lived certificate for the ephemeral key'),
     highlight: { active: ['fulcio', 'cert', 'ephemeral', 'e-fulcio-cert', 'e-ephemeral-fulcio'], found: ['oidc'] },
-    explanation: 'The certificate records the signing identity in a form verifiers can check. Its short lifetime narrows the key-management problem, but it also makes time evidence important.',
+    explanation: `The certificate records the signing identity in a form verifiers can check. Its short lifetime narrows the key-management problem among ${signingNodes} participants, but it also makes time evidence important.`,
   };
   yield {
     state: signingGraph('The artifact signature and certificate go to Rekor'),
     highlight: { active: ['artifact', 'sig', 'cert', 'rekor', 'e-artifact-sig', 'e-cert-sig', 'e-sig-rekor', 'e-cert-rekor'], compare: ['bundle'] },
-    explanation: 'The ephemeral private key signs the artifact digest. Rekor records the signature and certificate in a transparency log, creating public evidence of the signing event.',
+    explanation: `The ephemeral private key signs the artifact digest. Rekor records the signature and certificate in a transparency log, creating public evidence of the signing event across ${signingNodes} nodes.`,
   };
   yield {
     state: labelMatrix(
@@ -127,30 +130,33 @@ function* signingFlow() {
       ],
     ),
     highlight: { active: ['identity:binds', 'cert:binds', 'sig:binds', 'rekor:binds'], found: ['rekor:risk'] },
-    explanation: 'Sigstore is useful because each record has a narrow job. Identity, certificate, signature, and log evidence are separate checks.',
+    explanation: `Sigstore is useful because each of the ${signingRecords} records has a narrow job. Identity, certificate, signature, and log evidence are separate checks.`,
   };
 }
 
 function* verificationFlow() {
+  const verifyNodes = 9;
+  const rejectReasons = 5;
+
   yield {
     state: verifyGraph('Verifier gets trust roots through TUF'),
     highlight: { active: ['tuf', 'fulcio', 'cert', 'e-tuf-fulcio', 'e-fulcio-cert'], compare: ['policy'] },
-    explanation: 'Sigstore distributes trusted Fulcio and Rekor material through a TUF root. Without the right trust root, the verifier cannot know which CA or log key to accept.',
+    explanation: `Sigstore distributes trusted Fulcio and Rekor material through a TUF root. Without the right trust root, the verifier cannot determine which of the ${verifyNodes} components to accept.`,
   };
   yield {
     state: verifyGraph('Check signature, certificate, and artifact digest together'),
     highlight: { active: ['artifact', 'sig', 'cert', 'e-artifact-sig', 'e-sig-cert'], found: ['decision'] },
-    explanation: 'Cryptographic verification asks whether this signature validates this artifact under the public key in this certificate. The certificate then connects that key back to identity.',
+    explanation: `Cryptographic verification asks whether this signature validates this artifact under the public key in this certificate. The certificate then connects that key back to identity across ${verifyNodes} verification nodes.`,
   };
   yield {
     state: verifyGraph('Use Rekor evidence to check time and inclusion'),
     highlight: { active: ['sig', 'cert', 'rekor', 'time', 'e-sig-rekor', 'e-cert-rekor', 'e-rekor-time'], compare: ['policy'] },
-    explanation: 'Rekor evidence helps the verifier establish that the signing event was logged and that the signature was made while the short-lived certificate was valid.',
+    explanation: `Rekor evidence helps the verifier establish that the signing event was logged and that the signature was made while the short-lived certificate was valid, feeding into ${verifyNodes} nodes of proof.`,
   };
   yield {
     state: verifyGraph('Policy decides whether the identity may sign this artifact'),
     highlight: { active: ['cert', 'policy', 'decision', 'e-cert-policy', 'e-policy-decision'], found: ['rekor', 'time'] },
-    explanation: 'Verification is not done when the math passes. Policy must still check that the certificate identity, issuer, workflow, repository, branch, or namespace is authorized for this artifact.',
+    explanation: `Verification is not done when the math passes. Policy must still check that the certificate identity, issuer, workflow, repository, branch, or namespace is authorized for this artifact — any of ${rejectReasons} reasons can cause rejection.`,
   };
   yield {
     state: labelMatrix(
@@ -175,7 +181,7 @@ function* verificationFlow() {
       ],
     ),
     highlight: { removed: ['sig:decision', 'cert:decision', 'time:decision', 'id:decision'], compare: ['log:decision'] },
-    explanation: 'A production verifier should return precise failure reasons. Otherwise teams turn off verification because nobody can tell which link failed.',
+    explanation: `A production verifier should return precise failure reasons across all ${rejectReasons} categories. Otherwise teams turn off verification because nobody can tell which link failed.`,
   };
 }
 
@@ -199,7 +205,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/sigstore-keyless-signing-transparency.gif', alt: 'Animated walkthrough of the sigstore keyless signing transparency visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

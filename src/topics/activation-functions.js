@@ -1,7 +1,7 @@
 ﻿// Activation functions: the nonlinearity that lets neural networks learn
 // curves instead of lines. Sigmoid, tanh, ReLU: same job, different rules.
 
-import { plotState } from '../core/state.js';
+import { plotState, InputError } from '../core/state.js';
 
 export const topic = {
   id: 'activation-functions',
@@ -37,31 +37,89 @@ const series = (subset) => subset.map((f) => ({
 }));
 const AXES = { x: { label: 'input x' }, y: { label: 'output' } };
 
+const ROUND = 4;
+const fmt = (v) => Math.round(v * (10 ** ROUND)) / (10 ** ROUND);
+const derivSigmoid = (x) => {
+  const s = 1 / (1 + Math.exp(-x));
+  return s * (1 - s);
+};
+const derivTanh = (x) => {
+  const t = Math.tanh(x);
+  return 1 - t * t;
+};
+const derivRelu = (x) => (x > 0 ? 1 : 0);
+
 export function* run(input) {
   const focus = String(input.focus);
+  if (!['tour all three', 'sigmoid', 'tanh', 'relu'].includes(focus)) {
+    throw new InputError('Pick an activation to focus on.');
+  }
+
+  const traceXs = [-6, -4, -2, -1, -0.5, 0, 0.5, 1, 2, 4, 6];
 
   yield {
-    state: plotState({ axes: AXES, series: series([]).concat([{ id: 'line', label: 'no activation (line)', points: xs.map((x) => ({ x, y: x / 6 })) }]) }),
+    state: plotState({
+      axes: AXES,
+      title: 'Step 1: linear baseline before activation',
+      series: [{ id: 'line', label: 'no activation', points: xs.map((x) => ({ x, y: x / 6 })) }],
+    }),
     highlight: { active: ['line'] },
-    explanation: 'A neural layer computes weights times inputs plus bias: a linear function. Stack a hundred linear layers and they still collapse into one linear function. The activation function is the bend between layers that gives depth expressive power.',
+    explanation: `Linear stack would be y = x / 6, slope ${fmt(1 / 6)} everywhere and no bends. At every sampled input, there is no threshold, so stacking stays one line. This is why we need nonlinearity.`,
+    invariant: 'Without a nonlinear bend, depth does not add representational classes of function.',
   };
 
   const chosen = focus === 'tour all three' ? FUNCS : FUNCS.filter((f) => f.id === focus);
   const shown = [];
   for (const f of chosen) {
     shown.push(f);
+    const sampled = traceXs.slice(0, 6).map((x) => `${x}->${fmt(f.fn(x))}`).join('; ');
+    const derivName = f.id === 'sigmoid' ? 's(1-s)' : f.id === 'tanh' ? '1-tanh²' : '0 or 1';
+    const sampleDeriv = traceXs.slice(0, 3).map((x) => `${x}->${fmt(f.id === 'sigmoid' ? derivSigmoid(x) : f.id === 'tanh' ? derivTanh(x) : derivRelu(x))}`).join('; ');
     yield {
-      state: plotState({ axes: AXES, series: series(focus === 'tour all three' ? shown : chosen) }),
-      highlight: { active: [f.id], visited: shown.slice(0, -1).map((s) => s.id) },
-      explanation: f.blurb,
-      invariant: 'What matters for training is the SLOPE: gradient descent can only learn through regions where the curve isn\'t flat.',
+      state: plotState({ axes: AXES, series: series(shown), title: `${f.label} values entering` }),
+      highlight: { active: [f.id], visited: shown.slice(0, -1).map((s) => s.id), compare: [f.id] },
+      explanation: `${f.label} computes these sample outputs: ${sampled}. Example derivatives use ${derivName}: at x=0 it's ${fmt(f.id === 'sigmoid' ? derivSigmoid(0) : f.id === 'tanh' ? derivTanh(0) : derivRelu(0))}. Early samples at x=-6,-4,-2: ${sampleDeriv}.`,
     };
   }
 
+  const pointsAsSamples = traceXs.map((x) => ({
+    x,
+    sigmoid: fmt(FUNCS[0].fn(x)),
+    tanh: fmt(FUNCS[1].fn(x)),
+    relu: fmt(FUNCS[2].fn(x)),
+    dSig: fmt(derivSigmoid(x)),
+    dTan: fmt(derivTanh(x)),
+    dRel: fmt(derivRelu(x)),
+  }));
+
+  const f = chosen[0];
+  const deriv = f.id === 'sigmoid' ? derivSigmoid : f.id === 'tanh' ? derivTanh : derivRelu;
+  for (const x of traceXs) {
+    const y = f.fn(x);
+    const d = deriv(x);
+    yield {
+      state: plotState({
+        axes: AXES,
+        title: `${f.label} sample sweep at x=${x}`,
+        series: [
+          ...series([f]),
+          { id: `probe-${f.id}-${x}`, label: `${f.label} @ ${x}`, points: [{ x, y }] },
+        ],
+      }),
+      highlight: { active: [f.id], found: [`probe-${f.id}-${x}`], compare: ['sigmoid', 'tanh', 'relu'] },
+      explanation: `${f.label} at x=${x}: value=${fmt(y)}, derivative=${fmt(d)}. Nearby comparison points: sigmoid=${fmt(pointsAsSamples.find((p) => p.x === x)?.sigmoid)}, tanh=${fmt(pointsAsSamples.find((p) => p.x === x)?.tanh)}, relu=${fmt(pointsAsSamples.find((p) => p.x === x)?.relu)}.`,
+      invariant: 'A nonlinearity is useful only where this pair (value, derivative) remains informative.',
+    };
+  }
+
+  const compareText = pointsAsSamples.map(({ x, sigmoid, tanh, relu, dSig, dTan, dRel }) => `x=${x}: s=${sigmoid}/ds=${dSig}, t=${tanh}/dt=${dTan}, r=${relu}/dr=${dRel}`).join(' | ');
+  const finalSeries = focus === 'tour all three' ? FUNCS : [f];
   yield {
-    state: plotState({ axes: AXES, series: series(FUNCS) }),
-    highlight: {},
-    explanation: 'The comparison is a gradient map. Sigmoid and tanh lose slope at the edges; ReLU keeps a full-slope positive side and pays for it with a zero-gradient negative side. The same one-dimensional bend acts coordinate by coordinate inside a high-dimensional layer, so activation choice affects both representation and trainability.',
+    state: plotState({ axes: AXES, series: series(finalSeries), title: 'Final comparison and saturation regions' }),
+    highlight: { active: finalSeries.map((fnDef) => fnDef.id), compare: ['sigmoid', 'tanh', 'relu'] },
+    explanation: `Compare the sampled sweep in one line: ${compareText}. ` +
+      'At |x|=6, sigmoid and tanh values are nearly stable and derivatives are tiny, while ReLU is either exactly 0 or linear with derivative 1. The computed sweep is the evidence for where each activation keeps signal and where it discards it.',
+    invariant: 'Each activation’s practical behavior is the combination of output magnitude and derivative for the inputs you actually query.',
   };
 }
 
@@ -74,7 +132,8 @@ export const article = {
         "Watch the slope of each curve, not just its shape. Steep regions are where the derivative is large and gradients flow well during training. Flat regions are where the derivative is near zero and gradients vanish. The first frame shows a plain linear function to establish the baseline that activation functions must break.",
         "After all three curves appear, compare them side by side: sigmoid saturates at both extremes, tanh saturates at both extremes but is zero-centered, and ReLU has constant slope on the positive side but is exactly zero on the negative side. The invariant across all frames is that slope equals trainability.",
         {type: "callout", text: "An activation is both a bend in the forward map and a gate for gradient flow during training."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/activation-functions.gif', alt: 'Animated walkthrough of the activation functions visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why they exist`,
@@ -231,4 +290,3 @@ export const article = {
     },
   ],
 };
-

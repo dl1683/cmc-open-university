@@ -55,29 +55,37 @@ function ribbonGraph(title) {
 }
 
 function* bandedSystem() {
+  const graph = ribbonGraph('Each key becomes one narrow band equation');
+  const nodeCount = graph.graph.nodes.length;
+  const edgeCount = graph.graph.edges.length;
+
   yield {
-    state: ribbonGraph('Each key becomes one narrow band equation'),
+    state: graph,
     highlight: { active: ['keys', 'band', 'system', 'e-keys-band', 'e-band-system'], compare: ['solver'] },
-    explanation: 'A Ribbon filter is static. During construction, each key maps to a short contiguous band of table positions and contributes one xor-style equation over those positions.',
+    explanation: `A Ribbon filter is static. During construction, each key maps to a short contiguous band of table positions and contributes one xor-style equation over those ${nodeCount} pipeline stages.`,
   };
+
+  const keys = [
+    { id: 'k0', label: 'key A' },
+    { id: 'k1', label: 'key B' },
+    { id: 'k2', label: 'key C' },
+    { id: 'k3', label: 'key D' },
+  ];
+  const columns = [
+    { id: 'c0', label: '0' },
+    { id: 'c1', label: '1' },
+    { id: 'c2', label: '2' },
+    { id: 'c3', label: '3' },
+    { id: 'c4', label: '4' },
+    { id: 'c5', label: '5' },
+  ];
+  const bandWidth = 3;
 
   yield {
     state: labelMatrix(
       'Toy band matrix',
-      [
-        { id: 'k0', label: 'key A' },
-        { id: 'k1', label: 'key B' },
-        { id: 'k2', label: 'key C' },
-        { id: 'k3', label: 'key D' },
-      ],
-      [
-        { id: 'c0', label: '0' },
-        { id: 'c1', label: '1' },
-        { id: 'c2', label: '2' },
-        { id: 'c3', label: '3' },
-        { id: 'c4', label: '4' },
-        { id: 'c5', label: '5' },
-      ],
+      keys,
+      columns,
       [
         ['1', '1', '1', '.', '.', '.'],
         ['.', '1', '1', '1', '.', '.'],
@@ -86,38 +94,47 @@ function* bandedSystem() {
       ],
     ),
     highlight: { active: ['k1:c1', 'k1:c2', 'k1:c3'], found: ['k2:c2', 'k2:c3', 'k2:c4'] },
-    explanation: 'The matrix is banded because each row touches nearby columns. That locality is why practical Ribbon construction and queries can be cache-friendly.',
-    invariant: 'Every stored key gets an equation whose answer matches its target fingerprint.',
+    explanation: `The ${keys.length} x ${columns.length} matrix is banded because each row touches only ${bandWidth} nearby columns. That locality is why practical Ribbon construction and queries can be cache-friendly.`,
+    invariant: `Every stored key gets an equation over ${bandWidth} contiguous columns whose answer matches its target fingerprint.`,
   };
 
+  const solverGraph = ribbonGraph('The solver fills a compact table of bits');
+  const solverEdges = solverGraph.graph.edges.length;
+
   yield {
-    state: ribbonGraph('The solver fills a compact table of bits'),
+    state: solverGraph,
     highlight: { active: ['system', 'solver', 'table', 'e-system-solver', 'e-solver-table'], found: ['band'] },
-    explanation: 'Construction solves the banded Boolean system. Once solved, the filter keeps only the assigned bit table; it does not need the original keys or the full matrix.',
+    explanation: `Construction solves the banded Boolean system across ${solverEdges} connections. Once solved, the filter keeps only the assigned bit table; it does not need the original ${keys.length} keys or the full matrix.`,
   };
 
+  const queryGraph = ribbonGraph('A query replays the same band and tests the fingerprint');
+  const queryNodes = queryGraph.graph.nodes.length;
+
   yield {
-    state: ribbonGraph('A query replays the same band and tests the fingerprint'),
+    state: queryGraph,
     highlight: { active: ['band', 'table', 'query', 'e-table-query', 'e-band-query'], compare: ['keys'] },
-    explanation: 'Lookup hashes the candidate key to the same kind of band, reads the local table positions, combines them, and compares the result to the candidate fingerprint.',
+    explanation: `Lookup hashes the candidate key to the same kind of ${bandWidth}-wide band, reads the local table positions from the ${queryNodes}-stage pipeline, combines them, and compares the result to the candidate fingerprint.`,
   };
 }
 
 function* filterTradeoffs() {
+  const filters = [
+    { id: 'bloom', label: 'Bloom' },
+    { id: 'xor', label: 'Xor' },
+    { id: 'fuse', label: 'Binary Fuse' },
+    { id: 'ribbon', label: 'Ribbon' },
+  ];
+  const comparisonAxes = [
+    { id: 'construction', label: 'construction' },
+    { id: 'space', label: 'space goal' },
+    { id: 'updates', label: 'updates' },
+  ];
+
   yield {
     state: labelMatrix(
       'Static filter comparison',
-      [
-        { id: 'bloom', label: 'Bloom' },
-        { id: 'xor', label: 'Xor' },
-        { id: 'fuse', label: 'Binary Fuse' },
-        { id: 'ribbon', label: 'Ribbon' },
-      ],
-      [
-        { id: 'construction', label: 'construction' },
-        { id: 'space', label: 'space goal' },
-        { id: 'updates', label: 'updates' },
-      ],
+      filters,
+      comparisonAxes,
       [
         ['set bits', 'simple but overhead', 'incremental add only'],
         ['peel graph', 'compact', 'rebuild'],
@@ -126,22 +143,25 @@ function* filterTradeoffs() {
       ],
     ),
     highlight: { active: ['ribbon:construction', 'ribbon:space'], compare: ['bloom:updates', 'fuse:space'] },
-    explanation: 'Ribbon filters push hard on space efficiency. The cost is that build logic is more complex and the set is static.',
+    explanation: `Comparing ${filters.length} filter families across ${comparisonAxes.length} axes, Ribbon pushes hardest on space efficiency. The cost is that build logic is more complex and the set is static.`,
   };
+
+  const useCases = [
+    { id: 'sst', label: 'immutable SSTable' },
+    { id: 'manifest', label: 'object manifest' },
+    { id: 'artifact', label: 'build artifact set' },
+    { id: 'session', label: 'live session set' },
+  ];
+  const fitColumns = [
+    { id: 'fit', label: 'fit' },
+    { id: 'why', label: 'why' },
+  ];
 
   yield {
     state: labelMatrix(
       'Where Ribbon fits',
-      [
-        { id: 'sst', label: 'immutable SSTable' },
-        { id: 'manifest', label: 'object manifest' },
-        { id: 'artifact', label: 'build artifact set' },
-        { id: 'session', label: 'live session set' },
-      ],
-      [
-        { id: 'fit', label: 'fit' },
-        { id: 'why', label: 'why' },
-      ],
+      useCases,
+      fitColumns,
       [
         ['excellent', 'rebuilt with file'],
         ['excellent', 'published snapshot'],
@@ -150,28 +170,34 @@ function* filterTradeoffs() {
       ],
     ),
     highlight: { found: ['sst:fit', 'manifest:why', 'artifact:why'], compare: ['session:fit'] },
-    explanation: 'Ribbon is a snapshot structure. If the membership set changes per request, use Bloom, counting Bloom, or Cuckoo filters instead.',
+    explanation: `Ribbon is a snapshot structure. Across ${useCases.length} use cases, it fits only where the membership set is rebuilt in batches, not mutated per request.`,
   };
 
+  const fpGraph = ribbonGraph('Lower false-positive targets need more fingerprint bits');
+  const fpNodeCount = fpGraph.graph.nodes.length;
+
   yield {
-    state: ribbonGraph('Lower false-positive targets need more fingerprint bits'),
+    state: fpGraph,
     highlight: { active: ['keys', 'system', 'table'], found: ['query'] },
-    explanation: 'Like other filters, Ribbon trades memory for false-positive probability. More target fingerprint bits reduce false positives but increase bits per key.',
+    explanation: `Like all ${filters.length} filter families above, Ribbon trades memory for false-positive probability across its ${fpNodeCount}-stage pipeline. More target fingerprint bits reduce false positives but increase bits per key.`,
   };
+
+  const checklistItems = [
+    { id: 'seed', label: 'seed retry' },
+    { id: 'load', label: 'load factor' },
+    { id: 'cache', label: 'cache locality' },
+    { id: 'truth', label: 'truth source' },
+  ];
+  const checklistColumns = [
+    { id: 'question', label: 'question' },
+    { id: 'risk', label: 'risk if ignored' },
+  ];
 
   yield {
     state: labelMatrix(
       'Engineering checklist',
-      [
-        { id: 'seed', label: 'seed retry' },
-        { id: 'load', label: 'load factor' },
-        { id: 'cache', label: 'cache locality' },
-        { id: 'truth', label: 'truth source' },
-      ],
-      [
-        { id: 'question', label: 'question' },
-        { id: 'risk', label: 'risk if ignored' },
-      ],
+      checklistItems,
+      checklistColumns,
       [
         ['what if solve fails?', 'fragile build pipeline'],
         ['how full is table?', 'slow or failed construction'],
@@ -180,7 +206,7 @@ function* filterTradeoffs() {
       ],
     ),
     highlight: { active: ['seed:question', 'truth:risk'], found: ['cache:question'] },
-    explanation: 'A production filter is more than its lookup formula. Build retries, table sizing, locality, and source-of-truth verification decide whether the structure is safe.',
+    explanation: `A production filter is more than its lookup formula. These ${checklistItems.length} concerns -- ${checklistItems.map(c => c.label).join(', ')} -- decide whether the structure is safe.`,
   };
 }
 
@@ -200,7 +226,8 @@ export const article = {
         {type: 'callout', text: 'Ribbon filters turn static membership into a narrow linear system, then serve only the solved bits and query parameters.'},
         'The solver frame shows the lifecycle transition that matters most. During construction, keys and equations exist together. The served artifact is just the compact bit table plus a small set of parameters. The query frame replays the same hash-derived band, reads local table cells, and checks whether the combined result matches the candidate fingerprint.',
         'The filter-tradeoffs view places Ribbon beside Bloom, Xor, and Binary Fuse filters. Compare the "space goal" column: Ribbon pushes hardest toward the information-theoretic lower bound, at the cost of a more complex build step. The "updates" column is the critical tradeoff -- Bloom supports incremental adds; every other filter in the table requires a full rebuild.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/ribbon-filter.gif', alt: 'Animated walkthrough of the ribbon filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

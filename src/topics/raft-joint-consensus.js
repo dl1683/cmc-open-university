@@ -58,17 +58,21 @@ function raftGraph(title) {
 }
 
 function* membershipChange() {
+  const oldVoters = 3; // A, B, C
+  const newVoters = 2; // D, E
+  const configPhases = 3; // old, joint, new
+
   yield {
     state: raftGraph('The leader starts in the old membership configuration'),
     highlight: { active: ['leader', 'oldA', 'oldB', 'oldC'], found: ['e-leader-oldA', 'e-leader-oldB', 'e-leader-oldC'] },
-    explanation: 'A Raft cluster cannot casually swap voters. Quorum math depends on the membership set, so membership changes themselves must be replicated through the log.',
+    explanation: `A Raft cluster with ${oldVoters} voters cannot casually swap members. Quorum math depends on the membership set, so membership changes themselves must be replicated through the log.`,
   };
 
   yield {
     state: raftGraph('Joint consensus logs a transitional old+new configuration'),
     highlight: { active: ['joint', 'oldA', 'oldB', 'oldC', 'newD', 'newE'], found: ['e-oldB-joint', 'e-joint-newD', 'e-joint-newE'] },
-    explanation: 'The leader appends a joint configuration containing both old and new server sets. While this entry is active, decisions must satisfy both configurations.',
-    invariant: 'Committed entries must be seen by an overlapping quorum across the membership transition.',
+    explanation: `The leader appends a joint configuration containing both ${oldVoters} old and ${newVoters} new server sets. While this entry is active, decisions must satisfy both configurations.`,
+    invariant: `Committed entries must be seen by an overlapping quorum across all ${configPhases} phases of the membership transition.`,
   };
 
   yield {
@@ -92,17 +96,22 @@ function* membershipChange() {
       ],
     ),
     highlight: { active: ['joint:rule', 'joint:purpose'], found: ['new:rule'] },
-    explanation: 'The key trick is not simultaneous agreement by every node. It is overlapping majorities, so two leaders cannot each commit conflicting histories through different configurations.',
+    explanation: `The key trick is not simultaneous agreement by every node. It is overlapping majorities across ${configPhases} phases, so two leaders cannot each commit conflicting histories through different configurations.`,
   };
 
   yield {
     state: raftGraph('After the final config commits, only the new set votes'),
     highlight: { active: ['joint', 'final', 'e-joint-final'], found: ['newD', 'newE'], compare: ['oldA'] },
-    explanation: 'Once the final new configuration is committed, the old-only voters that were removed stop participating in future quorum decisions.',
+    explanation: `Once the final new configuration is committed, the ${oldVoters} old-only voters that were removed stop participating in future quorum decisions, leaving ${newVoters} new voters in control.`,
   };
 }
 
 function* quorumSafety() {
+  const oldVoters = 3;
+  const newVoters = 2;
+  const totalVoters = oldVoters + newVoters;
+  const operationalChecks = 4;
+
   yield {
     state: labelMatrix(
       'Unsafe one-step intuition',
@@ -124,13 +133,13 @@ function* quorumSafety() {
       ],
     ),
     highlight: { active: ['split:whybad', 'risk:whybad'], compare: ['oldq:what', 'newq:what'] },
-    explanation: 'The danger in reconfiguration is split quorum knowledge. If valid old and new quorums do not overlap, committed histories can diverge.',
+    explanation: `The danger in reconfiguration is split quorum knowledge. With ${oldVoters} old and ${newVoters} new voters, valid quorums from each set can avoid overlapping, so committed histories can diverge.`,
   };
 
   yield {
     state: raftGraph('Joint consensus forces old and new majorities to overlap'),
     highlight: { active: ['oldA', 'oldB', 'oldC', 'joint', 'newD', 'newE'], found: ['leader'] },
-    explanation: 'Joint consensus requires a majority from the old configuration and a majority from the new configuration. That creates a shared witness for committed log entries.',
+    explanation: `Joint consensus requires a majority from the ${oldVoters} old voters and a majority from the ${newVoters} new voters. That creates a shared witness across all ${totalVoters} participants for committed log entries.`,
   };
 
   yield {
@@ -154,7 +163,7 @@ function* quorumSafety() {
       ],
     ),
     highlight: { active: ['health:question', 'strict:failure'], found: ['catchup:failure'] },
-    explanation: 'Implementations need operational guardrails. Membership changes are rare, dangerous writes to the control plane.',
+    explanation: `Implementations need ${operationalChecks} operational guardrails before admitting voters. Membership changes are rare, dangerous writes to the control plane.`,
   };
 
   yield {
@@ -178,7 +187,7 @@ function* quorumSafety() {
       ],
     ),
     highlight: { found: ['etcd:change', 'db:lesson'], active: ['control:lesson'] },
-    explanation: 'Any replicated control plane has to treat voter changes as consensus operations, not as an external admin side effect.',
+    explanation: `Any replicated control plane managing ${totalVoters} or more voters has to treat voter changes as consensus operations, not as an external admin side effect.`,
   };
 }
 
@@ -212,7 +221,8 @@ export const article = {
           type: 'note',
           text: 'The interesting frame is never when a new node appears. It is when the log entry that changes quorum math commits. That is where safety lives or dies.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/raft-joint-consensus.gif', alt: 'Animated walkthrough of the raft joint consensus visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

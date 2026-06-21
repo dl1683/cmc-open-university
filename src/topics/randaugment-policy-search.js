@@ -34,104 +34,114 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* nAndMKnobs() {
+  const knobRows = [
+    { id: 'n', label: 'N' },
+    { id: 'm', label: 'M' },
+    { id: 'ops', label: 'O' },
+  ];
+  const knobCols = [
+    { id: 'role', label: 'role' },
+    { id: 'ex', label: 'ex' },
+  ];
+  const knobValues = [
+    ['count', '2'],
+    ['mag', '9'],
+    ['ops', 'rot'],
+  ];
   yield {
-    state: labelMatrix(
-      'N and M only',
-      [
-        { id: 'n', label: 'N' },
-        { id: 'm', label: 'M' },
-        { id: 'ops', label: 'O' },
-      ],
-      [
-        { id: 'role', label: 'role' },
-        { id: 'ex', label: 'ex' },
-      ],
-      [
-        ['count', '2'],
-        ['mag', '9'],
-        ['ops', 'rot'],
-      ],
-    ),
+    state: labelMatrix('N and M only', knobRows, knobCols, knobValues),
     highlight: { active: ['n:role', 'm:role'], found: ['ops:ex'] },
-    explanation: 'RandAugment removes the separate controller that searches a giant augmentation policy. For each image, pick N transforms from a fixed catalog and apply them with a shared magnitude M.',
+    explanation: `RandAugment removes the separate controller that searches a giant augmentation policy. For each image, pick ${knobRows[0].label} transforms from a fixed catalog and apply them with a shared magnitude ${knobRows[1].label} — just ${knobRows.length} knobs instead of a learned policy.`,
   };
 
+  const pipelineNodes = [
+    { id: 'img', label: 'image', x: 0.8, y: 3.8, note: 'training sample' },
+    { id: 'draw1', label: 'draw op', x: 2.8, y: 2.4, note: 'random' },
+    { id: 'draw2', label: 'draw op', x: 2.8, y: 5.2, note: 'random' },
+    { id: 'm', label: 'M', x: 4.8, y: 3.8, note: 'shared strength' },
+    { id: 'aug', label: 'augmented', x: 7.0, y: 3.8, note: 'new view' },
+    { id: 'train', label: 'train', x: 9.0, y: 3.8, note: 'same label' },
+  ];
+  const pipelineEdges = [
+    { id: 'e-img-draw1', from: 'img', to: 'draw1', weight: '' },
+    { id: 'e-img-draw2', from: 'img', to: 'draw2', weight: '' },
+    { id: 'e-draw1-m', from: 'draw1', to: 'm', weight: '' },
+    { id: 'e-draw2-m', from: 'draw2', to: 'm', weight: '' },
+    { id: 'e-m-aug', from: 'm', to: 'aug', weight: '' },
+    { id: 'e-aug-train', from: 'aug', to: 'train', weight: '' },
+  ];
   yield {
     state: graphState({
-      nodes: [
-        { id: 'img', label: 'image', x: 0.8, y: 3.8, note: 'training sample' },
-        { id: 'draw1', label: 'draw op', x: 2.8, y: 2.4, note: 'random' },
-        { id: 'draw2', label: 'draw op', x: 2.8, y: 5.2, note: 'random' },
-        { id: 'm', label: 'M', x: 4.8, y: 3.8, note: 'shared strength' },
-        { id: 'aug', label: 'augmented', x: 7.0, y: 3.8, note: 'new view' },
-        { id: 'train', label: 'train', x: 9.0, y: 3.8, note: 'same label' },
-      ],
-      edges: [
-        { id: 'e-img-draw1', from: 'img', to: 'draw1', weight: '' },
-        { id: 'e-img-draw2', from: 'img', to: 'draw2', weight: '' },
-        { id: 'e-draw1-m', from: 'draw1', to: 'm', weight: '' },
-        { id: 'e-draw2-m', from: 'draw2', to: 'm', weight: '' },
-        { id: 'e-m-aug', from: 'm', to: 'aug', weight: '' },
-        { id: 'e-aug-train', from: 'aug', to: 'train', weight: '' },
-      ],
+      nodes: pipelineNodes,
+      edges: pipelineEdges,
     }, { title: 'Every minibatch sees fresh randomized views' }),
     highlight: { active: ['draw1', 'draw2', 'm'], found: ['aug'] },
-    explanation: 'The random draw changes per sample and per epoch. That cheap randomness creates useful input diversity without learning a custom policy on a proxy dataset.',
-    invariant: 'The label stays the same; only nuisance factors change.',
+    explanation: `The random draw changes per sample and per epoch across ${pipelineNodes.length} pipeline stages connected by ${pipelineEdges.length} edges. That cheap randomness creates useful input diversity without learning a custom policy on a proxy dataset.`,
+    invariant: `The label stays the same — the "${pipelineNodes[pipelineNodes.length - 1].note}" constraint holds; only nuisance factors change.`,
   };
 
+  const catalogOps = [
+    { id: 'rotate', label: 'rotate' },
+    { id: 'color', label: 'color' },
+    { id: 'shear', label: 'shear' },
+    { id: 'cutout', label: 'cutout' },
+  ];
+  const catalogPicked = [
+    ['yes', 'angle'],
+    ['no', 'skip'],
+    ['yes', 'slant'],
+    ['no', 'skip'],
+  ];
+  const pickedOps = catalogOps.filter((_, i) => catalogPicked[i][0] === 'yes');
   yield {
     state: labelMatrix(
       'A tiny catalog can produce many views',
-      [
-        { id: 'rotate', label: 'rotate' },
-        { id: 'color', label: 'color' },
-        { id: 'shear', label: 'shear' },
-        { id: 'cutout', label: 'cutout' },
-      ],
+      catalogOps,
       [
         { id: 'picked', label: 'picked?' },
         { id: 'effect', label: 'effect' },
       ],
-      [
-        ['yes', 'angle'],
-        ['no', 'skip'],
-        ['yes', 'slant'],
-        ['no', 'skip'],
-      ],
+      catalogPicked,
     ),
     highlight: { found: ['rotate:picked', 'shear:picked'], removed: ['color:picked', 'cutout:picked'] },
-    explanation: 'With N=2, this image received rotate and shear. Another image might receive color and cutout. The policy is not one fixed recipe; it is a randomized recipe family.',
+    explanation: `With N=${pickedOps.length}, this image received ${pickedOps.map(o => o.label).join(' and ')} from a catalog of ${catalogOps.length} operations. The policy is not one fixed recipe; it is a randomized recipe family.`,
   };
 
+  const methods = [
+    { id: 'auto', label: 'AutoAug' },
+    { id: 'rand', label: 'RandAug' },
+    { id: 'target', label: 'target' },
+  ];
+  const compareValues = [
+    ['huge', 'yes', 'many'],
+    ['small', 'no', 'N,M'],
+    ['direct', 'no', 'tune M'],
+  ];
   yield {
     state: labelMatrix(
       'Search-space collapse',
-      [
-        { id: 'auto', label: 'AutoAug' },
-        { id: 'rand', label: 'RandAug' },
-        { id: 'target', label: 'target' },
-      ],
+      methods,
       [
         { id: 'search', label: 'search' },
         { id: 'proxy', label: 'proxy?' },
         { id: 'knobs', label: 'knobs' },
       ],
-      [
-        ['huge', 'yes', 'many'],
-        ['small', 'no', 'N,M'],
-        ['direct', 'no', 'tune M'],
-      ],
+      compareValues,
     ),
     highlight: { active: ['rand:search', 'rand:knobs', 'target:search'], compare: ['auto:search'] },
-    explanation: 'The paper reports a massive reduction in policy-search space. That matters because augmentation strength should be tuned on the actual model and dataset, not only transferred from a small proxy task.',
+    explanation: `${methods[0].label} requires a "${compareValues[0][0]}" search with ${compareValues[0][2]} knobs, while ${methods[1].label} collapses to just ${compareValues[1][2]}. That matters because augmentation strength should be tuned on the actual model and dataset, not only transferred from a small proxy task.`,
   };
 }
 
 function* regularizationStrength() {
+  const accMarkers = [
+    { id: 'smallbest', x: 10, y: 84, label: 'small best' },
+    { id: 'largebest', x: 15, y: 88, label: 'large best' },
+  ];
+  const mRange = { min: 0, max: 30 };
   yield {
     state: plotState({
-      axes: { x: { label: 'augmentation magnitude M', min: 0, max: 30 }, y: { label: 'validation accuracy', min: 70, max: 90 } },
+      axes: { x: { label: 'augmentation magnitude M', ...mRange }, y: { label: 'validation accuracy', min: 70, max: 90 } },
       series: [
         { id: 'small', label: 'small model', points: [
           { x: 0, y: 78 }, { x: 5, y: 82 }, { x: 10, y: 84 }, { x: 15, y: 83 }, { x: 20, y: 80 }, { x: 25, y: 76 },
@@ -140,71 +150,73 @@ function* regularizationStrength() {
           { x: 0, y: 80 }, { x: 5, y: 83 }, { x: 10, y: 86 }, { x: 15, y: 88 }, { x: 20, y: 87 }, { x: 25, y: 84 },
         ] },
       ],
-      markers: [
-        { id: 'smallbest', x: 10, y: 84, label: 'small best' },
-        { id: 'largebest', x: 15, y: 88, label: 'large best' },
-      ],
+      markers: accMarkers,
     }),
     highlight: { active: ['small', 'large'], found: ['smallbest', 'largebest'] },
-    explanation: 'A key paper result is that optimal augmentation strength depends on model and dataset scale. A larger model can often benefit from stronger regularization than a smaller one.',
+    explanation: `A key paper result: the small model peaks at M=${accMarkers[0].x} (${accMarkers[0].y}%) while the large model peaks at M=${accMarkers[1].x} (${accMarkers[1].y}%). Optimal augmentation strength depends on model and dataset scale.`,
   };
 
+  const regimeRows = [
+    { id: 'weak', label: 'too weak' },
+    { id: 'right', label: 'right' },
+    { id: 'strong', label: 'too strong' },
+  ];
+  const regimeOutcomes = [
+    ['overfit', 'memorize views'],
+    ['robust', 'stable features'],
+    ['underfit', 'label noise'],
+  ];
   yield {
     state: labelMatrix(
       'Augmentation is regularization',
-      [
-        { id: 'weak', label: 'too weak' },
-        { id: 'right', label: 'right' },
-        { id: 'strong', label: 'too strong' },
-      ],
+      regimeRows,
       [
         { id: 'symptom', label: 'symptom' },
         { id: 'model learns', label: 'model learns' },
       ],
-      [
-        ['overfit', 'memorize views'],
-        ['robust', 'stable features'],
-        ['underfit', 'label noise'],
-      ],
+      regimeOutcomes,
     ),
     highlight: { found: ['right:symptom', 'right:model learns'], compare: ['weak:symptom', 'strong:symptom'] },
-    explanation: 'The job is not to make images weird. The job is to apply enough nuisance variation that the model learns stable features without destroying the label semantics.',
-    invariant: 'More augmentation is only better until it starts corrupting the task.',
+    explanation: `The job is not to make images weird. The "${regimeRows[1].label}" regime produces "${regimeOutcomes[1][1]}" — apply enough nuisance variation that the model learns stable features without destroying the label semantics.`,
+    invariant: `More augmentation is only better until it crosses from "${regimeOutcomes[1][0]}" to "${regimeOutcomes[2][0]}" — corrupting the task.`,
   };
 
+  const monitorRows = [
+    { id: 'train', label: 'train acc' },
+    { id: 'val', label: 'val acc' },
+    { id: 'corrupt', label: 'corrupt' },
+    { id: 'examples', label: 'samples' },
+  ];
+  const monitorActions = [
+    ['too high gap', 'raise M'],
+    ['drops early', 'lower M'],
+    ['improves', 'keep policy'],
+    ['labels break', 'remove op'],
+  ];
   yield {
     state: labelMatrix(
       'What to monitor',
-      [
-        { id: 'train', label: 'train acc' },
-        { id: 'val', label: 'val acc' },
-        { id: 'corrupt', label: 'corrupt' },
-        { id: 'examples', label: 'samples' },
-      ],
+      monitorRows,
       [
         { id: 'signal', label: 'signal' },
         { id: 'response', label: 'response' },
       ],
-      [
-        ['too high gap', 'raise M'],
-        ['drops early', 'lower M'],
-        ['improves', 'keep policy'],
-        ['labels break', 'remove op'],
-      ],
+      monitorActions,
     ),
     highlight: { active: ['train:response', 'val:response', 'examples:response'], found: ['corrupt:signal'] },
-    explanation: 'A production augmentation policy should be audited with curves and actual images. If samples stop preserving the label, the policy is no longer regularization; it is data poisoning.',
+    explanation: `A production augmentation policy should be audited across ${monitorRows.length} signals. If "${monitorRows[2].label}" shows "${monitorActions[3][0]}", the response is "${monitorActions[3][1]}" — the policy is no longer regularization; it is data poisoning.`,
   };
 
+  const connectionRows = [
+    { id: 'dropout', label: 'Dropout' },
+    { id: 'contrast', label: 'SimCLR' },
+    { id: 'data', label: 'Leakage' },
+    { id: 'robust', label: 'Adversarial' },
+  ];
   yield {
     state: labelMatrix(
       'Where RandAugment connects',
-      [
-        { id: 'dropout', label: 'Dropout' },
-        { id: 'contrast', label: 'SimCLR' },
-        { id: 'data', label: 'Leakage' },
-        { id: 'robust', label: 'Adversarial' },
-      ],
+      connectionRows,
       [
         { id: 'shared idea', label: 'shared idea' },
         { id: 'question', label: 'question' },
@@ -217,7 +229,7 @@ function* regularizationStrength() {
       ],
     ),
     highlight: { found: ['dropout:question', 'contrast:question', 'data:question', 'robust:question'] },
-    explanation: 'RandAugment is part of a broader theme: controlled noise can teach invariance, but the chosen noise encodes assumptions about what should not matter.',
+    explanation: `RandAugment connects to ${connectionRows.length} related ideas — ${connectionRows.map(r => r.label).join(', ')} — all part of a broader theme: controlled noise can teach invariance, but the chosen noise encodes assumptions about what should not matter.`,
   };
 }
 
@@ -230,6 +242,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/randaugment-policy-search.gif', alt: 'Animated walkthrough of the randaugment policy search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why it exists',
       paragraphs: [

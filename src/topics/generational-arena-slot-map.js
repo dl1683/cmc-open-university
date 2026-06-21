@@ -53,11 +53,16 @@ function arenaGraph(title) {
 }
 
 function* handleLifecycle() {
+  const exampleIndex = 7;
+  const exampleGen = 3;
+  const slotCount = 4;
+  const operations = ['insert', 'get', 'remove', 'iterate'];
+
   yield {
     state: arenaGraph('A handle is index plus generation'),
     highlight: { active: ['insert', 'arena', 'slot7', 'value', 'e-insert-arena', 'e-arena-slot', 'e-slot-value'], found: ['handle'] },
-    explanation: 'A slot map stores values in an array of slots and returns a small handle. The handle does not point directly to memory. It names a slot index and the generation observed when the value was inserted.',
-    invariant: 'A handle is valid only when handle.generation equals slot.generation and the slot is occupied.',
+    explanation: `A slot map stores values in an array of slots and returns a small handle. The handle does not point directly to memory. It names slot index ${exampleIndex} and generation ${exampleGen} observed when the value was inserted.`,
+    invariant: `A handle like ${exampleIndex}:g${exampleGen} is valid only when handle.generation equals slot.generation and the slot is occupied.`,
   };
 
   yield {
@@ -82,13 +87,13 @@ function* handleLifecycle() {
       ],
     ),
     highlight: { active: ['slot7:gen', 'slot7:state', 'slot7:payload'], found: ['slot2:payload', 'slot9:payload'] },
-    explanation: 'Each slot carries metadata next to the payload: generation, occupancy, and optionally a next-free pointer. Free slots form a linked list without allocating separate node objects.',
+    explanation: `Each of the ${slotCount} slots carries metadata next to the payload: generation, occupancy, and optionally a next-free pointer. Free slots form a linked list without allocating separate node objects.`,
   };
 
   yield {
     state: arenaGraph('Lookup checks the generation before returning the value'),
     highlight: { active: ['handle', 'slot7', 'value', 'e-handle-slot', 'e-slot-value'], removed: ['stale'], compare: ['arena'] },
-    explanation: 'A lookup first indexes into the slot array. It returns the payload only if the generation matches and the slot is still occupied. Otherwise the handle is stale and lookup returns missing.',
+    explanation: `A lookup first indexes into the slot array at position ${exampleIndex}. It returns the payload only if generation ${exampleGen} matches and the slot is still occupied. Otherwise the handle is stale and lookup returns missing.`,
   };
 
   yield {
@@ -112,22 +117,28 @@ function* handleLifecycle() {
       ],
     ),
     highlight: { active: ['insert:work', 'get:work', 'remove:work'], compare: ['iterate:risk'], found: ['get:risk'] },
-    explanation: 'The common operations are constant time. Iteration can still scan holes unless the implementation keeps a dense live list or a second index.',
+    explanation: `All ${operations.length} operations — ${operations.join(', ')} — are constant time except iteration, which can still scan holes unless the implementation keeps a dense live list or a second index.`,
   };
 
   yield {
     state: arenaGraph('Complete case: game objects reference each other by handles'),
     highlight: { active: ['handle', 'arena', 'slot7', 'value'], removed: ['stale'], found: ['free'] },
-    explanation: 'Games, editors, compilers, and graph tools often need objects with dynamic lifetimes and cross references. A generational arena gives stable, copyable ids while preventing old ids from silently reaching new occupants of the same slot.',
+    explanation: `Games, editors, compilers, and graph tools often need objects with dynamic lifetimes and cross references. A generational arena gives stable, copyable ids like ${exampleIndex}:g${exampleGen} while preventing old ids from silently reaching new occupants of the same slot.`,
   };
 }
 
 function* freeListAndAba() {
+  const abaIndex = 7;
+  const oldGen = 2;
+  const newGen = 3;
+  const designChoices = ['dense live list', 'slot scan', 'wide generation', 'packed handle'];
+  const useCases = ['ECS entities', 'graphs', 'compiler IR', 'UI nodes'];
+
   yield {
     state: arenaGraph('Deleting a value returns its slot to the free list'),
     highlight: { active: ['slot7', 'delete', 'free', 'e-slot-delete', 'e-delete-free'], compare: ['handle'], removed: ['value'] },
-    explanation: 'Deletion does not move every later element. It marks the slot free, increments or otherwise changes its generation, and pushes the slot onto a free list for future inserts.',
-    invariant: 'Reusing an index must change the generation before old handles can observe the new value.',
+    explanation: `Deletion does not move every later element. It marks slot ${abaIndex} free, increments its generation from ${oldGen} to ${newGen}, and pushes the slot onto a free list for future inserts.`,
+    invariant: `Reusing index ${abaIndex} must change the generation before old handles carrying generation ${oldGen} can observe the new value.`,
   };
 
   yield {
@@ -152,13 +163,13 @@ function* freeListAndAba() {
       ],
     ),
     highlight: { active: ['old:result', 'delete:generation', 'b:generation'], found: ['a:result'] },
-    explanation: 'The ABA bug is that index 7 can hold A, then nothing, then B. Without a generation, an old reference to A would accidentally read B. The generation makes the second A-like index distinguishable.',
+    explanation: `The ABA bug is that index ${abaIndex} can hold A, then nothing, then B. Without a generation, an old reference at g${oldGen} to A would accidentally read B at g${newGen}. The generation makes the second A-like index distinguishable.`,
   };
 
   yield {
     state: arenaGraph('Reuse is fast because the free list is inside the arena'),
     highlight: { active: ['free', 'arena', 'slot7', 'e-arena-slot'], found: ['insert', 'handle'], removed: ['stale'] },
-    explanation: 'A new insert can pop the first free slot, write the payload, and return the new generation handle. The container avoids shifting elements, so external handles to other slots remain stable.',
+    explanation: `A new insert can pop the first free slot at index ${abaIndex}, write the payload, and return a handle with generation ${newGen}. The container avoids shifting elements, so external handles to other slots remain stable.`,
   };
 
   yield {
@@ -182,7 +193,7 @@ function* freeListAndAba() {
       ],
     ),
     highlight: { active: ['dense:helps', 'packed:helps'], compare: ['holes:cost'], found: ['wide:cost'] },
-    explanation: 'Slot maps are a family, not one exact layout. You tune for handle size, generation wrap risk, deletion rate, iteration speed, and pointer stability.',
+    explanation: `Slot maps are a family, not one exact layout. These ${designChoices.length} design choices — ${designChoices.join(', ')} — tune for handle size, generation wrap risk, deletion rate, iteration speed, and pointer stability.`,
   };
 
   yield {
@@ -206,7 +217,7 @@ function* freeListAndAba() {
       ],
     ),
     highlight: { active: ['ecs:why', 'graphs:why'], found: ['ecs:neighbor', 'ui:neighbor'] },
-    explanation: 'The pattern is strongest when the program needs many stable ids, frequent deletion, and explicit validity checks. It is the handle layer underneath many ECS and editor storage designs.',
+    explanation: `The pattern is strongest across ${useCases.length} domains — ${useCases.join(', ')} — where the program needs many stable ids, frequent deletion, and explicit validity checks. It is the handle layer underneath many ECS and editor storage designs.`,
   };
 }
 
@@ -219,6 +230,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/generational-arena-slot-map.gif', alt: 'Animated walkthrough of the generational arena slot map visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -56,10 +56,17 @@ function pipelineGraph(title) {
 }
 
 function* semanticHitPath() {
+  const pipelineStages = ['prompt', 'embed', 'index', 'gate', 'hit', 'llm', 'store'];
+  const stageCount = 7;
+  const gateChecks = ['distance', 'tenant', 'model name', 'system-prompt digest', 'corpus version', 'tool permissions', 'TTL'];
+  const gateCheckCount = 7;
+  const cacheRecordFields = ['query vector', 'answer', 'metadata', 'policy'];
+  const fieldCount = 4;
+
   yield {
     state: pipelineGraph('A semantic cache is a vector index in front of the LLM'),
     highlight: { active: ['prompt', 'embed', 'index', 'e-prompt-embed', 'e-embed-index'], compare: ['llm'], found: ['hit'] },
-    explanation: 'An exact cache asks whether the prompt string is identical. A semantic cache embeds the new prompt, searches prior prompt embeddings, and asks whether the nearest cached answer is close enough to reuse.',
+    explanation: `An exact cache asks whether the prompt string is identical. A semantic cache embeds the new prompt, searches prior prompt embeddings, and asks whether the nearest cached answer is close enough to reuse. The pipeline has ${stageCount} stages: ${pipelineStages.join(' → ')}.`,
   };
 
   yield {
@@ -84,14 +91,14 @@ function* semanticHitPath() {
       ],
     ),
     highlight: { active: ['p1:semantic'], compare: ['p1:exact'], removed: ['p3:risk'] },
-    explanation: 'The win is near-duplicate wording. The danger is semantic overreach: a similar-looking prompt may require different permissions, fresher data, or a different tool context.',
-    invariant: 'Similarity is only a candidate; policy decides whether reuse is allowed.',
+    explanation: `The win is near-duplicate wording. The danger is semantic overreach: a similar-looking prompt may require different permissions, fresher data, or a different tool context. The gate enforces ${gateCheckCount} checks before any hit is returned.`,
+    invariant: `Similarity is only a candidate; the ${pipelineStages[3]} decides whether reuse is allowed.`,
   };
 
   yield {
     state: pipelineGraph('A hit still needs metadata checks'),
     highlight: { active: ['index', 'gate', 'e-index-gate'], found: ['hit'], removed: ['llm'] },
-    explanation: 'The gate checks distance, tenant, model name, system-prompt digest, retrieval corpus version, tool permissions, TTL, and any domain-specific freshness rule before returning a cached answer.',
+    explanation: `The gate checks ${gateChecks.join(', ')}, and any domain-specific freshness rule — ${gateCheckCount} checks in total before returning a cached answer.`,
   };
 
   yield {
@@ -115,11 +122,18 @@ function* semanticHitPath() {
       ],
     ),
     highlight: { active: ['vector:data', 'meta:data', 'policy:data'], found: ['answer:why'] },
-    explanation: 'The data structure is not just a vector index. It is a vector index plus an ordinary cache record, policy metadata, and an invalidation contract.',
+    explanation: `The data structure is not just a vector index. Each cache record holds ${fieldCount} fields — ${cacheRecordFields.join(', ')} — combining a vector index with an ordinary cache record, policy metadata, and an invalidation contract.`,
   };
 }
 
 function* thresholdAndGates() {
+  const thresholdMin = 0.70;
+  const thresholdMax = 0.99;
+  const gateCount = 5;
+  const cacheTypes = ['semantic cache', 'prefix/KV cache', 'RAG result cache', 'exact cache'];
+  const cacheTypeCount = 4;
+  const boundaryRisks = ['data leak', 'format drift', 'stale answer', 'forbidden action'];
+
   yield {
     state: plotState({
       axes: { x: { label: 'similarity threshold', min: 0.70, max: 0.99 }, y: { label: 'rate', min: 0, max: 1.0 } },
@@ -129,7 +143,7 @@ function* thresholdAndGates() {
       ],
     }),
     highlight: { active: ['safe'], compare: ['hit'] },
-    explanation: 'Lower thresholds save more calls but increase false hits. Higher thresholds are safer but may erase the savings. The threshold is a product and risk decision, not a magic constant.',
+    explanation: `Lower thresholds (toward ${thresholdMin}) save more calls but increase false hits. Higher thresholds (toward ${thresholdMax}) are safer but may erase the savings. The threshold is a product and risk decision, not a magic constant.`,
   };
 
   yield {
@@ -155,14 +169,14 @@ function* thresholdAndGates() {
       ],
     ),
     highlight: { active: ['tenant:bad', 'data:bad', 'tools:bad'], found: ['dist:pass'] },
-    explanation: 'Most production mistakes are not ANN mistakes. They are boundary mistakes: sharing across tenants, reusing stale RAG answers, or replaying an answer produced under a different system prompt.',
-    invariant: 'Never let vector distance override authorization, freshness, or prompt contract.',
+    explanation: `Most production mistakes are not ANN mistakes. They are boundary mistakes — ${boundaryRisks.join(', ')} — from sharing across tenants, reusing stale RAG answers, or replaying an answer produced under a different system prompt. All ${gateCount} gate checks must pass.`,
+    invariant: `Never let vector distance override authorization, freshness, or prompt contract. Each of the ${gateCount} gates exists to block a specific boundary failure.`,
   };
 
   yield {
     state: pipelineGraph('Misses are useful training data'),
     highlight: { active: ['llm', 'store', 'e-gate-llm', 'e-llm-store'], compare: ['gate'], found: ['index'] },
-    explanation: 'A miss calls the model and then stores a new record if the response is cacheable. Some responses should not be cached: personalized decisions, rapidly changing facts, secrets, and tool outputs with narrow permissions.',
+    explanation: `A miss calls the model and then stores a new record if the response is cacheable. Some responses should not be cached: personalized decisions, rapidly changing facts, secrets, and tool outputs with narrow permissions. A well-tuned threshold (between ${thresholdMin} and ${thresholdMax}) keeps miss volume manageable.`,
   };
 
   yield {
@@ -187,7 +201,7 @@ function* thresholdAndGates() {
       ],
     ),
     highlight: { active: ['semantic:key', 'prefix:stores', 'rag:risk'], compare: ['exact:risk'] },
-    explanation: 'These caches live at different layers. Semantic caching skips a whole LLM call. Prefix caching reuses model state inside inference. RAG result caching reuses retrieval work. Exact caching is safest but misses paraphrases.',
+    explanation: `These ${cacheTypeCount} cache types — ${cacheTypes.join(', ')} — live at different layers. Semantic caching skips a whole LLM call. Prefix caching reuses model state inside inference. RAG result caching reuses retrieval work. Exact caching is safest but misses paraphrases.`,
   };
 }
 
@@ -200,6 +214,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/semantic-cache-llm.gif', alt: 'Animated walkthrough of the semantic cache llm visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

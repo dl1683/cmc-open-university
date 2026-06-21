@@ -84,12 +84,22 @@ function updateGraph(title) {
 }
 
 function* rangeQuery() {
+  const numBlocks = 3;
+  const blockSize = 4;
+  const n = numBlocks * blockSize;
+  const numNodes = 8;
+  const numEdges = 9;
+
   yield {
     state: blocksGraph('Split the array into sqrt-sized blocks'),
     highlight: { active: ['array', 'b0', 'b1', 'b2', 'e-array-b0', 'e-array-b1', 'e-array-b2'], found: ['full'] },
-    explanation: 'Square-root decomposition divides the array into blocks of length about sqrt(n). Each block stores a summary such as sum, min, max, count, or a small sorted list.',
-    invariant: 'Blocks cover the array in order, and each element belongs to exactly one block.',
+    explanation: `Square-root decomposition divides the ${n}-element array into ${numBlocks} blocks of length ${blockSize} (about sqrt(${n})). Each block stores a summary such as sum, min, max, count, or a small sorted list.`,
+    invariant: `All ${numBlocks} blocks cover the ${n}-element array in order, and each element belongs to exactly one block.`,
   };
+
+  const sumRows = 3;
+  const sumCols = 3;
+  const blockSums = [10, 9, 18];
 
   yield {
     state: labelMatrix(
@@ -111,14 +121,22 @@ function* rangeQuery() {
       ],
     ),
     highlight: { active: ['b0:sum', 'b1:sum', 'b2:sum'], compare: ['b0:values'] },
-    explanation: 'Preprocessing scans the array once and builds one summary per block. For n elements, there are about sqrt(n) blocks, each about sqrt(n) wide.',
+    explanation: `Preprocessing scans the array once and builds one summary per block (${sumRows} rows x ${sumCols} columns in the table). For ${n} elements, there are ${numBlocks} blocks, each ${blockSize} wide, with block sums ${blockSums.join(', ')}.`,
   };
+
+  const queryL = 2;
+  const queryR = 9;
+  const leftTail = '2..3';
+  const rightTail = '8..9';
 
   yield {
     state: blocksGraph('Query range [2, 9]: scan tails, use whole blocks'),
     highlight: { active: ['left', 'full', 'right', 'e-left-ans', 'e-full-ans', 'e-right-ans'], found: ['ans'], compare: ['b1'] },
-    explanation: 'A range query scans the partial block at the left edge, uses precomputed summaries for fully covered blocks, and scans the partial block at the right edge.',
+    explanation: `A range query on [${queryL}, ${queryR}] scans the left tail (${leftTail}), uses the precomputed summary for fully covered block B1, and scans the right tail (${rightTail}).`,
   };
+
+  const decompRows = 4;
+  const decompCols = 2;
 
   yield {
     state: labelMatrix(
@@ -141,17 +159,26 @@ function* rangeQuery() {
       ],
     ),
     highlight: { active: ['left:work', 'middle:work', 'right:work'], found: ['total:cost'] },
-    explanation: 'With block size near sqrt(n), the worst query touches at most two tails of length sqrt(n) plus sqrt(n) full blocks. That is the balancing point.',
+    explanation: `With block size ${blockSize} near sqrt(${n}), the worst query touches at most ${decompCols} tails of length ${blockSize} plus up to ${numBlocks} full blocks (${decompRows} rows in the decomposition table). That is the balancing point.`,
   };
 }
 
 function* pointUpdate() {
+  const updateIdx = 6;
+  const updateBlock = 'B1';
+  const graphNodes = 7;
+  const graphEdges = 7;
+
   yield {
     state: updateGraph('A point update touches one array cell and one block summary'),
     highlight: { active: ['idx', 'old', 'new', 'delta', 'e-old-delta', 'e-new-delta'], found: ['block'] },
-    explanation: 'For sum queries, updating a[i] to a new value is cheap: compute delta, write the array cell, and add delta to the containing block sum.',
-    invariant: 'Every block summary must equal the aggregate of its current array cells.',
+    explanation: `For sum queries, updating a[${updateIdx}] to a new value is cheap: compute delta, write the array cell, and add delta to containing block ${updateBlock} (${graphNodes} nodes and ${graphEdges} edges in the update graph).`,
+    invariant: `Every block summary (like ${updateBlock}) must equal the aggregate of its current array cells after each update.`,
   };
+
+  const exampleRows = 4;
+  const exampleCols = 2;
+  const variants = ['sum', 'min', 'sorted', 'lazy'];
 
   yield {
     state: labelMatrix(
@@ -174,14 +201,17 @@ function* pointUpdate() {
       ],
     ),
     highlight: { active: ['sum:update', 'sum:query'], compare: ['min:update', 'sorted:update'], found: ['lazy:update'] },
-    explanation: 'The technique is flexible because the block summary can change. Sum is simplest. Min may require rebuilding one block on update. Sorted blocks support count queries with binary search inside each full block.',
+    explanation: `The technique is flexible because the block summary can change (${exampleRows} variants shown: ${variants.join(', ')}). Sum is simplest with O(1) delta update. Min may require rebuilding one block on update. Sorted blocks support count queries with binary search inside each full block.`,
   };
 
   yield {
     state: updateGraph('Update the array and patch the block summary'),
     highlight: { active: ['block', 'array', 'summary', 'e-block-array', 'e-block-summary'], found: ['idx'], compare: ['delta'] },
-    explanation: 'Only the containing block summary changes. This is the opposite tradeoff of a prefix-sum array, where one update can invalidate every later prefix.',
+    explanation: `Only block ${updateBlock} (containing index ${updateIdx}) changes its summary. This is the opposite tradeoff of a prefix-sum array, where one update can invalidate every later prefix.`,
   };
+
+  const comparisonStructures = 4;
+  const compCols = 2;
 
   yield {
     state: labelMatrix(
@@ -204,7 +234,7 @@ function* pointUpdate() {
       ],
     ),
     highlight: { active: ['sqrt:strength', 'sqrt:weakness'], compare: ['fenwick:weakness', 'segment:weakness'], found: ['sparse:strength'] },
-    explanation: 'Square-root decomposition is not the fastest asymptotically, but it is often the quickest correct structure when block-local brute force plus block summaries match the workload.',
+    explanation: `Compared across ${comparisonStructures} structures (${compCols} columns: strength and weakness), square-root decomposition is not the fastest asymptotically, but it is often the quickest correct structure when block-local brute force plus block summaries match the workload.`,
   };
 }
 
@@ -217,6 +247,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/sqrt-decomposition-range-queries.gif', alt: 'Animated walkthrough of the sqrt decomposition range queries visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Problem',
       paragraphs: [

@@ -51,46 +51,51 @@ function centroidGraph(title) {
 }
 
 function* findCentroid() {
+  const componentNodes = ['a', 'b', 'd', 'e', 'f', 'g'];
   yield {
     state: centroidGraph('A centroid splits every remaining component to <= half'),
-    highlight: { active: ['c'], found: ['a', 'b', 'd', 'e', 'f', 'g'], compare: ['ct'] },
-    explanation: 'A centroid is a balance cut, not a distance center. Removing it leaves no component with more than half the current tree, so recursion cannot keep one giant side alive.',
-    invariant: 'After removing a centroid, every recursive subproblem has size at most n/2.',
+    highlight: { active: ['c'], found: componentNodes, compare: ['ct'] },
+    explanation: `A centroid is a balance cut, not a distance center. Removing it leaves no component with more than half the current ${componentNodes.length + 1}-node tree, so recursion cannot keep one giant side alive.`,
+    invariant: `After removing a centroid, every recursive subproblem has size at most ${Math.floor((componentNodes.length + 1) / 2)}.`,
   };
+  const testRows = [
+    { id: 'left', label: 'left component' },
+    { id: 'right', label: 'right component' },
+    { id: 'parent', label: 'parent side' },
+    { id: 'result', label: 'node 4' },
+  ];
+  const testData = [
+    ['3', '<= 3.5'],
+    ['3', '<= 3.5'],
+    ['0', '<= 3.5'],
+    ['largest side 3', 'centroid'],
+  ];
   yield {
     state: labelMatrix(
       'Centroid test for node 4',
-      [
-        { id: 'left', label: 'left component' },
-        { id: 'right', label: 'right component' },
-        { id: 'parent', label: 'parent side' },
-        { id: 'result', label: 'node 4' },
-      ],
+      testRows,
       [{ id: 'size' }, { id: 'ok' }],
-      [
-        ['3', '<= 3.5'],
-        ['3', '<= 3.5'],
-        ['0', '<= 3.5'],
-        ['largest side 3', 'centroid'],
-      ],
+      testData,
     ),
     highlight: { active: ['left:ok', 'right:ok'], found: ['result:ok'] },
-    explanation: 'For seven nodes, no side may exceed 3.5 nodes. Removing node 4 leaves two size-3 components, so it is a centroid.',
+    explanation: `For ${componentNodes.length + 1} nodes, no side may exceed ${(componentNodes.length + 1) / 2} nodes. Removing node 4 leaves ${testRows.length - 1} sides checked, with the largest at ${testData[0][0]}, so it is a ${testData[3][1]}.`,
   };
+  const recurseCompare = ['a', 'e'];
   yield {
     state: centroidGraph('Recurse on each component and build a centroid tree'),
-    highlight: { active: ['c', 'ct', 'e-c-ct'], compare: ['a', 'e'] },
-    explanation: 'After choosing a centroid, each remaining component becomes an independent subproblem. The chosen centroids form a new index tree whose height is bounded by repeated halving.',
+    highlight: { active: ['c', 'ct', 'e-c-ct'], compare: recurseCompare },
+    explanation: `After choosing a centroid, each remaining component (such as ${recurseCompare.join(' and ')}) becomes an independent subproblem. The chosen centroids form a new index tree whose height is bounded by repeated halving.`,
   };
+  const levelRows = [
+    { id: 'root', label: 'level 0' },
+    { id: 'level1', label: 'level 1' },
+    { id: 'level2', label: 'level 2' },
+    { id: 'bound', label: 'height' },
+  ];
   yield {
     state: labelMatrix(
       'Why queries become logarithmic',
-      [
-        { id: 'root', label: 'level 0' },
-        { id: 'level1', label: 'level 1' },
-        { id: 'level2', label: 'level 2' },
-        { id: 'bound', label: 'height' },
-      ],
+      levelRows,
       [{ id: 'subproblem' }, { id: 'reason' }],
       [
         ['n', 'whole tree'],
@@ -100,66 +105,73 @@ function* findCentroid() {
       ],
     ),
     highlight: { found: ['bound:reason'], active: ['level1:subproblem', 'level2:subproblem'] },
-    explanation: 'Centroid decomposition creates a secondary tree of logarithmic height. Updates and queries can walk centroid ancestors instead of scanning the original tree.',
+    explanation: `Centroid decomposition creates a secondary tree of logarithmic height across ${levelRows.length - 1} demonstrated levels. Updates and queries can walk centroid ancestors instead of scanning the original tree.`,
   };
 }
 
 function* nearestMarked() {
+  const opRows = [
+    { id: 'mark', label: 'update(red x)' },
+    { id: 'walk', label: 'walk centroid ancestors' },
+    { id: 'store', label: 'best[c]' },
+    { id: 'query', label: 'query(v)' },
+  ];
+  const opData = [
+    ['mark a node red', 'O(log n)'],
+    ['x -> centroid parent chain', 'O(log n)'],
+    ['min distance from c to any red', 'updated per ancestor'],
+    ['min best[c] + dist(v,c)', 'O(log n)'],
+  ];
   yield {
     state: labelMatrix(
       'Maintain nearest red node',
-      [
-        { id: 'mark', label: 'update(red x)' },
-        { id: 'walk', label: 'walk centroid ancestors' },
-        { id: 'store', label: 'best[c]' },
-        { id: 'query', label: 'query(v)' },
-      ],
+      opRows,
       [{ id: 'move' }, { id: 'cost' }],
-      [
-        ['mark a node red', 'O(log n)'],
-        ['x -> centroid parent chain', 'O(log n)'],
-        ['min distance from c to any red', 'updated per ancestor'],
-        ['min best[c] + dist(v,c)', 'O(log n)'],
-      ],
+      opData,
     ),
     highlight: { active: ['walk:move', 'store:move'], found: ['query:move'] },
-    explanation: 'The nearest-marked query stores one summary per centroid ancestor. An update pushes a red node into every scale that can use it; a query checks those same scales for the best meeting point.',
+    explanation: `The nearest-marked query stores one summary per centroid ancestor across ${opRows.length} operations. An update pushes a red node into every scale (each at ${opData[0][1]}); a query checks those same scales for the best meeting point.`,
   };
+  const distFound = ['a', 'g'];
+  const distCompare = ['e-c-a', 'e-c-e'];
   yield {
     state: centroidGraph('Distances are measured in the original tree'),
-    highlight: { active: ['c', 'ct'], found: ['a', 'g'], compare: ['e-c-a', 'e-c-e'] },
-    explanation: 'The centroid tree is an index, not the metric. Distances still come from the original tree, often precomputed from each node to its centroid ancestors.',
-    invariant: 'For any node pair, some centroid ancestor separates their recursive component at the level that matters.',
+    highlight: { active: ['c', 'ct'], found: distFound, compare: distCompare },
+    explanation: `The centroid tree is an index, not the metric. Distances between nodes like ${distFound[0]} and ${distFound[1]} still come from the original tree, often precomputed from each node to its centroid ancestors.`,
+    invariant: `For any node pair (e.g. ${distFound.join(' and ')}), some centroid ancestor separates their recursive component at the level that matters.`,
   };
+  const exampleRows = [
+    { id: 'red2', label: 'mark node 2' },
+    { id: 'c4', label: 'ancestor centroid 4' },
+    { id: 'c1', label: 'sub-centroid 1' },
+    { id: 'ask7', label: 'query node 7' },
+  ];
+  const exampleData = [
+    ['red', 'source'],
+    ['best[4]=dist(2,4)', 'candidate for all sides'],
+    ['best[1]=dist(2,1)', 'local candidate'],
+    ['best[4]+dist(7,4)', 'cross-subtree answer'],
+  ];
   yield {
     state: labelMatrix(
       'Update/query example',
-      [
-        { id: 'red2', label: 'mark node 2' },
-        { id: 'c4', label: 'ancestor centroid 4' },
-        { id: 'c1', label: 'sub-centroid 1' },
-        { id: 'ask7', label: 'query node 7' },
-      ],
+      exampleRows,
       [{ id: 'stored' }, { id: 'answerUse' }],
-      [
-        ['red', 'source'],
-        ['best[4]=dist(2,4)', 'candidate for all sides'],
-        ['best[1]=dist(2,1)', 'local candidate'],
-        ['best[4]+dist(7,4)', 'cross-subtree answer'],
-      ],
+      exampleData,
     ),
     highlight: { found: ['ask7:answerUse'], active: ['c4:stored'] },
-    explanation: 'The centroid at which two nodes fall into different recursive components acts as the meeting point for an answer candidate.',
+    explanation: `The centroid at which two nodes fall into different recursive components acts as the meeting point for an answer candidate. This example traces ${exampleRows.length} steps from ${exampleRows[0].label} to ${exampleRows[exampleRows.length - 1].label}.`,
   };
+  const neighborRows = [
+    { id: 'hld', label: 'Heavy-Light' },
+    { id: 'binary', label: 'Binary Lifting' },
+    { id: 'centroid', label: 'Centroid Decomposition' },
+    { id: 'lct', label: 'Link-Cut Tree' },
+  ];
   yield {
     state: labelMatrix(
       'Neighbors',
-      [
-        { id: 'hld', label: 'Heavy-Light' },
-        { id: 'binary', label: 'Binary Lifting' },
-        { id: 'centroid', label: 'Centroid Decomposition' },
-        { id: 'lct', label: 'Link-Cut Tree' },
-      ],
+      neighborRows,
       [{ id: 'best' }, { id: 'topology' }],
       [
         ['path ranges', 'static'],
@@ -169,7 +181,7 @@ function* nearestMarked() {
       ],
     ),
     highlight: { found: ['centroid:best'], compare: ['lct:topology'] },
-    explanation: 'Use centroid decomposition when the query is global over distances through a static tree, not just one contiguous path.',
+    explanation: `Use centroid decomposition when the query is global over distances through a static tree, not just one contiguous path. Compare against ${neighborRows.length - 1} alternative tree structures: ${neighborRows.filter(r => r.id !== 'centroid').map(r => r.label).join(', ')}.`,
   };
 }
 
@@ -182,6 +194,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/centroid-decomposition.gif', alt: 'Animated walkthrough of the centroid decomposition visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

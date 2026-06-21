@@ -61,26 +61,26 @@ function* enqueueRace() {
   yield {
     state: queueGraph('A lock-free queue has a dummy node, head, and tail', 'b', 'dummy'),
     highlight: { active: ['dummy', 'b'], found: ['e-d-a', 'e-a-b'] },
-    explanation: 'The Michael-Scott queue is a linked FIFO queue. Head points at a dummy node before the first real item; tail points near the last node. Operations use compare-and-swap instead of a mutex.',
+    explanation: `The Michael-Scott ${topic.title} is a linked FIFO queue. Head points at a dummy node before the first real item; tail points near the last node. Operations use compare-and-swap instead of a mutex.`,
   };
 
   yield {
     state: queueGraph('Producer links a new node with CAS(tail.next, null, C)', 'b', 'dummy'),
     highlight: { active: ['p1', 'b', 'c', 'e-p1-b', 'e-b-c'], compare: ['p2'] },
-    explanation: 'Enqueue first tries to link the new node at the observed tail.next. If another producer wins the same CAS, this producer rereads the queue and tries again. No global lock is held.',
-    invariant: 'The linearization point for enqueue is the successful CAS that links the new node.',
+    explanation: `Enqueue first tries to link the new node at the observed tail.next. If another producer wins the same CAS, this producer rereads the ${topic.title} and tries again. No global lock is held.`,
+    invariant: `The linearization point for enqueue in a ${topic.category.toLowerCase()} like this is the successful CAS that links the new node.`,
   };
 
   yield {
     state: queueGraph('Tail can lag behind the true last node', 'b', 'dummy'),
     highlight: { active: ['b', 'c', 'e-b-c'], compare: ['p2', 'e-p2-c'] },
-    explanation: 'After C is linked, tail may still point at B. That is allowed. The queue contents are already correct because B.next points at C. Tail is an optimization pointer, not the source of truth.',
+    explanation: `After C is linked, tail may still point at B. That is allowed in the ${topic.title}. The queue contents are already correct because B.next points at C. Tail is an optimization pointer, not the source of truth.`,
   };
 
   yield {
     state: queueGraph('Another thread helps by advancing tail', 'c', 'dummy'),
     highlight: { found: ['p2', 'c', 'e-p2-c'], compare: ['b'] },
-    explanation: 'If a thread notices tail.next is not null, it helps finish the previous enqueue by moving tail forward. Helping is the progress mechanism: stalled operations leave enough evidence for other threads to complete the shared structure repair.',
+    explanation: `If a thread notices tail.next is not null, it helps finish the previous enqueue by advancing tail to C. Helping is the progress mechanism in a ${topic.title}: stalled operations leave enough evidence for other threads to complete the shared structure repair.`,
   };
 }
 
@@ -88,14 +88,14 @@ function* dequeueAndMemory() {
   yield {
     state: queueGraph('Dequeue reads head, next, and tail', 'c', 'dummy'),
     highlight: { active: ['consumer', 'dummy', 'a', 'e-cons-d', 'e-d-a'], compare: ['c'] },
-    explanation: 'Dequeue reads head and head.next. If next exists, the first real item is next. The consumer returns A only after a successful CAS that advances head from dummy to A.',
-    invariant: 'The linearization point for dequeue is the successful CAS that advances head.',
+    explanation: `Dequeue reads head and head.next in the ${topic.title}. If next exists, the first real item is next. The consumer returns A only after a successful CAS that advances head from dummy to A.`,
+    invariant: `The linearization point for dequeue is the successful CAS that advances head — this is the ${topic.category.toLowerCase()} correctness anchor.`,
   };
 
   yield {
     state: queueGraph('After CAS(head, dummy, A), A becomes the new dummy', 'c', 'a'),
     highlight: { found: ['a'], removed: ['dummy'], active: ['consumer'] },
-    explanation: 'The returned value comes from the node after old head, but the queue keeps a dummy-at-head shape. The old dummy can be reclaimed only when no thread can still read it.',
+    explanation: `The returned value comes from the node after old head, but the ${topic.title} keeps a dummy-at-head shape. The old dummy can be reclaimed only when no thread can still read it.`,
   };
 
   yield {
@@ -119,7 +119,7 @@ function* dequeueAndMemory() {
       ],
     ),
     highlight: { active: ['reclaim:risk', 'ordering:risk'], compare: ['cas:risk'] },
-    explanation: 'In garbage-collected runtimes, reclamation is much easier. In C or C++, freeing nodes safely is a separate data-structure problem. Lock-free does not mean simple.',
+    explanation: `In garbage-collected runtimes, reclamation for a ${topic.title} is much easier. In C or C++, freeing nodes safely is a separate ${topic.category.toLowerCase()} problem. Lock-free does not mean simple.`,
   };
 
   yield {
@@ -143,7 +143,7 @@ function* dequeueAndMemory() {
       ],
     ),
     highlight: { found: ['lockfree:promise'], compare: ['blocking:promise', 'waitfree:cost'] },
-    explanation: 'The Michael-Scott queue is lock-free, not wait-free. Under contention, a particular thread can retry many times, but system-wide progress continues.',
+    explanation: `The Michael-Scott ${topic.title} is lock-free, not wait-free. Under contention, a particular thread can retry many times, but system-wide progress continues — that is the ${topic.id} guarantee.`,
   };
 }
 
@@ -164,7 +164,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/lock-free-queue.gif', alt: 'Animated walkthrough of the lock free queue visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

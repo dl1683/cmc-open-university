@@ -66,6 +66,12 @@ function scanGraph(title) {
 }
 
 function* attentionVsRecurrence() {
+  const maxSeqLen = 4096;
+  const ssmComplexity = 'O(n)';
+  const attentionComplexity = 'O(n^2)';
+  const ssmLayerComponents = 4; // hidden state, current token, selection gate, output
+  const fitCategories = 4; // long sequences, streaming, language modeling, hybrid
+
   yield {
     state: scalingPlot([
       { id: 'short', x: 512, y: 2, label: 'short' },
@@ -73,7 +79,7 @@ function* attentionVsRecurrence() {
       { id: 'longssm', x: 4096, y: 35, label: 'long SSM' },
     ]),
     highlight: { active: ['attention', 'ssm'], found: ['long', 'longssm'] },
-    explanation: 'Attention compares every token with every other token, so its memory and compute pressure grow roughly quadratically with sequence length. State space models keep a compact state that updates as the sequence advances, so the core recurrence scales linearly.',
+    explanation: `Attention compares every token with every other token, so its memory and compute pressure grow roughly as ${attentionComplexity} with sequence length. State space models keep a compact state that updates as the sequence advances, so the core recurrence scales ${ssmComplexity} up to ${maxSeqLen} tokens and beyond.`,
   };
 
   yield {
@@ -97,8 +103,8 @@ function* attentionVsRecurrence() {
       ],
     ),
     highlight: { active: ['select:role', 'state:role'], compare: ['state:pressure', 'input:pressure'] },
-    explanation: 'Mamba-style selective SSMs make the recurrence input-dependent. The token can change how the state is updated, giving the model a content-based way to remember or forget.',
-    invariant: 'The state is fixed-size with respect to sequence length.',
+    explanation: `Mamba-style selective SSMs make the recurrence input-dependent. Each of the ${ssmLayerComponents} layer components plays a role: the token can change how the state is updated, giving the model a content-based way to remember or forget.`,
+    invariant: `The state is fixed-size with respect to sequence length -- it does not grow even at ${maxSeqLen} tokens.`,
   };
 
   yield {
@@ -122,7 +128,7 @@ function* attentionVsRecurrence() {
       ],
     ),
     highlight: { active: ['kv:memory', 'state:memory'], compare: ['attention:tradeoff', 'ssm:tradeoff'] },
-    explanation: 'The serving appeal is clear: Transformer decoding stores a KV Cache that grows with context. A recurrent state can be constant-size, but it must compress history instead of looking back at every token.',
+    explanation: `The serving appeal is clear: Transformer decoding stores a KV Cache that grows with context (${attentionComplexity} pressure). A recurrent state can be constant-size, but it must compress history instead of looking back at every token.`,
   };
 
   yield {
@@ -146,22 +152,28 @@ function* attentionVsRecurrence() {
       ],
     ),
     highlight: { found: ['long:benefit', 'stream:benefit', 'language:benefit'], compare: ['long:risk'] },
-    explanation: 'Selective SSMs are not magic replacements for attention. They trade direct all-pairs lookup for compressed, input-controlled memory. The right model depends on the task and serving constraints.',
+    explanation: `Selective SSMs are not magic replacements for attention. Across ${fitCategories} use categories, they trade direct all-pairs lookup for compressed, ${ssmComplexity}-scaling, input-controlled memory. The right model depends on the task and serving constraints.`,
   };
 }
 
 function* selectiveScan() {
+  const tokenCount = 3; // x1, x2, x3 in the scan graph
+  const stateCount = 3; // s1, s2, s3 in the scan graph
+  const edgeCount = 5; // edges in the scan graph
+  const tokenTypes = 4; // name, comma, fact, filler
+  const relatedTopics = 4; // attention, KV cache, roofline, gradients
+
   yield {
     state: scanGraph('A selective recurrence carries state forward'),
     highlight: { active: ['x1', 's1', 'e-x1-s1'], compare: ['x2', 'x3'] },
-    explanation: 'In recurrent mode, each token updates a state and passes it forward. The token-dependent selection controls how strongly new input affects memory.',
+    explanation: `In recurrent mode, each of the ${tokenCount} tokens updates a state and passes it forward through ${edgeCount} edges. The token-dependent selection controls how strongly new input affects memory.`,
   };
 
   yield {
     state: scanGraph('The scan can be parallelized for training'),
     highlight: { active: ['e-x1-s1', 'e-x2-s2', 'e-x3-s3'], found: ['s1', 's2', 's3'] },
-    explanation: 'The Mamba paper pairs the recurrence with a hardware-aware scan so training can remain parallel enough for accelerators. That is the systems trick: recurrent semantics without naive serial training.',
-    invariant: 'Training and inference can use different execution views of the same recurrence.',
+    explanation: `The Mamba paper pairs the recurrence with a hardware-aware scan so training can remain parallel enough for accelerators. All ${stateCount} states can be computed concurrently -- recurrent semantics without naive serial training.`,
+    invariant: `Training and inference can use different execution views of the same recurrence over ${tokenCount} tokens.`,
   };
 
   yield {
@@ -185,7 +197,7 @@ function* selectiveScan() {
       ],
     ),
     highlight: { active: ['name:effect', 'fact:effect'], compare: ['filler:effect'] },
-    explanation: 'Selectivity is a content-based memory policy. Important tokens can write state; unimportant tokens can leave it mostly unchanged. That is the feature prior SSMs lacked for discrete language-like data.',
+    explanation: `Selectivity is a content-based memory policy. Across ${tokenTypes} token types, important tokens can write state while unimportant tokens leave it mostly unchanged. That is the feature prior SSMs lacked for discrete language-like data.`,
   };
 
   yield {
@@ -209,7 +221,7 @@ function* selectiveScan() {
       ],
     ),
     highlight: { found: ['attention:question', 'kv:question', 'roof:question', 'grad:question'] },
-    explanation: 'Mamba is easiest to understand as a tradeoff against attention and KV cache, with recurrence stability questions inherited from older sequence models.',
+    explanation: `Mamba is easiest to understand as a tradeoff against ${relatedTopics} related topics: attention, KV cache, roofline performance, and gradient stability from older sequence models.`,
   };
 }
 
@@ -222,6 +234,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/selective-state-space-mamba.gif', alt: 'Animated walkthrough of the selective state space mamba visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

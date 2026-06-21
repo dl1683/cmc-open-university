@@ -92,7 +92,8 @@ export const article = {
         {type: 'callout', text: 'Binary search works because sorted order converts one midpoint comparison into a proof that half the interval is impossible.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Binary_Search_Depiction.svg/250px-Binary_Search_Depiction.svg.png', alt: 'Binary search narrowing a sorted array to a target value.', caption: 'Each midpoint comparison removes one side of the sorted interval. (Source: Wikimedia Commons)'},
         'For an 8-element array, the animation should finish in at most 3 comparisons. Count the steps yourself to confirm logarithmic behavior.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/binary-search.gif', alt: 'Animated walkthrough of the binary search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

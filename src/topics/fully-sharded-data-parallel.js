@@ -58,23 +58,27 @@ function fsdpGraph(title) {
 }
 
 function* reshardLifecycle() {
+  const numRanks = 3;
+  const numPhases = 4; // gather, compute, scatter, reshard
+  const strategies = ['DDP', 'ZeRO stage 3', 'FSDP', 'tensor parallel'];
+
   yield {
     state: fsdpGraph('Idle state: each rank owns only shards'),
     highlight: { active: ['r0', 'r1', 'r2', 'module'], compare: ['gather', 'compute'] },
-    explanation: 'Read the rank nodes as the resting layout. Parameters, gradients, and optimizer state are partitioned across ranks, so the long-lived footprint is sharded rather than fully replicated.',
+    explanation: `Read the ${numRanks} rank nodes as the resting layout. Parameters, gradients, and optimizer state are partitioned across ${numRanks} ranks, so the long-lived footprint is sharded rather than fully replicated.`,
   };
 
   yield {
     state: fsdpGraph('Pre-forward: all-gather full parameters for one module'),
     highlight: { active: ['module', 'gather', 'e-module-gather', 'e-gather-compute'], found: ['compute'] },
-    explanation: 'Before a wrapped module runs, ranks all-gather the shards needed to materialize that module parameters. Full weights exist briefly, just around the computation that needs them.',
-    invariant: 'FSDP keeps full parameters temporary; shards are the resting state.',
+    explanation: `Before a wrapped module runs, ${numRanks} ranks all-gather the shards needed to materialize that module's parameters. Full weights exist briefly, just around the computation that needs them.`,
+    invariant: `FSDP keeps full parameters temporary across ${numRanks} ranks; shards are the resting state throughout all ${numPhases} lifecycle phases.`,
   };
 
   yield {
     state: fsdpGraph('Backward: reduce-scatter gradients to shard owners'),
     highlight: { active: ['compute', 'scatter', 'e-compute-scatter', 'e-scatter-optim'], found: ['optim'] },
-    explanation: 'Backward computes gradients, then reduce-scatters them so each rank keeps the reduced gradient shard it owns. The optimizer step can then run locally on each owner shard.',
+    explanation: `Backward computes gradients, then reduce-scatters them so each of the ${numRanks} ranks keeps the reduced gradient shard it owns. The optimizer step can then run locally on each owner shard.`,
   };
 
   yield {
@@ -98,11 +102,15 @@ function* reshardLifecycle() {
       ],
     ),
     highlight: { active: ['fsdp:state', 'fsdp:communication'], found: ['zero3:state'], compare: ['ddp:state'] },
-    explanation: 'FSDP is conceptually close to ZeRO stage 3 but exposed as a PyTorch module-wrapping strategy. Tensor parallelism splits the math inside a layer; FSDP shards the data-parallel training state.',
+    explanation: `FSDP is conceptually close to ZeRO stage 3 but exposed as a PyTorch module-wrapping strategy. This table compares ${strategies.length} strategies: ${strategies.join(', ')}. Tensor parallelism splits the math inside a layer; FSDP shards the data-parallel training state.`,
   };
 }
 
 function* wrappingStrategy() {
+  const wrapOptions = ['whole model', 'transformer block', 'tiny layers', 'hybrid shard'];
+  const knobs = ['mixed precision', 'activation checkpointing', 'CPU offload', 'state dict'];
+  const failures = ['OOM at gather', 'slow step time', 'bad checkpoint', 'loss diverges'];
+
   yield {
     state: labelMatrix(
       'Auto-wrap granularity',
@@ -124,13 +132,13 @@ function* wrappingStrategy() {
       ],
     ),
     highlight: { active: ['block:benefit', 'block:risk'], compare: ['whole:risk', 'layer:risk'] },
-    explanation: 'Read each row as a candidate wrapper boundary. FSDP performance depends heavily on this choice: transformer-block wrapping often balances peak memory and collective overhead better than tiny-layer or whole-model wrapping.',
+    explanation: `Read each of the ${wrapOptions.length} rows as a candidate wrapper boundary. FSDP performance depends heavily on this choice: transformer-block wrapping often balances peak memory and collective overhead better than ${wrapOptions[2]} or ${wrapOptions[0]} wrapping.`,
   };
 
   yield {
     state: fsdpGraph('Forward prefetch and backward prefetch hide communication'),
     highlight: { active: ['gather', 'compute', 'scatter'], found: ['e-module-gather', 'e-compute-scatter'] },
-    explanation: 'Production FSDP overlaps communication with compute where possible. It can prefetch upcoming parameters and reduce-scatter gradients while later backward work is still running.',
+    explanation: `Production FSDP overlaps communication with compute where possible across all ${wrapOptions.length} wrap granularities. It can prefetch upcoming parameters and reduce-scatter gradients while later backward work is still running.`,
   };
 
   yield {
@@ -154,7 +162,7 @@ function* wrappingStrategy() {
       ],
     ),
     highlight: { found: ['precision:helps', 'checkpoint:helps'], active: ['state:caveat'] },
-    explanation: 'FSDP is one memory lever inside a training plan. Mixed precision, activation checkpointing, CPU offload, and sharded checkpoints determine whether the memory savings translate into a usable job.',
+    explanation: `FSDP is one memory lever inside a training plan. These ${knobs.length} knobs — ${knobs.join(', ')} — determine whether the memory savings translate into a usable job.`,
   };
 
   yield {
@@ -178,7 +186,7 @@ function* wrappingStrategy() {
       ],
     ),
     highlight: { active: ['oom:response', 'slow:response'], found: ['checkpoint:response'] },
-    explanation: 'FSDP debugging is memory-layout debugging. The key questions are where full parameters temporarily exist, when they are released, and what checkpoint format the job expects.',
+    explanation: `FSDP debugging is memory-layout debugging. This table covers ${failures.length} failure modes: ${failures.join(', ')}. The key questions are where full parameters temporarily exist, when they are released, and what checkpoint format the job expects.`,
   };
 }
 
@@ -191,6 +199,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/fully-sharded-data-parallel.gif', alt: 'Animated walkthrough of the fully sharded data parallel visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why FSDP exists',
       paragraphs: [

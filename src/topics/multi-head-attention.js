@@ -47,47 +47,77 @@ const rows = TOKENS.map((t, i) => ({ id: `q${i}`, label: t }));
 const cols = TOKENS.map((t, i) => ({ id: `k${i}`, label: t }));
 
 export function* run(input) {
+  const r2 = (v) => Math.round(v * 100) / 100;
   const view = String(input.view);
   if (!['both heads', 'head 1 only', 'head 2 only'].includes(view)) throw new InputError('Pick a view.');
+
+  // Pre-compute value vectors for display
+  const V1 = TOKENS.map((t) => valueVector(t, 0));
+  const V2 = TOKENS.map((t) => valueVector(t, 1));
+  const showVec = (vec) => `[${vec.map(r2).join(', ')}]`;
 
   yield {
     state: matrixState({ title: 'One head = one pattern = one kind of relationship', rows, columns: cols, values: HEAD1, format: pct }),
     highlight: {},
-    explanation: 'The Attention Mechanism produces ONE pattern: one matrix of who-looks-at-whom. But "the cat sat here" carries several relationships at once — word order, subject-ness, adjacency — and a single softmax can only express one mixture. The fix is almost comically direct: run SEVERAL attentions in parallel, each with its own learned Wq/Wk/Wv, and let each specialize. Each parallel copy is called a HEAD.',
+    explanation: `A single attention head produces ONE softmax distribution per token. But "${TOKENS.join(' ')}" carries several relationships at once — word order, subject-ness, adjacency — and one softmax cannot express them all. For instance, "${TOKENS[2]}" needs to attend to its predecessor "${TOKENS[1]}" (${pct(HEAD1[2][1])}) AND to the noun (${pct(HEAD2[2][1])}). The fix: run SEVERAL attentions in parallel, each with its own Wq/Wk/Wv. Each copy is a HEAD.`,
   };
 
   if (view !== 'head 2 only') {
+    const h1Details = TOKENS.map((t, i) => {
+      const maxJ = HEAD1[i].indexOf(Math.max(...HEAD1[i]));
+      return `"${t}" → "${TOKENS[maxJ]}" ${pct(HEAD1[i][maxJ])}`;
+    });
+
     yield {
       state: matrixState({ title: 'Head 1: a positional specialist', rows, columns: cols, values: HEAD1, format: pct }),
       highlight: { active: ['q2:k1', 'q3:k2'] },
-      explanation: 'Head 1\'s projections learned a POSITIONAL habit: read the rows — "sat" puts 80% of its attention on "cat", "here" on "sat": almost every token looks at its PREDECESSOR. Heads like this really exist in trained models (they help copy and continue sequences — the famous "induction heads" are their sophisticated cousins).',
-      invariant: 'Each head\'s rows are a softmax: every row sums to 100%.',
+      explanation: `Head 1 learned a POSITIONAL habit — each token attends to its predecessor. Strongest weights: ${h1Details.join('; ')}. Row sums: ${TOKENS.map((t, i) => `"${t}" = ${r2(HEAD1[i].reduce((a, b) => a + b, 0))}`).join(', ')}. Heads like this (previous-token heads, induction heads) really exist in trained models and help copy/continue sequences.`,
+      invariant: `Each row sums to 100%: ${TOKENS.map((t, i) => `"${t}" ${pct(HEAD1[i].reduce((a, b) => a + b, 0))}`).join(', ')}.`,
     };
   }
 
   if (view !== 'head 1 only') {
+    const h2Details = TOKENS.map((t, i) => {
+      const maxJ = HEAD2[i].indexOf(Math.max(...HEAD2[i]));
+      return `"${t}" → "${TOKENS[maxJ]}" ${pct(HEAD2[i][maxJ])}`;
+    });
+
     yield {
       state: matrixState({ title: 'Head 2: a semantic specialist', rows, columns: cols, values: HEAD2, format: pct }),
       highlight: { active: ['q0:k1', 'q2:k1', 'q3:k1'] },
-      explanation: 'Head 2, SAME tokens, completely different worldview: every row pours its attention onto "cat" — this head learned to find the NOUN, the thing the sentence is about. Same input, same mechanism, different learned projections → different relationship extracted. Neither head is wrong; they answer different questions simultaneously.',
+      explanation: `Head 2, SAME tokens, completely different pattern: every row pours attention onto "${TOKENS[1]}" — the noun. Weights: ${h2Details.join('; ')}. Compare with head 1: "${TOKENS[2]}" attended ${pct(HEAD1[2][1])} to "${TOKENS[1]}" positionally, but head 2 gives it ${pct(HEAD2[2][1])} semantically. Same input, different learned projections → different relationship extracted.`,
     };
   }
 
-  const out1 = HEAD1.map((w) => [0, 1].map((d) => w.reduce((s, wij, j) => s + wij * valueVector(TOKENS[j], 0)[d], 0)));
-  const out2 = HEAD2.map((w) => [0, 1].map((d) => w.reduce((s, wij, j) => s + wij * valueVector(TOKENS[j], 1)[d], 0)));
+  // --- Per-head value mixing ---
+  const out1 = HEAD1.map((w) => [0, 1].map((d) => w.reduce((s, wij, j) => s + wij * V1[j][d], 0)));
+  const out2 = HEAD2.map((w) => [0, 1].map((d) => w.reduce((s, wij, j) => s + wij * V2[j][d], 0)));
+
+  yield {
+    state: matrixState({
+      title: 'Per-head value mixing',
+      rows,
+      columns: ['h1·d0', 'h1·d1', 'h2·d0', 'h2·d1'].map((label, j) => ({ id: `d${j}`, label })),
+      values: TOKENS.map((_, i) => [...out1[i], ...out2[i]]),
+    }),
+    highlight: { active: ['q2:d0', 'q2:d1'], compare: ['q2:d2', 'q2:d3'] },
+    explanation: `Each head multiplies its attention weights by its own value vectors. Head 1 values: ${TOKENS.map((t, i) => `"${t}" V=${showVec(V1[i])}`).join(', ')}. For "${TOKENS[2]}": head 1 output = ${pct(HEAD1[2][0])}×${showVec(V1[0])} + ${pct(HEAD1[2][1])}×${showVec(V1[1])} + ... = ${showVec(out1[2])}. Head 2 output = ${showVec(out2[2])}. The left half encodes "what came before me," the right half "the noun I relate to."`,
+  };
+
+  // --- Concatenation ---
   const concat = TOKENS.map((_, i) => [...out1[i], ...out2[i]]);
   const dimCols = ['h1·d0', 'h1·d1', 'h2·d0', 'h2·d1'].map((label, j) => ({ id: `d${j}`, label }));
 
   yield {
-    state: matrixState({ title: 'Concatenate: each head contributes its slice of the output', rows, columns: dimCols, values: concat }),
+    state: matrixState({ title: 'Concatenate: both heads side by side', rows, columns: dimCols, values: concat }),
     highlight: { active: ['q2:d0', 'q2:d1'], compare: ['q2:d2', 'q2:d3'] },
-    explanation: 'Each head computes its weighted mix of (its own) value vectors — real arithmetic on the patterns you just saw — and the outputs are CONCATENATED side by side: head 1 fills the first dimensions, head 2 the rest. Look at "sat"\\u2019s row: its left half encodes "what came before me" (head 1), its right half "the noun I relate to" (head 2). One final learned matrix (W_O) then blends the slices. The accounting trick: each head works in dims/heads dimensions, so 8 heads cost the SAME total compute as one full-width head — diversity is free.',
+    explanation: `Concatenate head outputs into one ${TOKENS.length}×4 matrix. Each token’s row: ${TOKENS.map((t, i) => `"${t}" = ${showVec(concat[i])}`).join('; ')}. The first 2 dims carry head 1’s positional signal; the last 2 carry head 2’s semantic signal. A final W_O (4×4) projection blends these slices so downstream layers see one vector encoding both kinds of evidence.`,
   };
 
   yield {
     state: matrixState({ title: 'Scale: 96 heads × 96 layers', rows, columns: dimCols, values: concat }),
     highlight: {},
-    explanation: 'GPT-3 runs 96 heads in every one of its 96 layers — nine thousand specialists. Interpretability researchers have found heads that track syntax, coreference ("her" → who?), induction (repeat what followed last time), even rare-token detectors; pruning studies show many heads are redundant (an ensemble\'s redundancy — compare Random Forest). Multi-head is the production form of attention: The Transformer Block you\'ve seen uses exactly this in its first sublayer, served by the KV Cache per head.',
+    explanation: `GPT-3 runs 96 heads per layer × 96 layers = 9,216 independent attention computations per forward pass. With d_model=12288 and d_k=128 per head, each head’s scoring space is small but the ensemble covers syntax, coreference, induction, and rare-token detection. Our 2-head toy: head 1 captured positional patterns (predecessor ≥ ${pct(Math.min(HEAD1[2][1], HEAD1[3][2]))}), head 2 captured semantic (noun ≥ ${pct(Math.min(HEAD2[0][1], HEAD2[2][1]))}). More heads = more independent relationship detectors at zero extra compute (each head uses d_model/h dims).`,
   };
 }
 
@@ -100,7 +130,8 @@ export const article = {
         "Head 1's highlights cluster near the diagonal: each token attends to its predecessor (a positional pattern). Head 2's highlights cluster on the 'cat' column: every token attends to the noun (a semantic pattern). The two heads see identical input but extract different relationships because they use different learned projections.",
         "The concatenation frame shows the output vector split into head slices. Left columns carry head 1's positional signal, right columns carry head 2's semantic signal. Compare the highlighted and comparison cells for the same token to see that one row encodes two independent kinds of evidence.",
         {type: 'callout', text: "Multi-head attention buys independent softmax channels, so different relationships can stay sharp at the same token instead of sharing one probability budget."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/multi-head-attention.gif', alt: 'Animated walkthrough of the multi head attention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

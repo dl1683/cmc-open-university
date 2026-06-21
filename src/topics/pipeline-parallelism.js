@@ -54,6 +54,11 @@ function stageGraph(title) {
 }
 
 function* microBatchSchedule() {
+  const stageCount = 4;
+  const microBatches = 4;
+  const naiveTicks = stageCount;
+  const steadyStateTick = stageCount;
+
   yield {
     state: labelMatrix(
       'Naive model split: only one stage works at a time',
@@ -77,7 +82,7 @@ function* microBatchSchedule() {
       ],
     ),
     highlight: { active: ['t1:s0', 't2:s1', 't3:s2', 't4:s3'], compare: ['t1:s1', 't1:s2', 't1:s3'] },
-    explanation: 'Read rows as time and columns as stages. This naive depth split fits a larger model but wastes devices: while stage 0 works, stages 1-3 wait. Micro-batches are what make several stages work at once.',
+    explanation: `Read rows as time and columns as ${stageCount} stages. This naive depth split fits a larger model but wastes devices: while stage 0 works, the other ${stageCount - 1} stages wait. Micro-batches are what make all ${stageCount} stages work at once.`,
   };
 
   yield {
@@ -107,8 +112,8 @@ function* microBatchSchedule() {
       ],
     ),
     highlight: { active: ['t4:s0', 't4:s1', 't4:s2', 't4:s3'], compare: ['t1:s1', 't6:s0'] },
-    explanation: 'Read filled cells as useful work and blank cells as bubbles. The middle ticks are the payoff: all stages work on different micro-batches at the same time while the beginning and end pay fill/drain overhead.',
-    invariant: 'Pipeline parallelism turns model depth into an assembly line.',
+    explanation: `Read filled cells as useful work and blank cells as bubbles. By tick ${steadyStateTick}, all ${stageCount} stages work on different micro-batches at the same time while the beginning and end pay fill/drain overhead.`,
+    invariant: `Pipeline parallelism turns model depth into an assembly line of ${stageCount} stages processing ${microBatches} micro-batches.`,
   };
 
   yield {
@@ -132,7 +137,7 @@ function* microBatchSchedule() {
       ],
     ),
     highlight: { found: ['steady:work', 'steady:purpose'], active: ['bubble:work'] },
-    explanation: 'A one-forward-one-backward schedule interleaves forward and backward work after warmup. That lowers live activation memory compared with doing all forwards first and all backwards later.',
+    explanation: `A one-forward-one-backward schedule interleaves forward and backward work after warmup across ${stageCount} stages. That lowers live activation memory compared with doing all ${microBatches} forwards first and all backwards later.`,
   };
 
   yield {
@@ -156,15 +161,19 @@ function* microBatchSchedule() {
       ],
     ),
     highlight: { active: ['few:effect', 'imbalanced:effect'], found: ['many:response', 'interleaved:response'] },
-    explanation: 'The schedule is only as good as stage balance and micro-batch count. Too few micro-batches create bubbles; badly balanced stages make everyone wait for the slowest stage.',
+    explanation: `The schedule is only as good as stage balance and micro-batch count. With ${stageCount} stages and only ${microBatches} micro-batches, too few micro-batches create bubbles; badly balanced stages make everyone wait for the slowest stage.`,
   };
 }
 
 function* stagePartitioning() {
+  const stageCount = 4;
+  const layersPerStage = 8;
+  const totalLayers = stageCount * layersPerStage;
+
   yield {
     state: stageGraph('Partition layers by depth'),
     highlight: { active: ['s0', 's1', 's2', 's3'], found: ['e-s0-s1', 'e-s1-s2', 'e-s2-s3'] },
-    explanation: 'Pipeline parallelism assigns consecutive model layers to stages. Activations move forward between stages; gradients move backward across the same boundaries.',
+    explanation: `Pipeline parallelism assigns ${totalLayers} consecutive model layers to ${stageCount} stages (${layersPerStage} layers each). Activations move forward between stages; gradients move backward across the same boundaries.`,
   };
 
   yield {
@@ -188,7 +197,7 @@ function* stagePartitioning() {
       ],
     ),
     highlight: { active: ['layers:bad', 'memory:bad'], found: ['activation:good', 'skip:good'] },
-    explanation: 'A good pipeline split is not just equal layer count. It balances compute, memory, boundary activation size, and the actual data-flow graph of the model.',
+    explanation: `A good pipeline split is not just equal layer count of ${layersPerStage} per stage. Across ${stageCount} stages it must balance compute, memory, boundary activation size, and the actual data-flow graph of the model.`,
   };
 
   yield {
@@ -212,13 +221,13 @@ function* stagePartitioning() {
       ],
     ),
     highlight: { active: ['pipeline:splits', 'pipeline:traffic'], found: ['tensor:splits', 'zero:splits'] },
-    explanation: 'Pipeline parallelism and tensor parallelism solve different geometry problems. Depth is split into stages; width is split inside layers. Large jobs often use both.',
+    explanation: `Pipeline parallelism splits ${totalLayers} layers across ${stageCount} depth stages; tensor parallelism splits width inside layers. Large jobs often use both.`,
   };
 
   yield {
     state: stageGraph('Final frame: activations forward, gradients backward'),
     highlight: { found: ['e-s0-s1', 'e-s1-s2', 'e-s2-s3'], active: ['s0', 's1', 's2', 's3'] },
-    explanation: 'The static picture to remember: each stage owns a consecutive slice of the network. The pipeline is correct only if activation and gradient traffic cross those boundaries in schedule order.',
+    explanation: `The static picture to remember: each of the ${stageCount} stages owns ${layersPerStage} consecutive layers. The pipeline is correct only if activation and gradient traffic cross those ${stageCount - 1} boundaries in schedule order.`,
   };
 }
 
@@ -231,6 +240,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/pipeline-parallelism.gif', alt: 'Animated walkthrough of the pipeline parallelism visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -87,7 +87,8 @@ export const article = {
           text: 'Embedding search works because the model moved meaning into geometry before the query ever arrives.',
         },
         'The highlighted dot is the query word. The system measures the distance from the query to every other point and returns the closest ones as "found" neighbors. The visited dot marks the farthest word. The gap between nearest and farthest is the signal: the space has captured meaningful structure, and "similar" has become "nearby."',
-      ],
+      
+        {type: 'image', src: './assets/gifs/embeddings-similarity.gif', alt: 'Animated walkthrough of the embeddings similarity visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

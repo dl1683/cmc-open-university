@@ -188,7 +188,8 @@ export const article = {
         'When an event arrives, three cells light up -- one per row -- at the column positions chosen by each hash function. Those three counters increment by one; nothing else changes. When the sketch answers a query, it reads the same three positions and returns the smallest value. That minimum is the frequency estimate.',
         'Track "login" and "bot" through the stream. They collide in rows h1 and h2 (both land in columns 4 and 6), so those rows overcount both keys. Row h0 maps them to different columns (0 vs 5), keeping a clean witness. The min-query picks up that clean row and recovers the true count.',
         'The merge view adds two shard sketches cell by cell. The result equals a single sketch built over the combined stream, because addition preserves the overestimate invariant.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/count-min-sketch.gif', alt: 'Animated walkthrough of the count min sketch visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

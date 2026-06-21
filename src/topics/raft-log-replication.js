@@ -27,6 +27,7 @@ export function* run(input) {
   // logs[server][slot] = term number (0 = empty)
   const logs = SERVERS.map(() => new Array(SLOTS).fill(0));
   let commitIndex = 0;
+  const majority = Math.floor(SERVERS.length / 2) + 1;
 
   const rows = SERVERS.map((s, i) => ({ id: `s${i}`, label: s }));
   const cols = Array.from({ length: SLOTS }, (_, j) => ({ id: `l${j}`, label: `slot ${j + 1}` }));
@@ -38,37 +39,41 @@ export function* run(input) {
     format: (v) => (v === 0 ? '·' : `t${v}`),
   });
   const cell = (server, slot) => `s${server}:l${slot}`;
+  const leaderTerm = 2;
 
   yield {
     state: snapshot('Three replicated logs, S1 leads (term 2)'),
     highlight: {},
-    explanation: 'Raft Leader Election crowned S1 for term 2 — now the actual job: keep three copies of one LOG identical, because every server applies the log in order to build its state (a replicated Write-Ahead Log (WAL)). Each cell is a log slot; t2 will mean "an entry written in term 2".',
+    explanation: `Raft Leader Election crowned ${SERVERS[0]} for term ${leaderTerm} — now the actual job: keep ${SERVERS.length} copies of one LOG identical, because every server applies the log in order to build its state (a replicated Write-Ahead Log (WAL)). Each cell is a log slot; t${leaderTerm} will mean "an entry written in term ${leaderTerm}".`,
   };
 
   logs[0][0] = 2;
   yield {
     state: snapshot('Client command arrives: SET x=3'),
     highlight: { active: [cell(0, 0)] },
-    explanation: 'A client asks the leader to SET x=3. S1 appends it to its OWN log first (slot 1, term 2) — append-only, never overwriting. The client is NOT yet told "done": the entry exists on one machine and would die with it.',
+    explanation: `A client asks the leader to SET x=3. ${SERVERS[0]} appends it to its OWN log first (slot 1, term ${logs[0][0]}) — append-only, never overwriting. The client is NOT yet told "done": the entry exists on one machine and would die with it.`,
   };
 
   logs[1][0] = 2;
   logs[2][0] = 2;
   commitIndex = 1;
+  const holdersSlot1 = SERVERS.filter((_, i) => logs[i][0] > 0);
   yield {
     state: snapshot('AppendEntries fan-out'),
     highlight: { found: [cell(0, 0), cell(1, 0), cell(2, 0)] },
-    explanation: 'S1 sends AppendEntries to both followers; each appends slot 1 and acks. The moment a MAJORITY (2 of 3) holds the entry, it is COMMITTED: now — and only now — the client hears "done" and the command is applied. Committed means: any future leader must hold this entry (a majority has it, and elections require a majority — the overlap argument again).',
-    invariant: 'Committed entries exist on a majority, so no electable leader can lack them.',
+    explanation: `${SERVERS[0]} sends AppendEntries to both followers; each appends slot ${commitIndex} and acks. The moment a MAJORITY (${majority} of ${SERVERS.length}) holds the entry, it is COMMITTED: now — and only now — the client hears "done" and the command is applied. Currently ${holdersSlot1.length}/${SERVERS.length} servers (${holdersSlot1.join(', ')}) hold slot ${commitIndex}. Committed means: any future leader must hold this entry (a majority has it, and elections require a majority — the overlap argument again).`,
+    invariant: `Committed entries exist on a majority (>= ${majority}/${SERVERS.length}), so no electable leader can lack them.`,
   };
 
   logs[0][1] = 2;
   logs[1][1] = 2;
   commitIndex = 2;
+  const holdersSlot2 = SERVERS.filter((_, i) => logs[i][1] > 0);
+  const missingSlot2 = SERVERS.filter((_, i) => logs[i][1] === 0);
   yield {
     state: snapshot('SET y=7 — with S3 unreachable'),
     highlight: { found: [cell(0, 1), cell(1, 1)], swap: [cell(2, 1)] },
-    explanation: 'Next command, but S3 has gone quiet (network hiccup). No matter: S1 + S2 are already a majority, so slot 2 commits without S3. Stragglers never stall the cluster — that is the availability half of the design (and the CP half of the CAP Theorem when a majority cannot form).',
+    explanation: `Next command, but ${missingSlot2.join(', ')} has gone quiet (network hiccup). No matter: ${holdersSlot2.join(' + ')} are already a majority (${holdersSlot2.length}/${SERVERS.length}), so slot ${commitIndex} commits without ${missingSlot2.join(', ')}. Stragglers never stall the cluster — that is the availability half of the design (and the CP half of the CAP Theorem when a majority cannot form).`,
   };
 
   if (!crashy) {
@@ -76,49 +81,54 @@ export function* run(input) {
     yield {
       state: snapshot('S3 returns and catches up'),
       highlight: { active: [cell(2, 1)] },
-      explanation: 'S3 reconnects. Every AppendEntries carries a CONSISTENCY CHECK: "my previous entry is (slot 1, term 2) — does yours match?" S3 matches, accepts slot 2, and is identical again. The check runs on every append, so logs can never silently diverge: any mismatch walks backward until the logs agree, then overwrites forward.',
+      explanation: `${SERVERS[2]} reconnects. Every AppendEntries carries a CONSISTENCY CHECK: "my previous entry is (slot 1, term ${logs[2][0]}) — does yours match?" ${SERVERS[2]} matches, accepts slot ${commitIndex}, and is identical again. The check runs on every append, so logs can never silently diverge: any mismatch walks backward until the logs agree, then overwrites forward.`,
     };
 
     logs[0][2] = 2; logs[1][2] = 2; logs[2][2] = 2;
     commitIndex = 3;
+    const allHolders = SERVERS.filter((_, i) => logs[i][2] > 0);
     yield {
       state: snapshot('Steady state'),
       highlight: { found: SERVERS.map((_, i) => cell(i, 2)) },
-      explanation: 'And so it runs: append at the leader, fan out, commit at majority, apply in order. Three machines, one log, one state machine — a database that survives any single failure with zero data loss. This loop, plus the election from Raft Leader Election, is the complete Raft protocol running inside etcd, the Kubernetes metadata path, Consul, and CockroachDB.',
+      explanation: `And so it runs: append at the leader, fan out, commit at majority, apply in order. ${allHolders.length} machines, one log, one state machine — a database that survives any single failure with zero data loss. commitIndex is now ${commitIndex} with all ${SERVERS.length} servers in sync. This loop, plus the election from Raft Leader Election, is the complete Raft protocol running inside etcd, the Kubernetes metadata path, Consul, and CockroachDB.`,
     };
     return;
   }
 
   logs[0][2] = 2;
+  const crashSlot = 3;
   yield {
     state: snapshot('S1 appends SET z=1 locally…'),
     highlight: { active: [cell(0, 2)] },
-    explanation: 'S1 appends slot 3 to its own log — and CRASHES before telling anyone. Slot 3 lives on one dead machine: appended, but NOT committed. Hold that distinction; it is about to matter.',
+    explanation: `${SERVERS[0]} appends slot ${crashSlot} (term ${logs[0][2]}) to its own log — and CRASHES before telling anyone. Slot ${crashSlot} lives on one dead machine: appended, but NOT committed (commitIndex is still ${commitIndex}). Hold that distinction; it is about to matter.`,
   };
 
-  logs[1][2] = 3;
+  const newTerm = 3;
+  logs[1][2] = newTerm;
   commitIndex = 2;
   yield {
     state: snapshot('S2 elected leader of term 3'),
     highlight: { active: [cell(1, 2)], swap: [cell(0, 2)] },
-    explanation: 'S2 wins the term-3 election (it holds every COMMITTED entry — slots 1–2 — which is all the rules require) and accepts a new command into its slot 3, stamped t3. Note the cluster now contains two different slot-3 entries: the t3 entry from S2 and the t2 entry from dead S1.',
+    explanation: `${SERVERS[1]} wins the term-${newTerm} election (it holds every COMMITTED entry — slots 1–${commitIndex} — which is all the rules require) and accepts a new command into its slot ${crashSlot}, stamped t${newTerm}. Note the cluster now contains two different slot-${crashSlot} entries: the t${newTerm} entry from ${SERVERS[1]} and the t${leaderTerm} entry from dead ${SERVERS[0]}.`,
   };
 
   logs[0][2] = 3;
   logs[2][1] = 2;
   logs[2][2] = 3;
   commitIndex = 3;
+  const resolvedHolders = SERVERS.filter((_, i) => logs[i][2] === newTerm);
   yield {
     state: snapshot('S1 rejoins as follower — conflict resolved'),
     highlight: { found: [cell(0, 2), cell(1, 2), cell(2, 2)] },
-    explanation: 'S1 reboots as a follower and receives AppendEntries from leader S2. The consistency check finds the conflict at slot 3: the old t2 entry on S1 does not match the t3 entry from the leader — so it is DELETED and overwritten. The client whose z=1 was never confirmed simply retries. Uncommitted work can vanish; that is exactly WHY Raft refuses to confirm anything before majority.',
-    invariant: 'The leader log is the truth: followers delete conflicting suffixes and adopt leader entries.',
+    explanation: `${SERVERS[0]} reboots as a follower and receives AppendEntries from leader ${SERVERS[1]}. The consistency check finds the conflict at slot ${crashSlot}: the old t${leaderTerm} entry on ${SERVERS[0]} does not match the t${newTerm} entry from the leader — so it is DELETED and overwritten. Now ${resolvedHolders.length}/${SERVERS.length} servers hold t${newTerm} at slot ${crashSlot}. The client whose z=1 was never confirmed simply retries. Uncommitted work can vanish; that is exactly WHY Raft refuses to confirm anything before majority.`,
+    invariant: `The leader log is the truth: followers delete conflicting suffixes and adopt leader entries. commitIndex is now ${commitIndex}.`,
   };
 
+  const finalMatching = SERVERS.every((_, i) => logs[i][2] === newTerm);
   yield {
     state: snapshot('All logs identical again'),
     highlight: {},
-    explanation: 'The two-tier promise, in one story: COMMITTED entries (majority-held) survived leader failure untouched; the UNCOMMITTED entry evaporated without ever being acknowledged. No client was lied to. That asymmetry — cheap to append, expensive to promise — is the entire art of replicated logs, and you have now seen both halves of Raft.',
+    explanation: `All ${SERVERS.length} logs identical: ${finalMatching}. The two-tier promise, in one story: COMMITTED entries (majority-held) survived leader failure untouched; the UNCOMMITTED entry evaporated without ever being acknowledged. No client was lied to. commitIndex = ${commitIndex}, all servers in sync through slot ${commitIndex}. That asymmetry — cheap to append, expensive to promise — is the entire art of replicated logs, and you have now seen both halves of Raft.`,
   };
 }
 
@@ -182,7 +192,8 @@ export const article = {
       paragraphs: [
         `In the steady replication scenario, read each row as one server's log and each column as a log index. The highlight on slot 1 shows the moment a client command changes from "stored on the leader" to "committed by a majority." The later S3 catch-up frame teaches that a missing follower is debt, not permanent divergence.`,
         `In the leader crash scenario, focus on slot 3. The t2 entry on S1 is only local, so it can be replaced. The t3 entry from S2 is the new leader's truth once it reaches a majority. The contrast is the main Raft lesson: committed entries survive leadership changes; uncommitted suffixes are allowed to vanish.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/raft-log-replication.gif', alt: 'Animated walkthrough of the raft log replication visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Cost and behavior`,

@@ -55,17 +55,22 @@ function citationGraph(title) {
 }
 
 function* messagePassing() {
+  const numNodes = 6;
+  const numEdges = 6;
+  const neighborsOfD = ['B', 'C', 'E', 'F'];
+  const taskTypes = ['node', 'edge', 'graph', 'ranking'];
+
   yield {
     state: citationGraph('Nodes start with local features and graph edges'),
     highlight: { active: ['paperD'], compare: ['paperB', 'paperC', 'paperE', 'paperF'] },
-    explanation: 'A Graph Neural Network starts with node features and edges. Paper D has its own text features, but its neighbors also carry signal. Message passing lets D learn from the nodes attached to it.',
+    explanation: `A Graph Neural Network starts with ${numNodes} node features and ${numEdges} edges. Paper D has its own text features, but its ${neighborsOfD.length} neighbors also carry signal. Message passing lets D learn from the nodes attached to it.`,
   };
 
   yield {
     state: citationGraph('Neighbors send messages into the target node'),
     highlight: { active: ['paperB', 'paperC', 'paperE', 'paperF', 'e-b-d', 'e-c-d', 'e-d-e', 'e-d-f'], found: ['paperD'] },
-    explanation: 'Each neighbor computes a message, usually from its embedding and the edge type. The target aggregates those messages with a permutation-invariant operation such as sum, mean, max, or attention.',
-    invariant: 'Neighbor aggregation cannot depend on arbitrary node ordering.',
+    explanation: `Each of D's ${neighborsOfD.length} neighbors (${neighborsOfD.join(', ')}) computes a message from its embedding. The target aggregates those messages with a permutation-invariant operation such as sum, mean, max, or attention.`,
+    invariant: `Neighbor aggregation across ${neighborsOfD.length} incoming messages cannot depend on arbitrary node ordering.`,
   };
 
   yield {
@@ -89,7 +94,7 @@ function* messagePassing() {
       ],
     ),
     highlight: { active: ['neighbors:operation', 'aggregate:operation', 'update:content'] },
-    explanation: 'The update rule is neural-network plumbing on graph structure: transform self features, aggregate neighbor messages, combine them, and pass through a learned update function.',
+    explanation: `The update rule aggregates ${neighborsOfD.length} neighbor messages into paper D's new embedding: transform self features, aggregate neighbor messages, combine them, and pass through a learned update function.`,
   };
 
   yield {
@@ -113,11 +118,14 @@ function* messagePassing() {
       ],
     ),
     highlight: { found: ['node:readout', 'edge:readout', 'graph:readout'], active: ['rank:readout'] },
-    explanation: 'After several message-passing layers, the learned embeddings can feed node classification, link prediction, graph classification, recommendation, ranking, or molecular property prediction.',
+    explanation: `After several message-passing layers across ${numNodes} nodes and ${numEdges} edges, the learned embeddings can feed ${taskTypes.length} task types: ${taskTypes.join(', ')} — including classification, link prediction, and molecular property prediction.`,
   };
 }
 
 function* oversmoothing() {
+  const trackedNodes = ['A', 'B', 'D', 'F'];
+  const fixes = ['residual links', 'attention', 'neighbor sampling', 'positional features'];
+
   yield {
     state: labelMatrix(
       'Layer 0: nodes are distinguishable',
@@ -139,7 +147,7 @@ function* oversmoothing() {
       ],
     ),
     highlight: { active: ['a:topic', 'b:topic', 'd:topic', 'f:topic'] },
-    explanation: 'At layer 0, each node has its own features. The graph helps, but the model should not erase identity. Distinguishing local features is often crucial for node-level tasks.',
+    explanation: `At layer 0, each of the ${trackedNodes.length} tracked nodes (${trackedNodes.join(', ')}) has its own features. The graph helps, but the model should not erase identity. Distinguishing local features is often crucial for node-level tasks.`,
   };
 
   yield {
@@ -163,7 +171,7 @@ function* oversmoothing() {
       ],
     ),
     highlight: { found: ['a:topic', 'b:topic', 'd:topic', 'f:topic'] },
-    explanation: 'After one layer, each node knows about one-hop neighbors. This is the useful part: structure becomes part of the representation.',
+    explanation: `After one layer, each of the ${trackedNodes.length} nodes knows about one-hop neighbors. This is the useful part: structure becomes part of the representation.`,
   };
 
   yield {
@@ -187,7 +195,7 @@ function* oversmoothing() {
       ],
     ),
     highlight: { compare: ['a:topic', 'b:topic', 'd:topic', 'f:topic'], removed: ['a:degree', 'b:degree', 'd:degree', 'f:degree'] },
-    explanation: 'Oversmoothing happens when repeated neighbor averaging makes node embeddings too similar. The model can lose the very local distinctions it needed to predict.',
+    explanation: `Oversmoothing happens when repeated neighbor averaging makes all ${trackedNodes.length} node embeddings converge to the same graph average. The model can lose the very local distinctions it needed to predict.`,
   };
 
   yield {
@@ -211,7 +219,7 @@ function* oversmoothing() {
       ],
     ),
     highlight: { active: ['residual:why', 'attention:why', 'sampling:why', 'positional:why'] },
-    explanation: 'GNN engineering is mostly about controlling information flow: enough propagation to use structure, enough preservation to keep nodes distinct, and enough sampling to make large graphs trainable.',
+    explanation: `GNN engineering uses ${fixes.length} common fixes — ${fixes.join(', ')} — to control information flow: enough propagation to use structure, enough preservation to keep nodes distinct, and enough sampling to make large graphs trainable.`,
   };
 }
 
@@ -224,6 +232,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/graph-neural-networks.gif', alt: 'Animated walkthrough of the graph neural networks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

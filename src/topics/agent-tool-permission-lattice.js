@@ -86,30 +86,35 @@ function gateGraph(title) {
 }
 
 function* permissionLattice() {
+  const lattice = latticeGraph('Effect authority is ordered by blast radius');
+  const latticeNodes = lattice.graph.nodes;
+  const latticeEdges = lattice.graph.edges;
+
   yield {
-    state: latticeGraph('Effect authority is ordered by blast radius'),
+    state: lattice,
     highlight: { active: ['none', 'read', 'draft', 'write', 'e-none-read', 'e-none-draft', 'e-read-write', 'e-draft-write'], compare: ['send', 'delete'] },
-    explanation: 'An agent permission lattice orders tool effects. Read and draft can be low-risk. Write, send, and delete have larger blast radius and need stronger proof.',
-    invariant: 'A model request can move down in authority, never up without policy.',
+    explanation: `An agent permission lattice orders ${latticeNodes.length} tool effects across ${latticeEdges.length} edges. ${latticeNodes[1].label} and ${latticeNodes[2].label} can be low-risk. ${latticeNodes[3].label}, ${latticeNodes[4].label}, and ${latticeNodes[5].label} have larger blast radius and need stronger proof.`,
+    invariant: `A model request can move down from ${latticeNodes[5].label} toward ${latticeNodes[0].label} in authority, never up without policy.`,
   };
 
   yield {
     state: latticeGraph('External and destructive effects need explicit gates'),
     highlight: { active: ['write', 'send', 'delete', 'approval', 'e-write-send', 'e-send-delete', 'e-delete-approval'], compare: ['read'] },
-    explanation: 'Sending email, posting to a ticketing system, changing permissions, or deleting data crosses from private reasoning into external effect. The lattice should route those calls to approval or denial.',
+    explanation: `Sending email, posting to a ticketing system, changing permissions, or deleting data crosses from private reasoning into external effect. The lattice routes ${latticeNodes[4].label} and ${latticeNodes[5].label} calls through the ${latticeNodes[6].label} node.`,
   };
 
+  const tupleRows = [
+    { id: 'actor', label: 'actor' },
+    { id: 'tool', label: 'tool' },
+    { id: 'effect', label: 'effect' },
+    { id: 'resource', label: 'resource' },
+    { id: 'expiry', label: 'expiry' },
+    { id: 'runtime', label: 'runtime' },
+  ];
   yield {
     state: labelMatrix(
       'Permission tuple',
-      [
-        { id: 'actor', label: 'actor' },
-        { id: 'tool', label: 'tool' },
-        { id: 'effect', label: 'effect' },
-        { id: 'resource', label: 'resource' },
-        { id: 'expiry', label: 'expiry' },
-        { id: 'runtime', label: 'runtime' },
-      ],
+      tupleRows,
       [
         { id: 'field', label: 'field' },
         { id: 'why', label: 'why' },
@@ -124,19 +129,20 @@ function* permissionLattice() {
       ],
     ),
     highlight: { active: ['actor:field', 'tool:field', 'effect:field', 'resource:field', 'runtime:field'], found: ['expiry:why'] },
-    explanation: 'The tuple makes tool authority concrete. Who asked, which tool, what effect, which resource, how long, and under which sandbox profile are all separate dimensions.',
+    explanation: `The ${tupleRows.length}-field tuple makes tool authority concrete. ${tupleRows[0].label}, ${tupleRows[1].label}, ${tupleRows[2].label}, ${tupleRows[3].label}, ${tupleRows[4].label}, and ${tupleRows[5].label} are all separate dimensions.`,
   };
 
+  const joinRows = [
+    { id: 'public', label: 'public read' },
+    { id: 'private', label: 'private read' },
+    { id: 'draft', label: 'draft reply' },
+    { id: 'send', label: 'send private' },
+    { id: 'delete', label: 'delete prod' },
+  ];
   yield {
     state: labelMatrix(
       'Join examples',
-      [
-        { id: 'public', label: 'public read' },
-        { id: 'private', label: 'private read' },
-        { id: 'draft', label: 'draft reply' },
-        { id: 'send', label: 'send private' },
-        { id: 'delete', label: 'delete prod' },
-      ],
+      joinRows,
       [
         { id: 'lattice', label: 'lattice result' },
         { id: 'gate', label: 'gate' },
@@ -150,40 +156,45 @@ function* permissionLattice() {
       ],
     ),
     highlight: { active: ['public:gate', 'private:gate', 'draft:gate'], compare: ['send:gate'], removed: ['delete:gate'] },
-    explanation: 'The lattice combines effect class and resource sensitivity. A write to public scratch space is not the same as a delete in production, even if both are valid tool calls.',
+    explanation: `The lattice combines effect class and resource sensitivity across ${joinRows.length} join examples. A ${joinRows[2].label} to public scratch space is not the same as a ${joinRows[4].label} in production, even if both are valid tool calls.`,
   };
 }
 
 function* executionGate() {
+  const gate = gateGraph('Tool proposals are untrusted until bound to policy');
+  const gateNodes = gate.graph.nodes;
+  const gateEdges = gate.graph.edges;
+
   yield {
-    state: gateGraph('Tool proposals are untrusted until bound to policy'),
+    state: gate,
     highlight: { active: ['proposal', 'schema', 'identity', 'scope', 'e-proposal-schema', 'e-proposal-identity', 'e-schema-scope', 'e-identity-scope'], compare: ['effect'] },
-    explanation: 'The model proposes a tool call. The runtime validates shape, binds it to a real user or service identity, and checks scopes before any effect happens.',
+    explanation: `The model proposes a ${gateNodes[0].label}. The runtime validates ${gateNodes[1].label}, binds it to a real ${gateNodes[2].label}, and checks ${gateNodes[3].label} before any ${gateNodes[8].label} happens across the ${gateNodes.length}-node pipeline.`,
   };
 
   yield {
     state: gateGraph('Policy and sandbox profiles decide how execution happens'),
     highlight: { active: ['scope', 'policy', 'sandbox', 'audit', 'e-scope-policy', 'e-scope-sandbox', 'e-sandbox-audit'], compare: ['approve'] },
-    explanation: 'OPA-style policy can decide whether a call is allowed. The sandbox profile decides how it runs: no network, read-only mount, egress allowlist, temp filesystem, or stronger isolation.',
+    explanation: `OPA-style ${gateNodes[4].label} can decide whether a call is allowed. The ${gateNodes[5].label} profile decides how it runs: no network, read-only mount, egress allowlist, temp filesystem, or stronger isolation.`,
   };
 
   yield {
     state: gateGraph('High-risk effects require approval and evidence'),
     highlight: { active: ['policy', 'approve', 'audit', 'effect', 'e-policy-approve', 'e-approve-effect', 'e-audit-effect'], compare: ['schema'] },
-    explanation: 'For high-risk actions, the system should show a dry-run or diff, collect human approval, and write an audit event that can be replayed during incident review.',
-    invariant: 'The effect is allowed only after schema, identity, scope, policy, runtime, and audit checks agree.',
+    explanation: `For high-risk actions, the system should show a dry-run or diff, collect human ${gateNodes[6].label}, and write an ${gateNodes[7].label} event that can be replayed during incident review.`,
+    invariant: `The ${gateNodes[8].label} is allowed only after ${gateNodes.length - 1} gate checks (${gateNodes.slice(1, -1).map(n => n.label).join(', ')}) agree.`,
   };
 
+  const caseStudyTools = [
+    { id: 'crm', label: 'CRM read' },
+    { id: 'email', label: 'email send' },
+    { id: 'file', label: 'file edit' },
+    { id: 'shell', label: 'shell run' },
+    { id: 'admin', label: 'admin API' },
+  ];
   yield {
     state: labelMatrix(
       'Agent tool case study',
-      [
-        { id: 'crm', label: 'CRM read' },
-        { id: 'email', label: 'email send' },
-        { id: 'file', label: 'file edit' },
-        { id: 'shell', label: 'shell run' },
-        { id: 'admin', label: 'admin API' },
-      ],
+      caseStudyTools,
       [
         { id: 'control', label: 'control' },
         { id: 'evidence', label: 'evidence' },
@@ -197,7 +208,7 @@ function* executionGate() {
       ],
     ),
     highlight: { active: ['crm:control', 'file:control', 'shell:control'], compare: ['email:control'], removed: ['admin:control'] },
-    explanation: 'Each tool needs a different control. A universal "agent is allowed" bit is too coarse for real systems.',
+    explanation: `Each of the ${caseStudyTools.length} tools (${caseStudyTools.map(t => t.label).join(', ')}) needs a different control. A universal "agent is allowed" bit is too coarse for real systems.`,
   };
 }
 
@@ -205,7 +216,7 @@ export function* run(input) {
   const view = String(input.view);
   if (view === 'permission lattice') yield* permissionLattice();
   else if (view === 'execution gate') yield* executionGate();
-  else throw new InputError('Pick an agent-tool permission view.');
+  else throw new InputError(`Pick an agent-tool permission view, not "${view}".`);
 }
 
 export const article = {
@@ -218,7 +229,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/agent-tool-permission-lattice.gif', alt: 'Animated walkthrough of the agent tool permission lattice visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

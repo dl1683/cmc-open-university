@@ -72,142 +72,150 @@ function proofFlow(title) {
 }
 
 function* emptyLeafProofs() {
+  const flowState = sparseFlow('A sparse tree turns key bits into leaf addresses');
+  const flowNodeCount = flowState.nodes.length;
+  const flowEdgeCount = flowState.edges.length;
   yield {
-    state: sparseFlow('A sparse tree turns key bits into leaf addresses'),
+    state: flowState,
     highlight: { active: ['hash', 'path'], found: ['slot', 'root'] },
-    explanation: 'A sparse Merkle tree is an authenticated map, not a compact list. Hash the key, read the hash bits as a path, and place the value at that deterministic leaf slot.',
-    invariant: 'Absence can be proven because every missing key has a known empty slot.',
+    explanation: `A sparse Merkle tree is an authenticated map, not a compact list. The ${flowNodeCount}-stage pipeline hashes the key, reads the hash bits as a path, and places the value at that deterministic leaf slot.`,
+    invariant: `Absence can be proven because every missing key has a known empty slot — the pipeline's ${flowEdgeCount} edges form a single deterministic route from key to root.`,
   };
 
+  const bits = 4;
+  const leafSlots = 2 ** bits;
+  const universeRows = [
+    { id: 'a', label: '0011' },
+    { id: 'b', label: '0101' },
+    { id: 'c', label: '1010' },
+    { id: 'd', label: '1110' },
+  ];
+  const universeCols = [
+    { id: 'state', label: 'state' },
+    { id: 'proof', label: 'proof result' },
+  ];
+  const universeData = [
+    ['alice: 7', 'present'],
+    ['empty hash', 'absent'],
+    ['carol: 9', 'present'],
+    ['empty hash', 'absent'],
+  ];
+  const presentCount = universeData.filter(r => r[1] === 'present').length;
+  const absentCount = universeData.filter(r => r[1] === 'absent').length;
   yield {
-    state: labelMatrix(
-      'Tiny 4-bit universe',
-      [
-        { id: 'a', label: '0011' },
-        { id: 'b', label: '0101' },
-        { id: 'c', label: '1010' },
-        { id: 'd', label: '1110' },
-      ],
-      [
-        { id: 'state', label: 'state' },
-        { id: 'proof', label: 'proof result' },
-      ],
-      [
-        ['alice: 7', 'present'],
-        ['empty hash', 'absent'],
-        ['carol: 9', 'present'],
-        ['empty hash', 'absent'],
-      ],
-    ),
+    state: labelMatrix('Tiny 4-bit universe', universeRows, universeCols, universeData),
     highlight: { active: ['b:state', 'd:state'], found: ['b:proof'] },
-    explanation: 'The real universe might be 2^256 leaves. The implementation does not materialize it. It stores only non-empty paths plus precomputed default hashes for empty subtrees.',
+    explanation: `The real universe might be 2^256 leaves. This ${bits}-bit toy has ${leafSlots} slots but only ${presentCount} are occupied; the other ${absentCount} shown here hold empty hashes. The implementation stores only non-empty paths plus precomputed default hashes for empty subtrees.`,
   };
 
+  const proofState = proofFlow('Non-membership is an opening to an empty leaf');
+  const proofNodeCount = proofState.nodes.length;
+  const queryNote = proofState.nodes.find(n => n.id === 'query').note;
   yield {
-    state: proofFlow('Non-membership is an opening to an empty leaf'),
+    state: proofState,
     highlight: { active: ['query', 'walk', 'empty'], found: ['root'] },
-    explanation: 'To prove key 0101 is absent, open the path for 0101 and show the default empty leaf there. The verifier recomputes upward with sibling hashes and checks the trusted root.',
-    invariant: 'Presence and absence use the same recompute-to-root verifier.',
+    explanation: `To prove ${queryNote} 0101 is absent, open the path for 0101 and show the default empty leaf there. The ${proofNodeCount}-step verifier recomputes upward with sibling hashes and checks the trusted root.`,
+    invariant: `Presence and absence use the same ${proofNodeCount}-node recompute-to-root verifier.`,
   };
 
+  const checkRows = [
+    { id: 'path', label: 'path' },
+    { id: 'leaf', label: 'leaf' },
+    { id: 'siblings', label: 'siblings' },
+    { id: 'root', label: 'root' },
+  ];
+  const checkCols = [
+    { id: 'input', label: 'input' },
+    { id: 'rejects', label: 'rejects if' },
+  ];
+  const checkData = [
+    ['hash(key)', 'wrong slot'],
+    ['value/empty', 'bad value'],
+    ['proof list', 'tampered'],
+    ['trusted digest', 'mismatch'],
+  ];
   yield {
-    state: labelMatrix(
-      'Verifier checks',
-      [
-        { id: 'path', label: 'path' },
-        { id: 'leaf', label: 'leaf' },
-        { id: 'siblings', label: 'siblings' },
-        { id: 'root', label: 'root' },
-      ],
-      [
-        { id: 'input', label: 'input' },
-        { id: 'rejects', label: 'rejects if' },
-      ],
-      [
-        ['hash(key)', 'wrong slot'],
-        ['value/empty', 'bad value'],
-        ['proof list', 'tampered'],
-        ['trusted digest', 'mismatch'],
-      ],
-    ),
+    state: labelMatrix('Verifier checks', checkRows, checkCols, checkData),
     highlight: { found: ['leaf:input', 'root:input'], compare: ['path:rejects', 'root:rejects'] },
-    explanation: 'The proof does not ask the server to be honest. It gives the verifier enough data to derive the claimed root; any incorrect path, leaf, or sibling hash breaks the root comparison.',
+    explanation: `The proof does not ask the server to be honest. It gives the verifier ${checkRows.length} pieces of data (${checkRows.map(r => r.label).join(', ')}); any incorrect path, leaf, or sibling hash breaks the root comparison.`,
   };
 }
 
 function* compressedSparsePaths() {
+  const defaultNodes = [
+    { id: 'z0', label: 'z0', x: 0.8, y: 3.2, note: 'empty leaf' },
+    { id: 'z1', label: 'z1', x: 2.7, y: 3.2, note: 'hash z0,z0' },
+    { id: 'z2', label: 'z2', x: 4.6, y: 3.2, note: 'empty level' },
+    { id: 'live', label: 'live path', x: 6.5, y: 3.2, note: 'stored' },
+    { id: 'root', label: 'root', x: 8.4, y: 3.2, note: 'mixed' },
+  ];
+  const defaultEdges = [
+    { id: 'e-z0-z1', from: 'z0', to: 'z1' },
+    { id: 'e-z1-z2', from: 'z1', to: 'z2' },
+    { id: 'e-z2-live', from: 'z2', to: 'live' },
+    { id: 'e-live-root', from: 'live', to: 'root' },
+  ];
+  const emptyLevels = defaultNodes.filter(n => n.id.startsWith('z')).length;
+  const baseNote = defaultNodes[0].note;
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'z0', label: 'z0', x: 0.8, y: 3.2, note: 'empty leaf' },
-        { id: 'z1', label: 'z1', x: 2.7, y: 3.2, note: 'hash z0,z0' },
-        { id: 'z2', label: 'z2', x: 4.6, y: 3.2, note: 'empty level' },
-        { id: 'live', label: 'live path', x: 6.5, y: 3.2, note: 'stored' },
-        { id: 'root', label: 'root', x: 8.4, y: 3.2, note: 'mixed' },
-      ],
-      edges: [
-        { id: 'e-z0-z1', from: 'z0', to: 'z1' },
-        { id: 'e-z1-z2', from: 'z1', to: 'z2' },
-        { id: 'e-z2-live', from: 'z2', to: 'live' },
-        { id: 'e-live-root', from: 'live', to: 'root' },
-      ],
-    }, { title: 'Default hashes compress empty space' }),
+    state: graphState({ nodes: defaultNodes, edges: defaultEdges }, { title: 'Default hashes compress empty space' }),
     highlight: { active: ['z0', 'z1', 'z2'], found: ['live', 'root'] },
-    explanation: 'Every all-empty subtree has a deterministic hash: z0 for an empty leaf, z1 = hash(z0,z0), z2 = hash(z1,z1), and so on. A sparse implementation stores those constants once.',
+    explanation: `Every all-empty subtree has a deterministic hash: z0 for an ${baseNote}, z1 = hash(z0,z0), z2 = hash(z1,z1), and so on. The ${emptyLevels} default levels shown here let a sparse implementation store those constants once.`,
   };
 
+  const storageRows = [
+    { id: 'default', label: 'default hashes' },
+    { id: 'compact', label: 'compact leaf' },
+    { id: 'branch', label: 'sparse branch' },
+    { id: 'version', label: 'versioned key' },
+  ];
+  const storageCols = [
+    { id: 'saves', label: 'saves' },
+    { id: 'risk', label: 'risk' },
+  ];
+  const storageData = [
+    ['empty levels', 'domain rules'],
+    ['single-child path', 'proof format'],
+    ['missing children', 'lookup logic'],
+    ['old roots', 'storage growth'],
+  ];
   yield {
-    state: labelMatrix(
-      'Storage tricks',
-      [
-        { id: 'default', label: 'default hashes' },
-        { id: 'compact', label: 'compact leaf' },
-        { id: 'branch', label: 'sparse branch' },
-        { id: 'version', label: 'versioned key' },
-      ],
-      [
-        { id: 'saves', label: 'saves' },
-        { id: 'risk', label: 'risk' },
-      ],
-      [
-        ['empty levels', 'domain rules'],
-        ['single-child path', 'proof format'],
-        ['missing children', 'lookup logic'],
-        ['old roots', 'storage growth'],
-      ],
-    ),
+    state: labelMatrix('Storage tricks', storageRows, storageCols, storageData),
     highlight: { found: ['default:saves', 'compact:saves'], compare: ['version:risk'] },
-    explanation: 'Production sparse trees avoid storing the impossible full tree. They compress empty subtrees, collapse one-child paths, and often version nodes so old roots remain provable.',
+    explanation: `Production sparse trees avoid storing the impossible full tree. ${storageRows.length} tricks — ${storageRows.map(r => r.label).join(', ')} — compress empty subtrees, collapse one-child paths, and version nodes so old roots remain provable.`,
   };
 
+  const costRows = [
+    { id: 'lookup', label: 'lookup' },
+    { id: 'absence', label: 'absence' },
+    { id: 'update', label: 'update' },
+    { id: 'proof', label: 'proof size' },
+  ];
+  const costCols = [
+    { id: 'plain', label: 'plain SMT' },
+    { id: 'optimized', label: 'optimized' },
+  ];
+  const costData = [
+    ['depth hashes', 'skip empties'],
+    ['empty path', 'compact leaf'],
+    ['rewrite path', 'version nodes'],
+    ['O(depth)', 'compressed'],
+  ];
+  const operationCount = costRows.length;
   yield {
-    state: labelMatrix(
-      'Cost model',
-      [
-        { id: 'lookup', label: 'lookup' },
-        { id: 'absence', label: 'absence' },
-        { id: 'update', label: 'update' },
-        { id: 'proof', label: 'proof size' },
-      ],
-      [
-        { id: 'plain', label: 'plain SMT' },
-        { id: 'optimized', label: 'optimized' },
-      ],
-      [
-        ['depth hashes', 'skip empties'],
-        ['empty path', 'compact leaf'],
-        ['rewrite path', 'version nodes'],
-        ['O(depth)', 'compressed'],
-      ],
-    ),
+    state: labelMatrix('Cost model', costRows, costCols, costData),
     highlight: { active: ['absence:plain', 'absence:optimized'], found: ['proof:optimized'] },
-    explanation: 'The logical model is simple: one path per key. The engineering challenge is keeping depth-256 proofs, random I/O, and old-version storage practical.',
+    explanation: `The logical model is simple: one path per key. Across ${operationCount} operations (${costRows.map(r => r.label).join(', ')}), the engineering challenge is keeping depth-256 proofs, random I/O, and old-version storage practical.`,
   };
 
+  const summaryState = sparseFlow('Sparse Merkle trees sit between maps and proofs');
+  const summaryNodeCount = summaryState.nodes.length;
+  const firstNodeLabel = summaryState.nodes[0].label;
+  const lastNodeLabel = summaryState.nodes[summaryNodeCount - 1].label;
   yield {
-    state: sparseFlow('Sparse Merkle trees sit between maps and proofs'),
+    state: summaryState,
     highlight: { active: ['key', 'path', 'slot'], found: ['root'] },
-    explanation: 'A hash table gives fast lookup but no public proof. A normal Merkle tree gives proofs over a known list. A sparse Merkle tree gives authenticated key-value lookup, including proof that a key is missing.',
+    explanation: `A hash table gives fast lookup but no public proof. A normal Merkle tree gives proofs over a known list. A sparse Merkle tree's ${summaryNodeCount}-node pipeline from ${firstNodeLabel} to ${lastNodeLabel} gives authenticated key-value lookup, including proof that a key is missing.`,
   };
 }
 
@@ -220,6 +228,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/sparse-merkle-tree-non-membership.gif', alt: 'Animated walkthrough of the sparse merkle tree non membership visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

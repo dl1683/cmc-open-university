@@ -86,33 +86,40 @@ function boxes(title) {
 }
 
 function* searchRectangles() {
+  const objectCount = 4; // park, road, shop, depot
+  const treeDepth = 2; // root -> internal -> leaf
+  const dimensions = 2; // x and y
+
   yield {
     state: boxes('Spatial objects are rectangles or bounding boxes'),
     highlight: { active: ['park:xmin', 'park:xmax', 'road:xmin', 'road:xmax', 'query:xmin', 'query:xmax'], compare: ['shop:overlap'] },
-    explanation: 'An R-tree indexes spatial objects by minimum bounding rectangles. Points, roads, polygons, and map tiles can all be represented by boxes that say where the object could be.',
+    explanation: `An R-tree indexes spatial objects by minimum bounding rectangles in ${dimensions} dimensions. All ${objectCount} objects — points, roads, polygons, map tiles — can be represented by boxes that say where the object could be.`,
   };
 
   yield {
     state: tree('Group nearby objects under parent bounding boxes'),
     highlight: { active: ['root', 'west', 'east', 'e-root-west', 'e-root-east'], found: ['park', 'road'] },
-    explanation: 'The tree stores bounding rectangles at every level. A parent rectangle covers all child rectangles. Search can prune an entire child if its bounding rectangle does not overlap the query.',
-    invariant: 'Every child rectangle is contained by its parent rectangle.',
+    explanation: `The tree of depth ${treeDepth} stores bounding rectangles at every level. A parent rectangle covers all child rectangles. Search can prune an entire child if its bounding rectangle does not overlap the query.`,
+    invariant: `Every child rectangle is contained by its parent rectangle across all ${treeDepth} levels.`,
   };
 
   yield {
     state: tree('Range query descends only into overlapping regions'),
     highlight: { active: ['query', 'west', 'e-query-west', 'road', 'e-query-road'], removed: ['east', 'shop', 'depot'] },
-    explanation: 'The query window overlaps west, so the search descends there. It does not overlap east, so the engine skips the shop and depot subtree without inspecting every object. This is the same pruning idea as Database Indexing, but in two dimensions.',
+    explanation: `The query window overlaps west, so the search descends there. It does not overlap east, so the engine skips ${objectCount / 2} objects (shop and depot) without inspecting them. This is the same pruning idea as Database Indexing, but in ${dimensions} dimensions.`,
   };
 
   yield {
     state: boxes('Leaf checks remove false candidates'),
     highlight: { found: ['road:overlap'], compare: ['park:overlap'], removed: ['shop:overlap', 'depot:overlap'] },
-    explanation: 'Parent boxes can overlap even when some children do not. The leaf check confirms exact candidates. In a GIS database, that final check may be a precise geometry predicate after the R-tree has narrowed the candidate set.',
+    explanation: `Parent boxes can overlap even when some children do not. The leaf check confirms exact candidates among the ${objectCount} objects. In a GIS database, that final check may be a precise ${dimensions}D geometry predicate after the R-tree has narrowed the candidate set.`,
   };
 }
 
 function* insertAndSplit() {
+  const splitGroups = 2; // group A and group B
+  const designKnobs = 4; // fanout, split heuristic, overlap, packing
+
   yield {
     state: labelMatrix(
       'Choose the leaf with least bounding-box enlargement',
@@ -133,7 +140,7 @@ function* insertAndSplit() {
       ],
     ),
     highlight: { found: ['west:choice', 'west:enlargement'], compare: ['east:enlargement'] },
-    explanation: 'Insertion descends greedily: choose the child whose bounding rectangle must grow least to fit the new object. That keeps nearby objects grouped and reduces future overlap.',
+    explanation: `Insertion descends greedily: choose the child whose bounding rectangle must grow least to fit the new object. That keeps nearby objects grouped and reduces future overlap before any ${splitGroups}-way split is needed.`,
   };
 
   yield {
@@ -156,13 +163,13 @@ function* insertAndSplit() {
       ],
     ),
     highlight: { active: ['before:entries'], found: ['groupA:mbr', 'groupB:mbr'], removed: ['before:mbr'] },
-    explanation: 'When a node overflows, the R-tree splits entries into two groups. A good split minimizes area and overlap. Bad splits create overlapping parents, which means later queries must inspect more branches.',
+    explanation: `When a node overflows, the R-tree splits entries into ${splitGroups} groups. A good split minimizes area and overlap. Bad splits create overlapping parents, which means later queries must inspect more branches.`,
   };
 
   yield {
     state: tree('Splits can propagate upward'),
     highlight: { active: ['west', 'root', 'e-root-west'], found: ['road', 'park'], compare: ['east'] },
-    explanation: 'Like B-Trees (How Databases Read), an R-tree stays height-balanced and splits can propagate upward. Unlike a B-tree, the ordering key is not one-dimensional; the hard part is preserving useful spatial locality.',
+    explanation: `Like B-Trees (How Databases Read), an R-tree stays height-balanced and ${splitGroups}-way splits can propagate upward. Unlike a B-tree, the ordering key is not one-dimensional; the hard part is preserving useful spatial locality.`,
   };
 
   yield {
@@ -186,7 +193,7 @@ function* insertAndSplit() {
       ],
     ),
     highlight: { active: ['split:helps', 'overlap:helps'], compare: ['packing:costs'] },
-    explanation: 'R-tree quality is workload-dependent. Static map tiles can be bulk-loaded beautifully. Dynamic moving objects need cheaper online insertions and may degrade without rebuilds.',
+    explanation: `R-tree quality depends on ${designKnobs} design knobs — fanout, split heuristic, overlap strategy, and bulk loading. Static map tiles can be bulk-loaded beautifully. Dynamic moving objects need cheaper online insertions and may degrade without rebuilds.`,
   };
 }
 
@@ -206,7 +213,8 @@ export const article = {
         { type: 'callout', text: 'An R-tree is safe because parent boxes over-approximate children; it is fast only when those boxes stay compact.' },
         'In the search view, watch which branches the query descends into and which it prunes. The pruning is safe because the containment invariant guarantees that no child can extend beyond its parent box. In the insert view, watch how the algorithm picks the child with least MBR enlargement and how overflow triggers a split that propagates upward.',
         'At each frame, ask: what region of space was just eliminated, and what invariant makes that elimination safe?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/r-tree.gif', alt: 'Animated walkthrough of the r tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

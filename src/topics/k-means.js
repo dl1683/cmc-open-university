@@ -101,7 +101,8 @@ export const article = {
         { type: "callout", text: "K-means is alternating minimization: assignments are optimal for fixed centroids, and centroids are optimal for fixed assignments." },
         "The animation alternates two moves per round. In the ASSIGN frame, every point snaps to the color of its nearest centroid — watch border points that switch color; those are the ones whose assignment changed. In the RECENTER frame, each centroid jumps to the geometric mean of its cluster's members — the star slides to a new position.",
         "When no point changes color during an assign step, the loop has converged: assignments and centroids agree, and the algorithm stops. Try k=2 and k=4 on the same data to see the algorithm forced to merge or split the three natural blobs.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/k-means.gif', alt: 'Animated walkthrough of the k means visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `What K-Means is`,

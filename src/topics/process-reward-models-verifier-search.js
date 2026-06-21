@@ -83,17 +83,20 @@ function searchGraph(title) {
 }
 
 function* stepSupervision() {
+  const labelCount = 800000;
+  const datasetName = 'PRM800K';
+
   yield {
     state: prmGraph('Outcome supervision sees only the end'),
     highlight: { active: ['problem', 'steps', 'final', 'orm', 'e-problem-steps', 'e-steps-final', 'e-final-orm'], compare: ['stepLabels', 'prm'] },
-    explanation: 'Outcome supervision trains or scores from the final answer. That is cheap and sometimes enough, but it cannot tell whether a correct answer came from sound reasoning or a lucky wrong path.',
+    explanation: `Outcome supervision trains or scores from the final answer. That is cheap and sometimes enough, but it cannot tell whether a correct answer came from sound reasoning or a lucky wrong path. The ${datasetName} dataset with ${labelCount.toLocaleString()} labels was built to address this.`,
   };
 
   yield {
     state: prmGraph('Process supervision labels each intermediate step'),
     highlight: { active: ['steps', 'stepLabels', 'prm', 'e-steps-labels', 'e-labels-prm'], found: ['select'] },
-    explanation: 'Process supervision turns each intermediate step into feedback. A process reward model can reject a solution as soon as a step becomes invalid, even if later text tries to recover.',
-    invariant: 'The verifier learns the path, not only the destination.',
+    explanation: `Process supervision turns each intermediate step into feedback. A process reward model can reject a solution as soon as a step becomes invalid, even if later text tries to recover. ${datasetName} provides ${labelCount.toLocaleString()} step-level labels for this purpose.`,
+    invariant: `The verifier learns the path, not only the destination — ${datasetName} captures this with per-step annotations.`,
   };
 
   yield {
@@ -117,7 +120,7 @@ function* stepSupervision() {
       ],
     ),
     highlight: { active: ['catches:prm', 'risk:prm'], compare: ['catches:orm', 'risk:orm'] },
-    explanation: 'The tradeoff is label density. PRMs are more informative but more expensive to build. ORMs are simpler but give sparse feedback and can reward brittle or accidental reasoning.',
+    explanation: `The tradeoff is label density. PRMs are more informative but more expensive to build — ${datasetName} required ${labelCount.toLocaleString()} annotations. ORMs are simpler but give sparse feedback and can reward brittle or accidental reasoning.`,
   };
 
   yield {
@@ -137,22 +140,26 @@ function* stepSupervision() {
       ],
     }),
     highlight: { active: ['active', 'prm800k'], compare: ['random'] },
-    explanation: 'The OpenAI paper also emphasizes active learning. Step labels are expensive, so the data engine should ask humans to label steps that most improve the verifier instead of labeling easy cases blindly.',
+    explanation: `The OpenAI paper also emphasizes active learning. Step labels are expensive — ${datasetName} has ${labelCount.toLocaleString()} of them — so the data engine should ask humans to label steps that most improve the verifier instead of labeling easy cases blindly.`,
   };
 }
 
 function* verifierSearch() {
+  const pathCount = 3;
+  const searchPatterns = ['greedy CoT', 'self-consistency', 'tree search', 'PRM rerank', 'executable'];
+  const patternCount = searchPatterns.length;
+
   yield {
     state: searchGraph('Generate many paths, then verify the paths'),
     highlight: { active: ['prompt', 'sample', 'branchA', 'branchB', 'branchC', 'e-prompt-sample', 'e-sample-a', 'e-sample-b', 'e-sample-c'], found: ['verifier'] },
-    explanation: 'Verifier-guided reasoning separates proposal from selection. The generator samples candidate paths. The verifier scores path quality. The final answer is chosen by evidence, not by the first greedy decode.',
+    explanation: `Verifier-guided reasoning separates proposal from selection. The generator samples ${pathCount} candidate paths. The verifier scores path quality. The final answer is chosen by evidence, not by the first greedy decode.`,
   };
 
   yield {
     state: searchGraph('The verifier prunes a bad intermediate step'),
     highlight: { active: ['branchB', 'verifier', 'e-b-verifier'], removed: ['branchB'], found: ['branchC', 'rerank', 'answer'] },
-    explanation: 'A path can look fluent while hiding one invalid move. A step verifier gives the search loop a place to prune, rerank, or ask for a repair before committing to the final answer.',
-    invariant: 'Search quality is bounded by verifier quality.',
+    explanation: `A path can look fluent while hiding one invalid move. Among ${pathCount} candidate paths, a step verifier gives the search loop a place to prune, rerank, or ask for a repair before committing to the final answer.`,
+    invariant: `Search quality is bounded by verifier quality — across ${pathCount} paths, every branch is scored by the same verifier.`,
   };
 
   yield {
@@ -178,7 +185,7 @@ function* verifierSearch() {
       ],
     ),
     highlight: { active: ['self:mechanism', 'tot:mechanism', 'prm:mechanism', 'exec:mechanism'], compare: ['greedy:weakness'] },
-    explanation: 'Self-consistency samples many chains and votes final answers. Tree of Thoughts searches over branches. PRM reranking scores intermediate steps. Executable verifiers, as in coding and AlphaEvolve-style systems, are strongest when an objective oracle exists.',
+    explanation: `${patternCount} search patterns are compared. Self-consistency samples many chains and votes final answers. Tree of Thoughts searches over branches. PRM reranking scores intermediate steps. Executable verifiers, as in coding and AlphaEvolve-style systems, are strongest when an objective oracle exists.`,
   };
 
   yield {
@@ -204,7 +211,7 @@ function* verifierSearch() {
       ],
     ),
     highlight: { found: ['trace:question', 'labels:question', 'holdout:question', 'budget:question', 'safety:question'] },
-    explanation: 'A verifier search stack is an evaluation system. It needs trace schemas, label rubrics, holdouts, budgets, and safety boundaries for what reasoning traces are stored, displayed, or used for training.',
+    explanation: `A verifier search stack is an evaluation system. Across ${patternCount} search patterns and ${pathCount} candidate paths, it needs trace schemas, label rubrics, holdouts, budgets, and safety boundaries for what reasoning traces are stored, displayed, or used for training.`,
   };
 }
 
@@ -217,6 +224,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/process-reward-models-verifier-search.gif', alt: 'Animated walkthrough of the process reward models verifier search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

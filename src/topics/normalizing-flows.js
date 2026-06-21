@@ -49,28 +49,33 @@ function flowCloud(title, transformed) {
 }
 
 function* changeOfVariables() {
+  const pointIds = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
+  const numPoints = pointIds.length;
+
   yield {
     state: flowCloud('Start with a simple base density', false),
     highlight: { active: ['p0', 'p1', 'p2', 'p3'], compare: ['p4', 'p5', 'p6', 'p7'] },
-    explanation: 'A normalizing flow starts with a simple distribution, often a standard Gaussian. Sampling from it is easy and evaluating its density is easy.',
+    explanation: `A normalizing flow starts with a simple distribution, often a standard Gaussian. Here ${numPoints} sample points are drawn from the base density — sampling from it is easy and evaluating its density is easy.`,
   };
 
   yield {
     state: flowCloud('Apply an invertible transformation', true),
-    highlight: { found: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'] },
-    explanation: 'The flow warps the simple density into a more complex data-shaped density. The transform must be invertible so every data point x maps back to exactly one base point z.',
-    invariant: 'No probability mass can vanish; it can only stretch or compress.',
+    highlight: { found: pointIds },
+    explanation: `The flow warps all ${numPoints} base points into a more complex data-shaped density. The transform must be invertible so every data point x maps back to exactly one base point z.`,
+    invariant: `No probability mass can vanish across the ${numPoints} points; it can only stretch or compress.`,
   };
+
+  const covRows = [
+    { id: 'base', label: 'base log p(z)' },
+    { id: 'inverse', label: 'inverse x to z' },
+    { id: 'jac', label: 'log determinant' },
+    { id: 'data', label: 'log p(x)' },
+  ];
 
   yield {
     state: labelMatrix(
       'The change-of-variables formula',
-      [
-        { id: 'base', label: 'base log p(z)' },
-        { id: 'inverse', label: 'inverse x to z' },
-        { id: 'jac', label: 'log determinant' },
-        { id: 'data', label: 'log p(x)' },
-      ],
+      covRows,
       [
         { id: 'role', label: 'role' },
         { id: 'cost', label: 'cost' },
@@ -83,18 +88,20 @@ function* changeOfVariables() {
       ],
     ),
     highlight: { found: ['base:role', 'jac:role', 'data:role'], compare: ['jac:cost'] },
-    explanation: 'When the transform stretches space, density decreases; when it compresses space, density increases. The Jacobian determinant is the volume correction that makes exact likelihood possible.',
+    explanation: `The ${covRows.length} components — base density, inverse map, Jacobian determinant, and data likelihood — combine into the change-of-variables formula. When the transform stretches space, density decreases; when it compresses, density increases.`,
   };
+
+  const genRows = [
+    { id: 'flow', label: 'normalizing flow' },
+    { id: 'vae', label: 'VAE' },
+    { id: 'gan', label: 'GAN' },
+    { id: 'diff', label: 'diffusion' },
+  ];
 
   yield {
     state: labelMatrix(
       'Flow tradeoffs versus other generators',
-      [
-        { id: 'flow', label: 'normalizing flow' },
-        { id: 'vae', label: 'VAE' },
-        { id: 'gan', label: 'GAN' },
-        { id: 'diff', label: 'diffusion' },
-      ],
+      genRows,
       [
         { id: 'advantage', label: 'advantage' },
         { id: 'constraint', label: 'constraint' },
@@ -107,20 +114,22 @@ function* changeOfVariables() {
       ],
     ),
     highlight: { active: ['flow:advantage'], compare: ['flow:constraint', 'diff:constraint'] },
-    explanation: 'Flows are attractive when density estimation matters. Their cost is architectural: layers must stay invertible and have tractable Jacobian determinants.',
+    explanation: `Comparing ${genRows.length} generative approaches: flows are attractive when density estimation matters. Their cost is architectural — layers must stay invertible and have tractable Jacobian determinants.`,
   };
 }
 
 function* couplingLayers() {
+  const splitRows = [
+    { id: 'x1', label: 'x1' },
+    { id: 'x2', label: 'x2' },
+    { id: 'net', label: 'scale/shift net' },
+    { id: 'y', label: 'output y' },
+  ];
+
   yield {
     state: labelMatrix(
       'A coupling layer updates only part of the vector',
-      [
-        { id: 'x1', label: 'x1' },
-        { id: 'x2', label: 'x2' },
-        { id: 'net', label: 'scale/shift net' },
-        { id: 'y', label: 'output y' },
-      ],
+      splitRows,
       [
         { id: 'forward', label: 'forward' },
         { id: 'inverse', label: 'inverse' },
@@ -133,19 +142,21 @@ function* couplingLayers() {
       ],
     ),
     highlight: { active: ['x1:forward', 'x2:forward', 'net:forward'], found: ['y:forward'] },
-    explanation: 'Coupling layers are a common flow design. Leave part of the vector unchanged, use it to compute scale and shift for the other part, then alternate masks across layers. The inverse stays cheap.',
-    invariant: 'Expressiveness comes from stacking simple invertible layers.',
+    explanation: `Coupling layers split the vector into ${splitRows.length} roles: ${splitRows.map(r => r.id).join(', ')}. Leave part unchanged, use it to compute scale and shift for the other part, then alternate masks across layers. The inverse stays cheap.`,
+    invariant: `Expressiveness comes from stacking simple invertible layers — each split handles ${splitRows.length} components.`,
   };
+
+  const jacRows = [
+    { id: 'dense', label: 'arbitrary neural net' },
+    { id: 'coupling', label: 'coupling layer' },
+    { id: 'autoregressive', label: 'autoregressive flow' },
+    { id: 'continuous', label: 'continuous flow' },
+  ];
 
   yield {
     state: labelMatrix(
       'Why the Jacobian stays tractable',
-      [
-        { id: 'dense', label: 'arbitrary neural net' },
-        { id: 'coupling', label: 'coupling layer' },
-        { id: 'autoregressive', label: 'autoregressive flow' },
-        { id: 'continuous', label: 'continuous flow' },
-      ],
+      jacRows,
       [
         { id: 'det', label: 'determinant cost' },
         { id: 'tradeoff', label: 'tradeoff' },
@@ -158,24 +169,28 @@ function* couplingLayers() {
       ],
     ),
     highlight: { found: ['coupling:det'], compare: ['dense:det', 'continuous:tradeoff'] },
-    explanation: 'A generic neural network is not enough. Flow layers are designed so inverse and determinant are computationally feasible. This is the central engineering constraint.',
+    explanation: `A generic neural network is not enough. These ${jacRows.length} approaches — ${jacRows.map(r => r.id).join(', ')} — show that flow layers must be designed so inverse and determinant are computationally feasible.`,
   };
+
+  const cloudPoints = ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'];
 
   yield {
     state: flowCloud('Stacked coupling layers reshape the density', true),
-    highlight: { found: ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7'] },
-    explanation: 'One coupling layer is limited. Many layers, with permutations or masks between them, can bend a simple Gaussian into complex data distributions while preserving exact density accounting.',
+    highlight: { found: cloudPoints },
+    explanation: `One coupling layer is limited. Many layers, with permutations or masks between them, can bend ${cloudPoints.length} Gaussian samples into complex data distributions while preserving exact density accounting.`,
   };
+
+  const appRows = [
+    { id: 'density', label: 'density estimation' },
+    { id: 'anomaly', label: 'anomaly detection' },
+    { id: 'vae', label: 'richer VAE posterior' },
+    { id: 'audio', label: 'audio/image models' },
+  ];
 
   yield {
     state: labelMatrix(
       'Where flows are useful',
-      [
-        { id: 'density', label: 'density estimation' },
-        { id: 'anomaly', label: 'anomaly detection' },
-        { id: 'vae', label: 'richer VAE posterior' },
-        { id: 'audio', label: 'audio/image models' },
-      ],
+      appRows,
       [
         { id: 'why', label: 'why flow helps' },
         { id: 'warning', label: 'warning' },
@@ -188,7 +203,7 @@ function* couplingLayers() {
       ],
     ),
     highlight: { active: ['density:why', 'vae:why'], compare: ['anomaly:warning'] },
-    explanation: 'Flows are most valuable when the exact change in probability density matters. That makes them a clean contrast with GANs and diffusion models.',
+    explanation: `Across ${appRows.length} application areas — ${appRows.map(r => r.label).join(', ')} — flows are most valuable when the exact change in probability density matters.`,
   };
 }
 
@@ -201,6 +216,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/normalizing-flows.gif', alt: 'Animated walkthrough of the normalizing flows visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why Flows Exist',
       paragraphs: [

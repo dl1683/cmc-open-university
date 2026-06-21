@@ -101,8 +101,8 @@ function* capacityMath() {
       ],
     ),
     highlight: { active: ['4k:mha', '16k:mha', '32k:mha'], found: ['4k:gqa', '16k:gqa', '32k:gqa'] },
-    explanation: 'A live context occupies K and V tensors in every layer. In this toy 32-layer, fp16 model, 32 KV heads cost about 0.5 MiB per token; 8 KV heads cost one quarter as much.',
-    invariant: 'KV bytes = 2 x layers x tokens x KV heads x head dimension x bytes.',
+    explanation: `A live context occupies K and V tensors in every layer. Across ${rows.length} context lengths (${rows[0].label} to ${rows[rows.length - 1].label}), 32 KV heads cost about 0.5 MiB per token; 8 KV heads cost one quarter as much.`,
+    invariant: `KV bytes = 2 x layers x tokens x KV heads x head dimension x bytes — computed for ${rows.length} context tiers.`,
   };
 
   yield {
@@ -112,7 +112,7 @@ function* capacityMath() {
       { id: 'gqa-long', x: 32768, y: 17, label: '32k GQA' },
     ]),
     highlight: { active: ['mha', 'short', 'long'], found: ['gqa', 'gqa-long'] },
-    explanation: 'Context length and KV-head count directly set concurrency. A long-context product can run out of memory before it runs out of arithmetic capacity.',
+    explanation: `Context length and KV-head count directly set concurrency. At ${rows[rows.length - 1].label} tokens with 32 KV heads, only ${4} requests fit a 70 GiB budget — memory runs out before arithmetic capacity.`,
   };
 
   yield {
@@ -138,7 +138,7 @@ function* capacityMath() {
       ],
     ),
     highlight: { found: ['gqa:saves', 'quant:saves', 'paged:saves', 'prefix:saves', 'window:saves'] },
-    explanation: 'Every capacity lever has a cost. The right design depends on whether the server is wasting blocks, storing too many KV heads, keeping stale history, or repeating shared prompts.',
+    explanation: `Every capacity lever has a cost. The table lists ${5} levers — from GQA to sliding windows — each trading one resource for one risk. The right design depends on whether the server is wasting blocks, storing too many KV heads, keeping stale history, or repeating shared prompts.`,
   };
 }
 
@@ -146,14 +146,14 @@ function* admissionPolicy() {
   yield {
     state: schedulerGraph('Admission control starts with a KV estimate'),
     highlight: { active: ['request', 'estimate', 'ledger', 'e-request-estimate', 'e-estimate-ledger'], compare: ['admit', 'queue', 'reject'] },
-    explanation: 'A production scheduler should estimate the cache footprint before accepting work. Prompt length, output budget, beam count, KV heads, precision, and adapters all affect the memory promise.',
+    explanation: `A production scheduler routes each request through ${3} early nodes — request, estimate, and ledger — before accepting work. Prompt length, output budget, beam count, KV heads, precision, and adapters all affect the memory promise.`,
   };
 
   yield {
     state: schedulerGraph('The ledger decides admit, queue, or shrink'),
     highlight: { active: ['ledger', 'admit', 'queue', 'reject', 'e-ledger-admit', 'e-ledger-queue', 'e-ledger-reject'], found: ['release', 'e-release-ledger'] },
-    explanation: 'KV memory is a ledger, not a vague load number. If the budget is tight, the server can queue, lower max output, route to another pool, fall back to retrieval, or reject early.',
-    invariant: 'Never promise more live KV cache than the pool can keep resident.',
+    explanation: `KV memory is a ledger, not a vague load number. The ledger fans out to ${3} outcomes — admit, queue, or reject — and the release path feeds capacity back to the ledger.`,
+    invariant: `Never promise more live KV cache than the pool can keep resident — the graph's ${8} nodes enforce this closed loop.`,
   };
 
   yield {
@@ -179,7 +179,7 @@ function* admissionPolicy() {
       ],
     ),
     highlight: { active: ['live:why', 'reserved:why', 'blocks:why'], found: ['tail:bad if missing'] },
-    explanation: 'The data structure is an accounting system. Track current bytes, reserved growth, block mappings, shared-prefix references, and tail-risk outliers.',
+    explanation: `The data structure is an accounting system with ${5} tracked dimensions — live bytes, reserved growth, block mappings, shared-prefix references, and tail-risk outliers — each paired with a failure mode when missing.`,
   };
 }
 
@@ -192,6 +192,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/kv-cache-concurrency-capacity-model.gif', alt: 'Animated walkthrough of the kv cache concurrency capacity model visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why it exists',
       paragraphs: [

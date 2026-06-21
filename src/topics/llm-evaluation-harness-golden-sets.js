@@ -86,7 +86,7 @@ function* goldenSet() {
   yield {
     state: harnessGraph('An eval harness replays real cases through variants'),
     highlight: { active: ['traces', 'golden', 'runner', 'variant', 'scorers', 'e-traces-golden', 'e-golden-runner', 'e-runner-variant', 'e-runner-scorers'], found: ['matrix'] },
-    explanation: 'An LLM eval harness is a replay system. Curated cases enter a runner, model or prompt variants produce outputs, scorers measure them, and a score matrix decides whether the change regressed the product.',
+    explanation: `An ${topic.category} eval harness is a replay system. Curated cases enter a runner, model or prompt variants produce outputs, scorers measure them, and a score matrix decides whether the change regressed the product.`,
   };
 
   yield {
@@ -110,14 +110,14 @@ function* goldenSet() {
       ],
     ),
     highlight: { active: ['input:field', 'context:field', 'expected:field', 'metadata:field'] },
-    explanation: 'The case is the primary data structure. It should include enough state to reproduce the decision: input, retrieved context, tool trace, expected behavior, tags, and risk class.',
-    invariant: 'An eval without replayable context is only a vibe check.',
+    explanation: `The case is the primary data structure in ${topic.category} evaluation. It should include enough state to reproduce the decision: input, retrieved context, tool trace, expected behavior, tags, and risk class.`,
+    invariant: `An eval without replayable context is only a vibe check — ${topic.title.split(':')[0].toLowerCase()} demands reproducible evidence.`,
   };
 
   yield {
     state: harnessGraph('Separate dev set from sealed holdout'),
     highlight: { active: ['golden', 'holdout', 'runner', 'e-golden-runner', 'e-holdout-runner'], compare: ['gate'] },
-    explanation: 'Use a visible development set to tune prompts and models. Keep a sealed holdout for final checks. Repeatedly peeking at the same eval set wears it out, just like a test set in Cross-Validation & Honest Evaluation.',
+    explanation: `Use a visible development set to tune prompts and models. Keep a sealed holdout for final checks. Repeatedly peeking at the same ${topic.id.includes('golden') ? 'golden set' : 'eval set'} wears it out, just like a test set in Cross-Validation & Honest Evaluation.`,
   };
 
   yield {
@@ -142,7 +142,7 @@ function* goldenSet() {
       ],
     ),
     highlight: { found: ['factual:new', 'latency:new'], removed: ['safety:gate'] },
-    explanation: 'Averages are not enough. The new model can be faster and more factual while still failing a safety or policy slice. Gates should be per critical dimension, not only one blended score.',
+    explanation: `Averages are not enough. The new model can be faster and more factual while still failing a safety or policy slice. Gates in an ${topic.category} harness should be per critical dimension, not only one blended score.`,
   };
 }
 
@@ -150,7 +150,7 @@ function* judgeRubric() {
   yield {
     state: judgeGraph('A judge needs a rubric, not just an opinion'),
     highlight: { active: ['case', 'answer', 'reference', 'rubric', 'judge', 'e-answer-rubric', 'e-reference-rubric', 'e-rubric-judge'], found: ['rationale'] },
-    explanation: 'LLM-as-a-judge is useful when exact answers are too narrow, but the judge must receive a stable rubric. The output should include a score and a short rationale so humans can audit disagreements.',
+    explanation: `LLM-as-a-judge is useful when exact answers are too narrow, but the judge must receive a stable rubric. In ${topic.title.split(':')[1].trim()}, the output should include a score and a short rationale so humans can audit disagreements.`,
   };
 
   yield {
@@ -176,14 +176,14 @@ function* judgeRubric() {
       ],
     ),
     highlight: { active: ['exact:best', 'property:best', 'rubric:best', 'pairwise:best'], compare: ['human:failure'] },
-    explanation: 'Different outputs need different scorers. A math answer can use exact or tolerance checks. A RAG answer needs citation and faithfulness checks. A support reply may need rubric and human audit.',
+    explanation: `Different outputs need different scorers. A math answer can use exact or tolerance checks. A RAG answer needs citation and faithfulness checks. ${topic.category} systems may need rubric and human audit for open-ended replies.`,
   };
 
   yield {
     state: judgeGraph('Audit the judge like any other model'),
     highlight: { active: ['judge', 'rationale', 'audit', 'e-judge-rationale', 'e-judge-audit'], compare: ['rubric'] },
-    explanation: 'Judges are models too. They can prefer verbosity, familiar style, their own model family, or the first answer shown. LLM Judge Calibration & Drift Monitor turns that risk into anchor sets, bias probes, and slice gates.',
-    invariant: 'A judge score is evidence, not truth.',
+    explanation: `Judges are models too. They can prefer verbosity, familiar style, their own model family, or the first answer shown. ${topic.title.split(':')[0]} Judge Calibration & Drift Monitor turns that risk into anchor sets, bias probes, and slice gates.`,
+    invariant: `A judge score is evidence, not truth — every ${topic.category} evaluation must treat it as one signal among many.`,
   };
 
   yield {
@@ -207,7 +207,7 @@ function* judgeRubric() {
       ],
     ),
     highlight: { active: ['retrieval:why', 'policy:why', 'rare:why', 'attack:why'] },
-    explanation: 'Great eval suites are not random samples only. They include failure slices that product teams care about: retrieval misses, policy edges, rare entities, adversarial prompts, and expensive regressions.',
+    explanation: `Great eval suites for ${topic.category} are not random samples only. They include failure slices that product teams care about: retrieval misses, policy edges, rare entities, adversarial prompts, and expensive regressions.`,
   };
 
   yield {
@@ -233,7 +233,7 @@ function* judgeRubric() {
       ],
     ),
     highlight: { found: ['collect:artifact', 'label:artifact', 'run:artifact', 'inspect:artifact', 'refresh:artifact'] },
-    explanation: 'LLM evals are a living system. As users, prompts, models, and attacks change, the suite must absorb new cases without turning the final holdout into the development set.',
+    explanation: `${topic.title.split(':')[0]} evals are a living system. As users, prompts, models, and attacks change, the suite must absorb new cases without turning the final holdout into the development set.`,
   };
 }
 
@@ -246,6 +246,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/llm-evaluation-harness-golden-sets.gif', alt: 'Animated walkthrough of the llm evaluation harness golden sets visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

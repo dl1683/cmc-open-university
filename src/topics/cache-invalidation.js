@@ -26,37 +26,42 @@ const cacheGraph = ({ cacheNote, originNote, userNote = '1,000 req/s', edges }) 
   });
 
 function* dilemma() {
+  const staleCache = 'price.json = $99 (TTL 300s)';
+  const freshOrigin = 'price.json = $79 (updated!)';
   yield {
     state: cacheGraph({
-      cacheNote: 'price.json = $99 (TTL 300s)',
-      originNote: 'price.json = $79 (updated!)',
+      cacheNote: staleCache,
+      originNote: freshOrigin,
       edges: [{ id: 'hit', from: 'users', to: 'cache' }],
     }),
     highlight: { active: ['hit'], compare: ['cache', 'origin'] },
-    explanation: 'A cache hit is a bet that the copy is still fresh enough. The origin now has $79, but the CDN can legally serve $99 until the TTL expires. The harm depends on the data class: a stale avatar is different from a stale checkout price.',
+    explanation: `A cache hit is a bet that the copy is still fresh enough. The origin now has ${freshOrigin} but the CDN still holds ${staleCache}. The harm depends on the data class: a stale avatar is different from a stale checkout price.`,
   };
 
+  const ttlRows = [
+    { id: 't5', label: 'TTL = 5s' },
+    { id: 't300', label: 'TTL = 5 min' },
+    { id: 't86400', label: 'TTL = 1 day' },
+  ];
+  const ttlValues = [[5, 0.2], [300, 0.0033], [86400, 0.0000116]];
   yield {
     state: matrixState({
       title: 'The TTL dial: staleness vs origin load (per key, at 1,000 req/s)',
-      rows: [
-        { id: 't5', label: 'TTL = 5s' },
-        { id: 't300', label: 'TTL = 5 min' },
-        { id: 't86400', label: 'TTL = 1 day' },
-      ],
+      rows: ttlRows,
       columns: [{ id: 'stale', label: 'worst staleness' }, { id: 'load', label: 'origin hits/sec per key' }],
-      values: [[5, 0.2], [300, 0.0033], [86400, 0.0000116]],
+      values: ttlValues,
       format: (v) => (v >= 5 ? (v >= 86400 ? '24 hours' : v >= 300 ? '5 minutes' : '5 seconds') : v < 0.001 ? v.toExponential(1) : v.toFixed(4)),
     }),
     highlight: { compare: ['t5:stale', 't86400:stale'] },
-    explanation: 'The TTL dial trades freshness for origin pressure. A 5-second TTL bounds stale answers tightly but refreshes often. A 1-day TTL protects the origin but can serve yesterday\'s value all day.',
-    invariant: 'TTL caching chooses a freshness/load tradeoff; it does not remove the tradeoff.',
+    explanation: `The TTL dial trades freshness for origin pressure across ${ttlRows.length} settings. A ${ttlRows[0].label} bounds stale answers tightly but refreshes at ${ttlValues[0][1]} hits/sec per key. A ${ttlRows[2].label} protects the origin but can serve yesterday's value all day.`,
+    invariant: `TTL caching across ${ttlRows.length} settings chooses a freshness/load tradeoff; it does not remove the tradeoff.`,
   };
 
+  const stampedeNote = 'ON FIRE: 1,000 identical queries';
   yield {
     state: cacheGraph({
       cacheNote: 'TTL hit 0 - MISS x1,000',
-      originNote: 'ON FIRE: 1,000 identical queries',
+      originNote: stampedeNote,
       userNote: '1,000 req/s, all unlucky',
       edges: [
         { id: 'miss1', from: 'users', to: 'cache' },
@@ -64,12 +69,13 @@ function* dilemma() {
       ],
     }),
     highlight: { removed: ['origin', 'stampede'], active: ['miss1'] },
-    explanation: 'Synchronized expiry creates a cache stampede. The key protected the origin while it was hot; when it expires, many requests miss together and send duplicate work to the origin.',
+    explanation: `Synchronized expiry creates a cache stampede. The origin is now "${stampedeNote}". The key protected the origin while it was hot; when it expires, many requests miss together and send duplicate work to the origin.`,
   };
 
+  const coalesceNote = 'MISS x1,000 -> 1 fetch, 999 wait';
   yield {
     state: cacheGraph({
-      cacheNote: 'MISS x1,000 -> 1 fetch, 999 wait',
+      cacheNote: coalesceNote,
       originNote: 'one query. calm.',
       edges: [
         { id: 'miss1', from: 'users', to: 'cache' },
@@ -77,64 +83,69 @@ function* dilemma() {
       ],
     }),
     highlight: { found: ['single', 'origin'] },
-    explanation: 'Coalescing makes the first miss own the refresh while the other requests wait. Serve-stale can answer with the expired copy during refresh, and jitter spreads expirations so clocks do not line up.',
-    invariant: 'Coalescing collapses N simultaneous misses for one key into exactly one origin request.',
+    explanation: `Coalescing turns "${coalesceNote}" — the first miss owns the refresh while the other requests wait. Serve-stale can answer with the expired copy during refresh, and jitter spreads expirations so clocks do not line up.`,
+    invariant: `Coalescing collapses N simultaneous misses into exactly one origin request — the cache holds "${coalesceNote}".`,
   };
 }
 
 function* escapes() {
+  const purgeOrigin = '$79 - purge sent';
   yield {
     state: cacheGraph({
       cacheNote: 'PURGE price.json -> dropped',
-      originNote: '$79 - purge sent',
+      originNote: purgeOrigin,
       edges: [{ id: 'purge', from: 'origin', to: 'cache' }],
     }),
     highlight: { active: ['purge'], found: ['cache'] },
-    explanation: 'Purge moves authority to the write path. The origin changes the value and tells caches to drop the key. This reduces stale time, but correctness now depends on delivery, ordering, and every cache layer receiving the message.',
+    explanation: `Purge moves authority to the write path. The origin (now at ${purgeOrigin}) tells caches to drop the key. This reduces stale time, but correctness now depends on delivery, ordering, and every cache layer receiving the message.`,
   };
 
+  const immutableCache = 'app.v42.js cached forever - still correct';
+  const immutableOrigin = 'ships app.v43.js + new HTML';
   yield {
     state: cacheGraph({
-      cacheNote: 'app.v42.js cached forever - still correct',
-      originNote: 'ships app.v43.js + new HTML',
+      cacheNote: immutableCache,
+      originNote: immutableOrigin,
       edges: [
         { id: 'newRef', from: 'origin', to: 'users' },
         { id: 'oldHit', from: 'users', to: 'cache' },
       ],
     }),
     highlight: { found: ['cache', 'newRef'] },
-    explanation: 'Immutable names avoid invalidation. Ship a new filename or content hash for changed bytes, then update the pointer that references it. The old object can stay cached because its name still means the old content.',
-    invariant: 'Immutable content needs no invalidation: a new version is a new name, and old names never lie.',
+    explanation: `Immutable names avoid invalidation. The cache still serves "${immutableCache}" while the origin ${immutableOrigin}. The old object stays cached because its name still means the old content.`,
+    invariant: `Immutable content needs no invalidation: the origin ${immutableOrigin} under a new name, and old names never lie.`,
   };
 
+  const revalEdges = [
+    { id: 'ask', from: 'cache', to: 'origin' },
+    { id: 'reply', from: 'origin', to: 'cache' },
+  ];
   yield {
     state: cacheGraph({
       cacheNote: 'asks: If-None-Match "abc123"',
       originNote: 'replies: 304 Not Modified (no body)',
-      edges: [
-        { id: 'ask', from: 'cache', to: 'origin' },
-        { id: 'reply', from: 'origin', to: 'cache' },
-      ],
+      edges: revalEdges,
     }),
     highlight: { active: ['ask'], found: ['reply'] },
-    explanation: 'Revalidation keeps a suspect copy and asks the origin whether its version token is still current. A 304 response saves the body transfer, but the round trip remains.',
+    explanation: `Revalidation uses ${revalEdges.length} round-trip edges (${revalEdges.map(e => e.id).join(' -> ')}) to ask the origin whether its version token is still current. A 304 response saves the body transfer, but the round trip remains.`,
   };
 
+  const strategyRows = [
+    { id: 'static', label: 'JS, CSS, images' },
+    { id: 'api', label: 'API reads, feeds' },
+    { id: 'critical', label: 'prices, inventory' },
+    { id: 'private', label: 'auth, personal data' },
+  ];
   yield {
     state: matrixState({
       title: 'The routing table: data type -> invalidation strategy',
-      rows: [
-        { id: 'static', label: 'JS, CSS, images' },
-        { id: 'api', label: 'API reads, feeds' },
-        { id: 'critical', label: 'prices, inventory' },
-        { id: 'private', label: 'auth, personal data' },
-      ],
+      rows: strategyRows,
       columns: [{ id: 'strat', label: 'strategy' }, { id: 'why', label: 'because' }],
       values: [[1, 2], [3, 4], [5, 6], [7, 8]],
       format: (v) => ['', 'versioned names, cache forever', 'immutability beats invalidation', 'short TTL + SWR + coalescing', 'bounded staleness, herd-proof', 'purge on write (or no cache)', 'staleness costs real money', 'no-store', 'a cached secret is a leak'][v],
     }),
     highlight: { found: ['static:strat'], removed: ['private:strat'] },
-    explanation: 'Production systems usually run several strategies at once. Static assets use immutable names, feeds use bounded staleness, critical mutable records need purge or revalidation, and private data may need no-store.',
+    explanation: `Production systems usually run several strategies at once across ${strategyRows.length} data types (${strategyRows.map(r => r.label).join(', ')}). Static assets use immutable names, feeds use bounded staleness, critical mutable records need purge or revalidation, and private data may need no-store.`,
   };
 }
 
@@ -154,7 +165,8 @@ export const article = {
         {type: 'callout', text: 'Every cache is a speedup built from a copy, so correctness depends on naming, freshness, and a controlled path back to the source.'},
         'The escape-routes view shows three invalidation strategies in sequence: purge (origin pushes a drop command), immutable versioned names (new content gets a new URL), and revalidation (cache asks origin whether its ETag is still current). Found markers show the path that resolves correctly. The final matrix maps data types to strategies, showing that production systems run several invalidation policies at once.',
         'At each frame, ask: what changed, what is now stale, and what mechanism would fix it.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/cache-invalidation.gif', alt: 'Animated walkthrough of the cache invalidation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

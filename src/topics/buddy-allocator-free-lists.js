@@ -71,164 +71,180 @@ function freeFlow(title) {
 }
 
 function* allocateAndSplit() {
+  const flowTitle = 'Allocation rounds to a power of two';
+  const activeNodes = ['request', 'round', 'list'];
+  const foundNodes = ['split', 'alloc'];
   yield {
-    state: allocatorFlow('Allocation rounds to a power of two'),
-    highlight: { active: ['request', 'round', 'list'], found: ['split', 'alloc'] },
-    explanation: 'A buddy allocator rounds each request up to a block order, then looks for a free block of that size. If none exists, it finds a larger block and splits it into equal buddies until the requested order exists.',
-    invariant: 'Every free block size is a power of two, and every block has exactly one buddy at the same order.',
+    state: allocatorFlow(flowTitle),
+    highlight: { active: activeNodes, found: foundNodes },
+    explanation: `A buddy allocator rounds each ${activeNodes[0]} up to a block order, then looks for a free block via the ${activeNodes[2]}. If none exists, it finds a larger block and performs a ${foundNodes[0]} into equal buddies until the requested order can be returned to ${foundNodes[1]}.`,
+    invariant: `Every free block size is a power of two, and every block has exactly one buddy at the same order — the ${flowTitle.toLowerCase()} step enforces this by rounding through ${activeNodes.length} stages.`,
   };
 
+  const orderRows = [
+    { id: 'o0', label: 'order 0' },
+    { id: 'o1', label: 'order 1' },
+    { id: 'o2', label: 'order 2' },
+    { id: 'o3', label: 'order 3' },
+  ];
+  const sizeValues = [['4 KB', 'A4,C4'], ['8 KB', 'B8'], ['16 KB', 'none'], ['32 KB', 'D32']];
+  const requestSize = '13 KB';
+  const targetOrder = orderRows[2];
+  const donorOrder = orderRows[3];
   yield {
     state: labelMatrix(
       'Free lists by order',
-      [
-        { id: 'o0', label: 'order 0' },
-        { id: 'o1', label: 'order 1' },
-        { id: 'o2', label: 'order 2' },
-        { id: 'o3', label: 'order 3' },
-      ],
+      orderRows,
       [
         { id: 'size', label: 'block size' },
         { id: 'free', label: 'free blocks' },
       ],
-      [
-        ['4 KB', 'A4,C4'],
-        ['8 KB', 'B8'],
-        ['16 KB', 'none'],
-        ['32 KB', 'D32'],
-      ],
+      sizeValues,
     ),
-    highlight: { active: ['o2:free'], found: ['o3:free'] },
-    explanation: 'A 13 KB request needs a 16 KB block. If the 16 KB list is empty, the allocator climbs to the next nonempty list, here 32 KB, then splits.',
+    highlight: { active: [`${targetOrder.id}:free`], found: [`${donorOrder.id}:free`] },
+    explanation: `A ${requestSize} request needs a ${sizeValues[2][0]} block. If the ${sizeValues[2][0]} list is empty (${sizeValues[2][1]}), the allocator climbs to the next nonempty list, here ${sizeValues[3][0]} (${sizeValues[3][1]}), then splits.`,
   };
 
+  const splitRows = [
+    { id: 'start', label: 'take D32' },
+    { id: 'split', label: 'split D32' },
+    { id: 'keep', label: 'keep half' },
+    { id: 'return', label: 'return rest' },
+  ];
+  const splitData = [
+    ['remove from list', '32 KB block'],
+    ['halve', '16 KB + 16 KB'],
+    ['allocate one', 'request served'],
+    ['push buddy', '16 KB free'],
+  ];
   yield {
     state: labelMatrix(
       'Split sequence',
-      [
-        { id: 'start', label: 'take D32' },
-        { id: 'split', label: 'split D32' },
-        { id: 'keep', label: 'keep half' },
-        { id: 'return', label: 'return rest' },
-      ],
+      splitRows,
       [
         { id: 'action', label: 'action' },
         { id: 'result', label: 'result' },
       ],
-      [
-        ['remove from list', '32 KB block'],
-        ['halve', '16 KB + 16 KB'],
-        ['allocate one', 'request served'],
-        ['push buddy', '16 KB free'],
-      ],
+      splitData,
     ),
-    highlight: { active: ['split:action', 'keep:result'], found: ['return:result'] },
-    explanation: 'Splitting preserves the buddy invariant. The unused half is immediately placed on the free list for the smaller order, ready for a later request.',
+    highlight: { active: [`${splitRows[1].id}:action`, `${splitRows[2].id}:result`], found: [`${splitRows[3].id}:result`] },
+    explanation: `Splitting preserves the buddy invariant: ${splitRows[0].label} (${splitData[0][0]}), then ${splitData[1][0]} into ${splitData[1][1]}. The unused half is immediately placed on the free list as ${splitData[3][1]}, ready for a later request.`,
   };
 
+  const fragRows = [
+    { id: 'tiny', label: '1 KB request' },
+    { id: 'near', label: '13 KB request' },
+    { id: 'exact', label: '16 KB request' },
+    { id: 'huge', label: '33 KB request' },
+  ];
+  const fragData = [
+    ['4 KB', '3 KB'],
+    ['16 KB', '3 KB'],
+    ['16 KB', '0'],
+    ['64 KB', '31 KB'],
+  ];
   yield {
     state: labelMatrix(
       'Fragmentation tradeoff',
-      [
-        { id: 'tiny', label: '1 KB request' },
-        { id: 'near', label: '13 KB request' },
-        { id: 'exact', label: '16 KB request' },
-        { id: 'huge', label: '33 KB request' },
-      ],
+      fragRows,
       [
         { id: 'rounded', label: 'rounded to' },
         { id: 'waste', label: 'internal waste' },
       ],
-      [
-        ['4 KB', '3 KB'],
-        ['16 KB', '3 KB'],
-        ['16 KB', '0'],
-        ['64 KB', '31 KB'],
-      ],
+      fragData,
     ),
-    highlight: { found: ['exact:waste'], compare: ['huge:waste', 'tiny:waste'] },
-    explanation: 'Buddy allocation keeps coalescing simple by using powers of two, but rounding can waste memory inside allocated blocks. Slab and size-class allocators refine this for small objects.',
+    highlight: { found: [`${fragRows[2].id}:waste`], compare: [`${fragRows[3].id}:waste`, `${fragRows[0].id}:waste`] },
+    explanation: `Buddy allocation keeps coalescing simple by using powers of two, but rounding can waste memory: a ${fragRows[3].label} rounds to ${fragData[3][0]} wasting ${fragData[3][1]}, while a ${fragRows[2].label} wastes ${fragData[2][1]}. Slab and size-class allocators refine this for small objects.`,
   };
 }
 
 function* freeAndCoalesce() {
+  const freeTitle = 'Freeing looks for the exact buddy';
+  const freeActiveNodes = ['free', 'buddy', 'check'];
+  const freeFoundNodes = ['merge'];
   yield {
-    state: freeFlow('Freeing looks for the exact buddy'),
-    highlight: { active: ['free', 'buddy', 'check'], found: ['merge'] },
-    explanation: 'When a block is freed, the allocator computes its buddy address for that order. If the buddy is also free, remove the buddy from its list and merge the pair into the next order.',
-    invariant: 'Coalescing is local: only the unique same-size buddy can merge.',
+    state: freeFlow(freeTitle),
+    highlight: { active: freeActiveNodes, found: freeFoundNodes },
+    explanation: `When a block is freed, the allocator computes its ${freeActiveNodes[1]} address for that order via ${freeActiveNodes[2]}. If the buddy is also free, remove the buddy from its list and ${freeFoundNodes[0]} the pair into the next order.`,
+    invariant: `Coalescing is local: only the unique same-size ${freeActiveNodes[1]} can ${freeFoundNodes[0]} — the ${freeTitle.toLowerCase()} to validate.`,
   };
 
+  const buddyRows = [
+    { id: 'block', label: 'block addr' },
+    { id: 'size', label: 'block size' },
+    { id: 'buddy', label: 'buddy addr' },
+    { id: 'state', label: 'buddy state' },
+  ];
+  const buddyData = [
+    ['0x40', 'freed block'],
+    ['0x10', '16 KB order'],
+    ['0x50', 'addr xor size'],
+    ['free', 'can merge'],
+  ];
   yield {
     state: labelMatrix(
       'Buddy computation',
-      [
-        { id: 'block', label: 'block addr' },
-        { id: 'size', label: 'block size' },
-        { id: 'buddy', label: 'buddy addr' },
-        { id: 'state', label: 'buddy state' },
-      ],
+      buddyRows,
       [
         { id: 'value', label: 'value' },
         { id: 'meaning', label: 'meaning' },
       ],
-      [
-        ['0x40', 'freed block'],
-        ['0x10', '16 KB order'],
-        ['0x50', 'addr xor size'],
-        ['free', 'can merge'],
-      ],
+      buddyData,
     ),
-    highlight: { active: ['buddy:value', 'state:value'], found: ['state:meaning'] },
-    explanation: 'With aligned power-of-two blocks, the buddy address is the block address with the size bit flipped. That arithmetic is why the structure can find a merge candidate without searching the whole heap.',
+    highlight: { active: [`${buddyRows[2].id}:value`, `${buddyRows[3].id}:value`], found: [`${buddyRows[3].id}:meaning`] },
+    explanation: `With aligned power-of-two blocks, the ${buddyRows[2].label} is computed as ${buddyData[2][1]} (${buddyData[0][0]} xor ${buddyData[1][0]} = ${buddyData[2][0]}). That arithmetic finds a merge candidate without searching the whole heap — and the ${buddyRows[3].label} here is "${buddyData[3][0]}", so the blocks ${buddyData[3][1]}.`,
   };
 
+  const coalesceRows = [
+    { id: 's0', label: 'free 16 KB' },
+    { id: 's1', label: 'buddy free' },
+    { id: 's2', label: 'merge 32 KB' },
+    { id: 's3', label: 'try again' },
+  ];
+  const coalesceData = [
+    ['order 2', 'insert candidate'],
+    ['order 2', 'remove buddy'],
+    ['order 3', 'new block'],
+    ['order 3', 'maybe merge'],
+  ];
   yield {
     state: labelMatrix(
       'Coalesce ladder',
-      [
-        { id: 's0', label: 'free 16 KB' },
-        { id: 's1', label: 'buddy free' },
-        { id: 's2', label: 'merge 32 KB' },
-        { id: 's3', label: 'try again' },
-      ],
+      coalesceRows,
       [
         { id: 'list', label: 'free list' },
         { id: 'effect', label: 'effect' },
       ],
-      [
-        ['order 2', 'insert candidate'],
-        ['order 2', 'remove buddy'],
-        ['order 3', 'new block'],
-        ['order 3', 'maybe merge'],
-      ],
+      coalesceData,
     ),
-    highlight: { active: ['s1:list', 's2:list'], found: ['s2:effect', 's3:effect'] },
-    explanation: 'A free can cascade upward. If the newly merged 32 KB block also has a free buddy, the allocator merges again. This repairs external fragmentation when adjacent buddies become free.',
+    highlight: { active: [`${coalesceRows[1].id}:list`, `${coalesceRows[2].id}:list`], found: [`${coalesceRows[2].id}:effect`, `${coalesceRows[3].id}:effect`] },
+    explanation: `A free can cascade upward: ${coalesceRows[0].label} at ${coalesceData[0][0]}, then ${coalesceRows[1].label} triggers ${coalesceData[1][1]}. The ${coalesceRows[2].label} creates a ${coalesceData[2][1]} at ${coalesceData[2][0]}, and ${coalesceRows[3].label} checks if it can ${coalesceData[3][1]}. This repairs external fragmentation when adjacent buddies become free.`,
   };
 
+  const caseRows = [
+    { id: 'linux', label: 'Linux pages' },
+    { id: 'glibc', label: 'glibc malloc' },
+    { id: 'jemalloc', label: 'jemalloc' },
+    { id: 'slab', label: 'slab caches' },
+  ];
+  const caseData = [
+    ['buddy pages', 'contiguous pages'],
+    ['bins/chunks', 'user heap'],
+    ['arenas/bins', 'concurrency'],
+    ['fixed objects', 'small allocs'],
+  ];
   yield {
     state: labelMatrix(
       'Allocator case studies',
-      [
-        { id: 'linux', label: 'Linux pages' },
-        { id: 'glibc', label: 'glibc malloc' },
-        { id: 'jemalloc', label: 'jemalloc' },
-        { id: 'slab', label: 'slab caches' },
-      ],
+      caseRows,
       [
         { id: 'core', label: 'core idea' },
         { id: 'reason', label: 'reason' },
       ],
-      [
-        ['buddy pages', 'contiguous pages'],
-        ['bins/chunks', 'user heap'],
-        ['arenas/bins', 'concurrency'],
-        ['fixed objects', 'small allocs'],
-      ],
+      caseData,
     ),
-    highlight: { found: ['linux:core'], active: ['jemalloc:core', 'slab:core'], compare: ['glibc:core'] },
-    explanation: 'Real allocators combine ideas. A kernel may use buddy allocation for physical pages, then slab caches for common objects. User-space mallocs use bins, arenas, caches, and coalescing policies to balance speed and fragmentation.',
+    highlight: { found: [`${caseRows[0].id}:core`], active: [`${caseRows[2].id}:core`, `${caseRows[3].id}:core`], compare: [`${caseRows[1].id}:core`] },
+    explanation: `Real allocators combine ideas. ${caseRows[0].label} uses ${caseData[0][0]} for ${caseData[0][1]}, then ${caseRows[3].label} handle ${caseData[3][1]} with ${caseData[3][0]}. User-space mallocs like ${caseRows[1].label} (${caseData[1][0]}) and ${caseRows[2].label} (${caseData[2][0]} for ${caseData[2][1]}) balance speed and fragmentation.`,
   };
 }
 
@@ -252,7 +268,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/buddy-allocator-free-lists.gif', alt: 'Animated walkthrough of the buddy allocator free lists visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -54,6 +54,12 @@ function complexPipeline(title) {
 }
 
 function* complexLayerMechanics() {
+  const exampleCount = 3;
+  const properties = 4;
+  const pipelineNodes = 6;
+  const pipelineEdges = 5;
+  const outputPaths = 2;
+
   yield {
     state: labelMatrix(
       'Magnitude and phase stay coupled',
@@ -75,7 +81,7 @@ function* complexLayerMechanics() {
       ],
     ),
     highlight: { active: ['z1:real', 'z1:imag'], found: ['z1:mag', 'z1:phase'] },
-    explanation: 'A complex feature is not merely two unrelated real channels. The real and imaginary parts jointly encode a magnitude and a phase angle, which matters for signals such as spectra, radar, MRI, and wave-like measurements.',
+    explanation: `A complex feature is not merely two unrelated real channels. Across ${exampleCount} examples with ${properties} properties each, the real and imaginary parts jointly encode a magnitude and a phase angle, which matters for signals such as spectra, radar, MRI, and wave-like measurements.`,
   };
 
   yield {
@@ -97,8 +103,8 @@ function* complexLayerMechanics() {
       ],
     }),
     highlight: { active: ['zvec', 'wvec'], found: ['wz'], compare: ['z'] },
-    explanation: 'Multiplying by a complex weight rotates and scales the feature. That inductive bias is the reason complex layers can be natural for phase-sensitive data.',
-    invariant: 'Complex multiplication preserves the geometry of rotation plus scaling.',
+    explanation: `Multiplying by a complex weight rotates and scales the feature — input z at (0.8, 0.6) moves to wz at (-0.1, 1.2). That inductive bias is the reason complex layers can be natural for phase-sensitive data.`,
+    invariant: `Complex multiplication preserves the geometry of rotation plus scaling across all ${pipelineNodes} pipeline stages.`,
   };
 
   yield {
@@ -118,17 +124,23 @@ function* complexLayerMechanics() {
       ],
     ),
     highlight: { active: ['realout:formula', 'imagout:formula'] },
-    explanation: 'A true complex layer is structured. The weight real part and imaginary part interact with both input parts, so the model can learn phase rotations instead of two independent real-valued filters.',
+    explanation: `A true complex layer is structured. The ${outputPaths} output paths (real and imaginary) each combine both input parts through cross terms, so the model can learn phase rotations instead of two independent real-valued filters.`,
   };
 
   yield {
     state: complexPipeline('Deep complex networks need complex-aware building blocks'),
     highlight: { active: ['linear', 'norm', 'act'], found: ['readout'] },
-    explanation: 'Deep complex models need matching components: complex convolution or linear layers, complex normalization, complex initialization, and activations that respect or deliberately reshape magnitude and phase.',
+    explanation: `Deep complex models need ${pipelineNodes} matching components across ${pipelineEdges} connections: complex convolution or linear layers, complex normalization, complex initialization, and activations that respect or deliberately reshape magnitude and phase.`,
   };
 }
 
 function* phaseAwareSignals() {
+  const domainCount = 4;
+  const modelingChoices = 3;
+  const hybridStages = 5;
+  const hybridEdges = 4;
+  const auditChecks = 4;
+
   yield {
     state: labelMatrix(
       'Where phase is part of the data',
@@ -150,7 +162,7 @@ function* phaseAwareSignals() {
       ],
     ),
     highlight: { found: ['audio:complex part', 'mri:complex part', 'wireless:complex part', 'shearlet:complex part'] },
-    explanation: 'Complex-valued networks are most compelling when the upstream measurement or transform is already complex. For those domains, phase is signal, not bookkeeping.',
+    explanation: `Complex-valued networks are most compelling across ${domainCount} domains where the upstream measurement or transform is already complex. For those domains, phase is signal, not bookkeeping.`,
   };
 
   yield {
@@ -172,8 +184,8 @@ function* phaseAwareSignals() {
       ],
     ),
     highlight: { active: ['complex:what it does'], compare: ['split:tradeoff', 'magnitude:tradeoff'] },
-    explanation: 'The choice is architectural. Sometimes two real channels are enough. Sometimes phase is exactly the structure the model needs to preserve.',
-    invariant: 'Representation choice decides which symmetries are easy for the model to learn.',
+    explanation: `The choice is architectural across ${modelingChoices} options. Sometimes two real channels are enough. Sometimes phase is exactly the structure the model needs to preserve.`,
+    invariant: `Representation choice among ${modelingChoices} alternatives decides which symmetries are easy for the model to learn.`,
   };
 
   yield {
@@ -193,7 +205,7 @@ function* phaseAwareSignals() {
       ],
     }, { title: 'Hybrid complex pipelines can replace learned early convolutions' }),
     highlight: { active: ['transform', 'complex', 'cvnn'], found: ['class'] },
-    explanation: 'CoShNet-style systems use a fixed complex transform to expose edges, ridges, and blobs, then train a smaller complex-valued network on top. The transform supplies structure the network would otherwise have to learn from scratch.',
+    explanation: `CoShNet-style systems use a fixed complex transform across ${hybridStages} stages linked by ${hybridEdges} edges to expose edges, ridges, and blobs, then train a smaller complex-valued network on top. The transform supplies structure the network would otherwise have to learn from scratch.`,
   };
 
   yield {
@@ -217,7 +229,7 @@ function* phaseAwareSignals() {
       ],
     ),
     highlight: { found: ['domain:question', 'baseline:question', 'params:question', 'stability:question'] },
-    explanation: 'Complex-valued networks are a strong idea in the right domain, but the evaluation has to prove the domain needs phase-aware geometry and that the real-valued baseline was not underbuilt.',
+    explanation: `Complex-valued networks are a strong idea in the right domain, but all ${auditChecks} audit checks must pass to prove the domain needs phase-aware geometry and that the real-valued baseline was not underbuilt.`,
   };
 }
 
@@ -230,6 +242,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/complex-valued-neural-networks.gif', alt: 'Animated walkthrough of the complex valued neural networks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Topic Exists',
       paragraphs: [

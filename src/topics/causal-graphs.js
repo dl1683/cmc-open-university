@@ -199,7 +199,8 @@ export const article = {
         {type: 'callout', text: 'Causal graphs make adjustment a path operation: block confounders, leave mediators alone, and never open colliders.'},
         '"Reading the DAG" walks the three primitive junctions (chain, fork, collider), then manufactures collider bias on a deterministic grid. Compare markers contrast fork versus collider conditioning - the same operation that fixes one creates the other. The final frames state the backdoor criterion and explain why randomization is the nuclear option.',
         'At each frame, read the invariant line. It states the one fact that must hold before the next step is legal. If you can explain that invariant to someone else, you understood the frame.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/causal-graphs.gif', alt: 'Animated walkthrough of the causal graphs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

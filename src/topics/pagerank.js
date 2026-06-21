@@ -102,7 +102,8 @@ export const article = {
         },
         'The highlighted node is the current leader. Watch how leadership can shift as authority flows through hubs. When scores stop changing visibly between frames, the algorithm has converged to its fixed point.',
         'The key inference rule: if a node has high score and few outgoing links, each of its targets receives a large share. One link from a high-authority page transfers more rank than many links from low-authority pages.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/pagerank.gif', alt: 'Animated walkthrough of the pagerank visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

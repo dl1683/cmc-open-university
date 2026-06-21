@@ -115,7 +115,8 @@ export const article = {
           type: 'callout',
           text: 'Topological sort is scheduling by proof: a zero in-degree node has no unmet prerequisite left.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/topological-sort.gif', alt: 'Animated walkthrough of the topological sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

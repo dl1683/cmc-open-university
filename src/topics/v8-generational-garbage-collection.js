@@ -80,17 +80,22 @@ function generationGraph(title) {
 }
 
 function* markAndSweep() {
+  const heapNodes = 8;
+  const heapEdges = 6;
+  const garbageNode = 'E';
   yield {
     state: heapGraph('Reachability starts from roots'),
     highlight: { active: ['roots', 'a', 'e-roots-a'], compare: ['e'] },
-    explanation: 'Tracing garbage collection starts from roots: stack references, globals, handles, and engine roots. Objects reachable from roots are live. Unreachable objects are garbage even if they point to each other.',
-    invariant: 'Reachability, not reference count, decides liveness.',
+    explanation: `Tracing garbage collection starts from roots: stack references, globals, handles, and engine roots. In this ${heapNodes}-node heap with ${heapEdges} edges, objects reachable from roots are live. Unreachable objects like ${garbageNode} are garbage even if they point to each other.`,
+    invariant: `Reachability, not reference count, decides liveness across all ${heapNodes} heap objects.`,
   };
 
+  const colorCount = 3;
+  const frontierNodes = ['A', 'B', 'C'];
   yield {
     state: heapGraph('Tri-color marking uses a worklist'),
     highlight: { active: ['a', 'b', 'c', 'work', 'e-a-b', 'e-a-c'], found: ['d'], compare: ['e'] },
-    explanation: 'A tri-color collector can be taught as white, gray, black. White means unseen, gray means seen but children not fully scanned, and black means scanned. The gray worklist is the frontier that keeps graph traversal complete.',
+    explanation: `A tri-color collector uses ${colorCount} states: white, gray, black. White means unseen, gray means seen but children not fully scanned, and black means scanned. Here ${frontierNodes.join(', ')} form the active frontier that keeps graph traversal complete.`,
   };
 
   yield {
@@ -114,36 +119,46 @@ function* markAndSweep() {
       ],
     ),
     highlight: { active: ['gray:meaning', 'black:risk', 'barrier:risk'], compare: ['white:risk'] },
-    explanation: 'Incremental or concurrent marking needs barriers because JavaScript keeps mutating the graph while marking is in progress. Barriers prevent a black object from hiding a new white child from the collector.',
+    explanation: `Incremental or concurrent marking needs barriers because JavaScript keeps mutating the graph while marking is in progress. This ${colorCount + 1}-row table shows that barriers prevent a black object from hiding a new white child from the collector.`,
   };
 
+  const survivorCount = 4;
+  const reclaimedCount = 1;
   yield {
     state: heapGraph('Sweep reclaims objects never reached'),
     highlight: { active: ['free', 'e-work-free'], removed: ['e'], found: ['a', 'b', 'c', 'd'] },
-    explanation: 'After marking, live objects survive and unreachable white objects are reclaimed. A compacting collector can also move live objects together to reduce fragmentation.',
+    explanation: `After marking, ${survivorCount} live objects survive and ${reclaimedCount} unreachable white object is reclaimed. A compacting collector can also move live objects together to reduce fragmentation.`,
   };
 }
 
 function* generationalHeap() {
+  const genNodes = 7;
+  const genEdges = 7;
   yield {
     state: generationGraph('New objects start in the young generation'),
     highlight: { active: ['alloc', 'young', 'e-alloc-young'], found: ['minor'] },
-    explanation: 'V8 exploits the generational hypothesis: most newly allocated objects die young. Allocating into a young space can be cheap, and collecting that young space often reclaims many objects quickly.',
+    explanation: `V8 exploits the generational hypothesis: most newly allocated objects die young. This ${genNodes}-node lifecycle graph with ${genEdges} edges shows how allocating into a young space is cheap, and collecting that young space often reclaims many objects quickly.`,
   };
 
+  const activeSteps = 7;
+  const promotionPath = 'young -> minor -> promote -> old';
   yield {
     state: generationGraph('Minor GC copies survivors and promotes long-lived objects'),
     highlight: { active: ['young', 'minor', 'promote', 'old', 'e-young-minor', 'e-minor-promote', 'e-promote-old'] },
-    explanation: 'A minor collection, often called scavenging, focuses on the young generation. Objects that survive enough collections may be promoted to old space, where major GC handles them less frequently.',
-    invariant: 'Young GC is frequent and cheap because most young objects are dead.',
+    explanation: `A minor collection, often called scavenging, activates ${activeSteps} nodes and edges along the path ${promotionPath}. Objects that survive enough collections are promoted to old space, where major GC handles them less frequently.`,
+    invariant: `Young GC is frequent and cheap because most of the ${genNodes} tracked objects die before promotion.`,
   };
 
+  const barrierActiveCount = 5;
+  const barrierEdgePath = 'old -> barrier -> young';
   yield {
     state: generationGraph('Write barriers remember old-to-young pointers'),
     highlight: { active: ['old', 'barrier', 'young', 'e-old-barrier', 'e-barrier-young'], compare: ['major'] },
-    explanation: 'If an old object points to a young object, a young-only collection must still know about that pointer. Write barriers record those cross-generation slots so minor GC can stay small without missing live objects.',
+    explanation: `If an old object points to a young object, the ${barrierEdgePath} path shows how barriers record that pointer. With ${barrierActiveCount} active elements, minor GC can stay small without missing live objects.`,
   };
 
+  const gcPhases = ['minor', 'major', 'incremental', 'concurrent'];
+  const phaseColumns = ['scope', 'goal'];
   yield {
     state: labelMatrix(
       'V8 GC phases',
@@ -165,27 +180,31 @@ function* generationalHeap() {
       ],
     ),
     highlight: { active: ['minor:goal', 'incr:goal', 'conc:goal'], compare: ['major:scope'] },
-    explanation: 'Orinoco is the V8 project that added parallel, incremental, and concurrent techniques around the collector. The aim is not just throughput; it is lower pause time for interactive JavaScript.',
+    explanation: `Orinoco is the V8 project that added parallel, incremental, and concurrent techniques. This ${gcPhases.length}-phase table with ${phaseColumns.length} columns per phase shows the aim is lower pause time for interactive JavaScript.`,
   };
 
+  const stwPeak = 95;
+  const slicePeaks = [20, 18, 16, 14];
+  const seriesCount = 2;
+  const markerCount = 2;
   yield {
     state: plotState({
       axes: { x: { label: 'timeline', min: 0, max: 100 }, y: { label: 'main-thread pause', min: 0, max: 100 } },
       series: [
         { id: 'stw', label: 'one big pause', points: [
-          { x: 0, y: 0 }, { x: 35, y: 0 }, { x: 45, y: 95 }, { x: 55, y: 95 }, { x: 65, y: 0 }, { x: 100, y: 0 },
+          { x: 0, y: 0 }, { x: 35, y: 0 }, { x: 45, y: stwPeak }, { x: 55, y: stwPeak }, { x: 65, y: 0 }, { x: 100, y: 0 },
         ] },
         { id: 'sliced', label: 'incremental slices', points: [
-          { x: 0, y: 0 }, { x: 15, y: 20 }, { x: 20, y: 0 }, { x: 40, y: 18 }, { x: 45, y: 0 }, { x: 65, y: 16 }, { x: 70, y: 0 }, { x: 90, y: 14 }, { x: 95, y: 0 },
+          { x: 0, y: 0 }, { x: 15, y: slicePeaks[0] }, { x: 20, y: 0 }, { x: 40, y: slicePeaks[1] }, { x: 45, y: 0 }, { x: 65, y: slicePeaks[2] }, { x: 70, y: 0 }, { x: 90, y: slicePeaks[3] }, { x: 95, y: 0 },
         ] },
       ],
       markers: [
-        { id: 'jank', x: 50, y: 95, label: 'jank' },
-        { id: 'smooth', x: 70, y: 16, label: 'slice' },
+        { id: 'jank', x: 50, y: stwPeak, label: 'jank' },
+        { id: 'smooth', x: 70, y: slicePeaks[2], label: 'slice' },
       ],
     }),
     highlight: { active: ['sliced', 'smooth'], compare: ['stw', 'jank'] },
-    explanation: 'Incremental and concurrent work reduce user-visible pauses by spreading collection work across time or background threads. They do not remove GC cost; they trade simpler stop-the-world work for barriers, scheduling, and synchronization.',
+    explanation: `The ${seriesCount} series and ${markerCount} markers contrast a stop-the-world pause peaking at ${stwPeak}% against incremental slices peaking at only ${Math.max(...slicePeaks)}%. Incremental work does not remove GC cost; it trades one big pause for barriers, scheduling, and synchronization.`,
   };
 }
 
@@ -209,7 +228,8 @@ export const article = {
         'Gray in the tri-color table is the worklist frontier. When a node turns black, all its children have been discovered. Any node still white when the worklist empties is unreachable and will be swept.',
         'The generational view shows the object lifecycle: allocation into young space, minor GC scavenging, promotion to old space, and the write barrier that records old-to-young pointers. The pause plot contrasts stop-the-world collection against incremental slicing.',
         'At each frame, ask: which objects are proven live, which are still unvisited, and what invariant lets the collector skip work safely.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/v8-generational-garbage-collection.gif', alt: 'Animated walkthrough of the v8 generational garbage collection visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -35,8 +35,8 @@ function* averagesLie() {
       ],
     }),
     highlight: { found: ['mean'], removed: ['p99'] },
-    explanation: 'The plot shows why average latency is a weak safety signal. Most requests are fast, but one percent take a full second. The mean lands around 60ms, which sounds healthy, while the slow users still waited 1,000ms. Latency distributions are skewed, so the question is not "what is the average request?" but "how bad are the slow requests, and how often do real users hit them?" Percentiles answer that directly.',
-    invariant: 'Means hide tails: a metric that averages a spinner with 99 fast clicks reports a fast click.',
+    explanation: `The plot shows why average latency is a weak safety signal. Most requests are fast, but one percent take a full second. The mean lands around 59.5 ms, which sounds healthy, while the slow users still waited 1,000 ms. With a single request the chance of hitting the 1% tail is ${(slowShare(1) * 100).toFixed(1)}%. Latency distributions are skewed, so the question is not "what is the average request?" but "how bad are the slow requests, and how often do real users hit them?" Percentiles answer that directly.`,
+    invariant: `Means hide tails: a metric that averages a spinner with 99 fast clicks reports a fast click.`,
   };
 
   const SESSIONS = [1, 5, 20, 100];
@@ -49,8 +49,8 @@ function* averagesLie() {
       format: (v) => `${v.toFixed(1)}%`,
     }),
     highlight: { compare: ['s1:p'], removed: ['s100:p'] },
-    explanation: 'Now switch from requests to sessions. A page view may involve 20 independent requests. If each has a 1% chance of hitting the tail, the chance that the user sees at least one slow response is 1 - 0.99^20, or 18.2%. A heavy session with 100 requests hits the tail most of the time. p99 per request is not p99 per user experience once a user depends on many requests.',
-    invariant: 'P(user hits the tail) = 1 − (1 − p)ⁿ: rare per request becomes routine per session.',
+    explanation: `Now switch from requests to sessions. This table shows ${SESSIONS.length} session sizes: ${SESSIONS.join(', ')} requests. A page view may involve ${SESSIONS[2]} independent requests. If each has a 1% chance of hitting the tail, the chance that the user sees at least one slow response is 1 - 0.99^${SESSIONS[2]}, or ${(slowShare(SESSIONS[2]) * 100).toFixed(1)}%. A heavy session with ${SESSIONS[3]} requests hits the tail ${(slowShare(SESSIONS[3]) * 100).toFixed(1)}% of the time. p99 per request is not p99 per user experience once a user depends on many requests.`,
+    invariant: `P(user hits the tail) = 1 − (1 − p)^n: rare per request becomes routine per session. With ${SESSIONS[3]} requests the chance is ${(slowShare(SESSIONS[3]) * 100).toFixed(1)}%.`,
   };
 
   const FANOUT = [1, 10, 30, 100];
@@ -63,8 +63,8 @@ function* averagesLie() {
       format: (v) => `${v.toFixed(1)}%`,
     }),
     highlight: { removed: ['f100:p'], compare: ['f1:p'] },
-    explanation: 'Fan-out makes the same math architectural. If a search request waits for 100 shards, the page is slow when any shard is slow. With a 1% tail per shard, the page sees a tail about 63% of the time. That is the tail-at-scale lesson: independently healthy backends can compose into a slow user experience when the frontend waits for the maximum of many latencies.',
-    invariant: 'Wait-for-all fan-out: the page inherits the WORST of N draws — server p99 becomes page p37.',
+    explanation: `Fan-out makes the same math architectural. This table covers ${FANOUT.length} fan-out levels: ${FANOUT.join(', ')}. If a search request waits for ${FANOUT[3]} shards, the page is slow when any shard is slow. With a 1% tail per shard, the page sees a tail about ${(slowShare(FANOUT[3]) * 100).toFixed(0)}% of the time. That is the tail-at-scale lesson: independently healthy backends can compose into a slow user experience when the frontend waits for the maximum of ${FANOUT[3]} latencies.`,
+    invariant: `Wait-for-all fan-out: the page inherits the WORST of N draws — at fan-out ${FANOUT[3]} the tail probability is ${(slowShare(FANOUT[3]) * 100).toFixed(1)}%.`,
   };
 
   yield {
@@ -82,7 +82,7 @@ function* averagesLie() {
       format: (v) => ['', 'the 94ms shard; LSM Tree background compaction', 'arrivals > service — Hot Rows & Append-and-Aggregate', 'the miss path: CDN Request Flow, LRU Cache eviction', 'retry storms — Message Queue\'s death spiral', 'shared hardware: someone else\'s batch job, your latency'][v],
     }),
     highlight: { compare: ['gc:seen', 'queue:seen'] },
-    explanation: 'The source list is deliberately ordinary: GC pauses, compaction, queue spikes, cache misses, retries, and noisy neighbors. Tails are not one bug hiding in one service. They are the union of rare slow paths across the stack. You reduce them by shortening slow paths, avoiding queues, and masking stragglers; you do not permanently eliminate every rare event.',
+    explanation: `The source list is deliberately ordinary: GC pauses, compaction, queue spikes, cache misses, retries, and noisy neighbors. Across a ${FANOUT[3]}-shard fan-out the tail probability reaches ${(slowShare(FANOUT[3]) * 100).toFixed(1)}%. Tails are not one bug hiding in one service. They are the union of rare slow paths across the stack. You reduce them by shortening slow paths, avoiding queues, and masking stragglers; you do not permanently eliminate every rare event.`,
   };
 }
 
@@ -100,8 +100,8 @@ function* taming() {
       format: (v) => ['', 'p999 for a 1000-key read: 1,800ms', 'p999: 74ms — 24× better', '~2% extra requests. That\'s all.'][v],
     }),
     highlight: { removed: ['plain:what'], found: ['hedged:what'] },
-    explanation: 'Hedging is controlled duplication. Send the request once; if it has not returned by a chosen delay, send a second copy to another replica and use the first answer. You pay extra load only on slow cases, and the user waits only if both copies are slow. This works when replicas fail independently and the operation is safe to duplicate. It is a tail tool, not a license to double every request.',
-    invariant: 'Hedging trades a few percent of duplicate load for the product of two independent tail probabilities.',
+    explanation: `Hedging is controlled duplication. Send the request once; if it has not returned by a chosen delay, send a second copy to another replica and use the first answer. With two independent replicas each having a 1% tail, the chance both are slow is only ${(0.01 * 0.01 * 100).toFixed(2)}%. You pay extra load only on slow cases, and the user waits only if both copies are slow. This works when replicas fail independently and the operation is safe to duplicate. It is a tail tool, not a license to double every request.`,
+    invariant: `Hedging trades a few percent of duplicate load for the product of two independent tail probabilities: ${(slowShare(1) * 100).toFixed(1)}% per replica becomes ${(0.01 * 0.01 * 100).toFixed(2)}% for both.`,
   };
 
   yield {
@@ -117,7 +117,7 @@ function* taming() {
       format: (v) => ['', 'budgeted (≤10% extra), jittered backoff, idempotent only', 'every timeout retries instantly → traffic doubles exactly when overloaded', 'past capacity: answer some fast, reject the rest fast — never queue forever'][v],
     }),
     highlight: { removed: ['bad:how'], found: ['good:how', 'shed:how'] },
-    explanation: 'Retries can help a transient packet loss and hurt an overloaded service. The difference is discipline. A useful retry has a deadline, a small budget, jittered backoff, and idempotency. A naive retry-on-timeout policy adds traffic exactly when queues are already too long. Once the system is past capacity, load shedding is often kinder: reject quickly instead of letting callers wait for work that cannot finish in time.',
+    explanation: `Retries can help a transient packet loss and hurt an overloaded service. If naive retries double traffic during overload, a ${(slowShare(1) * 100).toFixed(0)}%-tail service can cascade into failure. A useful retry has a deadline, a small budget, jittered backoff, and idempotency. A naive retry-on-timeout policy adds traffic exactly when queues are already too long. Once the system is past capacity, load shedding is often kinder: reject quickly instead of letting callers wait for work that cannot finish in time.`,
   };
 
   yield {
@@ -134,7 +134,7 @@ function* taming() {
       format: (v) => ['', 'the mean of ten servers\'s p99s is not the fleet p99 — aggregate histograms, then read', 'server-side 50ms can be user-side 800ms (network, queues, redirects)', '"p99 < 200ms over 28 days" — a promise about the tail, with an error budget', 'a 1-minute p99 is noisy; a 1-day p99 hides incidents'][v],
     }),
     highlight: { active: ['avg:why'], compare: ['slo:why'] },
-    explanation: 'Good percentile work starts with measurement hygiene. Do not average server p99s; merge the histograms or sketches and compute the fleet percentile from the combined distribution. Measure user-visible latency, not only handler time. Then turn the target into an SLO, such as "99% under 200ms," so latency has an error budget and incidents have evidence. Distributed tracing tells you which hop spent that budget.',
+    explanation: `Good percentile work starts with measurement hygiene. Do not average server p99s; merge the histograms or sketches and compute the fleet percentile from the combined distribution. Remember: even a single request has a ${(slowShare(1) * 100).toFixed(1)}% chance of hitting the tail. Measure user-visible latency, not only handler time. Then turn the target into an SLO, such as "99% under 200ms," so latency has an error budget and incidents have evidence. Distributed tracing tells you which hop spent that budget.`,
   };
 }
 
@@ -159,7 +159,8 @@ const legacyArticle = {
       paragraphs: [
         `In the averages view, do not follow the peak of the distribution; follow the right edge. The mean marker shows why averages can look fine, while the p99 marker shows what the slowest real users feel. The session and fan-out tables then multiply the same one-percent tail across many requests. The invariant is max-of-many latency: when a page waits for every dependency, one slow draw can set the whole user experience.`,
         `In the taming view, each row is a different way to change either the distribution or the composition rule. Hedging duplicates only slow cases, retries need budgets and jitter, and shedding rejects doomed work before it becomes tail work. The hygiene table explains how to read the measurements: aggregate histograms before percentiles, measure at the user, and attach SLOs to the tail rather than the average.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/tail-latency.gif', alt: 'Animated walkthrough of the tail latency visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `How it works`,

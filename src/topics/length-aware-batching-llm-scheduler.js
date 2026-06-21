@@ -68,7 +68,7 @@ function* bucketQueues() {
   yield {
     state: schedulerGraph('Length-aware queues sit in front of continuous batching'),
     highlight: { active: ['arrival', 'classify', 'short', 'medium', 'long', 'e-arrival-classify', 'e-classify-short', 'e-classify-medium', 'e-classify-long'], compare: ['serve'] },
-    explanation: 'Continuous batching refills live lanes every decode iteration. Length-aware scheduling decides which waiting request should enter next by grouping similar prompt lengths, output budgets, and cache footprints before admission.',
+    explanation: `${topic.title} decides which waiting request should enter a continuous-batching loop next. The ${topic.category} scheduler groups similar prompt lengths, output budgets, and cache footprints before admission so live decode lanes refill with compatible work.`,
   };
 
   yield {
@@ -94,14 +94,14 @@ function* bucketQueues() {
       ],
     ),
     highlight: { active: ['prompt:bucket field', 'maxout:bucket field', 'sla:bucket field'], found: ['prefix:why'] },
-    explanation: 'The scheduler key is not only batch size. It should encode the parts that change compute, memory, and latency: prompt length, output budget, mode, prefix-cache hit, and service class.',
-    invariant: 'Batch compatible shapes; do not batch incompatible promises.',
+    explanation: `The ${topic.title} scheduler key is not only batch size. It encodes the 5 dimensions that change compute, memory, and latency: prompt length, output budget, mode, prefix-cache hit, and service class.`,
+    invariant: `In ${topic.category} scheduling, batch compatible shapes; do not batch incompatible promises.`,
   };
 
   yield {
     state: schedulerGraph('Admission merges queue shape with live KV capacity'),
     highlight: { active: ['short', 'medium', 'long', 'prefill', 'kv', 'decode', 'admit', 'e-prefill-kv', 'e-kv-decode', 'e-decode-admit'], found: ['serve'] },
-    explanation: 'A request can be the perfect length match and still be inadmissible if the KV pool is full. The admission policy combines queue age, shape fit, memory blocks, and p99 protection.',
+    explanation: `In ${topic.title}, a request can be the perfect length match and still be inadmissible if the KV pool is full. The admission policy combines queue age, shape fit, memory blocks, and p99 protection.`,
   };
 
   yield {
@@ -125,7 +125,7 @@ function* bucketQueues() {
       ],
     ),
     highlight: { active: ['bucket:win', 'aging:win'], compare: ['bucket:risk', 'priority:risk'] },
-    explanation: 'The scheduler is usually a hybrid: length buckets for efficiency, priorities for product promises, and aging so long or awkward requests eventually run.',
+    explanation: `The ${topic.title} scheduler is usually a hybrid of all 4 policies: length buckets for efficiency, priorities for product promises, and aging so long or awkward requests in this ${topic.category} layer eventually run.`,
   };
 }
 
@@ -142,7 +142,7 @@ function* latencyTradeoffs() {
       ],
     }),
     highlight: { active: ['padding', 'wait', 'knee'] },
-    explanation: 'More buckets reduce padding and shape mismatch, but too many buckets fragment the queue and make users wait for a perfect batch. The best point is workload-dependent.',
+    explanation: `More buckets reduce padding and shape mismatch in ${topic.title}, but too many buckets fragment the queue and make users wait for a perfect batch. The plot's 2 series (padding waste vs. queue wait) cross near the knee at bucket count 4.`,
   };
 
   yield {
@@ -166,14 +166,14 @@ function* latencyTradeoffs() {
       ],
     ),
     highlight: { found: ['prefill:good bucket', 'decode:good bucket', 'chunk:protect'], compare: ['agent:protect'] },
-    explanation: 'Prefill buckets reduce padding in dense prompt work. Decode buckets manage live cache and streaming smoothness. Chunked prefill intentionally breaks long prompts so decode traffic keeps moving.',
+    explanation: `In this ${topic.category} view of ${topic.title}, prefill buckets reduce padding in dense prompt work. Decode buckets manage live cache and streaming smoothness. Chunked prefill intentionally breaks long prompts so decode traffic keeps moving.`,
   };
 
   yield {
     state: schedulerGraph('Aging prevents shape buckets from becoming prisons'),
     highlight: { active: ['long', 'admit', 'serve', 'e-decode-admit', 'e-admit-serve'], compare: ['short', 'medium'], found: ['kv'] },
-    explanation: 'A pure throughput scheduler can keep admitting easy short requests while long prompts age forever. Production schedulers need maximum wait, reserved capacity, or preemption rules for awkward shapes.',
-    invariant: 'Throughput without fairness becomes a p99 incident.',
+    explanation: `A pure throughput ${topic.title} scheduler can keep admitting easy short requests while long prompts age forever. Production ${topic.category} schedulers need maximum wait, reserved capacity, or preemption rules for awkward shapes.`,
+    invariant: `In ${topic.title}, throughput without fairness becomes a p99 incident.`,
   };
 
   yield {
@@ -199,7 +199,7 @@ function* latencyTradeoffs() {
       ],
     ),
     highlight: { active: ['ttft:failure', 'age:failure', 'kv:failure'], found: ['hit:failure'] },
-    explanation: 'A scheduler without sliced metrics is invisible. Measure by length bin, service class, prefix-hit state, and mode, or the average will hide the users being harmed.',
+    explanation: `A ${topic.title} scheduler without sliced metrics across all 5 dimensions is invisible. Measure by length bin, service class, prefix-hit state, and mode, or the average will hide the users being harmed.`,
   };
 }
 
@@ -212,6 +212,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/length-aware-batching-llm-scheduler.gif', alt: 'Animated walkthrough of the length aware batching llm scheduler visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

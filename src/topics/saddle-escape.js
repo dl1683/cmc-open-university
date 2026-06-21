@@ -194,7 +194,8 @@ export const article = {
         {type: 'callout', text: 'A saddle is dangerous because zero gradient can coexist with a downhill direction that the optimizer has not activated yet.'},
         'In the "a world made of saddles" view, the table shows why high-dimensional critical points are almost never minima. The contour plot shows exact gradient descent parking at the saddle, then Newton jumping directly onto it. In the "noise is the feature" view, the SGD path is overlaid on the same contours alongside the parked GD path. Watch for the long hesitation near the origin followed by the sudden peel-off -- that is exponential compounding becoming visible.',
         'Active markers (the moving dot) show the current optimizer position. The trail behind it shows the full path history. When the trail stops moving, the optimizer is stuck -- either parked at the saddle or escaped to a region of lower loss.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/saddle-escape.gif', alt: 'Animated walkthrough of the saddle escape visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

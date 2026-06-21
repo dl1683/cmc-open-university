@@ -34,6 +34,12 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* signatureEstimate() {
+  const docCount = 3;
+  const shingleCount = 5;
+  const hashRows = 5;
+  const matchingRows = 3;
+  const estimatedSim = matchingRows / hashRows;
+
   yield {
     state: labelMatrix(
       'Documents become sets of shingles',
@@ -56,7 +62,7 @@ function* signatureEstimate() {
       ],
     ),
     highlight: { active: ['docA:s1', 'docA:s2', 'docB:s1', 'docB:s2'], compare: ['docC:s4'] },
-    explanation: 'MinHash starts by turning each item into a set: document shingles, user purchases, graph neighbors, image patches, or token n-grams. Exact Jaccard similarity needs intersection over union. That is expensive when there are millions of sets, so we replace the set with a compact signature.',
+    explanation: `MinHash starts by turning each item into a set: document shingles, user purchases, graph neighbors, image patches, or token n-grams. Exact Jaccard similarity across ${docCount} documents and ${shingleCount} shingles needs intersection over union. That is expensive when there are millions of sets, so we replace the set with a compact signature.`,
   };
 
   yield {
@@ -83,8 +89,8 @@ function* signatureEstimate() {
       ],
     ),
     highlight: { found: ['h1:a', 'h1:b', 'h2:a', 'h2:b', 'h4:a', 'h4:b'], compare: ['h3:b', 'h3:c'] },
-    explanation: 'For each random hash ordering, keep the minimum hash value seen in the set. Two sets have the same minimum with probability equal to their Jaccard similarity. In this toy signature, A and B match on 3 of 5 rows, so the MinHash estimate is 0.60.',
-    invariant: 'Pr[MinHash(A) = MinHash(B)] = Jaccard(A, B).',
+    explanation: `For each random hash ordering, keep the minimum hash value seen in the set. Two sets have the same minimum with probability equal to their Jaccard similarity. In this toy signature of ${hashRows} rows, A and B match on ${matchingRows} of ${hashRows} rows, so the MinHash estimate is ${estimatedSim.toFixed(2)}.`,
+    invariant: `Pr[MinHash(A) = MinHash(B)] = Jaccard(A, B) -- estimated here as ${matchingRows}/${hashRows} = ${estimatedSim.toFixed(2)}.`,
   };
 
   yield {
@@ -108,11 +114,15 @@ function* signatureEstimate() {
       ],
     ),
     highlight: { active: ['ab:exact', 'ab:sig'], found: ['ac:sig', 'bc:sig'] },
-    explanation: 'A short signature is noisy, but it is cheap and mergeable into a large search pipeline. More hash rows reduce variance. The pattern is the same family as HyperLogLog and Count-Min Sketch: keep a compact probabilistic summary when exact set comparison is too expensive.',
+    explanation: `A short signature is noisy, but it is cheap and mergeable into a large search pipeline. More hash rows reduce variance -- with ${hashRows} rows the estimate for A-B is ${estimatedSim.toFixed(2)} versus the exact 0.50. The pattern is the same family as HyperLogLog and Count-Min Sketch: keep a compact probabilistic summary when exact set comparison is too expensive.`,
   };
 }
 
 function* bandsAndCandidates() {
+  const bandCount = 3;
+  const pairCount = 3;
+  const candidatePairs = 2;
+
   yield {
     state: labelMatrix(
       'Banding splits a signature into hashable chunks',
@@ -133,7 +143,7 @@ function* bandsAndCandidates() {
       ],
     ),
     highlight: { found: ['band1:a', 'band1:b'], compare: ['band3:a', 'band3:c'] },
-    explanation: 'Locality-sensitive hashing adds a second stage. Split signatures into bands and hash each band. If two documents match in any band, they become a candidate pair. The band shape tunes the threshold: more rows per band means stricter matches; more bands means more chances to collide.',
+    explanation: `Locality-sensitive hashing adds a second stage. Split signatures into ${bandCount} bands and hash each band. If two documents match in any band, they become a candidate pair. The band shape tunes the threshold: more rows per band means stricter matches; more bands means more chances to collide.`,
   };
 
   yield {
@@ -156,8 +166,8 @@ function* bandsAndCandidates() {
       ],
     ),
     highlight: { active: ['ab:candidate', 'ac:candidate'], removed: ['bc:candidate'] },
-    explanation: 'Banding is a filter, not a proof. It produces candidate pairs that are worth exact comparison. In production deduplication, this means the expensive exact Jaccard or edit-distance check runs on a tiny fraction of all possible pairs.',
-    invariant: 'LSH trades false candidates for avoiding an all-pairs scan.',
+    explanation: `Banding is a filter, not a proof. It produces ${candidatePairs} candidate pairs out of ${pairCount} possible, worth exact comparison. In production deduplication, this means the expensive exact Jaccard or edit-distance check runs on a tiny fraction of all possible pairs.`,
+    invariant: `LSH trades false candidates for avoiding an all-pairs scan -- here ${candidatePairs} of ${pairCount} pairs survive the filter.`,
   };
 
   yield {
@@ -181,7 +191,7 @@ function* bandsAndCandidates() {
       ],
     ),
     highlight: { found: ['dedupe:tool', 'rag:tool'], compare: ['vectors:tool'] },
-    explanation: 'Use MinHash when the objects are naturally sets and Jaccard similarity is meaningful. Use HNSW when the objects are dense vectors and cosine or inner-product similarity is meaningful. Both are approximate candidate-generation systems, but they fit different geometry.',
+    explanation: `Use MinHash when the objects are naturally sets and Jaccard similarity is meaningful. Use HNSW when the objects are dense vectors and cosine or inner-product similarity is meaningful. Both are approximate candidate-generation systems -- MinHash with ${bandCount}-band LSH, HNSW with navigable small-world graphs -- but they fit different geometry.`,
   };
 }
 
@@ -194,6 +204,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/minhash-lsh.gif', alt: 'Animated walkthrough of the minhash lsh visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

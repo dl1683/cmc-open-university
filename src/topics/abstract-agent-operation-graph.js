@@ -83,103 +83,113 @@ function bindingGraph(title) {
 }
 
 function* operationGraph() {
+  const graph = opGraph('A coding fix as abstract operations');
+  const nodeCount = graph.nodes.length;
+  const edgeCount = graph.edges.length;
+  const ops = ['inspect', 'localize', 'edit', 'run', 'observe', 'submit'];
+
   yield {
-    state: opGraph('A coding fix as abstract operations'),
+    state: graph,
     highlight: { active: ['goal', 'inspect', 'localize', 'edit', 'run', 'observe', 'decide', 'e-goal-inspect', 'e-inspect-localize', 'e-localize-edit', 'e-edit-run', 'e-run-observe', 'e-observe-decide'], found: ['submit'] },
-    explanation: 'A portable coding agent should learn operations such as inspect, localize, edit, run, observe, and submit. The exact shell command is a binding, not the concept, so the same plan can survive a new editor, runner, or typed tool.',
-    invariant: 'Train the operation; bind the tool late.',
+    explanation: `A portable coding agent should learn ${ops.length} operations: ${ops.join(', ')}. The graph has ${nodeCount} nodes and ${edgeCount} edges. The exact shell command is a binding, not the concept, so the same plan can survive a new editor, runner, or typed tool.`,
+    invariant: `Train the operation across all ${nodeCount} nodes; bind the tool late.`,
   };
+
+  const retryEdge = graph.edges.find(e => e.id === 'e-decide-localize');
+  const doneEdge = graph.edges.find(e => e.id === 'e-decide-submit');
 
   yield {
     state: opGraph('Retry is a typed edge, not a transcript habit'),
     highlight: { active: ['run', 'observe', 'decide', 'localize', 'e-run-observe', 'e-observe-decide', 'e-decide-localize'], compare: ['submit'] },
-    explanation: 'When tests fail, the graph loops through observe and localize again. Encoding retry as a typed edge preserves the reason for the loop, while a transcript only preserves the particular command sequence used in one harness.',
+    explanation: `When tests fail, the graph loops through observe and localize again via the "${retryEdge.weight}" edge from ${retryEdge.from} to ${retryEdge.to}. The "${doneEdge.weight}" edge leads to ${doneEdge.to}. Encoding retry as a typed edge preserves the reason for the loop, while a transcript only preserves the particular command sequence used in one harness.`,
   };
 
+  const vocabRows = [
+    { id: 'read', label: 'read' },
+    { id: 'edit', label: 'edit' },
+    { id: 'run', label: 'run' },
+    { id: 'test', label: 'test' },
+    { id: 'submit', label: 'submit' },
+  ];
+  const vocabCols = [
+    { id: 'state', label: 'state' },
+    { id: 'output', label: 'output' },
+    { id: 'risk', label: 'risk' },
+  ];
+  const vocabData = [
+    ['path+span', 'contents', 'stale file'],
+    ['patch intent', 'diff', 'bad apply'],
+    ['cmd+cwd', 'stdout', 'side effect'],
+    ['suite', 'pass/fail', 'flaky'],
+    ['candidate', 'final diff', 'premature'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Operation vocabulary',
-      [
-        { id: 'read', label: 'read' },
-        { id: 'edit', label: 'edit' },
-        { id: 'run', label: 'run' },
-        { id: 'test', label: 'test' },
-        { id: 'submit', label: 'submit' },
-      ],
-      [
-        { id: 'state', label: 'state' },
-        { id: 'output', label: 'output' },
-        { id: 'risk', label: 'risk' },
-      ],
-      [
-        ['path+span', 'contents', 'stale file'],
-        ['patch intent', 'diff', 'bad apply'],
-        ['cmd+cwd', 'stdout', 'side effect'],
-        ['suite', 'pass/fail', 'flaky'],
-        ['candidate', 'final diff', 'premature'],
-      ],
-    ),
+    state: labelMatrix('Operation vocabulary', vocabRows, vocabCols, vocabData),
     highlight: { active: ['read:state', 'edit:state', 'run:state', 'test:state'], found: ['submit:risk'] },
-    explanation: 'A small operation vocabulary makes traces comparable. Each operation has typed inputs, normalized outputs, and known risks.',
+    explanation: `A small operation vocabulary of ${vocabRows.length} rows and ${vocabCols.length} columns makes traces comparable. Each operation (${vocabRows.map(r => r.label).join(', ')}) has typed inputs, normalized outputs, and known risks like "${vocabData[4][2]}" for the ${vocabRows[4].label} row.`,
   };
 }
 
 function* bindingLayer() {
+  const bGraph = bindingGraph('One operation can bind to many tool surfaces');
+  const bNodeCount = bGraph.nodes.length;
+  const bEdgeCount = bGraph.edges.length;
+  const surfaces = bGraph.nodes.filter(n => ['bash', 'ide', 'mcp'].includes(n.id));
+
   yield {
-    state: bindingGraph('One operation can bind to many tool surfaces'),
+    state: bGraph,
     highlight: { active: ['op', 'schema', 'bash', 'ide', 'mcp', 'e-op-schema', 'e-schema-bash', 'e-schema-ide', 'e-schema-mcp'], found: ['result', 'trace'] },
-    explanation: 'The binding layer maps abstract intent to the available tool surface. Bash, IDE APIs, and typed tools should return normalized observations, so the planner learns the operation and the runtime handles the wrapper.',
+    explanation: `The binding layer maps abstract intent to ${surfaces.length} tool surfaces: ${surfaces.map(s => s.label).join(', ')}. With ${bNodeCount} nodes and ${bEdgeCount} edges, the graph shows that all surfaces return normalized observations, so the planner learns the operation and the runtime handles the wrapper.`,
   };
 
+  const harnessRows = [
+    { id: 'read', label: 'read' },
+    { id: 'edit', label: 'edit' },
+    { id: 'run', label: 'run' },
+    { id: 'search', label: 'search' },
+  ];
+  const harnessCols = [
+    { id: 'bash', label: 'bash' },
+    { id: 'ide', label: 'IDE' },
+    { id: 'typed', label: 'typed tool' },
+  ];
+  const harnessData = [
+    ['cat/sed', 'open file', 'read_file'],
+    ['patch', 'edit buffer', 'apply_patch'],
+    ['npm test', 'task runner', 'run_tests'],
+    ['rg', 'symbols', 'search_repo'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Same operation, different harness',
-      [
-        { id: 'read', label: 'read' },
-        { id: 'edit', label: 'edit' },
-        { id: 'run', label: 'run' },
-        { id: 'search', label: 'search' },
-      ],
-      [
-        { id: 'bash', label: 'bash' },
-        { id: 'ide', label: 'IDE' },
-        { id: 'typed', label: 'typed tool' },
-      ],
-      [
-        ['cat/sed', 'open file', 'read_file'],
-        ['patch', 'edit buffer', 'apply_patch'],
-        ['npm test', 'task runner', 'run_tests'],
-        ['rg', 'symbols', 'search_repo'],
-      ],
-    ),
+    state: labelMatrix('Same operation, different harness', harnessRows, harnessCols, harnessData),
     highlight: { active: ['edit:bash', 'edit:ide', 'edit:typed'], compare: ['run:bash', 'run:typed'] },
-    explanation: 'If the model memorizes one column, it breaks when the interface changes. If it learns the row, it can bind to the current tools.',
+    explanation: `If the model memorizes one column out of ${harnessCols.length} harnesses, it breaks when the interface changes. If it learns the row (${harnessRows.map(r => r.label).join(', ')}), it can bind to the current tools. For example, "${harnessRows[1].label}" maps to "${harnessData[1][0]}" in bash but "${harnessData[1][2]}" as a typed tool.`,
   };
 
+  const portRows = [
+    { id: 'cap', label: 'capability' },
+    { id: 'pre', label: 'precond' },
+    { id: 'post', label: 'postcond' },
+    { id: 'obs', label: 'obs schema' },
+    { id: 'cost', label: 'cost' },
+  ];
+  const portCols = [
+    { id: 'records', label: 'records' },
+    { id: 'why', label: 'why' },
+  ];
+  const portData = [
+    ['what tool can do', 'late bind'],
+    ['required state', 'avoid invalid call'],
+    ['state change', 'verify result'],
+    ['normalized fields', 'compare traces'],
+    ['time+tokens+risk', 'budget path'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Portability metadata',
-      [
-        { id: 'cap', label: 'capability' },
-        { id: 'pre', label: 'precond' },
-        { id: 'post', label: 'postcond' },
-        { id: 'obs', label: 'obs schema' },
-        { id: 'cost', label: 'cost' },
-      ],
-      [
-        { id: 'records', label: 'records' },
-        { id: 'why', label: 'why' },
-      ],
-      [
-        ['what tool can do', 'late bind'],
-        ['required state', 'avoid invalid call'],
-        ['state change', 'verify result'],
-        ['normalized fields', 'compare traces'],
-        ['time+tokens+risk', 'budget path'],
-      ],
-    ),
+    state: labelMatrix('Portability metadata', portRows, portCols, portData),
     highlight: { found: ['cap:why', 'post:why', 'obs:why', 'cost:why'] },
-    explanation: 'A portable trace records capabilities, preconditions, postconditions, observation schemas, and cost. That metadata lets an audit distinguish bad reasoning from a bad tool binding.',
+    explanation: `A portable trace records ${portRows.length} metadata fields (${portRows.map(r => r.label).join(', ')}). Each field has ${portCols.length} columns: ${portCols.map(c => c.label).join(' and ')}. That metadata lets an audit distinguish bad reasoning from a bad tool binding.`,
   };
 }
 
@@ -187,11 +197,18 @@ export function* run(input) {
   const view = String(input.view);
   if (view === 'operation graph') yield* operationGraph();
   else if (view === 'binding layer') yield* bindingLayer();
-  else throw new InputError('Pick an abstract-operation view.');
+  else throw new InputError(`Pick an abstract-operation view, not "${view}".`);
 }
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/abstract-agent-operation-graph.gif', alt: 'Animated walkthrough of the abstract agent operation graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

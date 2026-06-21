@@ -118,7 +118,8 @@ const legacyArticle = {
       paragraphs: [
         `Watch the queue, not just the highlighted node. The queue is the frontier of the current ring and the next ring. When a node is enqueued, it receives its distance and parent immediately; that is the moment BFS proves the shortest hop count to that node.`,
         `The tempting wrong reading is "BFS is just wandering broadly." It is stricter than that. Every dequeue finishes the oldest known frontier item, and the seen set prevents cycles from re-entering the frontier. The animation's queue order is the proof of shortest unweighted paths.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/graph-bfs.gif', alt: 'Animated walkthrough of the graph bfs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Cost and behavior`,

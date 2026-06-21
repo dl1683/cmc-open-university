@@ -52,21 +52,23 @@ function federationGraph(title) {
 }
 
 function* federatedAveraging() {
+  const numDevices = 4;
   yield {
     state: federationGraph('The server sends the current model to devices'),
     highlight: { active: ['server', 'e-server-a', 'e-server-b', 'e-server-c', 'e-server-d'], compare: ['phoneA', 'phoneB', 'phoneC', 'phoneD'] },
-    explanation: 'Read the arrows as a round boundary: the server sends model weights out, devices compute locally, and raw examples stay behind the device boundary. The highlighted server is coordination, not a data warehouse.',
+    explanation: `Read the ${numDevices} arrows as a round boundary: the server sends model weights out to ${numDevices} devices, devices compute locally, and raw examples stay behind the device boundary. The highlighted server is coordination, not a data warehouse.`,
   };
 
+  const devices = [
+    { id: 'a', label: 'device A' },
+    { id: 'b', label: 'device B' },
+    { id: 'c', label: 'device C' },
+    { id: 'd', label: 'device D' },
+  ];
   yield {
     state: labelMatrix(
       'Clients train locally on non-IID data',
-      [
-        { id: 'a', label: 'device A' },
-        { id: 'b', label: 'device B' },
-        { id: 'c', label: 'device C' },
-        { id: 'd', label: 'device D' },
-      ],
+      devices,
       [
         { id: 'data', label: 'local data shape' },
         { id: 'update', label: 'model update' },
@@ -79,25 +81,26 @@ function* federatedAveraging() {
       ],
     ),
     highlight: { active: ['a:update', 'b:update', 'c:update', 'd:update'], compare: ['a:data', 'd:data'] },
-    explanation: 'Each client runs a few local Gradient Descent steps and sends a model update. The data is naturally unbalanced and non-IID: different users have different languages, habits, devices, and sample counts.',
-    invariant: 'The server aggregates updates, not raw examples.',
+    explanation: `Each of ${devices.length} clients runs a few local Gradient Descent steps and sends a model update (${devices.map(d => 'delta ' + d.label.slice(-1)).join(', ')}). The data is naturally unbalanced and non-IID: different users have different languages, habits, devices, and sample counts.`,
+    invariant: `The server aggregates ${devices.length} updates, not raw examples.`,
   };
 
   yield {
     state: federationGraph('The server averages updates into a new global model'),
     highlight: { active: ['phoneA', 'phoneB', 'phoneC', 'phoneD'], found: ['server'], compare: ['e-server-a', 'e-server-b', 'e-server-c', 'e-server-d'] },
-    explanation: 'Federated averaging combines client updates, often weighted by example count. The highlighted clients are not equally informative: skewed data, missing devices, and uneven sample counts decide whether the average is useful.',
+    explanation: `Federated averaging combines ${devices.length} client updates, often weighted by example count. The highlighted clients are not equally informative: skewed data, missing devices, and uneven sample counts decide whether the average is useful.`,
   };
 
+  const layers = [
+    { id: 'raw', label: 'raw data stays local' },
+    { id: 'updates', label: 'updates leave device' },
+    { id: 'secure', label: 'secure aggregation' },
+    { id: 'dp', label: 'differential privacy' },
+  ];
   yield {
     state: labelMatrix(
       'What federated learning does and does not provide',
-      [
-        { id: 'raw', label: 'raw data stays local' },
-        { id: 'updates', label: 'updates leave device' },
-        { id: 'secure', label: 'secure aggregation' },
-        { id: 'dp', label: 'differential privacy' },
-      ],
+      layers,
       [
         { id: 'benefit', label: 'benefit' },
         { id: 'remaining risk', label: 'remaining risk' },
@@ -110,20 +113,22 @@ function* federatedAveraging() {
       ],
     ),
     highlight: { found: ['raw:benefit', 'secure:benefit', 'dp:benefit'], compare: ['updates:remaining risk'] },
-    explanation: 'Federated learning is a data-minimization architecture, not a full privacy proof. Secure aggregation and differential privacy add stronger guarantees at additional cost.',
+    explanation: `Federated learning is a data-minimization architecture, not a full privacy proof. All ${layers.length} layers — ${layers.map(l => l.label).join(', ')} — carry remaining risks alongside their benefits.`,
   };
 }
 
 function* secureAggregation() {
+  const saDevices = [
+    { id: 'a', label: 'device A' },
+    { id: 'b', label: 'device B' },
+    { id: 'c', label: 'device C' },
+  ];
+  const trueUpdates = [4, 7, 2];
+  const aggregateSum = trueUpdates.reduce((a, b) => a + b, 0);
   yield {
     state: labelMatrix(
       'Pairwise masks cancel in the aggregate',
-      [
-        { id: 'a', label: 'device A' },
-        { id: 'b', label: 'device B' },
-        { id: 'c', label: 'device C' },
-        { id: 'sum', label: 'server sum' },
-      ],
+      [...saDevices, { id: 'sum', label: 'server sum' }],
       [
         { id: 'update', label: 'true update' },
         { id: 'mask', label: 'added masks' },
@@ -133,29 +138,30 @@ function* secureAggregation() {
         ['+4', '+rAB - rCA', 'masked A'],
         ['+7', '-rAB + rBC', 'masked B'],
         ['+2', '-rBC + rCA', 'masked C'],
-        ['+13', 'all masks cancel', 'only aggregate visible'],
+        [`+${aggregateSum}`, 'all masks cancel', 'only aggregate visible'],
       ],
     ),
     highlight: { active: ['a:sent', 'b:sent', 'c:sent'], found: ['sum:update', 'sum:mask'] },
-    explanation: 'Read the mask table algebraically. Each random mask appears once positive and once negative, so the server can recover the highlighted aggregate while the individual sent values remain masked.',
+    explanation: `Read the mask table algebraically. ${saDevices.length} devices contribute updates (${trueUpdates.join(', ')}), and each random mask appears once positive and once negative, so the server recovers only the aggregate ${aggregateSum} while ${saDevices.length} individual sent values remain masked.`,
   };
 
   yield {
     state: federationGraph('Dropout makes the protocol harder'),
     highlight: { active: ['phoneA', 'phoneB', 'phoneC'], removed: ['phoneD'], found: ['server'] },
-    explanation: 'Real clients disconnect. Practical secure aggregation protocols must handle dropout, otherwise a missing client can leave masks that do not cancel. Failure robustness is a core part of the paper.',
-    invariant: 'Privacy and dropout recovery must be designed together.',
+    explanation: `Real clients disconnect. With ${saDevices.length} devices in the protocol, practical secure aggregation must handle dropout — otherwise a missing client can leave masks that do not cancel across the remaining ${saDevices.length - 1}. Failure robustness is a core part of the paper.`,
+    invariant: `Privacy and dropout recovery must be designed together — losing 1 of ${saDevices.length} devices must not break mask cancellation.`,
   };
 
+  const dpSteps = [
+    { id: 'clip', label: 'clip update norm' },
+    { id: 'noise', label: 'add noise' },
+    { id: 'account', label: 'privacy accounting' },
+    { id: 'utility', label: 'utility check' },
+  ];
   yield {
     state: labelMatrix(
       'Differential privacy clips and noises the update',
-      [
-        { id: 'clip', label: 'clip update norm' },
-        { id: 'noise', label: 'add noise' },
-        { id: 'account', label: 'privacy accounting' },
-        { id: 'utility', label: 'utility check' },
-      ],
+      dpSteps,
       [
         { id: 'purpose', label: 'purpose' },
         { id: 'tradeoff', label: 'tradeoff' },
@@ -168,18 +174,19 @@ function* secureAggregation() {
       ],
     ),
     highlight: { active: ['clip:purpose', 'noise:purpose', 'account:purpose'], compare: ['utility:tradeoff'] },
-    explanation: 'Differential privacy adds a different guarantee: the aggregate output should not depend too much on any one participant. The price is noise, clipping, privacy accounting, and possible quality loss.',
+    explanation: `Differential privacy adds a different guarantee through ${dpSteps.length} steps: ${dpSteps.map(s => s.label).join(', ')}. The aggregate output should not depend too much on any one of the ${saDevices.length} participants — the price is noise, clipping, privacy accounting, and possible quality loss.`,
   };
 
+  const concerns = [
+    { id: 'selection', label: 'client selection' },
+    { id: 'comm', label: 'communication' },
+    { id: 'non_iid', label: 'non-IID data' },
+    { id: 'abuse', label: 'poisoning' },
+  ];
   yield {
     state: labelMatrix(
       'Production concerns',
-      [
-        { id: 'selection', label: 'client selection' },
-        { id: 'comm', label: 'communication' },
-        { id: 'non_iid', label: 'non-IID data' },
-        { id: 'abuse', label: 'poisoning' },
-      ],
+      concerns,
       [
         { id: 'problem', label: 'problem' },
         { id: 'response', label: 'response' },
@@ -192,7 +199,7 @@ function* secureAggregation() {
       ],
     ),
     highlight: { found: ['selection:response', 'comm:response', 'non_iid:response', 'abuse:response'] },
-    explanation: 'A federated system is a distributed system with privacy constraints. Availability, bandwidth, skew, adversaries, and monitoring all affect whether the model actually improves.',
+    explanation: `A federated system is a distributed system with privacy constraints. All ${concerns.length} production concerns — ${concerns.map(c => c.label).join(', ')} — affect whether the model actually improves.`,
   };
 }
 
@@ -205,6 +212,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/federated-learning-secure-aggregation.gif', alt: 'Animated walkthrough of the federated learning secure aggregation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

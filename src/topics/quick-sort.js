@@ -98,7 +98,8 @@ export const article = {
         'The animation uses Lomuto partitioning with the last element as pivot. The highlighted range marks the current recursive call. The pivot is marked separately at the right end of the range. Two cursors move through the range: the compare marker is the element being classified, and the active marker is the boundary between the low zone (values <= pivot) and the high zone (values > pivot).',
         { type: 'callout', text: 'A partition is a local proof: once the pivot lands, recursion is forbidden from moving values across it.' },
         'A swap fires when a value that belongs in the low zone sits past the boundary. The value moves into the boundary slot, the boundary advances, and the invariant holds: everything left of the boundary is <= pivot, everything between the boundary and the scan cursor is > pivot. When the scan finishes, the pivot swaps into the boundary slot and turns green. Green means final -- that index will never move again. Watch the green set grow: each partition locks exactly one position.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/quick-sort.gif', alt: 'Animated walkthrough of the quick sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

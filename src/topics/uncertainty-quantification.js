@@ -133,7 +133,8 @@ export const article = {
         {type: 'callout', text: 'Uncertainty is useful only when it changes the decision: accept routine predictions, widen intervals for noise, and escalate inputs the model has not learned.'},
         '"MC dropout in action" runs the same input through one network eight times with dropout left on. Active cells are individual forward-pass outputs. When they cluster tightly, the model is stable. When they scatter, the model is guessing. The matrix view at the end maps scatter width to a decision: accept or escalate.',
         'At each frame, ask: is the doubt coming from noisy data or missing data? The answer determines whether the system should widen its interval or refuse to answer.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/uncertainty-quantification.gif', alt: 'Animated walkthrough of the uncertainty quantification visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -55,145 +55,158 @@ function watermarkGraph(title) {
 }
 
 function* eventTimeProgress() {
+  const graphNodes = [
+    { id: 'source', label: 'src', x: 0.4, y: 3.6, note: 'unordered' },
+    { id: 'assign', label: 'time', x: 3.0, y: 3.6, note: 'event stamp' },
+    { id: 'wm', label: 'wm', x: 5.2, y: 3.6, note: '<= t done' },
+    { id: 'window', label: 'window', x: 7.0, y: 2.1, note: '[10:00, 10:05)' },
+    { id: 'trigger', label: 'trigger', x: 7.0, y: 5.1, note: 'emit pane' },
+    { id: 'sink', label: 'sink', x: 9.2, y: 3.6, note: 'results' },
+  ];
+  const nodeCount = graphNodes.length;
+  const sourceNote = graphNodes[0].note;
+  const windowNote = graphNodes[3].note;
+
+  const arrivalRows = [
+    { id: 'e0', label: 'event A' },
+    { id: 'e1', label: 'event B' },
+    { id: 'e2', label: 'event C' },
+    { id: 'wm', label: 'watermark' },
+  ];
+  const arrivalCols = [
+    { id: 'event', label: 'event time' },
+    { id: 'arrival', label: 'arrival order' },
+  ];
+  const arrivalValues = [
+    ['10:03', '1st'],
+    ['10:01', '2nd'],
+    ['10:04', '3rd'],
+    ['10:02', 'progress signal'],
+  ];
+  const eventCount = arrivalRows.length - 1;
+  const wmTime = arrivalValues[3][0];
+
+  const conceptRows = [
+    { id: 'event', label: 'event time' },
+    { id: 'processing', label: 'processing time' },
+    { id: 'watermark', label: 'watermark' },
+    { id: 'trigger', label: 'trigger' },
+  ];
+  const conceptCols = [
+    { id: 'meaning', label: 'meaning' },
+    { id: 'use', label: 'use' },
+  ];
+  const conceptValues = [
+    ['when fact happened', 'correct grouping'],
+    ['when worker saw it', 'freshness timers'],
+    ['event-time progress', 'close windows'],
+    ['emit policy', 'early/on-time/late panes'],
+  ];
+  const conceptCount = conceptRows.length;
+
   yield {
     state: watermarkGraph('Events arrive in processing time but belong to event time'),
     highlight: { active: ['source', 'assign', 'e-source-assign'], compare: ['wm'] },
-    explanation: 'Streaming systems separate event time from processing time. A click at 10:01 can arrive after a click at 10:03 because networks, devices, and queues reorder reality.',
+    explanation: `The ${nodeCount}-node pipeline separates event time from processing time. A click at ${arrivalValues[1][0]} can arrive after a click at ${arrivalValues[0][0]} because networks, devices, and queues reorder the ${sourceNote} source reality.`,
   };
 
   yield {
-    state: labelMatrix(
-      'Arrival versus event time',
-      [
-        { id: 'e0', label: 'event A' },
-        { id: 'e1', label: 'event B' },
-        { id: 'e2', label: 'event C' },
-        { id: 'wm', label: 'watermark' },
-      ],
-      [
-        { id: 'event', label: 'event time' },
-        { id: 'arrival', label: 'arrival order' },
-      ],
-      [
-        ['10:03', '1st'],
-        ['10:01', '2nd'],
-        ['10:04', '3rd'],
-        ['10:02', 'progress signal'],
-      ],
-    ),
+    state: labelMatrix('Arrival versus event time', arrivalRows, arrivalCols, arrivalValues),
     highlight: { active: ['e1:event', 'wm:event'], found: ['wm:arrival'] },
-    explanation: 'A watermark at time t declares that the stream believes no more events with timestamp <= t should arrive, within the system policy.',
-    invariant: 'Watermarks are progress estimates, not wall-clock timestamps.',
+    explanation: `A watermark at time t (here ${wmTime}) declares that across all ${eventCount} events the stream believes no more records with timestamp <= t should arrive, within the system policy.`,
+    invariant: `Watermarks are progress estimates across ${arrivalCols.length} dimensions (${arrivalCols.map(c => c.label).join(', ')}), not wall-clock timestamps.`,
   };
 
   yield {
     state: watermarkGraph('When the watermark passes a window end, the window can fire'),
     highlight: { active: ['wm', 'window', 'trigger', 'e-wm-window', 'e-window-trigger'], found: ['sink'] },
-    explanation: 'Window operators use watermarks to decide when event-time windows are complete enough to emit an on-time result.',
+    explanation: `Window operators use watermarks to decide when event-time windows like ${windowNote} are complete enough to emit an on-time result to the ${graphNodes[5].note} sink.`,
   };
 
   yield {
-    state: labelMatrix(
-      'Time concepts',
-      [
-        { id: 'event', label: 'event time' },
-        { id: 'processing', label: 'processing time' },
-        { id: 'watermark', label: 'watermark' },
-        { id: 'trigger', label: 'trigger' },
-      ],
-      [
-        { id: 'meaning', label: 'meaning' },
-        { id: 'use', label: 'use' },
-      ],
-      [
-        ['when fact happened', 'correct grouping'],
-        ['when worker saw it', 'freshness timers'],
-        ['event-time progress', 'close windows'],
-        ['emit policy', 'early/on-time/late panes'],
-      ],
-    ),
+    state: labelMatrix('Time concepts', conceptRows, conceptCols, conceptValues),
     highlight: { found: ['watermark:meaning', 'trigger:use'], compare: ['processing:meaning'] },
-    explanation: 'Watermarks do not replace triggers. The watermark says how complete event time looks; triggers decide when and how often to emit results.',
+    explanation: `Watermarks do not replace triggers. Across all ${conceptCount} time concepts, the watermark says "${conceptValues[2][0]}"; triggers decide when and how often to emit results via "${conceptValues[3][1]}".`,
   };
 }
 
 function* lateDataPolicy() {
+  const policyRows = [
+    { id: 'drop', label: 'drop' },
+    { id: 'update', label: 'update result' },
+    { id: 'side', label: 'side output' },
+    { id: 'retract', label: 'retraction' },
+  ];
+  const policyCols = [
+    { id: 'behavior', label: 'behavior' },
+    { id: 'cost', label: 'cost' },
+  ];
+  const policyValues = [
+    ['discard too-late events', 'simple but lossy'],
+    ['emit correction pane', 'downstream must merge'],
+    ['route late facts', 'manual repair path'],
+    ['withdraw old result', 'sink must support changes'],
+  ];
+  const policyCount = policyRows.length;
+
+  const failureRows = [
+    { id: 'slow', label: 'slow watermark' },
+    { id: 'fast', label: 'fast watermark' },
+    { id: 'idle', label: 'idle partition' },
+    { id: 'skew', label: 'source skew' },
+  ];
+  const failureCols = [
+    { id: 'symptom', label: 'symptom' },
+    { id: 'response', label: 'response' },
+  ];
+  const failureValues = [
+    ['windows wait too long', 'higher latency'],
+    ['late data spikes', 'corrections or drops'],
+    ['global progress stalls', 'idle-source detection'],
+    ['one shard holds back all', 'per-partition watermarks'],
+  ];
+  const failureCount = failureRows.length;
+
+  const paneRows = [
+    { id: 'early', label: 'early pane' },
+    { id: 'ontime', label: 'on-time pane' },
+    { id: 'late', label: 'late pane' },
+    { id: 'final', label: 'final close' },
+  ];
+  const paneCols = [
+    { id: 'when', label: 'when' },
+    { id: 'why', label: 'why' },
+  ];
+  const paneValues = [
+    ['processing-time timer', 'fresh estimate'],
+    ['watermark passes hour', 'normal bill'],
+    ['late event arrives', 'correction'],
+    ['lateness horizon expires', 'state cleanup'],
+  ];
+  const paneCount = paneRows.length;
+
   yield {
-    state: labelMatrix(
-      'Late data choices',
-      [
-        { id: 'drop', label: 'drop' },
-        { id: 'update', label: 'update result' },
-        { id: 'side', label: 'side output' },
-        { id: 'retract', label: 'retraction' },
-      ],
-      [
-        { id: 'behavior', label: 'behavior' },
-        { id: 'cost', label: 'cost' },
-      ],
-      [
-        ['discard too-late events', 'simple but lossy'],
-        ['emit correction pane', 'downstream must merge'],
-        ['route late facts', 'manual repair path'],
-        ['withdraw old result', 'sink must support changes'],
-      ],
-    ),
+    state: labelMatrix('Late data choices', policyRows, policyCols, policyValues),
     highlight: { active: ['update:behavior', 'retract:cost'], compare: ['drop:cost'] },
-    explanation: 'Late data is a product decision as much as a systems decision. Accuracy, latency, and downstream complexity trade off.',
+    explanation: `Late data is a product decision as much as a systems decision. All ${policyCount} policies (${policyRows.map(r => r.label).join(', ')}) trade off accuracy, latency, and downstream complexity.`,
   };
 
   yield {
     state: watermarkGraph('Allowed lateness keeps windows around after on-time firing'),
     highlight: { active: ['window', 'trigger', 'sink', 'e-trigger-sink'], found: ['wm'] },
-    explanation: 'A system can emit an on-time pane when the watermark passes the window end, then keep state for a lateness horizon to handle corrections.',
+    explanation: `A system can emit an on-time pane when the watermark passes the window end, then keep state for a lateness horizon to handle ${policyValues[1][0]}s and ${policyValues[3][0]}s.`,
   };
 
   yield {
-    state: labelMatrix(
-      'Watermark failure modes',
-      [
-        { id: 'slow', label: 'slow watermark' },
-        { id: 'fast', label: 'fast watermark' },
-        { id: 'idle', label: 'idle partition' },
-        { id: 'skew', label: 'source skew' },
-      ],
-      [
-        { id: 'symptom', label: 'symptom' },
-        { id: 'response', label: 'response' },
-      ],
-      [
-        ['windows wait too long', 'higher latency'],
-        ['late data spikes', 'corrections or drops'],
-        ['global progress stalls', 'idle-source detection'],
-        ['one shard holds back all', 'per-partition watermarks'],
-      ],
-    ),
+    state: labelMatrix('Watermark failure modes', failureRows, failureCols, failureValues),
     highlight: { active: ['slow:symptom', 'fast:symptom'], found: ['idle:response'] },
-    explanation: 'A watermark strategy can be too conservative or too optimistic. Either way, users experience the mistake as latency, missing data, or noisy corrections.',
+    explanation: `A watermark strategy can fail in ${failureCount} ways. A ${failureRows[0].label} causes "${failureValues[0][0]}"; a ${failureRows[1].label} causes "${failureValues[1][0]}". Either way, users experience the mistake as latency, missing data, or noisy corrections.`,
   };
 
   yield {
-    state: labelMatrix(
-      'Case study: hourly billing',
-      [
-        { id: 'early', label: 'early pane' },
-        { id: 'ontime', label: 'on-time pane' },
-        { id: 'late', label: 'late pane' },
-        { id: 'final', label: 'final close' },
-      ],
-      [
-        { id: 'when', label: 'when' },
-        { id: 'why', label: 'why' },
-      ],
-      [
-        ['processing-time timer', 'fresh estimate'],
-        ['watermark passes hour', 'normal bill'],
-        ['late event arrives', 'correction'],
-        ['lateness horizon expires', 'state cleanup'],
-      ],
-    ),
+    state: labelMatrix('Case study: hourly billing', paneRows, paneCols, paneValues),
     highlight: { found: ['ontime:when', 'late:why'], active: ['final:why'] },
-    explanation: 'A complete streaming design states the pane policy, allowed lateness, state cleanup time, and downstream merge behavior.',
+    explanation: `A complete streaming design covers all ${paneCount} pane stages. The ${paneRows[1].label} fires when "${paneValues[1][0]}", while ${paneRows[3].label} triggers "${paneValues[3][1]}" after the lateness horizon expires.`,
   };
 }
 
@@ -206,6 +219,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/streaming-watermarks.gif', alt: 'Animated walkthrough of the streaming watermarks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

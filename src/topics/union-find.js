@@ -120,7 +120,8 @@ export const article = {
         },
         'During a union, highlighted nodes trace the find paths from both arguments up to their roots. If the two roots differ, the smaller-tree root gets attached under the larger-tree root -- that edge flashes as "found." If the roots match, the elements were already connected and nothing changes.',
         'When path compression fires after a find, every node on the walked path gets its arrow repointed straight to the root. Watch how the tree flattens: future finds on any of those nodes will cost a single hop instead of retracing the whole path.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/union-find.gif', alt: 'Animated walkthrough of the union find visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

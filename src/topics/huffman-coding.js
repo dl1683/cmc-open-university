@@ -132,7 +132,8 @@ export const article = {
         'In the frequency table, each symbol is labeled with its count. The animation then enters the merge loop. At each step, the two lightest nodes are highlighted as the compare pair. They merge under a new internal node whose weight is their sum. The new parent appears highlighted as active.',
         'After the last merge, the single remaining tree is the Huffman tree. Leaves are marked as found. Each leaf carries a binary code: the path from root to that leaf, where left = 0 and right = 1. Because every symbol sits at a leaf, no code is a prefix of another, so the decoder can walk the bitstream without separators.',
         'Watch which symbols sink deep (rare ones get long codes) and which stay near the root (frequent ones get short codes). The final step compares total Huffman bits against fixed-width bits to show the savings.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/huffman-coding.gif', alt: 'Animated walkthrough of the huffman coding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

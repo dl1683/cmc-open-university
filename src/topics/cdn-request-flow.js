@@ -42,29 +42,34 @@ export function* run(input) {
 
   const snapshot = () => graphState({ nodes: NODES, edges: EDGES });
 
+  const userNode = NODES.find(n => n.id === 'B');
+  const edgeNode = NODES.find(n => n.id === 'E1');
   yield {
     state: snapshot(),
     highlight: { active: ['B'] },
-    explanation: 'You, in Mumbai, tap a page that needs cat.jpg from a site whose ORIGIN servers live in Virginia. Straight-line physics says ~80ms round trip, before the server even thinks. The web\'s answer is the CDN: hundreds of EDGE locations holding cached copies near users. Watch one request thread through five ideas you\'ve already studied on this site.',
+    explanation: `${userNode.label.charAt(0).toUpperCase() + userNode.label.slice(1)}, in ${edgeNode.note}, tap a page that needs cat.jpg from a site whose ORIGIN servers live in Virginia. Straight-line physics says ~80ms round trip, before the server even thinks. The web\'s answer is the CDN: hundreds of EDGE locations holding cached copies near users. Watch one request thread through five ideas you\'ve already studied on this site.`,
   };
 
+  const dnsNode = NODES.find(n => n.id === 'DNS');
+  const edge2Node = NODES.find(n => n.id === 'E2');
   yield {
     state: snapshot(),
-    highlight: { active: ['bd', 'DNS'], compare: ['E1', 'E2'] },
-    explanation: 'Step 1 — DNS: the browser asks "where is cdn.site.com?" and the CDN\'s GeoDNS answers DIFFERENTLY per asker: you get the Mumbai edge\'s address; a user in Berlin gets Frankfurt\'s. Routing by geography before a single packet of content moves (and within each edge cluster, Consistent Hashing decides which cache machine owns cat.jpg).',
+    highlight: { active: ['bd', dnsNode.id], compare: ['E1', 'E2'] },
+    explanation: `Step 1 -- ${dnsNode.label}: the browser asks "where is cdn.site.com?" and the CDN\'s GeoDNS answers DIFFERENTLY per asker: you get the ${edgeNode.note} edge\'s address; a user in Berlin gets ${edge2Node.note}\'s. Routing by geography before a single packet of content moves (and within each edge cluster, Consistent Hashing decides which cache machine owns cat.jpg).`,
   };
 
   if (hit) {
     yield {
       state: snapshot(),
       highlight: { active: ['be1'], found: ['E1'] },
-      explanation: 'Step 2 — the edge: your request reaches Mumbai (~10ms away) and the edge checks its cache — an LRU Cache holding the hottest files. cat.jpg is THERE. Served instantly: total ~20ms, and the origin in Virginia never even heard about it.',
+      explanation: `Step 2 -- the edge: your request reaches ${edgeNode.note} (~10ms away) and the ${edgeNode.label} checks its cache -- an LRU Cache holding the hottest files. cat.jpg is THERE. Served instantly: total ~20ms, and the origin in Virginia never even heard about it.`,
     };
+    const hitPath = ['B', 'E1', 'be1'];
     yield {
       state: snapshot(),
-      highlight: { found: ['B', 'E1', 'be1'] },
-      explanation: 'That non-event is the entire business: production CDNs answer 90–95% of requests at the edge. The origin handles 5% of the traffic while the planet feels served-next-door. Run the cold-cache scenario to see what those other 5% cost — and how a miss heals itself.',
-      invariant: 'A cache hit costs user-to-edge latency only; origin distance becomes irrelevant.',
+      highlight: { found: hitPath },
+      explanation: `That non-event is the entire business: production CDNs answer 90-95% of requests at the edge. The origin handles 5% of the traffic while the planet feels served-next-door. This hit path touched ${hitPath.length} elements. Run the cold-cache scenario to see what those other 5% cost -- and how a miss heals itself.`,
+      invariant: `A cache ${hit ? 'hit' : 'miss'} costs user-to-edge latency only; origin distance becomes irrelevant.`,
     };
     return;
   }
@@ -72,31 +77,36 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { active: ['be1'], swap: ['E1'] },
-    explanation: 'Step 2 — the edge: your request reaches Mumbai and the edge checks its LRU Cache… MISS. cat.jpg was deployed an hour ago and no Mumbai user has asked yet (a cold cache). The edge now becomes a CLIENT itself and goes to fetch the file the long way.',
+    explanation: `Step 2 -- the ${edgeNode.label}: your request reaches ${edgeNode.note} and the edge checks its LRU Cache... ${hit ? 'HIT' : 'MISS'}. cat.jpg was deployed an hour ago and no ${edgeNode.note} user has asked yet (a cold cache). The edge now becomes a CLIENT itself and goes to fetch the file the long way.`,
   };
 
+  const lbNode = NODES.find(n => n.id === 'LB');
+  const originNodes = NODES.filter(n => n.id.startsWith('O'));
   yield {
     state: snapshot(),
-    highlight: { active: ['el', 'LB'], compare: ['lo1', 'lo2'] },
-    explanation: 'Step 3 — to the origin: the edge\'s request crosses the ocean to Virginia, arriving at a Load Balancer guarding two origin servers. Least-connections says org1 is freer — routed (with a Rate Limiter (Token Bucket) at the door, so an edge-cache stampede can\'t flatten the origin).',
+    highlight: { active: ['el', lbNode.id], compare: ['lo1', 'lo2'] },
+    explanation: `Step 3 -- to the origin: the edge\'s request crosses the ocean to Virginia, arriving at a ${lbNode.label} guarding ${originNodes.length} origin servers. Least-connections says ${originNodes[0].label} is freer -- routed (with a Rate Limiter (Token Bucket) at the door, so an edge-cache stampede can\'t flatten the origin).`,
   };
 
+  const selectedOrigin = NODES.find(n => n.id === 'O1');
   yield {
     state: snapshot(),
-    highlight: { active: ['lo1', 'O1'] },
-    explanation: 'Step 4 — the origin renders the file and answers WITH INSTRUCTIONS: Cache-Control: max-age=86400 — "edge, you may keep this for 24 hours." The headers are the contract that makes the whole caching layer legal.',
+    highlight: { active: ['lo1', selectedOrigin.id] },
+    explanation: `Step 4 -- the origin (${selectedOrigin.label}) renders the file and answers WITH INSTRUCTIONS: Cache-Control: max-age=86400 -- "${edgeNode.label}, you may keep this for 24 hours." The headers are the contract that makes the whole caching layer legal.`,
   };
 
+  const fillFound = ['E1', 'B', 'be1'];
   yield {
     state: snapshot(),
-    highlight: { found: ['E1', 'B', 'be1'], active: ['el'] },
-    explanation: 'Step 5 — cache fill and serve: the file streams back; the Mumbai edge STORES it (its LRU Cache evicting the least-recently-used file to make room) and serves you. Your total: ~110ms. Painful? Slightly. But you paid it for everyone.',
+    highlight: { found: fillFound, active: ['el'] },
+    explanation: `Step 5 -- cache fill and serve: the file streams back; the ${edgeNode.note} ${edgeNode.label} STORES it (its LRU Cache evicting the least-recently-used file to make room) and serves ${userNode.label}. Your total: ~110ms. Painful? Slightly. But you paid it for everyone.`,
   };
 
+  const totalNodes = NODES.length;
   yield {
     state: snapshot(),
     highlight: { found: ['E1'] },
-    explanation: 'Step 6 — the next Mumbai user gets the 20ms HIT, for the next 24 hours. One slow request warmed the cache for a city. The hard part you didn\'t see: INVALIDATION — when cat.jpg changes at the origin, every edge holds a stale copy until max-age expires or a purge broadcast arrives ("there are only two hard things in computer science: cache invalidation and naming things"). DNS + Consistent Hashing + LRU Cache + Load Balancer + Rate Limiter (Token Bucket): five topics, one everyday miracle — this exact flow ran dozens of times while this page loaded.',
+    explanation: `Step 6 -- the next ${edgeNode.note} user gets the 20ms HIT, for the next 24 hours. One slow request warmed the cache for a city. The hard part you didn\'t see: INVALIDATION -- when cat.jpg changes at the origin, every edge holds a stale copy until max-age expires or a purge broadcast arrives ("there are only two hard things in computer science: cache invalidation and naming things"). DNS + Consistent Hashing + LRU Cache + Load Balancer + Rate Limiter (Token Bucket): five topics across ${totalNodes} nodes, one everyday miracle -- this exact flow ran dozens of times while this page loaded.`,
   };
 }
 
@@ -110,7 +120,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/cdn-request-flow.gif', alt: 'Animated walkthrough of the cdn request flow visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why this exists`,

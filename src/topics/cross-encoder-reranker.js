@@ -78,26 +78,29 @@ function cascadeGraph(title) {
 }
 
 function* pairScoring() {
+  const pipelineNodes = ['query', 'doc', 'pair', 'transformer', 'head', 'rank'];
   yield {
     state: pairGraph('A cross-encoder reads query and chunk together'),
     highlight: { active: ['query', 'doc', 'pair', 'e-query-pair', 'e-doc-pair'], compare: ['rank'] },
-    explanation: 'Read this as moving from cheap separate embeddings to expensive joint reading. The cross-encoder scores one query-candidate pair because the tokens can attend across the boundary.',
+    explanation: `Read this ${pipelineNodes.length}-stage pipeline as moving from cheap separate embeddings to expensive joint reading. The cross-encoder scores one query-candidate pair because the tokens can attend across the boundary.`,
   };
 
+  const candidates = [
+    { id: 'a', label: 'refund policy' },
+    { id: 'b', label: 'billing FAQ' },
+    { id: 'c', label: 'cancel annual plan' },
+    { id: 'd', label: 'login help' },
+  ];
+  const scoreCols = [
+    { id: 'first_stage', label: 'retriever rank' },
+    { id: 'ce_score', label: 'cross score' },
+    { id: 'reranked', label: 'new rank' },
+  ];
   yield {
     state: labelMatrix(
       'One query, four candidate chunks',
-      [
-        { id: 'a', label: 'refund policy' },
-        { id: 'b', label: 'billing FAQ' },
-        { id: 'c', label: 'cancel annual plan' },
-        { id: 'd', label: 'login help' },
-      ],
-      [
-        { id: 'first_stage', label: 'retriever rank' },
-        { id: 'ce_score', label: 'cross score' },
-        { id: 'reranked', label: 'new rank' },
-      ],
+      candidates,
+      scoreCols,
       [
         ['1', '0.68', '2'],
         ['2', '0.42', '3'],
@@ -106,25 +109,26 @@ function* pairScoring() {
       ],
     ),
     highlight: { active: ['c:ce_score', 'c:reranked'], compare: ['a:first_stage', 'a:reranked'], removed: ['d:reranked'] },
-    explanation: 'The reranker is the precision layer. It can reorder candidates when a lower-ranked chunk actually answers the query better, but it can only choose from what retrieval already found.',
-    invariant: 'A reranker can only reorder candidates it receives; it cannot recover evidence missing from the candidate pool.',
+    explanation: `The reranker scores ${candidates.length} candidates across ${scoreCols.length} columns. It can reorder candidates when a lower-ranked chunk like "${candidates[2].label}" actually answers the query better, but it can only choose from what retrieval already found.`,
+    invariant: `A reranker can only reorder the ${candidates.length} candidates it receives; it cannot recover evidence missing from the candidate pool.`,
   };
 
   yield {
     state: pairGraph('The score head turns joint attention into relevance'),
     highlight: { active: ['transformer', 'head', 'rank', 'e-transformer-head', 'e-head-rank'], found: ['pair'] },
-    explanation: 'The Transformer produces contextual representations over the combined query-document sequence. A small classification or ranking head converts that representation into a relevance score.',
+    explanation: `The Transformer at stage "${pipelineNodes[3]}" produces contextual representations over the combined query-document sequence. The "${pipelineNodes[4]}" stage converts that representation into a relevance score.`,
   };
 
+  const architectures = [
+    { id: 'bi', label: 'bi-encoder' },
+    { id: 'colbert', label: 'ColBERT' },
+    { id: 'cross', label: 'cross-encoder' },
+    { id: 'llm', label: 'LLM reranker' },
+  ];
   yield {
     state: labelMatrix(
       'Architecture tradeoff',
-      [
-        { id: 'bi', label: 'bi-encoder' },
-        { id: 'colbert', label: 'ColBERT' },
-        { id: 'cross', label: 'cross-encoder' },
-        { id: 'llm', label: 'LLM reranker' },
-      ],
+      architectures,
       [
         { id: 'interaction', label: 'interaction' },
         { id: 'cost', label: 'cost' },
@@ -138,32 +142,35 @@ function* pairScoring() {
       ],
     ),
     highlight: { active: ['cross:interaction', 'cross:role'], compare: ['bi:cost', 'llm:cost'], found: ['colbert:role'] },
-    explanation: 'Cross-encoders sit at the expensive end of the retrieval cascade. They are usually too slow for millions of documents, but strong on tens or hundreds of candidates.',
+    explanation: `${architectures.length} architectures compared (${architectures.map(a => a.label).join(', ')}). Cross-encoders sit at the expensive end of the retrieval cascade -- too slow for millions of documents, but strong on tens or hundreds of candidates.`,
   };
 }
 
 function* retrievalCascade() {
+  const cascadeNodes = ['query', 'bm25', 'ann', 'fusion', 'batch', 'ce', 'context'];
+  const retrievers = ['bm25', 'ann'];
   yield {
     state: cascadeGraph('Retrieve broadly, rerank narrowly'),
     highlight: { active: ['query', 'bm25', 'ann', 'fusion', 'e-query-bm25', 'e-query-ann'], compare: ['ce'] },
-    explanation: 'The first stage is optimized for recall and speed. BM25, HNSW, metadata filters, and rank fusion create a candidate pool that is small enough for the expensive reranker.',
+    explanation: `The first stage fans the query to ${retrievers.length} retrievers (${retrievers.join(', ')}) optimized for recall and speed. Rank fusion creates a candidate pool small enough for the expensive reranker across ${cascadeNodes.length} cascade stages.`,
   };
 
   yield {
     state: cascadeGraph('Batch the pairs before scoring'),
     highlight: { active: ['fusion', 'batch', 'ce', 'e-fusion-batch', 'e-batch-ce'], found: ['context'] },
-    explanation: 'Serving cost depends on candidate count, sequence length, model size, and batching. A query with 100 candidates means 100 Transformer forward passes unless the system batches pairs efficiently.',
+    explanation: `Serving cost depends on candidate count, sequence length, model size, and batching across the ${cascadeNodes.length}-node cascade. A query with 100 candidates means 100 Transformer forward passes unless the system batches pairs efficiently.`,
   };
 
+  const depthTiers = [
+    { id: 'top20', label: 'top 20' },
+    { id: 'top100', label: 'top 100' },
+    { id: 'top500', label: 'top 500' },
+    { id: 'listwise', label: 'listwise LLM' },
+  ];
   yield {
     state: labelMatrix(
       'Rerank budget ledger',
-      [
-        { id: 'top20', label: 'top 20' },
-        { id: 'top100', label: 'top 100' },
-        { id: 'top500', label: 'top 500' },
-        { id: 'listwise', label: 'listwise LLM' },
-      ],
+      depthTiers,
       [
         { id: 'quality', label: 'quality chance' },
         { id: 'latency', label: 'latency' },
@@ -177,18 +184,19 @@ function* retrievalCascade() {
       ],
     ),
     highlight: { active: ['top100:quality', 'top100:latency'], compare: ['top500:latency', 'top20:risk'], removed: ['listwise:risk'] },
-    explanation: 'The depth table is the main serving knob. Shallow reranking is cheap but brittle; deep reranking protects recall but can become the p95 latency bottleneck.',
+    explanation: `${depthTiers.length} depth tiers (${depthTiers.map(t => t.label).join(', ')}) form the main serving knob. Shallow reranking is cheap but brittle; deep reranking protects recall but can become the p95 latency bottleneck.`,
   };
 
+  const evalLayers = [
+    { id: 'candidate', label: 'candidate recall' },
+    { id: 'rerank', label: 'rerank nDCG/MRR' },
+    { id: 'answer', label: 'answer faithfulness' },
+    { id: 'cost', label: 'cost and p95' },
+  ];
   yield {
     state: labelMatrix(
       'Evaluation layers',
-      [
-        { id: 'candidate', label: 'candidate recall' },
-        { id: 'rerank', label: 'rerank nDCG/MRR' },
-        { id: 'answer', label: 'answer faithfulness' },
-        { id: 'cost', label: 'cost and p95' },
-      ],
+      evalLayers,
       [
         { id: 'question', label: 'question' },
         { id: 'failure if ignored', label: 'failure if ignored' },
@@ -201,7 +209,7 @@ function* retrievalCascade() {
       ],
     ),
     highlight: { found: ['candidate:question', 'rerank:question', 'answer:question', 'cost:question'] },
-    explanation: 'Reranking is not a final-answer metric by itself. Measure candidate recall, ranking quality, generated answer faithfulness, and serving latency separately.',
+    explanation: `Reranking is not a final-answer metric by itself. Measure all ${evalLayers.length} evaluation layers (${evalLayers.map(l => l.label).join(', ')}) separately.`,
   };
 }
 
@@ -225,7 +233,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/cross-encoder-reranker.gif', alt: 'Animated walkthrough of the cross encoder reranker visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

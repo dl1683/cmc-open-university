@@ -116,7 +116,8 @@ export const article = {
         'The animation runs three versions of the same query against the same 8-row table. In the no-index case, highlighted cells show the full scan: every age value is compared, one by one. The visited markers show rows already checked and rejected. The found marker shows the single matching row, reached only after touching everything.',
         'In the indexed case, the second B-tree appears: a sorted list of (age, pointer) entries. The visited marker shows the binary-search midpoint the engine checked first. The found marker lands directly on the target entry, then one hop fetches the full row from the table. Count the touches: 2-3 versus 8.',
         'In the covering-index case, only the index is shown because the table is never read. The found markers on both the age and year columns of the index entry mean the answer was already present in the leaf. No table fetch happened at all.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/database-indexing.gif', alt: 'Animated walkthrough of the database indexing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -71,11 +71,16 @@ function refillPath(title) {
 }
 
 function* sizeClassFastPath() {
+  const requestSize = 72;
+  const classSize = 80;
+  const slack = classSize - requestSize;
+  const sizeClasses = 4;
+
   yield {
     state: fastPath('Small allocations hit a size-class cache'),
     highlight: { active: ['class', 'tcache'], found: ['object'] },
-    explanation: 'Modern allocators avoid searching the heap for every small request. They round the request to a size class and pop a ready object from a local free list when possible.',
-    invariant: 'The returned block is at least the requested size, but belongs to a fixed size class.',
+    explanation: `Modern allocators avoid searching the heap for every small request. They round a ${requestSize}-byte request to a ${classSize}-byte size class and pop a ready object from a local free list when possible.`,
+    invariant: `The returned block is at least the requested ${requestSize} bytes, but belongs to a fixed ${classSize}-byte size class with ${slack} bytes of slack.`,
   };
 
   yield {
@@ -99,7 +104,7 @@ function* sizeClassFastPath() {
       ],
     ),
     highlight: { active: ['r72:class'], found: ['r72:waste'], compare: ['r900:waste'] },
-    explanation: 'Size classes trade a little internal slack for speed and simple reuse. A freed 80-byte object can serve the next request that rounds to the same class.',
+    explanation: `Size classes trade a little internal slack for speed and simple reuse. A freed ${classSize}-byte object can serve the next ${requestSize}-byte request that rounds to the same class, with only ${slack} bytes wasted.`,
   };
 
   yield {
@@ -123,17 +128,20 @@ function* sizeClassFastPath() {
       ],
     ),
     highlight: { found: ['hit:action'], active: ['miss:action', 'central:action'], compare: ['empty:cost'] },
-    explanation: 'Thread caches make the common path lock-free or low-lock. Refills happen in batches so one central-list trip feeds many future small allocations.',
+    explanation: `Thread caches make the common path lock-free or low-lock across all ${sizeClasses} escalation levels. Refills happen in batches so one central-list trip feeds many future small allocations.`,
   };
 
   yield {
     state: refillPath('Refill climbs from local cache to page heap'),
     highlight: { active: ['thread', 'central'], found: ['span'], compare: ['page', 'os'] },
-    explanation: 'When a local free list is empty, the allocator refills from a central list. If the central list lacks free objects, it carves a new slab or span from larger page-level memory.',
+    explanation: `When a local free list for the ${classSize}-byte class is empty, the allocator refills from a central list. If the central list lacks free objects, it carves a new slab from larger page-level memory.`,
   };
 }
 
 function* slabsAndCaches() {
+  const slabStates = 4;
+  const allocatorCount = 4;
+
   yield {
     state: labelMatrix(
       'Slab states',
@@ -155,8 +163,8 @@ function* slabsAndCaches() {
       ],
     ),
     highlight: { active: ['partial:allocator'], found: ['empty:allocator'], compare: ['full:allocator'] },
-    explanation: 'A slab is a page or group of pages divided into equal-size objects. Allocators prefer partial slabs so they pack live objects and can eventually reclaim empty slabs.',
-    invariant: 'Inside one slab cache, every object slot has the same size and alignment.',
+    explanation: `A slab is a page or group of pages divided into equal-size objects. Across ${slabStates} slab states, allocators prefer partial slabs so they pack live objects and can eventually reclaim empty slabs.`,
+    invariant: `Inside one slab cache, every object slot has the same size and alignment regardless of which of the ${slabStates} states the slab is in.`,
   };
 
   yield {
@@ -180,7 +188,7 @@ function* slabsAndCaches() {
       ],
     ),
     highlight: { found: ['linux:front', 'tcmalloc:front', 'jemalloc:front'], compare: ['buddy:front'] },
-    explanation: 'The vocabulary differs, but the same tiers recur: a fast local cache, a central pool by size class, and a large-block/page source underneath.',
+    explanation: `The vocabulary differs across ${allocatorCount} allocators, but the same tiers recur: a fast local cache, a central pool by size class, and a large-block/page source underneath.`,
   };
 
   yield {
@@ -204,13 +212,13 @@ function* slabsAndCaches() {
       ],
     ),
     highlight: { active: ['speed:tool', 'locks:tool'], compare: ['rss:risk', 'fragment:risk'] },
-    explanation: 'Allocators are tradeoff machines. The same cache that removes locks can retain idle memory. The same size class that enables reuse can create internal slack.',
+    explanation: `Allocators balance ${slabStates} design pressures simultaneously. The same cache that removes locks can retain idle memory. The same size class that enables reuse can create internal slack.`,
   };
 
   yield {
     state: fastPath('The allocation path is a hierarchy of caches'),
     highlight: { active: ['request', 'class', 'tcache'], found: ['slab', 'object'] },
-    explanation: 'The final mental model: small allocation is not one global heap search. It is size-class routing through local and central caches backed by page-level allocation.',
+    explanation: `The final mental model: small allocation is not one global heap search. All ${allocatorCount} allocators route through size classes, local caches, and central pools backed by page-level allocation.`,
   };
 }
 
@@ -231,7 +239,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/slab-allocator-size-classes.gif', alt: 'Animated walkthrough of the slab allocator size classes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

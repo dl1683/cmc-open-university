@@ -86,7 +86,7 @@ function* saveVsRecompute() {
       [3, 3, 3, 3, 3, 3],
     ], { 1: 'compute', 2: 'kept', 3: 'read' }),
     highlight: { active: ['store:l1', 'store:l2', 'store:l3', 'store:l4', 'store:l5', 'store:l6'], found: ['bwd:l6'] },
-    explanation: 'Read the stored row as the live activation set that must survive until backward. The default strategy is fast because backward can read saved tensors, but deep networks and long sequences can make that row dominate memory.',
+    explanation: `Read the stored row as the live activation set that must survive until backward. All ${layers.length} blocks keep their activations — the default strategy is fast because backward can read saved tensors, but deep networks and long sequences can make that row dominate memory.`,
   };
 
   yield {
@@ -96,14 +96,14 @@ function* saveVsRecompute() {
       [3, 4, 4, 3, 4, 3],
     ], { 0: '', 1: 'compute', 2: 'saved', 3: 'read', 4: 'recompute' }),
     highlight: { active: ['store:l1', 'store:l4', 'store:l6'], compare: ['bwd:l2', 'bwd:l3', 'bwd:l5'] },
-    explanation: 'Activation checkpointing saves selected boundary tensors and discards the rest. During backward, the missing tensors are recomputed from the nearest saved boundary instead of loaded from memory.',
-    invariant: 'Checkpointing trades extra forward compute for lower activation memory.',
+    explanation: `Activation checkpointing saves ${[2, 0, 0, 2, 0, 2].filter(v => v === 2).length} boundary tensors across ${layers.length} blocks and discards the rest. During backward, the ${[3, 4, 4, 3, 4, 3].filter(v => v === 4).length} missing tensors are recomputed from the nearest saved boundary instead of loaded from memory.`,
+    invariant: `Checkpointing trades extra forward compute for lower activation memory — ${layers.length - [2, 0, 0, 2, 0, 2].filter(v => v === 2).length} blocks recomputed on the fly.`,
   };
 
   yield {
     state: chainState('Backward replays a segment only when its activations are needed'),
     highlight: { active: ['b3', 'b4', 'b5', 'e-b3-b4', 'e-b4-b5'], found: ['loss'] },
-    explanation: 'The backward pass walks from the loss toward the input. When it reaches a checkpointed region, it reruns that region forward to rebuild the intermediates needed for gradients, then immediately frees them.',
+    explanation: `The backward pass walks from loss toward input across all ${layers.length} blocks. When it reaches a checkpointed region spanning blocks like ${layers[2].label}–${layers[4].label}, it reruns that region forward to rebuild the intermediates needed for gradients, then immediately frees them.`,
   };
 
   yield {
@@ -128,7 +128,7 @@ function* saveVsRecompute() {
       ],
     ),
     highlight: { active: ['manual:memory', 'manual:compute'], found: ['selective:memory', 'compiler:memory'] },
-    explanation: 'Checkpointing is not one fixed algorithm. The practical question is what to save, what to recompute, and which operations are too expensive or too stateful to replay freely.',
+    explanation: `Checkpointing is not one fixed algorithm — the matrix compares ${['ordinary backprop', 'manual checkpoints', 'selective policy', 'compiler-assisted'].length} strategies across ${['activation memory', 'extra compute', 'risk'].length} dimensions. The practical question is what to save, what to recompute, and which operations are too expensive or too stateful to replay freely.`,
   };
 }
 
@@ -136,7 +136,7 @@ function* checkpointPlacement() {
   yield {
     state: chainState('Good checkpoints bracket expensive memory regions'),
     highlight: { found: ['b1', 'b3'], active: ['b2', 'b4', 'b5'] },
-    explanation: 'Read saved nodes as restart points and dropped nodes as replay work. A checkpoint is most useful when it brackets large activations whose forward compute is acceptable to run again.',
+    explanation: `Read saved nodes (${layers[0].label}, ${layers[2].label}) as restart points and the remaining ${layers.length - 2} dropped nodes as replay work. A checkpoint is most useful when it brackets large activations whose forward compute is acceptable to run again.`,
   };
 
   yield {
@@ -160,7 +160,7 @@ function* checkpointPlacement() {
       ],
     ),
     highlight: { active: ['large:checkpoint', 'cheap:checkpoint'], compare: ['random:checkpoint', 'side:checkpoint'] },
-    explanation: 'Replay must be semantically equivalent to the original forward pass. Dropout and random operations require RNG handling; hidden side effects or global state can silently break gradients.',
+    explanation: `Replay must be semantically equivalent to the original forward pass across all ${layers.length} blocks. Dropout and random operations require RNG handling; hidden side effects or global state can silently break gradients — ${'careful'} and ${'avoid or isolate'} mark the dangerous rows.`,
   };
 
   yield {
@@ -184,7 +184,7 @@ function* checkpointPlacement() {
       ],
     ),
     highlight: { found: ['zero:checkpointing', 'sequence:checkpointing'], active: ['batch:checkpointing'] },
-    explanation: 'Activation checkpointing stacks with sharded optimizer state, tensor parallelism, mixed precision, and batch-size tuning. It is usually one lever in a larger memory budget.',
+    explanation: `Activation checkpointing stacks with ${['mixed precision', 'ZeRO/FSDP', 'sequence length', 'batch size'].length} other memory levers — sharded optimizer state, tensor parallelism, mixed precision, and batch-size tuning. It is usually one lever in a larger memory budget across all ${layers.length} blocks.`,
   };
 
   yield {
@@ -194,7 +194,7 @@ function* checkpointPlacement() {
       [3, 4, 4, 3, 4, 3],
     ], { 0: '', 1: 'forward', 2: 'boundary', 3: 'read', 4: 'replay' }),
     highlight: { found: ['store:l1', 'store:l4', 'store:l6'], active: ['bwd:l2', 'bwd:l3', 'bwd:l5'] },
-    explanation: 'The final frame is the entire idea: memory keeps only enough boundaries to rebuild the missing interior. Training becomes slower, but models that did not fit can become trainable.',
+    explanation: `The final frame is the entire idea: memory keeps only ${[2, 0, 0, 2, 0, 2].filter(v => v === 2).length} boundaries across ${layers.length} blocks to rebuild the ${[2, 0, 0, 2, 0, 2].filter(v => v === 0).length} missing interiors. Training becomes slower, but models that did not fit can become trainable.`,
   };
 }
 
@@ -215,7 +215,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: "callout", text: "Checkpointing changes activation memory from a long-lived trace into short replay windows with saved boundaries."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/activation-checkpointing.gif', alt: 'Animated walkthrough of the activation checkpointing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why it matters',

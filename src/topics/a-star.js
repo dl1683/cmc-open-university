@@ -130,7 +130,8 @@ export const article = {
         'Found highlights (at the end): the optimal path, traced back through parent pointers. Nodes visited but not on the final path represent wasted work -- the heuristic\'s job is to minimize that set.',
         'Toggle the heuristic to "zero (becomes Dijkstra)" and rerun. The path and cost are identical, but more nodes are settled. The difference in visited count is the heuristic\'s entire contribution.',
         {type: 'callout', text: 'A star is Dijkstra with a lower-bound compass: g preserves optimal cost accounting while h spends expansion budget toward the goal.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/a-star.gif', alt: 'Animated walkthrough of the a star visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -192,7 +192,8 @@ export const article = {
         'Watch for "u17" and "u42" appearing twice. Duplicates hash identically, so they always land in the same bucket with the same rank. The max never moves. This is how HyperLogLog ignores duplicates without storing them.',
         'The title line tracks the running cardinality estimate -- the harmonic-mean formula applied to the current register state -- next to the exact distinct count. The gap between the two is the estimation error. With only 8 registers the error is large; with 16,384 registers it drops below 1%.',
         'The merge view splits the stream across two shards. Merging takes the register-wise max: for each bucket, keep whichever shard saw the longer zero-run. The merged sketch is identical to a single sketch over the combined stream. That visual identity is the entire distributed-counting trick.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/hyperloglog.gif', alt: 'Animated walkthrough of the hyperloglog visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

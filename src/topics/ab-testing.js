@@ -95,7 +95,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: "callout", text: "A/B testing turns a product choice into a noise model: the observed lift only matters after you ask how often chance can fake it."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/ab-testing.gif', alt: 'Animated walkthrough of the ab testing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

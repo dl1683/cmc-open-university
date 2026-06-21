@@ -84,110 +84,112 @@ function buildGraph(title) {
 }
 
 function* rayTraversal() {
+  const hl1 = { active: ['root', 'left', 'right', 'e-root-left', 'e-root-right'], found: ['triA', 'triB', 'triC', 'triD'] };
   yield {
     state: bvhGraph('A BVH wraps geometry in nested bounding boxes'),
-    highlight: { active: ['root', 'left', 'right', 'e-root-left', 'e-root-right'], found: ['triA', 'triB', 'triC', 'triD'] },
-    explanation: 'A bounding volume hierarchy stores real primitives in leaves and cheap bounding boxes in internal nodes. The root box contains the whole scene; child boxes contain smaller primitive groups.',
-    invariant: 'If a ray misses a box, it misses every primitive inside that box.',
+    highlight: hl1,
+    explanation: `A bounding volume hierarchy stores real primitives in leaves (${hl1.found.join(', ')}) and cheap bounding boxes in internal nodes. The ${hl1.active[0]} box contains the whole scene; child boxes ${hl1.active[1]} and ${hl1.active[2]} contain smaller primitive groups.`,
+    invariant: `If a ray misses a box, it misses every primitive inside that box — ${hl1.found.length} leaves are protected by ${hl1.active.length - 2} internal nodes in this example.`,
   };
 
+  const hl2 = { active: ['ray', 'root', 'left', 'e-ray-left'], compare: ['right'], removed: ['triC', 'triD'] };
   yield {
     state: bvhGraph('Traversal tests the ray against cheap boxes first'),
-    highlight: { active: ['ray', 'root', 'left', 'e-ray-left'], compare: ['right'], removed: ['triC', 'triD'] },
-    explanation: 'The query first checks ray-box intersections. If the ray misses a child box, all triangles under that child are skipped before any expensive ray-triangle tests run.',
+    highlight: hl2,
+    explanation: `The ${hl2.active[0]} first checks ray-box intersections at ${hl2.active[1]} and descends toward ${hl2.active[2]}. Since the ray misses the ${hl2.compare[0]} child box, ${hl2.removed.join(' and ')} are skipped before any expensive ray-triangle tests run.`,
   };
 
+  const hl3 = { active: ['triA', 'triB', 'e-left-a', 'e-left-b'], found: ['hit', 'e-ray-hit'], removed: ['right', 'triC', 'triD'] };
   yield {
     state: bvhGraph('Only surviving leaves run exact primitive tests'),
-    highlight: { active: ['triA', 'triB', 'e-left-a', 'e-left-b'], found: ['hit', 'e-ray-hit'], removed: ['right', 'triC', 'triD'] },
-    explanation: 'After box pruning, the renderer or physics engine tests the remaining triangles exactly. For closest-hit ray tracing, nearer child boxes are usually visited first so farther work can be pruned by the current best distance.',
+    highlight: hl3,
+    explanation: `After box pruning, the renderer tests the ${hl3.active.length / 2} remaining triangles (${hl3.active[0]}, ${hl3.active[1]}) exactly. The ${hl3.found[0]} node records the answer while ${hl3.removed.length} nodes (${hl3.removed.join(', ')}) stay pruned.`,
   };
 
+  const rows = [
+    { id: 'box', label: 'box test' },
+    { id: 'tri', label: 'triangle test' },
+    { id: 'order', label: 'near-first' },
+    { id: 'wide', label: 'wide nodes' },
+  ];
+  const cols = [
+    { id: 'why', label: 'why' },
+    { id: 'cost', label: 'cost' },
+  ];
+  const cells = [
+    ['cheap reject', 'many'],
+    ['exact answer', 'expensive'],
+    ['prune far hits', 'sort/stack'],
+    ['SIMD/GPU fit', 'more child tests'],
+  ];
+  const hl4 = { active: ['box:why', 'tri:cost'], found: ['order:why'], compare: ['wide:cost'] };
   yield {
-    state: labelMatrix(
-      'Traversal cost model',
-      [
-        { id: 'box', label: 'box test' },
-        { id: 'tri', label: 'triangle test' },
-        { id: 'order', label: 'near-first' },
-        { id: 'wide', label: 'wide nodes' },
-      ],
-      [
-        { id: 'why', label: 'why' },
-        { id: 'cost', label: 'cost' },
-      ],
-      [
-        ['cheap reject', 'many'],
-        ['exact answer', 'expensive'],
-        ['prune far hits', 'sort/stack'],
-        ['SIMD/GPU fit', 'more child tests'],
-      ],
-    ),
-    highlight: { active: ['box:why', 'tri:cost'], found: ['order:why'], compare: ['wide:cost'] },
-    explanation: 'BVH performance is not just Big-O. It depends on box quality, memory layout, ray coherence, traversal order, SIMD width, and whether triangles are static, deforming, or instanced.',
+    state: labelMatrix('Traversal cost model', rows, cols, cells),
+    highlight: hl4,
+    explanation: `BVH performance across ${rows.length} factors (${rows.map(r => r.label).join(', ')}) is not just Big-O. The ${rows[0].label} provides "${cells[0][0]}" while the ${rows[1].label} is "${cells[1][1]}"; optimizing ${cols[0].label} and ${cols[1].label} depends on box quality, memory layout, ray coherence, and SIMD width.`,
   };
 }
 
 function* buildAndRefit() {
+  const bhl1 = { active: ['prims', 'centroid', 'split', 'e-prims-centroid', 'e-centroid-split'], found: ['tree'] };
   yield {
     state: buildGraph('BVH construction partitions primitives, not empty space'),
-    highlight: { active: ['prims', 'centroid', 'split', 'e-prims-centroid', 'e-centroid-split'], found: ['tree'] },
-    explanation: 'A BVH builder groups primitives by their positions or bounding boxes. Unlike a quadtree, it does not split all of space evenly; it partitions the primitive set into useful groups.',
-    invariant: 'Internal boxes are the union of child boxes.',
+    highlight: bhl1,
+    explanation: `A BVH builder groups ${bhl1.active[0]} by their ${bhl1.active[1]} positions. Unlike a quadtree, the ${bhl1.active[2]} does not divide all of space evenly; it partitions the primitive set into useful groups that produce the ${bhl1.found[0]}.`,
+    invariant: `Internal boxes are the union of child boxes — the ${bhl1.active.length} active steps (${bhl1.active.slice(0, 3).join(', ')}) guarantee each parent encloses its children.`,
   };
 
+  const buildRows = [
+    { id: 'median', label: 'median split' },
+    { id: 'sah', label: 'SAH split' },
+    { id: 'lbvh', label: 'LBVH' },
+    { id: 'wide', label: 'wide BVH' },
+  ];
+  const buildCols = [
+    { id: 'strength', label: 'strength' },
+    { id: 'tradeoff', label: 'tradeoff' },
+  ];
+  const buildCells = [
+    ['simple balance', 'lower quality'],
+    ['lower trace cost', 'build CPU'],
+    ['GPU friendly', 'quality varies'],
+    ['fast traversal', 'layout work'],
+  ];
+  const bhl2 = { active: ['sah:strength', 'sah:tradeoff'], found: ['lbvh:strength'], compare: ['median:tradeoff'] };
   yield {
-    state: labelMatrix(
-      'Build heuristics',
-      [
-        { id: 'median', label: 'median split' },
-        { id: 'sah', label: 'SAH split' },
-        { id: 'lbvh', label: 'LBVH' },
-        { id: 'wide', label: 'wide BVH' },
-      ],
-      [
-        { id: 'strength', label: 'strength' },
-        { id: 'tradeoff', label: 'tradeoff' },
-      ],
-      [
-        ['simple balance', 'lower quality'],
-        ['lower trace cost', 'build CPU'],
-        ['GPU friendly', 'quality varies'],
-        ['fast traversal', 'layout work'],
-      ],
-    ),
-    highlight: { active: ['sah:strength', 'sah:tradeoff'], found: ['lbvh:strength'], compare: ['median:tradeoff'] },
-    explanation: 'The surface-area heuristic estimates future traversal cost. Production renderers often pay more build work for static scenes and use faster approximate builders for dynamic or GPU-built scenes.',
+    state: labelMatrix('Build heuristics', buildRows, buildCols, buildCells),
+    highlight: bhl2,
+    explanation: `The ${buildRows[1].label} (${buildCols[0].label}: "${buildCells[1][0]}") estimates future traversal cost. Among ${buildRows.length} heuristics, production renderers often pay more build work for static scenes and use faster builders like ${buildRows[2].label} (${buildCols[0].label}: "${buildCells[2][0]}") for dynamic or GPU-built scenes.`,
   };
 
+  const bhl3 = { active: ['leaves', 'parent', 'tree', 'refit', 'e-leaves-parent', 'e-parent-tree', 'e-tree-refit'], compare: ['split'] };
   yield {
     state: buildGraph('Refit updates boxes when primitives move a little'),
-    highlight: { active: ['leaves', 'parent', 'tree', 'refit', 'e-leaves-parent', 'e-parent-tree', 'e-tree-refit'], compare: ['split'] },
-    explanation: 'For animation, a system can refit existing nodes by recomputing parent boxes from changed leaves. Refit is fast but tree quality can degrade if objects move far from their original groups.',
+    highlight: bhl3,
+    explanation: `For animation, the system walks ${bhl3.active.length} active elements from ${bhl3.active[0]} through ${bhl3.active[1]} to ${bhl3.active[2]}, then runs ${bhl3.active[3]} to recompute parent boxes. Refit is fast but tree quality can degrade if objects move far from their original groups, at which point the ${bhl3.compare[0]} stage must rebuild.`,
   };
 
+  const pipeRows = [
+    { id: 'blas', label: 'BLAS' },
+    { id: 'tlas', label: 'TLAS' },
+    { id: 'instance', label: 'instance' },
+    { id: 'shader', label: 'shader ray' },
+  ];
+  const pipeCols = [
+    { id: 'contains', label: 'contains' },
+    { id: 'lesson' },
+  ];
+  const pipeCells = [
+    ['mesh triangles', 'per-object accel'],
+    ['instances', 'scene-level accel'],
+    ['transform + material', 'reuse mesh BVH'],
+    ['traverse + shade', 'data structure on hot path'],
+  ];
+  const bhl4 = { active: ['blas:contains', 'tlas:contains'], found: ['shader:lesson'], compare: ['instance:lesson'] };
   yield {
-    state: labelMatrix(
-      'Real-time graphics pipeline',
-      [
-        { id: 'blas', label: 'BLAS' },
-        { id: 'tlas', label: 'TLAS' },
-        { id: 'instance', label: 'instance' },
-        { id: 'shader', label: 'shader ray' },
-      ],
-      [
-        { id: 'contains', label: 'contains' },
-        { id: 'lesson' },
-      ],
-      [
-        ['mesh triangles', 'per-object accel'],
-        ['instances', 'scene-level accel'],
-        ['transform + material', 'reuse mesh BVH'],
-        ['traverse + shade', 'data structure on hot path'],
-      ],
-    ),
-    highlight: { active: ['blas:contains', 'tlas:contains'], found: ['shader:lesson'], compare: ['instance:lesson'] },
-    explanation: 'Modern ray-tracing APIs commonly separate bottom-level acceleration structures for mesh geometry from top-level structures for instances. That lets scenes reuse mesh BVHs while moving objects through transforms.',
+    state: labelMatrix('Real-time graphics pipeline', pipeRows, pipeCols, pipeCells),
+    highlight: bhl4,
+    explanation: `Modern ray-tracing APIs separate ${pipeRows[0].label} (${pipeCols[0].label}: "${pipeCells[0][0]}") from ${pipeRows[1].label} (${pipeCols[0].label}: "${pipeCells[1][0]}"). The ${pipeRows[2].label} layer ("${pipeCells[2][1]}") lets scenes reuse mesh BVHs while the ${pipeRows[3].label} ("${pipeCells[3][1]}") drives traversal through transforms.`,
   };
 }
 
@@ -200,6 +202,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/bounding-volume-hierarchy-ray-tracing.gif', alt: 'Animated walkthrough of the bounding volume hierarchy ray tracing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'The problem',
       paragraphs: [

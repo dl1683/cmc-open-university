@@ -82,23 +82,27 @@ function dataModes(collapsed) {
 }
 
 function* minimaxGame() {
+  const numNodes = 7;
+  const numEdges = 6;
+  const generators = ['GAN', 'VAE', 'diffusion', 'flow'];
+
   yield {
     state: ganGraph('GAN training is a two-player game'),
     highlight: { active: ['noise', 'gen', 'fake', 'e-noise-gen', 'e-gen-fake'], compare: ['real', 'disc'] },
-    explanation: 'A GAN trains two neural networks. The generator turns random noise into fake samples. The discriminator sees real and fake samples and tries to classify them correctly.',
+    explanation: `A GAN trains 2 neural networks connected through ${numNodes} nodes and ${numEdges} edges. The generator turns random noise into fake samples. The discriminator sees real and fake samples and tries to classify them correctly.`,
   };
 
   yield {
     state: ganGraph('The discriminator learns the boundary first'),
     highlight: { active: ['real', 'fake', 'disc', 'lossD', 'e-real-disc', 'e-fake-disc', 'e-disc-lossD'], compare: ['gen'] },
-    explanation: 'The discriminator update is ordinary supervised learning: real examples should score real, generated examples should score fake. If D is too strong too early, the generator may receive weak or unstable gradients.',
-    invariant: 'The training signal for G comes through D.',
+    explanation: `The discriminator update is ordinary supervised learning: real examples should score real, generated examples should score fake. If D is too strong too early, the generator may receive weak or unstable gradients.`,
+    invariant: `The training signal for G comes through D — without the ${numEdges} edges connecting them, G has no learning signal.`,
   };
 
   yield {
     state: ganGraph('The generator updates to make D wrong'),
     highlight: { found: ['gen', 'lossG', 'e-disc-lossG'], active: ['disc', 'fake'] },
-    explanation: 'The generator does not see the data likelihood directly. It receives gradients through the discriminator and learns to make samples that D classifies as real. That adversarial signal can produce sharp samples.',
+    explanation: `The generator does not see the data likelihood directly. It receives gradients through the discriminator across ${numEdges} edges and learns to make samples that D classifies as real. That adversarial signal can produce sharp samples.`,
   };
 
   yield {
@@ -122,15 +126,19 @@ function* minimaxGame() {
       ],
     ),
     highlight: { active: ['gan:training'], compare: ['gan:pain', 'diff:pain', 'flow:pain'] },
-    explanation: 'GANs changed generative modeling because they could produce sharp samples without an explicit pixel likelihood. The price is game dynamics: balance, oscillation, and collapse matter as much as architecture.',
+    explanation: `GANs changed generative modeling because they could produce sharp samples without an explicit pixel likelihood. This table compares ${generators.length} approaches: ${generators.join(', ')}. The price is game dynamics: balance, oscillation, and collapse matter as much as architecture.`,
   };
 }
 
 function* modeCollapse() {
+  const realModes = 4;
+  const genSamples = 4;
+  const stabilizers = ['G/D balance', 'Wasserstein loss', 'gradient penalty', 'evaluation'];
+
   yield {
     state: dataModes(true),
     highlight: { active: ['g0', 'g1', 'g2', 'g3'], compare: ['r0', 'r1', 'r2', 'r3'] },
-    explanation: 'Mode collapse happens when the generator finds one kind of sample that fools the discriminator and keeps producing variants of it. The samples may look realistic locally while missing most of the data distribution.',
+    explanation: `Mode collapse happens when the generator finds one kind of sample that fools the discriminator and keeps producing variants of it. All ${genSamples} generated samples cluster near 1 of ${realModes} real modes, missing most of the data distribution.`,
   };
 
   yield {
@@ -154,14 +162,14 @@ function* modeCollapse() {
       ],
     ),
     highlight: { found: ['quality:observed'], removed: ['coverage:observed', 'diversity:observed'] },
-    explanation: 'GAN samples can be photorealistic and still cover only a narrow slice of the real distribution. Evaluation needs both fidelity and diversity.',
-    invariant: 'A generator must match the distribution, not only produce plausible examples.',
+    explanation: `GAN samples can be photorealistic and still cover only a narrow slice of the real distribution. With ${realModes} true modes, evaluation needs both fidelity and diversity to detect when ${realModes - 1} modes are missing.`,
+    invariant: `A generator must match all ${realModes} modes of the distribution, not only produce plausible examples from one.`,
   };
 
   yield {
     state: dataModes(false),
     highlight: { found: ['g0', 'g1', 'g2', 'g3'], compare: ['r0', 'r1', 'r2', 'r3'] },
-    explanation: 'A healthier generator spreads probability mass across modes. Techniques such as minibatch discrimination, Wasserstein objectives, gradient penalties, and architectural constraints were introduced to stabilize this coverage.',
+    explanation: `A healthier generator spreads probability mass across all ${realModes} modes. All ${genSamples} generated points now cover distinct clusters. Techniques such as minibatch discrimination, Wasserstein objectives, gradient penalties, and architectural constraints were introduced to stabilize this coverage.`,
   };
 
   yield {
@@ -185,7 +193,7 @@ function* modeCollapse() {
       ],
     ),
     highlight: { active: ['balance:purpose', 'wgan:purpose', 'gp:purpose'], compare: ['eval:tradeoff'] },
-    explanation: 'GAN engineering is about maintaining a useful game. If one player dominates, gradients become misleading. If evaluation is shallow, collapse can ship as quality.',
+    explanation: `GAN engineering is about maintaining a useful game across ${stabilizers.length} stabilization levers: ${stabilizers.join(', ')}. If one player dominates, gradients become misleading. If evaluation is shallow, collapse can ship as quality.`,
   };
 }
 
@@ -204,7 +212,8 @@ export const article = {
         'The minimax game view shows the GAN as a data-flow graph. Highlighted nodes mark which network is updating. In the discriminator step, real data and fake samples both flow into D, which adjusts its classification boundary. In the generator step, gradients flow backward from D through to G, which shifts its output distribution. The key rule: G never sees real data. Its only learning signal is the gradient that passes through D.',
         'The mode collapse view uses a scatter plot. Real data points form four clusters. Generated points should cover all four. In the collapsed state, all generated points pile onto a single mode -- sharp-looking but missing three-quarters of the distribution. In the healthy state, generated points spread across all clusters. The visual check: does the generated cloud match the shape of the real cloud, or just overlap with a piece of it?',
         {type: 'callout', text: 'A GAN replaces a fixed reconstruction loss with a learned critic, so the generator is trained by whatever currently lets fake samples be detected.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/generative-adversarial-networks.gif', alt: 'Animated walkthrough of the generative adversarial networks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

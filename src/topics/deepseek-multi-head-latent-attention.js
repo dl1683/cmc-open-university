@@ -28,6 +28,13 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* latentKvCache() {
+  const compressionStages = 5;  // nodes in first graph
+  const compressionEdges = 4;   // edges in first graph
+  const cacheVariants = 4;      // MHA, MQA, GQA, MLA
+  const queryPathNodes = 6;     // nodes in query path graph
+  const queryPathEdges = 6;     // edges in query path graph
+  const plotSeries = 2;         // mha vs mla series
+
   yield {
     state: graphState({
       nodes: [
@@ -45,7 +52,7 @@ function* latentKvCache() {
       ],
     }, { title: 'MLA stores compressed latent KV, not full per-head KV' }),
     highlight: { active: ['down', 'latent'], found: ['attn'] },
-    explanation: 'Multi-Head Latent Attention compresses each token into a latent KV vector for the cache. During attention, projections reconstruct the per-head key and value information the model needs.',
+    explanation: `Multi-Head Latent Attention compresses each token into a latent KV vector through ${compressionStages} stages (hidden to decode). During attention, ${compressionEdges} projection steps reconstruct the per-head key and value information the model needs.`,
   };
 
   yield {
@@ -70,8 +77,8 @@ function* latentKvCache() {
       ],
     ),
     highlight: { active: ['mla:stored', 'mla:tradeoff'], compare: ['mha:stored', 'gqa:stored'] },
-    explanation: 'MLA is a different compression move from MQA or GQA. It keeps a compact latent representation and lets learned projections recover the head-specific information.',
-    invariant: 'Cache format is an architecture choice, not only an implementation trick.',
+    explanation: `MLA is a different compression move from the other ${cacheVariants - 1} cache strategies (MQA, GQA, MHA). It keeps a compact latent representation and lets learned projections recover the head-specific information.`,
+    invariant: `Cache format is an architecture choice across all ${cacheVariants} variants, not only an implementation trick.`,
   };
 
   yield {
@@ -94,7 +101,7 @@ function* latentKvCache() {
       ],
     }, { title: 'MLA must preserve both content and position information' }),
     highlight: { active: ['rope', 'norop', 'score'], found: ['value'] },
-    explanation: 'The key difficulty is not merely shrinking tensors. The model still needs positional signal, content similarity, and per-head expressivity after compression.',
+    explanation: `The query path splits into ${queryPathNodes} stages across ${queryPathEdges} edges. The key difficulty is not merely shrinking tensors — the model still needs positional signal, content similarity, and per-head expressivity after compression.`,
   };
 
   yield {
@@ -106,11 +113,18 @@ function* latentKvCache() {
       ],
     }),
     highlight: { active: ['mla'], compare: ['mha'] },
-    explanation: 'The toy line shows the direction of the DeepSeek-V2 claim: KV cache grows with context either way, but the slope can be much smaller when the cache stores latent vectors.',
+    explanation: `The ${plotSeries} series show the direction of the DeepSeek-V2 claim: KV cache grows with context either way, but the MLA slope is roughly ${Math.round(0.13 / 1.0 * 100)}% of MHA when the cache stores latent vectors.`,
   };
 }
 
 function* decodeEconomics() {
+  const bottleneckRows = 4;     // prefill, decode, batch, serving
+  const archNodes = 6;          // nodes in architecture graph
+  const archEdges = 6;          // edges in architecture graph
+  const reportedMetrics = 4;    // rows in DeepSeek-V2 case matrix
+  const cacheReduction = 93.3;  // percent KV-cache reduction reported
+  const throughputGain = 5.76;  // max generation throughput multiplier
+
   yield {
     state: labelMatrix(
       'Inference bottleneck shift',
@@ -132,7 +146,7 @@ function* decodeEconomics() {
       ],
     ),
     highlight: { found: ['decode:MLA', 'batch:MLA', 'serving:MLA'] },
-    explanation: 'MLA mostly matters when decode is memory-bound. A smaller KV cache can allow longer contexts, larger continuous batches, or lower cost per generated token.',
+    explanation: `MLA affects all ${bottleneckRows} serving dimensions (prefill, decode, batching, serving cost). It mostly matters when decode is memory-bound — a smaller KV cache can allow longer contexts, larger continuous batches, or lower cost per generated token.`,
   };
 
   yield {
@@ -155,7 +169,7 @@ function* decodeEconomics() {
       ],
     }, { title: 'Architecture gains need serving-system support' }),
     highlight: { active: ['kernel', 'scheduler', 'memory'], found: ['throughput'] },
-    explanation: 'A compressed cache is only useful if kernels and serving code exploit it. The full case study crosses model architecture, memory layout, batching, and quality evaluation.',
+    explanation: `A compressed cache is only useful if all ${archNodes} system components (architecture through quality) work together across ${archEdges} dependency edges. The full case study crosses model architecture, memory layout, batching, and quality evaluation.`,
   };
 
   yield {
@@ -179,7 +193,7 @@ function* decodeEconomics() {
       ],
     ),
     highlight: { found: ['cache:claim', 'speed:claim'], compare: ['params:lesson'] },
-    explanation: 'DeepSeek-V2 reports both model-quality and system-efficiency gains. Teach MLA as part of that larger recipe: MoE, long context, cache compression, and serving throughput all interact.',
+    explanation: `DeepSeek-V2 reports ${reportedMetrics} key metrics: ${cacheReduction}% KV-cache reduction and up to ${throughputGain}x throughput. Teach MLA as part of that larger recipe — MoE, long context, cache compression, and serving throughput all interact.`,
   };
 
   yield {
@@ -191,7 +205,7 @@ function* decodeEconomics() {
       ],
     }),
     highlight: { active: ['latent'], compare: ['full'] },
-    explanation: 'For agentic and long-context workloads, decode economics can dominate model choice. MLA is one answer to the question: what should the model remember per token?',
+    explanation: `For agentic and long-context workloads, latent KV pain stays at ${Math.round(0.62 * 100)}% even at 1M tokens while full KV hits ${Math.round(0.98 * 100)}%. MLA is one answer to the question: what should the model remember per token?`,
   };
 }
 
@@ -204,6 +218,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/deepseek-multi-head-latent-attention.gif', alt: 'Animated walkthrough of the deepseek multi head latent attention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

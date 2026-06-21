@@ -87,36 +87,45 @@ function policyGraph(title) {
 }
 
 function* provenanceView() {
+  const g1 = provenanceGraph('Provenance links artifact bytes back to build inputs');
+  const nodeCount = g1.nodes.length;
+  const edgeCount = g1.edges.length;
   yield {
-    state: provenanceGraph('Provenance links artifact bytes back to build inputs'),
+    state: g1,
     highlight: { active: ['source', 'deps', 'build', 'artifact', 'e-source-build', 'e-deps-build', 'e-build-artifact'], compare: ['attest'] },
-    explanation: 'Provenance starts with the bytes in hand. The artifact digest is the join key that connects those downloaded bytes to a specific source, dependency set, builder, and build run.',
+    explanation: `Provenance starts with the bytes in hand. Across all ${nodeCount} graph nodes, the artifact digest is the join key that connects those downloaded bytes to a specific source, dependency set, builder, and build run.`,
   };
+  const g2 = provenanceGraph('SLSA provenance records buildDefinition and runDetails');
   yield {
-    state: provenanceGraph('SLSA provenance records buildDefinition and runDetails'),
+    state: g2,
     highlight: { active: ['build', 'artifact', 'attest', 'e-build-attest', 'e-artifact-attest'], found: ['source', 'deps'] },
-    explanation: 'A SLSA provenance predicate records what build ran, which parameters and dependencies it used, which builder executed it, and which artifact subjects came out of that run.',
-    invariant: 'Provenance must bind artifact digest, builder identity, and inputs together.',
+    explanation: `A SLSA provenance predicate records what build ran, which parameters and dependencies it used, which builder executed it, and which artifact subjects came out of that run. The ${edgeCount} edges encode every link from source to policy.`,
+    invariant: `Provenance must bind the ${g2.nodes.find(n => n.id === 'artifact').label} digest, ${g2.nodes.find(n => n.id === 'build').label}er identity, and inputs together.`,
   };
+  const g3 = provenanceGraph('Signatures and transparency logs make claims verifiable');
+  const sigNode = g3.nodes.find(n => n.id === 'sig');
+  const rekorNode = g3.nodes.find(n => n.id === 'rekor');
   yield {
-    state: provenanceGraph('Signatures and transparency logs make claims verifiable'),
+    state: g3,
     highlight: { active: ['attest', 'sig', 'rekor', 'e-attest-sig', 'e-sig-rekor'], compare: ['policy'] },
-    explanation: 'The attestation becomes verifiable only after signature checks bind it to an expected identity. Logging the signed claim adds public evidence that monitors can inspect for unexpected builds.',
+    explanation: `The attestation becomes verifiable only after the "${sigNode.label}" node binds it to an expected ${sigNode.note}. Logging the signed claim via the "${rekorNode.label}" node adds public evidence that monitors can inspect for unexpected builds.`,
   };
+  const matrixRows = [
+    { id: 'subject', label: 'subject' },
+    { id: 'builder', label: 'builder' },
+    { id: 'params', label: 'parameters' },
+    { id: 'deps', label: 'dependencies' },
+    { id: 'log', label: 'log entry' },
+  ];
+  const matrixCols = [
+    { id: 'stores', label: 'stores' },
+    { id: 'verify', label: 'verify' },
+  ];
   yield {
     state: labelMatrix(
       'Provenance graph nodes',
-      [
-        { id: 'subject', label: 'subject' },
-        { id: 'builder', label: 'builder' },
-        { id: 'params', label: 'parameters' },
-        { id: 'deps', label: 'dependencies' },
-        { id: 'log', label: 'log entry' },
-      ],
-      [
-        { id: 'stores', label: 'stores' },
-        { id: 'verify', label: 'verify' },
-      ],
+      matrixRows,
+      matrixCols,
       [
         ['artifact digest', 'downloaded bytes'],
         ['trusted platform', 'allowed signer-builder'],
@@ -126,45 +135,59 @@ function* provenanceView() {
       ],
     ),
     highlight: { active: ['subject:verify', 'builder:verify', 'deps:verify', 'log:verify'] },
-    explanation: 'The graph is useful because every trust decision names an edge to check: digest matches bytes, builder is expected, source is allowed, dependencies are known, and the signing event is visible.',
+    explanation: `The ${matrixRows.length}x${matrixCols.length} matrix is useful because every trust decision names an edge to check: digest matches bytes, builder is expected, source is allowed, dependencies are known, and the signing event is visible.`,
   };
 }
 
 function* policyVerification() {
+  const p1 = policyGraph('Start with the bytes you actually downloaded');
+  const pNodeCount = p1.nodes.length;
+  const pEdgeCount = p1.edges.length;
+  const digestNode = p1.nodes.find(n => n.id === 'digest');
   yield {
-    state: policyGraph('Start with the bytes you actually downloaded'),
+    state: p1,
     highlight: { active: ['download', 'digest', 'e-download-digest'], compare: ['attest'] },
-    explanation: 'Verification starts by hashing the artifact in hand. If the digest does not match the attestation subject, the rest of the metadata belongs to different bytes.',
+    explanation: `Verification starts by hashing the artifact in hand using ${digestNode.note}. If the digest does not match the attestation subject, the rest of the metadata belongs to different bytes.`,
   };
+  const p2 = policyGraph('Check the signature and signer-builder relationship');
+  const sigNodeP = p2.nodes.find(n => n.id === 'sig');
+  const builderNode = p2.nodes.find(n => n.id === 'builder');
   yield {
-    state: policyGraph('Check the signature and signer-builder relationship'),
+    state: p2,
     highlight: { active: ['sig', 'attest', 'builder', 'e-sig-attest', 'e-attest-builder'], compare: ['deps'] },
-    explanation: 'The signature is checked against an expected identity and builder relationship. A signer trusted for one workflow should not automatically speak for another builder or source boundary.',
+    explanation: `The "${sigNodeP.label}" is checked against an expected ${sigNodeP.note} and the "${builderNode.label}" relationship. A signer trusted for one workflow should not automatically speak for another builder or source boundary.`,
   };
+  const p3 = policyGraph('Resolve dependency and source expectations');
+  const gateNode = p3.nodes.find(n => n.id === 'gate');
   yield {
-    state: policyGraph('Resolve dependency and source expectations'),
+    state: p3,
     highlight: { active: ['attest', 'deps', 'gate', 'e-attest-deps', 'e-deps-gate'], compare: ['download'] },
-    explanation: 'Policy turns expectations into graph checks: source repository, git commit, workflow, builder, dependency digest, build type, and output subject all have to match the release rule.',
+    explanation: `Policy turns expectations into graph checks across ${pEdgeCount} edges: source repository, git commit, workflow, builder, dependency digest, build type, and output subject all have to match the release rule before the "${gateNode.label}" can ${gateNode.note}.`,
   };
+  const p4 = policyGraph('Require transparency inclusion when the workflow depends on it');
+  const logNode = p4.nodes.find(n => n.id === 'log');
   yield {
-    state: policyGraph('Require transparency inclusion when the workflow depends on it'),
+    state: p4,
     highlight: { active: ['attest', 'log', 'gate', 'e-attest-log', 'e-log-gate'], found: ['builder'] },
-    explanation: 'A transparency proof does not make an artifact safe. It makes the signing event public and monitorable, which is useful only when policy or monitoring actually consumes that evidence.',
+    explanation: `A transparency proof from the "${logNode.label}" node does not make an artifact safe. It makes the signing event public and monitorable (${logNode.note}), which is useful only when policy or monitoring actually consumes that evidence.`,
   };
+  const policyRows = [
+    { id: 'digest', label: 'digest mismatch' },
+    { id: 'builder', label: 'bad builder' },
+    { id: 'source', label: 'wrong source' },
+    { id: 'log', label: 'no log proof' },
+    { id: 'ok', label: 'all checks' },
+  ];
+  const policyCols = [
+    { id: 'action', label: 'action' },
+    { id: 'reason', label: 'reason' },
+  ];
+  const denyCount = policyRows.filter(r => r.id !== 'ok').length;
   yield {
     state: labelMatrix(
       'Policy decisions',
-      [
-        { id: 'digest', label: 'digest mismatch' },
-        { id: 'builder', label: 'bad builder' },
-        { id: 'source', label: 'wrong source' },
-        { id: 'log', label: 'no log proof' },
-        { id: 'ok', label: 'all checks' },
-      ],
-      [
-        { id: 'action', label: 'action' },
-        { id: 'reason', label: 'reason' },
-      ],
+      policyRows,
+      policyCols,
       [
         ['deny', 'not same artifact'],
         ['deny', 'untrusted platform'],
@@ -174,7 +197,7 @@ function* policyVerification() {
       ],
     ),
     highlight: { removed: ['digest:action', 'builder:action', 'source:action'], active: ['ok:action'] },
-    explanation: 'Provenance turns supply-chain trust into cryptographic checks plus a graph query over expected build facts. A familiar package name is not enough evidence.',
+    explanation: `Provenance turns supply-chain trust into cryptographic checks over ${pNodeCount} nodes plus a graph query over expected build facts. ${denyCount} of ${policyRows.length} policy rows result in deny; a familiar package name is not enough evidence.`,
   };
 }
 
@@ -195,7 +218,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/software-supply-chain-provenance-graph.gif', alt: 'Animated walkthrough of the software supply chain provenance graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

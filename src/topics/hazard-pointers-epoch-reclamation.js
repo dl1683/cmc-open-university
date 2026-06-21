@@ -28,6 +28,9 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* hazardPointers() {
+  const steps = ['load', 'publish', 'recheck', 'use', 'clear'];
+  const retiredNodes = ['A', 'B', 'C'];
+
   yield {
     state: graphState({
       nodes: [
@@ -45,7 +48,7 @@ function* hazardPointers() {
       ],
     }, { title: 'A reader publishes the node it might dereference' }),
     highlight: { active: ['publish', 'check'], found: ['use'] },
-    explanation: 'A hazard pointer is a public promise: this thread may dereference that node. A remover can unlink the node, but it must not free or reuse it while any hazard pointer still names it.',
+    explanation: `A hazard pointer is a public promise across ${steps.length} steps: ${steps.join(' → ')}. A remover can unlink the node, but it must not free or reuse it while any hazard pointer still names it.`,
   };
 
   yield {
@@ -68,8 +71,8 @@ function* hazardPointers() {
       ],
     ),
     highlight: { found: ['A:action', 'C:action'], active: ['B:hazard'] },
-    explanation: 'Removed nodes first go to a retire list. Periodically, a thread scans all hazard-pointer slots; retired nodes not found in that public set can be reclaimed.',
-    invariant: 'Unlinked does not mean freeable.',
+    explanation: `${retiredNodes.length} removed nodes (${retiredNodes.join(', ')}) first go to a retire list. Periodically, a thread scans all hazard-pointer slots; retired nodes not found in that public set can be reclaimed.`,
+    invariant: `Unlinked does not mean freeable — ${retiredNodes.filter((_, i) => i !== 1).length} of ${retiredNodes.length} nodes are freed here because no HP protects them.`,
   };
 
   yield {
@@ -89,7 +92,7 @@ function* hazardPointers() {
       ],
     }, { title: 'Early reuse creates ABA-style failures' }),
     highlight: { active: ['free', 'alloc', 'cas'], found: ['bug'] },
-    explanation: 'Safe reclamation is also an ABA defense. If an address is freed and reused while another thread still holds the old pointer, a compare-and-swap can be fooled by the same address carrying new meaning.',
+    explanation: `Safe reclamation is also an ABA defense. The ${steps.length}-step protocol prevents early reuse: if an address is freed and reused while another thread still holds the old pointer, a compare-and-swap can be fooled by the same address carrying new meaning.`,
   };
 
   yield {
@@ -113,11 +116,14 @@ function* hazardPointers() {
       ],
     ),
     highlight: { found: ['progress:lesson', 'failure:lesson', 'fit:lesson'] },
-    explanation: 'Hazard pointers are precise and portable, but scans cost CPU. They are useful when you need to protect individual nodes and cannot rely on a runtime garbage collector.',
+    explanation: `Hazard pointers are precise and portable, but scanning ${retiredNodes.length} retired nodes against all HP slots costs CPU. They are useful when you need to protect individual nodes and cannot rely on a runtime garbage collector.`,
   };
 }
 
 function* epochReclamation() {
+  const epochBags = 3;
+  const epochSteps = ['pin', 'epoch', 'retire', 'advance', 'free'];
+
   yield {
     state: graphState({
       nodes: [
@@ -135,7 +141,7 @@ function* epochReclamation() {
       ],
     }, { title: 'Epoch reclamation waits for all active readers to move on' }),
     highlight: { active: ['epoch', 'retire', 'advance'], found: ['free'] },
-    explanation: 'Epoch-based reclamation protects groups of nodes. Threads announce the current epoch while accessing the structure. Retired nodes are freed only after every active thread has passed beyond the epoch that could still reference them.',
+    explanation: `Epoch-based reclamation protects groups of nodes through ${epochSteps.length} steps: ${epochSteps.join(' → ')}. Threads announce the current epoch while accessing the structure. Retired nodes are freed only after every active thread has passed beyond the epoch that could still reference them.`,
   };
 
   yield {
@@ -157,8 +163,8 @@ function* epochReclamation() {
       ],
     ),
     highlight: { found: ['e0:state'], active: ['e2:state'] },
-    explanation: 'A common model keeps garbage bags for recent epochs. When all threads have announced a sufficiently new epoch, the oldest bag can be reclaimed in bulk.',
-    invariant: 'Bulk reclamation buys speed by giving up per-node precision.',
+    explanation: `A common model keeps ${epochBags} garbage bags for recent epochs. When all threads have announced a sufficiently new epoch, the oldest of the ${epochBags} bags can be reclaimed in bulk.`,
+    invariant: `Bulk reclamation across ${epochBags} epoch bags buys speed by giving up per-node precision.`,
   };
 
   yield {
@@ -170,7 +176,7 @@ function* epochReclamation() {
       ],
     }),
     highlight: { active: ['ebr'], compare: ['hp'] },
-    explanation: 'Epoch reclamation can be very fast when threads keep moving. A stalled or crashed participant can delay reclamation and allow retired garbage to grow.',
+    explanation: `Epoch reclamation can be very fast when threads keep moving through the ${epochSteps.length}-step protocol. A stalled or crashed participant can delay reclamation across all ${epochBags} bags and allow retired garbage to grow.`,
   };
 
   yield {
@@ -192,7 +198,7 @@ function* epochReclamation() {
       ],
     ),
     highlight: { found: ['hp:best', 'ebr:best', 'rcu:best'] },
-    explanation: 'There is no universal winner. Hazard pointers, epochs, and RCU choose different points in the precision, throughput, read-path cost, and stalled-thread tradeoff space.',
+    explanation: `There is no universal winner among the ${epochBags} reclamation strategies shown. Hazard pointers, epochs, and RCU choose different points in the precision, throughput, read-path cost, and stalled-thread tradeoff space.`,
   };
 }
 
@@ -213,7 +219,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/hazard-pointers-epoch-reclamation.gif', alt: 'Animated walkthrough of the hazard pointers epoch reclamation visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

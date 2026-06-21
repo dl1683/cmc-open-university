@@ -32,17 +32,20 @@ const ACCEPTORS = [['a1', 'acceptor A1'], ['a2', 'acceptor A2'], ['a3', 'accepto
 const COLS = [['promised', 'highest ballot promised'], ['accepted', 'accepted (ballot, value)'], ['note', 'what just happened']];
 
 function* chooseValue() {
+  const majority = Math.ceil(ACCEPTORS.length / 2);
+  const partitioned = ACCEPTORS.length - majority;
+
   yield {
-    state: table('The cast: 5 acceptors, 2 proposers, majority = 3', ACCEPTORS, COLS, [
+    state: table(`The cast: ${ACCEPTORS.length} acceptors, 2 proposers, majority = ${majority}`, ACCEPTORS, COLS, [
       ['—', '—', 'remembers two things: highest ballot promised, last value accepted'],
       ['—', '—', 'an acceptor never forgets a promise (it survives crashes on disk)'],
-      ['—', '—', 'any 3 of 5 form a quorum'],
+      ['—', '—', `any ${majority} of ${ACCEPTORS.length} form a quorum`],
       ['—', '—', 'currently partitioned away'],
       ['—', '—', 'currently partitioned away'],
     ]),
     highlight: {},
-    explanation: 'The problem: five machines must agree on ONE value — which write wins, who holds a lock, what the next config is — even while machines crash and messages vanish. Two-Phase Commit (2PC) can\'t do this: it blocks forever if the coordinator dies at the wrong moment, because no one else is allowed to finish the decision. Paxos\'s answer (Lamport, written 1989, finally published 1998) has no fixed coordinator at all: ANY proposer may try, every attempt carries a unique increasing BALLOT NUMBER, and acceptors enforce the rules. Two of the five acceptors are partitioned away for this whole story — Paxos only ever needs a majority alive.',
-    invariant: 'Consensus contract: only one value is ever chosen, and it is only chosen if a majority accepted it.',
+    explanation: `The problem: ${ACCEPTORS.length} machines must agree on ONE value — which write wins, who holds a lock, what the next config is — even while machines crash and messages vanish. Two-Phase Commit (2PC) can\'t do this: it blocks forever if the coordinator dies at the wrong moment, because no one else is allowed to finish the decision. Paxos\'s answer (Lamport, written 1989, finally published 1998) has no fixed coordinator at all: ANY proposer may try, every attempt carries a unique increasing BALLOT NUMBER, and acceptors enforce the rules. ${partitioned} of the ${ACCEPTORS.length} acceptors are partitioned away for this whole story — Paxos only ever needs a majority of ${majority} alive.`,
+    invariant: `Consensus contract: only one value is ever chosen, and it is only chosen if a majority (${majority} of ${ACCEPTORS.length}) accepted it.`,
   };
 
   yield {
@@ -54,8 +57,8 @@ function* chooseValue() {
       ['—', '—', 'unreachable'],
     ]),
     highlight: { active: ['a1:promised', 'a2:promised', 'a3:promised'] },
-    explanation: 'Phase 1 is a permission round that doubles as an interview. P1 picks ballot 1 and sends prepare(1). Each acceptor that hasn\'t promised a higher ballot replies with a PROMISE — "I will never accept anything with a ballot below 1" — and reports the last value it ever accepted (here: none). P1 has a majority of promises (A1–A3), so it now knows two things: its ballot is currently the highest in play among a quorum, and no value has been chosen yet, so it is free to propose its own. Note what phase 1 did NOT do: no value was sent. It only froze the past and read it.',
-    invariant: 'A promise is a one-way door: an acceptor that promised ballot n is dead to every ballot below n, forever.',
+    explanation: `Phase 1 is a permission round that doubles as an interview. P1 picks ballot 1 and sends prepare(1). Each acceptor that hasn\'t promised a higher ballot replies with a PROMISE — "I will never accept anything with a ballot below 1" — and reports the last value it ever accepted (here: none). P1 has ${majority} promises (A1–A3) — a majority of ${ACCEPTORS.length} — so it now knows two things: its ballot is currently the highest in play among a quorum, and no value has been chosen yet, so it is free to propose its own. Note what phase 1 did NOT do: no value was sent. It only froze the past and read it.`,
+    invariant: `A promise is a one-way door: an acceptor that promised ballot n is dead to every ballot below n, forever.`,
   };
 
   yield {
@@ -67,8 +70,8 @@ function* chooseValue() {
       ['—', '—', 'unreachable, and it does not matter'],
     ]),
     highlight: { found: ['a1:accepted', 'a2:accepted', 'a3:accepted'] },
-    explanation: 'Phase 2: P1 sends accept(1, "X") to its quorum, and each acceptor — none of which has promised anything higher — records (1, "X"). The instant the THIRD acceptor writes it down, "X" is chosen. Pause on how strange that is: no machine knows yet. P1 hasn\'t collected the acks; A1 doesn\'t know about A3. Chosen-ness is a property of the SYSTEM — a majority of acceptors hold the same (ballot, value) — not a fact in any single memory. Learning that it happened comes later and can fail; the choice itself, once made, is permanent physics.',
-    invariant: 'Chosen means: some majority all accepted the same ballot\'s value. No single node\'s knowledge is required.',
+    explanation: `Phase 2: P1 sends accept(1, "X") to its quorum, and each acceptor — none of which has promised anything higher — records (1, "X"). The instant the ${majority}rd acceptor writes it down, "X" is chosen. Pause on how strange that is: no machine knows yet. P1 hasn\'t collected the acks; A1 doesn\'t know about A3. Chosen-ness is a property of the SYSTEM — ${majority} of ${ACCEPTORS.length} acceptors hold the same (ballot, value) — not a fact in any single memory. Learning that it happened comes later and can fail; the choice itself, once made, is permanent physics.`,
+    invariant: `Chosen means: some majority (${majority} of ${ACCEPTORS.length}) all accepted the same ballot\'s value. No single node\'s knowledge is required.`,
   };
 
   yield {
@@ -80,8 +83,8 @@ function* chooseValue() {
       ['2', '—', 'PROMISE, nothing accepted'],
     ]),
     highlight: { active: ['a3:note'], compare: ['a4:accepted', 'a5:accepted'] },
-    explanation: 'Now the part that makes Paxos PAXOS. P1 crashes before telling anyone. P2 — wanting to propose its own value "Y" — prepares ballot 2 and reaches a different majority: A3, A4, A5 (the partition healed). The promises come back, and one of them is loaded: A3 reports it accepted (1, "X"). Here is the sacred rule: a proposer must adopt the value of the HIGHEST-ballot acceptance reported in its promise quorum. P2 wanted "Y"; it must propose "X". Its ballot wins, but the value survives. P2\'s ambition is reduced to a courier service for history.',
-    invariant: 'Adoption rule: propose your own value ONLY if the promise quorum reports no prior acceptance; else carry the highest one forward.',
+    explanation: `Now the part that makes Paxos PAXOS. P1 crashes before telling anyone. P2 — wanting to propose its own value "Y" — prepares ballot 2 and reaches a different majority of ${majority}: A3, A4, A5 (the partition healed). The promises come back, and one of them is loaded: A3 reports it accepted (1, "X"). Here is the sacred rule: a proposer must adopt the value of the HIGHEST-ballot acceptance reported in its promise quorum. P2 wanted "Y"; it must propose "X". Its ballot wins, but the value survives. P2\'s ambition is reduced to a courier service for history.`,
+    invariant: `Adoption rule: propose your own value ONLY if the promise quorum (${majority} of ${ACCEPTORS.length}) reports no prior acceptance; else carry the highest one forward.`,
   };
 
   yield {
@@ -95,12 +98,14 @@ function* chooseValue() {
       ['A3 — never empty', 'the history: any 3-of-5 quorums share a member'],
     ]),
     highlight: { found: ['cut:members'] },
-    explanation: 'The proof fits in one sentence: any two majorities of five share at least one member, so SOME acceptor in every future prepare-quorum was in the majority that chose "X" — and its promise reply carries the evidence forward. The chosen value rides the quorum intersections into every higher ballot, forever. This is also why acceptors must persist their state to disk before replying (a forgotten promise breaks the chain), and it\'s the same quorum-overlap argument that makes Raft Log Replication safe — Raft inherited the skeleton and gave it a friendlier face, which is the second view\'s story.',
-    invariant: 'Any two majorities intersect: once chosen, every higher ballot\'s prepare phase is forced to learn and re-propose the same value.',
+    explanation: `The proof fits in one sentence: any two majorities of ${ACCEPTORS.length} share at least ${2 * majority - ACCEPTORS.length} member, so SOME acceptor in every future prepare-quorum was in the majority that chose "X" — and its promise reply carries the evidence forward. The chosen value rides the quorum intersections into every higher ballot, forever. This is also why acceptors must persist their state to disk before replying (a forgotten promise breaks the chain), and it\'s the same quorum-overlap argument that makes Raft Log Replication safe — Raft inherited the skeleton and gave it a friendlier face, which is the second view\'s story.`,
+    invariant: `Any two majorities of ${ACCEPTORS.length} (quorum ${majority}) intersect: once chosen, every higher ballot\'s prepare phase is forced to learn and re-propose the same value.`,
   };
 }
 
 function* duels() {
+  const majority = Math.ceil(ACCEPTORS.length / 2);
+
   yield {
     state: table('Two proposers, no coordination: the duel', [
       ['t1', 't1 · P1 prepare(1)'],
@@ -118,8 +123,8 @@ function* duels() {
       ['…and 4 kills 3. Forever. No value is ever chosen.'],
     ]),
     highlight: { removed: ['t3:result', 't5:result'] },
-    explanation: 'Paxos\'s safety is perfect; its LIVENESS is not. Watch two well-behaved proposers destroy each other: each one\'s prepare outbids the other\'s pending ballot, so every accept arrives to find its ballot already obsolete. Prepare, outbid, reject, re-prepare — a livelock that can spin forever with every machine healthy and every message delivered. This isn\'t a Paxos bug to be patched; it\'s the FLP theorem (1985) showing through: no deterministic algorithm can guarantee consensus termination in an asynchronous system with even one possible crash. Paxos chose to keep safety unconditional and let liveness depend on luck — or on a referee.',
-    invariant: 'Safety holds even mid-duel — nothing wrong is ever chosen. What\'s sacrificed is progress: liveness needs the duel to end.',
+    explanation: `Paxos\'s safety is perfect; its LIVENESS is not. Watch two well-behaved proposers destroy each other across ${ACCEPTORS.length} acceptors: each one\'s prepare outbids the other\'s pending ballot, so every accept arrives to find its ballot already obsolete. Prepare, outbid, reject, re-prepare — a livelock that can spin forever with every machine healthy and every message delivered. This isn\'t a Paxos bug to be patched; it\'s the FLP theorem (1985) showing through: no deterministic algorithm can guarantee consensus termination in an asynchronous system with even one possible crash. Paxos chose to keep safety unconditional and let liveness depend on luck — or on a referee.`,
+    invariant: `Safety holds even mid-duel — no wrong value is ever chosen by the ${ACCEPTORS.length} acceptors. What\'s sacrificed is progress: liveness needs the duel to end.`,
   };
 
   yield {
@@ -135,8 +140,8 @@ function* duels() {
       ['leader + heartbeats + per-command accept round — exactly the shape of Raft Leader Election'],
     ]),
     highlight: { active: ['multi:idea'] },
-    explanation: 'The fix everyone converges on: elect a DISTINGUISHED proposer and let only it run ballots — no second bidder, no duel. Choose it with randomized timeouts so two candidates rarely collide (and a collision just retries with fresh dice). Then the big optimization, MULTI-PAXOS: since consensus is now run for a SEQUENCE of commands (slot 1, slot 2, …), the leader runs phase 1 once for all future slots and afterwards streams phase-2 accepts — one round-trip per command. Now read back what we built: a leader chosen by randomized timeouts, holding authority over a stream of slots, replicating each entry to a majority. That is Raft Leader Election, derived from first principles.',
-    invariant: 'Multi-Paxos = Paxos with phase 1 hoisted out of the loop: a stable leader pays the prepare cost once, then one round-trip per command.',
+    explanation: `The fix everyone converges on: elect a DISTINGUISHED proposer and let only it run ballots among the ${ACCEPTORS.length} acceptors — no second bidder, no duel. Choose it with randomized timeouts so two candidates rarely collide (and a collision just retries with fresh dice). Then the big optimization, MULTI-PAXOS: since consensus is now run for a SEQUENCE of commands (slot 1, slot 2, …), the leader runs phase 1 once for all future slots and afterwards streams phase-2 accepts — one round-trip per command, each needing ${majority} acks. Now read back what we built: a leader chosen by randomized timeouts, holding authority over a stream of slots, replicating each entry to a majority. That is Raft Leader Election, derived from first principles.`,
+    invariant: `Multi-Paxos = Paxos with phase 1 hoisted out of the loop: a stable leader pays the prepare cost once across ${ACCEPTORS.length} acceptors, then one round-trip per command.`,
   };
 
   yield {
@@ -154,8 +159,8 @@ function* duels() {
       ['where history transfers: Paxos pulls old values FORWARD via promises; Raft refuses to elect anyone whose log isn\'t up to date — push vs pull, same quorum-overlap proof'],
     ]),
     highlight: { active: ['diff:raft'] },
-    explanation: 'Put the two vocabularies side by side and Raft reveals itself as Multi-Paxos with better ergonomics. Terms are ballots; RequestVote is prepare; AppendEntries is accept. The one structural difference is WHERE chosen history gets transferred: Paxos lets anyone win and forces the winner to adopt old values out of the promises (pull), while Raft makes up-to-dateness an eligibility requirement for leadership, so history never needs adopting (push). Both reduce to the same quorum-intersection argument. Raft\'s 2014 paper made understandability the explicit design goal — and proved the point with a user study in which students scored measurably higher on Raft questions than Paxos ones.',
-    invariant: 'Same safety theorem, different transfer of history: Paxos adopts values after winning; Raft restricts who may win.',
+    explanation: `Put the two vocabularies side by side and Raft reveals itself as Multi-Paxos with better ergonomics. Terms are ballots; RequestVote is prepare; AppendEntries is accept. The one structural difference is WHERE chosen history gets transferred: Paxos lets anyone win among ${ACCEPTORS.length} acceptors and forces the winner to adopt old values out of the promises (pull), while Raft makes up-to-dateness an eligibility requirement for leadership, so history never needs adopting (push). Both reduce to the same quorum-intersection argument (majority = ${majority}). Raft\'s 2014 paper made understandability the explicit design goal — and proved the point with a user study in which students scored measurably higher on Raft questions than Paxos ones.`,
+    invariant: `Same safety theorem, different transfer of history: Paxos adopts values after winning; Raft restricts who may win.`,
   };
 
   yield {
@@ -173,8 +178,8 @@ function* duels() {
       ['Multi-Paxos: Chubby, Spanner. Raft: etcd, Consul, CockroachDB. Same theorem underneath'],
     ]),
     highlight: { active: ['today:legacy'] },
-    explanation: 'The lineage, honestly told. Viewstamped Replication had leader-based consensus in 1988, before Paxos\'s tangled publication saga even ended. Lamport\'s "Part-Time Parliament" (written 1989, deemed too weird to publish until 1998, then re-explained in 2001\'s "Paxos Made Simple") supplied the proof everyone reuses. ZooKeeper\'s ZAB quietly ran Multi-Paxos\'s shape under half of big data. Raft\'s contribution was pedagogical engineering — and it conquered the open-source world for exactly that reason: etcd sits under every Kubernetes cluster. Meanwhile inside Google, Spanner still runs a Paxos group per shard (the same machinery behind its TrueTime commits). Forty years, one theorem, two vocabularies.',
-    invariant: 'Every production consensus system is the same quorum-overlap proof wearing different engineering: pick the vocabulary your team can hold.',
+    explanation: `The lineage, honestly told. Viewstamped Replication had leader-based consensus in 1988, before Paxos\'s tangled publication saga even ended. Lamport\'s "Part-Time Parliament" (written 1989, deemed too weird to publish until 1998, then re-explained in 2001\'s "Paxos Made Simple") supplied the proof everyone reuses. ZooKeeper\'s ZAB quietly ran Multi-Paxos\'s shape under half of big data. Raft\'s contribution was pedagogical engineering — and it conquered the open-source world for exactly that reason: etcd sits under every Kubernetes cluster. Meanwhile inside Google, Spanner still runs a Paxos group per shard (the same machinery behind its TrueTime commits). Forty years, one theorem, two vocabularies.`,
+    invariant: `Every production consensus system is the same quorum-overlap proof (majority of ${ACCEPTORS.length} = ${majority}) wearing different engineering: pick the vocabulary your team can hold.`,
   };
 }
 
@@ -194,7 +199,8 @@ export const article = {
         { type: "callout", text: "Paxos separates who may speak next from which value history forces that speaker to carry." },
         "The second view ('duels & the road to Raft') replays two proposers outbidding each other in alternating prepares. Removed cells mark rejected accept attempts: ballots that arrived after acceptors had already promised something higher. Every rejection obeys the safety rules, yet no value is ever chosen. The view then derives Multi-Paxos and the Raft mapping as the engineering fix.",
         "Under each frame, the invariant line states the property that keeps the step safe. If the invariant holds, two different values cannot both be chosen. If an acceptor loses its durable state, the invariant breaks.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/paxos.gif', alt: 'Animated walkthrough of the paxos visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

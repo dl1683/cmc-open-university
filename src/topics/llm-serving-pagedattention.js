@@ -73,18 +73,38 @@ function schedulerTable(title, values, labels) {
 }
 
 function* paging() {
-  yield {
-    state: memoryTable('Naive KV cache: reserve for the maximum', [6, 11, 4], [16, 16, 16], 1),
-    highlight: { active: ['total:waste'] },
-    explanation: 'During decode, every live request owns a KV Cache that grows token by token. A naive server reserves a large contiguous cache region for the maximum possible output, even though most requests stop early. Here 48 token slots are reserved and only 21 are used. The rest is stranded GPU memory.',
-  };
+  const naiveUsed = [6, 11, 4];
+  const naiveReserved = [16, 16, 16];
+  const naiveTotalUsed = naiveUsed.reduce((a, b) => a + b, 0);
+  const naiveTotalReserved = naiveReserved.reduce((a, b) => a + b, 0);
+  const naiveTotalWaste = naiveTotalReserved - naiveTotalUsed;
 
   yield {
-    state: memoryTable('PagedAttention: allocate fixed-size blocks on demand', [6, 11, 4], [8, 12, 4], 2),
+    state: memoryTable('Naive KV cache: reserve for the maximum', naiveUsed, naiveReserved, 1),
+    highlight: { active: ['total:waste'] },
+    explanation: `During decode, every live request owns a KV Cache that grows token by token. A naive server reserves a large contiguous cache region for the maximum possible output, even though most requests stop early. Here ${naiveTotalReserved} token slots are reserved and only ${naiveTotalUsed} are used. The rest is stranded GPU memory.`,
+  };
+
+  const pagedUsed = [6, 11, 4];
+  const pagedReserved = [8, 12, 4];
+  const pagedTotalWaste = pagedReserved.reduce((a, b) => a + b, 0) - pagedUsed.reduce((a, b) => a + b, 0);
+
+  yield {
+    state: memoryTable('PagedAttention: allocate fixed-size blocks on demand', pagedUsed, pagedReserved, 2),
     highlight: { active: ['r1:waste', 'r2:waste', 'r3:waste'], found: ['total:waste'] },
-    explanation: 'PagedAttention changes the unit of allocation. Instead of one contiguous maximum-sized region per request, the cache is split into same-sized blocks and allocated only when tokens need them. Waste falls from 27 slots to 3 slots in this toy example.',
+    explanation: `PagedAttention changes the unit of allocation. Instead of one contiguous maximum-sized region per request, the cache is split into same-sized blocks and allocated only when tokens need them. Waste falls from ${naiveTotalWaste} slots to ${pagedTotalWaste} slots in this toy example.`,
     invariant: 'Same-sized blocks eliminate external fragmentation and sharply reduce internal fragmentation.',
   };
+
+  const blockTable = [
+    [1, 1, 0, 0],
+    [0, 1, 1, 1],
+    [0, 0, 0, 1],
+  ];
+  const aMapped = blockTable[0].filter(v => v).length;
+  const bMapped = blockTable[1].filter(v => v).length;
+  const cMapped = blockTable[2].filter(v => v).length;
+  const totalBlocks = 4;
 
   yield {
     state: matrixState({
@@ -100,16 +120,15 @@ function* paging() {
         { id: 'p2', label: 'block 2' },
         { id: 'p3', label: 'block 3' },
       ],
-      values: [
-        [1, 1, 0, 0],
-        [0, 1, 1, 1],
-        [0, 0, 0, 1],
-      ],
+      values: blockTable,
       format: (v) => v ? 'mapped' : 'free',
     }),
     highlight: { active: ['a:p0', 'a:p1', 'b:p1', 'b:p2', 'b:p3', 'c:p3'] },
-    explanation: 'The block table is the trick. Logical token positions do not need to live beside each other physically. This is the same move as operating-system virtual memory: requests are processes, cache blocks are pages, and the attention kernel follows the page table.',
+    explanation: `The block table is the trick. Request A maps ${aMapped} of ${totalBlocks} blocks, B maps ${bMapped}, C maps ${cMapped}. Logical token positions do not need to live beside each other physically. This is the same move as operating-system virtual memory: requests are processes, cache blocks are pages, and the attention kernel follows the page table.`,
   };
+
+  const numBenefits = 4;
+  const benefitLabels = ['fragmentation', 'beam search', 'shared prompt', 'preemption'];
 
   yield {
     state: matrixState({
@@ -140,33 +159,44 @@ function* paging() {
       ][v],
     }),
     highlight: { active: ['frag:result', 'beam:result', 'prefix:result'] },
-    explanation: 'Paged KV cache is not a cosmetic optimization. It unlocks beam search, prefix sharing, and preemptive scheduling because cache ownership becomes block-level instead of one giant slab. That is why vLLM is a serving system, not just a faster Attention Mechanism kernel.',
+    explanation: `Paged KV cache is not a cosmetic optimization. It unlocks ${numBenefits} capabilities (${benefitLabels.join(', ')}) because cache ownership becomes block-level instead of one giant slab. That is why vLLM is a serving system, not just a faster Attention Mechanism kernel.`,
   };
 }
 
 function* continuousBatching() {
-  yield {
-    state: schedulerTable('Static batching waits for the slowest request', [
-      [1, 1, 0, 0],
-      [1, 1, 0, 0],
-      [2, 1, 0, 0],
-      [2, 2, 0, 0],
-    ], { 0: '', 1: 'decode', 2: 'idle' }),
-    highlight: { active: ['s3:a', 's4:a', 's4:b'] },
-    explanation: 'Static batching groups requests, runs them together, and often waits until the slowest sequence finishes before admitting new work. The GPU sees padding, idle lanes, and uneven output lengths. The problem is scheduling, not model quality.',
-  };
+  const staticGrid = [
+    [1, 1, 0, 0],
+    [1, 1, 0, 0],
+    [2, 1, 0, 0],
+    [2, 2, 0, 0],
+  ];
+  const staticIdleSlots = staticGrid.flat().filter(v => v === 2).length;
+  const staticTotalSlots = staticGrid.flat().length;
 
   yield {
-    state: schedulerTable('Continuous batching admits work every iteration', [
-      [1, 1, 0, 0],
-      [1, 1, 1, 0],
-      [0, 1, 1, 1],
-      [0, 0, 1, 1],
-    ], { 0: '', 1: 'decode' }),
+    state: schedulerTable('Static batching waits for the slowest request', staticGrid, { 0: '', 1: 'decode', 2: 'idle' }),
+    highlight: { active: ['s3:a', 's4:a', 's4:b'] },
+    explanation: `Static batching groups requests, runs them together, and often waits until the slowest sequence finishes before admitting new work. In this ${staticTotalSlots}-slot grid, ${staticIdleSlots} slots sit idle. The GPU sees padding, idle lanes, and uneven output lengths. The problem is scheduling, not model quality.`,
+  };
+
+  const contGrid = [
+    [1, 1, 0, 0],
+    [1, 1, 1, 0],
+    [0, 1, 1, 1],
+    [0, 0, 1, 1],
+  ];
+  const contActiveSlots = contGrid.flat().filter(v => v === 1).length;
+  const contEmptySlots = contGrid.flat().filter(v => v === 0).length;
+
+  yield {
+    state: schedulerTable('Continuous batching admits work every iteration', contGrid, { 0: '', 1: 'decode' }),
     highlight: { found: ['s2:c', 's3:d'] },
-    explanation: 'Continuous batching schedules at the token iteration level. When request A finishes, request D can join on the next decode step instead of waiting for the whole batch cycle. The GPU stays packed with useful tokens.',
+    explanation: `Continuous batching schedules at the token iteration level. ${contActiveSlots} of ${contActiveSlots + contEmptySlots} slots are actively decoding. When request A finishes, request D can join on the next decode step instead of waiting for the whole batch cycle. The GPU stays packed with useful tokens.`,
     invariant: 'The unit of scheduling is one decode iteration, not one whole request.',
   };
+
+  const numLevers = 4;
+  const leverNames = ['continuous batching', 'PagedAttention', 'chunked prefill', 'speculative decode'];
 
   yield {
     state: matrixState({
@@ -197,7 +227,7 @@ function* continuousBatching() {
       ][v],
     }),
     highlight: { active: ['batch:fixes', 'page:fixes', 'chunk:fixes'] },
-    explanation: 'A production LLM server is a composition of ideas already on this site: Load Balancer logic for scheduling, KV Cache memory accounting, Attention Mechanism kernels, Quantization for smaller weights, and Speculative Decoding for latency. The winning systems stack many small levers instead of trusting one magic trick.',
+    explanation: `A production LLM server is a composition of ${numLevers} levers (${leverNames.join(', ')}): Load Balancer logic for scheduling, KV Cache memory accounting, Attention Mechanism kernels, Quantization for smaller weights, and Speculative Decoding for latency. The winning systems stack many small levers instead of trusting one magic trick.`,
   };
 }
 
@@ -218,7 +248,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/llm-serving-pagedattention.gif', alt: 'Animated walkthrough of the llm serving pagedattention visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

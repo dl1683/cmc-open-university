@@ -117,7 +117,8 @@ const legacyArticle = {
       paragraphs: [
         `Separate the two phases. Heapify turns the array into a binary heap so the maximum value sits at the root. The extraction phase repeatedly swaps that maximum into its final position, shrinks the heap boundary, and repairs the heap with sift-down.`,
         `The animation is easiest to follow if you imagine two regions in the same array: the live heap on the left and the sorted suffix on the right. Values in the suffix are final; values in the heap only need to satisfy the parent-child heap rule, not full sorted order.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/heap-sort.gif', alt: 'Animated walkthrough of the heap sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Cost and behavior`,

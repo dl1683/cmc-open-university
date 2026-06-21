@@ -54,11 +54,15 @@ function flowGraph(title) {
 }
 
 function* residualCosts() {
+  const nodeCount = 7; // s, A, B, X, Y, t, potentials
+  const edgeCount = 10;
+  const loopSteps = 4; // shortest path, augment, update residuals, stop
+
   yield {
     state: flowGraph('Pick the cheapest augmenting path'),
     highlight: { active: ['s', 'b', 'y', 't', 'e-s-b', 'e-b-y', 'e-y-t'], compare: ['a', 'x'] },
-    explanation: 'Min-cost max-flow augments flow through a residual network. Instead of any available path, it chooses a path with minimum total cost, here source -> B -> Y -> sink.',
-    invariant: 'Flow value increases while total cost is kept as low as possible for that value.',
+    explanation: `Min-cost max-flow augments flow through a residual network of ${nodeCount} nodes and ${edgeCount} edges. Instead of any available path, it chooses a path with minimum total cost, here source -> B -> Y -> sink.`,
+    invariant: `Flow value increases while total cost is kept as low as possible for that value across all ${nodeCount} nodes.`,
   };
 
   yield {
@@ -79,13 +83,13 @@ function* residualCosts() {
       ],
     ),
     highlight: { active: ['reverse:capacity', 'reverse:cost'], found: ['path:cost'] },
-    explanation: 'Reverse edges are what make the algorithm corrective. A later cheaper global solution can cancel part of an earlier path by sending flow along a negative-cost reverse edge.',
+    explanation: `Reverse edges are what make the algorithm corrective. A later cheaper global solution can cancel part of an earlier path by sending flow along a negative-cost reverse edge in the ${edgeCount}-edge residual network.`,
   };
 
   yield {
     state: flowGraph('Potentials make Dijkstra usable with reduced costs'),
     highlight: { active: ['pot', 'e-pot-a', 'e-pot-y'], found: ['s', 't'] },
-    explanation: 'Residual graphs can have negative-cost reverse edges. Successive shortest path implementations often maintain node potentials so reduced costs stay nonnegative and Dijkstra can be used efficiently.',
+    explanation: `Residual graphs can have negative-cost reverse edges. Successive shortest path implementations maintain node potentials across ${nodeCount} nodes so reduced costs stay nonnegative and Dijkstra can be used efficiently.`,
   };
 
   yield {
@@ -106,15 +110,20 @@ function* residualCosts() {
       ],
     ),
     highlight: { active: ['shortest:work', 'augment:work'], found: ['stop:condition'] },
-    explanation: 'The loop is a cost-aware version of augmenting-path max flow. The residual graph carries both capacity and price information.',
+    explanation: `The ${loopSteps}-step loop is a cost-aware version of augmenting-path max flow. The residual graph across ${edgeCount} edges carries both capacity and price information.`,
   };
 }
 
 function* assignmentModel() {
+  const workers = 2; // A, B
+  const tasks = 2; // X, Y
+  const totalAssignments = 4; // A->X, A->Y, B->X, B->Y
+  const optimalCost = 3; // A->X (cost 2) + B->Y (cost 1)
+
   yield {
     state: flowGraph('Assignment as a flow network'),
     highlight: { active: ['s', 'a', 'b', 'x', 'y', 't'], found: ['e-a-x', 'e-b-y'] },
-    explanation: 'A bipartite assignment can be modeled with source-to-worker capacity, worker-to-task cost edges, and task-to-sink capacity. Sending two units assigns both tasks.',
+    explanation: `A bipartite assignment of ${workers} workers to ${tasks} tasks can be modeled with source-to-worker capacity, worker-to-task cost edges, and task-to-sink capacity. Sending ${workers} units assigns both tasks.`,
   };
 
   yield {
@@ -135,7 +144,7 @@ function* assignmentModel() {
       ],
     ),
     highlight: { found: ['ax:cost', 'by:cost'], compare: ['ay:cost'] },
-    explanation: 'The cheapest complete assignment is A -> X and B -> Y with total cost 3. The flow model also handles capacities, optional tasks, and side constraints better than a pure matching view.',
+    explanation: `The cheapest complete assignment is A -> X and B -> Y with total cost ${optimalCost}. The flow model across ${totalAssignments} candidate edges also handles capacities, optional tasks, and side constraints better than a pure matching view.`,
   };
 
   yield {
@@ -156,7 +165,7 @@ function* assignmentModel() {
       ],
     ),
     highlight: { active: ['costs:model'], found: ['flow:model'] },
-    explanation: 'The complete use case is dispatch: maximize fulfilled jobs while minimizing ETA or penalty. Hopcroft-Karp can maximize count; min-cost max-flow adds the cost objective.',
+    explanation: `The complete use case is dispatch: maximize fulfilled jobs while minimizing ETA or penalty across ${workers} drivers and ${tasks} jobs. Hopcroft-Karp can maximize count; min-cost max-flow adds the cost objective.`,
   };
 
   yield {
@@ -177,7 +186,7 @@ function* assignmentModel() {
       ],
     ),
     highlight: { compare: ['huge:issue', 'online:issue'], found: ['simple:response'] },
-    explanation: 'Min-cost flow is expressive, but that expressiveness costs implementation complexity. Use it when capacities and costs are truly part of the problem.',
+    explanation: `Min-cost flow is expressive, but that expressiveness costs implementation complexity. Use it when capacities and costs across ${totalAssignments} or more candidate edges are truly part of the problem.`,
   };
 }
 
@@ -197,7 +206,8 @@ export const article = {
         'When flow is pushed along an edge, a reverse edge appears in the residual graph. Forward residual capacity means more flow can still go that direction. Reverse residual capacity means flow already sent can be cancelled. An augmenting path that uses a reverse edge is not sending flow backward through a pipe -- it is revising an earlier routing decision.',
         'The potentials node shows Johnson\'s reweighting trick. Reduced cost of edge (u, v) = original cost + potential[u] - potential[v]. This keeps all reduced costs nonnegative so Dijkstra works, even though the true residual graph has negative-cost reverse edges. In the assignment view, source connects to workers, workers connect to tasks with cost edges, tasks connect to sink. Found edges are the final assignments.',
         {type: 'callout', text: 'Min-cost max-flow becomes reliable only when old routing choices can be undone through residual edges.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/min-cost-max-flow.gif', alt: 'Animated walkthrough of the min cost max flow visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

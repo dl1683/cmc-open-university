@@ -74,17 +74,24 @@ function launchGraph(title, captured) {
 }
 
 function* kernelFusion() {
+  const opCount = 3;
+  const fusedOps = ['matmul', 'bias', 'activation'];
+  const edgeCount = 5;
+  const hbmRoundTrips = opCount - 1;
+  const fusionApproaches = 4;
+  const failureModes = 4;
+
   yield {
     state: kernelGraph('Separate kernels repeatedly visit HBM', false),
     highlight: { active: ['e-mm-bias', 'e-bias-act'], compare: ['hbm', 'write'] },
-    explanation: 'A transformer layer is a chain of operations. If every small operation launches as its own kernel and writes an intermediate tensor to HBM, the GPU spends precious time moving data instead of using it.',
+    explanation: `A transformer layer is a chain of ${opCount} operations (${fusedOps.join(', ')}). If every small operation launches as its own kernel and writes an intermediate tensor to HBM, the GPU spends precious time on ${hbmRoundTrips} round trips moving data instead of using it.`,
   };
 
   yield {
     state: kernelGraph('A fused kernel keeps intermediates on chip', true),
     highlight: { found: ['matmul', 'bias', 'act', 'e-mm-bias', 'e-bias-act'], active: ['e-hbm-load', 'e-act-write'] },
-    explanation: 'Kernel fusion combines compatible operations so intermediate values stay in registers or SRAM. Read once, compute several operations, write once. This is the same memory-awareness lesson as FlashAttention, applied to other hot paths.',
-    invariant: 'Fusion changes the execution schedule, not the mathematical function.',
+    explanation: `Kernel fusion combines ${opCount} compatible operations (${fusedOps.join(', ')}) so intermediate values stay in registers or SRAM. Read once, compute ${opCount} operations, write once. This eliminates ${hbmRoundTrips} HBM round trips and applies the same memory-awareness lesson as FlashAttention.`,
+    invariant: `Fusion merges ${opCount} ops into one kernel, changing the execution schedule but not the mathematical function.`,
   };
 
   yield {
@@ -108,7 +115,7 @@ function* kernelFusion() {
       ],
     ),
     highlight: { found: ['fused:reads', 'flash:lesson'], compare: ['separate:reads'] },
-    explanation: 'The benefit appears when memory movement dominates arithmetic. Fusing tiny or bandwidth-bound operators can improve latency; fusing the wrong thing can reduce occupancy, complicate numerics, or make shapes brittle.',
+    explanation: `The benefit appears when memory movement dominates arithmetic across ${fusionApproaches} approaches shown. Fusing ${opCount} tiny or bandwidth-bound operators can improve latency; fusing the wrong thing can reduce occupancy, complicate numerics, or make shapes brittle.`,
   };
 
   yield {
@@ -132,22 +139,28 @@ function* kernelFusion() {
       ],
     ),
     highlight: { active: ['shape:response', 'occupancy:response', 'numerics:response', 'maint:response'] },
-    explanation: 'Production fusion is not just clever code. It needs profiling, shape policies, fallbacks, numerical tests, and observability so a faster path does not silently become a wrong path.',
+    explanation: `Production fusion is not just clever code. All ${failureModes} failure modes (shape specialization, low occupancy, numerics, maintenance) need profiling, shape policies, fallbacks, and observability so a faster path through ${opCount} fused ops does not silently become a wrong path.`,
   };
 }
 
 function* cudaGraphs() {
+  const kernelCount = 4;
+  const hotShapes = 2;
+  const shapeCategories = 4;
+  const serverPhases = 4;
+  const dependencies = kernelCount - 1;
+
   yield {
     state: launchGraph('Without capture, the CPU launches many tiny kernels', false),
     highlight: { active: ['cpu', 'e-cpu-k1'], compare: ['k1', 'k2', 'k3', 'k4'] },
-    explanation: 'CUDA kernel launches have CPU overhead. In repeated decode loops with small or shape-stable work, launch overhead can become visible. The GPU can be ready, while the CPU runtime is still feeding it launches.',
+    explanation: `CUDA kernel launches have CPU overhead. In repeated decode loops with ${kernelCount} small or shape-stable kernels, launch overhead can become visible across ${dependencies} dependency edges. The GPU can be ready, while the CPU runtime is still feeding it launches.`,
   };
 
   yield {
     state: launchGraph('CUDA graph capture records the hot dependency graph', true),
     highlight: { found: ['k1', 'k2', 'k3', 'k4', 'gpu'], active: ['cpu'] },
-    explanation: 'CUDA graphs capture a fixed sequence of GPU work and replay it with much lower launch overhead. Define the graph once, then launch the graph repeatedly for hot shapes.',
-    invariant: 'Capture helps when topology and memory addresses are stable enough to replay.',
+    explanation: `CUDA graphs capture a fixed sequence of ${kernelCount} GPU kernels and replay them with much lower launch overhead. Define the graph once, then replay the ${kernelCount}-node dependency chain repeatedly for hot shapes.`,
+    invariant: `Capture helps when the topology of ${kernelCount} kernels and their memory addresses are stable enough to replay.`,
   };
 
   yield {
@@ -171,7 +184,7 @@ function* cudaGraphs() {
       ],
     ),
     highlight: { found: ['hot1:path', 'hot2:path'], compare: ['cold:path', 'dynamic:path'] },
-    explanation: 'The catch is shape rigidity. A captured graph is tied to a topology and memory pattern. Serving systems often capture a menu of hot shapes and use fallbacks for rare or dynamic cases.',
+    explanation: `The catch is shape rigidity. Across ${shapeCategories} shape categories, only ${hotShapes} are hot enough to replay. A captured graph of ${kernelCount} kernels is tied to a topology and memory pattern. Serving systems often capture a menu of hot shapes and use fallbacks for rare or dynamic cases.`,
   };
 
   yield {
@@ -195,7 +208,7 @@ function* cudaGraphs() {
       ],
     ),
     highlight: { active: ['decode:benefit'], compare: ['batch:risk', 'obs:risk'] },
-    explanation: 'CUDA graphs are a control-plane optimization for the GPU execution path. They complement KV cache management, prefix caching, quantization, and batching; they do not replace any of them.',
+    explanation: `CUDA graphs are a control-plane optimization for ${serverPhases} server phases. They complement KV cache management, prefix caching, quantization, and batching across all ${kernelCount} captured kernels; they do not replace any of them.`,
   };
 }
 
@@ -208,6 +221,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/inference-kernel-fusion-cuda-graphs.gif', alt: 'Animated walkthrough of the inference kernel fusion cuda graphs visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

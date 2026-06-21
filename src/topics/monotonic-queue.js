@@ -37,28 +37,36 @@ function qState(items, title) {
 }
 
 function* slidingMaximum() {
+  const firstVal = 1;
   yield {
-    state: qState([{ i: 0, v: 1 }], 'Window starts at [1]'),
+    state: qState([{ i: 0, v: firstVal }], 'Window starts at [1]'),
     highlight: { active: ['i0'] },
-    explanation: 'A monotonic queue stores candidates for the maximum, not every item. Each entry carries value and index, and the front is always the best live candidate.',
+    explanation: `A monotonic queue stores candidates for the maximum, not every item. The first entry is ${firstVal}@0, and the front is always the best live candidate.`,
   };
 
+  const newVal = 3;
+  const oldVal = 1;
   yield {
-    state: qState([{ i: 1, v: 3 }], 'Push 3: smaller tail values are removed'),
+    state: qState([{ i: 1, v: newVal }], 'Push 3: smaller tail values are removed'),
     highlight: { found: ['i1'] },
-    explanation: 'When 3 arrives, the old 1 can never be a future maximum while 3 is newer and larger. Pop dominated tail values, then push the new candidate.',
-    invariant: 'If a newer value is greater, the older smaller value is permanently dominated.',
+    explanation: `When ${newVal} arrives, the old ${oldVal} can never be a future maximum while ${newVal} is newer and larger. Pop dominated tail values, then push the new candidate.`,
+    invariant: `If a newer value is greater (${newVal} > ${oldVal}), the older smaller value is permanently dominated.`,
   };
 
+  const dominant = 5;
+  const poppedCount = 2;
   yield {
-    state: qState([{ i: 1, v: 3 }, { i: 2, v: 2 }, { i: 3, v: 5 }], 'Before cleaning, 5 dominates the tail'),
+    state: qState([{ i: 1, v: 3 }, { i: 2, v: 2 }, { i: 3, v: dominant }], 'Before cleaning, 5 dominates the tail'),
     highlight: { active: ['i3'], removed: ['i1', 'i2'] },
-    explanation: 'At value 5, both 3 and 2 are popped from the back. They are inside the current window, but they no longer matter for any future maximum that also contains 5.',
+    explanation: `At value ${dominant}, both 3 and 2 are popped from the back (${poppedCount} removals). They are inside the current window, but they no longer matter for any future maximum that also contains ${dominant}.`,
   };
 
+  const arr = [1, 3, 2, 5, 4, 8, 7];
+  const k = 3;
+  const windowCount = arr.length - k + 1;
   yield {
     state: labelMatrix(
-      'Sliding window maximums for [1, 3, 2, 5, 4, 8, 7], k=3',
+      `Sliding window maximums for [${arr}], k=${k}`,
       [
         { id: 'w0', label: '[1,3,2]' },
         { id: 'w1', label: '[3,2,5]' },
@@ -79,11 +87,12 @@ function* slidingMaximum() {
       ],
     ),
     highlight: { found: ['w0:max', 'w1:max', 'w2:max', 'w3:max', 'w4:max'] },
-    explanation: 'After the queue is maintained, each window maximum is the front value. Expired indices leave from the front; dominated values leave from the back.',
+    explanation: `After the queue is maintained across ${windowCount} windows of size ${k}, each window maximum is the front value. Expired indices leave from the front; dominated values leave from the back.`,
   };
 }
 
 function* amortizedProof() {
+  const operationRows = 4;
   yield {
     state: labelMatrix(
       'Every element has only two possible removals',
@@ -105,16 +114,19 @@ function* amortizedProof() {
       ],
     ),
     highlight: { found: ['push:bound', 'tail:bound', 'front:bound', 'total:bound'] },
-    explanation: 'The queue can pop several items on one step, which looks scary. Amortization removes the fear: each element is pushed once and popped at most once.',
-    invariant: 'No element can be popped twice.',
+    explanation: `The queue can pop several items on one step, which looks scary. Amortization across ${operationRows - 1} operation types removes the fear: each element is pushed once and popped at most once.`,
+    invariant: `No element can be popped twice — each of the ${operationRows - 1} removal paths fires at most once per element.`,
   };
 
+  const incoming = 8;
+  const clearedCount = 2;
   yield {
-    state: qState([{ i: 3, v: 5 }, { i: 4, v: 4 }, { i: 5, v: 8 }], 'A big value pays for old candidates once'),
+    state: qState([{ i: 3, v: 5 }, { i: 4, v: 4 }, { i: 5, v: incoming }], 'A big value pays for old candidates once'),
     highlight: { active: ['i5'], removed: ['i3', 'i4'] },
-    explanation: 'A large incoming value can clear the back of the queue, but that cost is paid by elements that will never return. The next operations are cheaper because those dominated values are gone.',
+    explanation: `A large incoming value (${incoming}) can clear ${clearedCount} items from the back of the queue, but that cost is paid by elements that will never return. The next operations are cheaper because those dominated values are gone.`,
   };
 
+  const toolCount = 4;
   yield {
     state: labelMatrix(
       'Monotonic queue versus nearby tools',
@@ -136,9 +148,10 @@ function* amortizedProof() {
       ],
     ),
     highlight: { active: ['deque:time', 'deque:fit'], compare: ['heap:time', 'segment:fit'] },
-    explanation: 'A heap can solve sliding maximum with lazy deletion, but the monotonic queue is sharper for fixed windows. Segment trees are more general; monotonic queues are specialized and linear.',
+    explanation: `Among ${toolCount} alternatives, a heap can solve sliding maximum with lazy deletion, but the monotonic queue is sharper for fixed windows. Segment trees are more general; monotonic queues are specialized and linear.`,
   };
 
+  const useCaseCount = 4;
   yield {
     state: labelMatrix(
       'Where the pattern appears',
@@ -160,7 +173,7 @@ function* amortizedProof() {
       ],
     ),
     highlight: { found: ['max:why', 'dp:why', 'signals:why'] },
-    explanation: 'The deeper idea is dominance under a moving boundary. If an older candidate is worse than a newer one that expires later, it can be deleted forever.',
+    explanation: `Across ${useCaseCount} application areas, the deeper idea is dominance under a moving boundary. If an older candidate is worse than a newer one that expires later, it can be deleted forever.`,
   };
 }
 
@@ -182,7 +195,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/monotonic-queue.gif', alt: 'Animated walkthrough of the monotonic queue visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

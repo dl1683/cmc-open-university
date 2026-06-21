@@ -102,7 +102,8 @@ export const article = {
         'Watch queue depth: it rises when producers outpace consumers and falls when consumers catch up. The gap between the two rates is the backlog, and backlog is the core quantity a message queue manages.',
         'In the crash scenario, a message is received but never acknowledged. The broker holds it, then redelivers it on the next consumer attempt. That redelivery frame is the most important one: it shows at-least-once semantics in action and surfaces the idempotency requirement that every production consumer must handle.',
         {type: 'callout', text: 'A production queue is not just FIFO; it is a durable handoff contract around ACKs, retries, leases, and idempotency.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/message-queue.gif', alt: 'Animated walkthrough of the message queue visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

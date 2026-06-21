@@ -140,7 +140,8 @@ export const article = {
         },
         'The active highlight marks the element being inserted. The compare highlights show it being tested against the element gap positions to its left. When a shift occurs, the swap highlight marks both positions. The found highlight marks where the element lands.',
         'Watch how the early large-gap passes move small values leftward and large values rightward in big jumps. By the time the final gap-1 pass runs, the array is nearly sorted and very few shifts are needed. That is the entire point of Shell sort: do the expensive long-distance moves when the subarrays are small and cheap.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/shell-sort.gif', alt: 'Animated walkthrough of the shell sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

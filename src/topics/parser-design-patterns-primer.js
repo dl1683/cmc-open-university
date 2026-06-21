@@ -50,180 +50,176 @@ function parserGraph(title, notes = {}) {
 }
 
 function* pipelineLayers() {
+  const pipelineStages = ['bytes', 'decode', 'lexer', 'parser'];
+  const destination = 'output';
   yield {
     state: parserGraph('A parser is a pipeline, not one giant if statement'),
-    highlight: { active: ['bytes', 'decode', 'lexer', 'parser'], found: ['output'] },
-    explanation: 'Most parsers become simpler when split into layers: byte decoding, lexical scanning, structural parsing, state management, output construction, and diagnostics.',
+    highlight: { active: pipelineStages, found: [destination] },
+    explanation: `Most parsers become simpler when split into ${pipelineStages.length} core stages (${pipelineStages.join(' → ')} → ${destination}), plus state management and diagnostics.`,
     invariant: 'Keep each layer responsible for one kind of meaning.',
   };
 
+  const layerRows = [
+    { id: 'decode', label: 'decode' },
+    { id: 'lex', label: 'lex' },
+    { id: 'parse', label: 'parse' },
+    { id: 'build', label: 'build' },
+    { id: 'diag', label: 'diagnose' },
+  ];
+  const ioCols = [
+    { id: 'input', label: 'input' },
+    { id: 'output', label: 'output' },
+  ];
+  const layerIO = [
+    ['bytes', 'characters/code points'],
+    ['characters', 'tokens'],
+    ['tokens', 'structure'],
+    ['structure', 'tree/events/values'],
+    ['source positions', 'actionable errors'],
+  ];
   yield {
-    state: labelMatrix(
-      'Layer responsibilities',
-      [
-        { id: 'decode', label: 'decode' },
-        { id: 'lex', label: 'lex' },
-        { id: 'parse', label: 'parse' },
-        { id: 'build', label: 'build' },
-        { id: 'diag', label: 'diagnose' },
-      ],
-      [
-        { id: 'input', label: 'input' },
-        { id: 'output', label: 'output' },
-      ],
-      [
-        ['bytes', 'characters/code points'],
-        ['characters', 'tokens'],
-        ['tokens', 'structure'],
-        ['structure', 'tree/events/values'],
-        ['source positions', 'actionable errors'],
-      ],
-    ),
+    state: labelMatrix('Layer responsibilities', layerRows, ioCols, layerIO),
     highlight: { active: ['decode:output', 'parse:output'], found: ['diag:output'] },
-    explanation: 'A UTF-8 decoder should not know JSON grammar. A lexer should not build business objects. A parser should report what it expected at the current token. Separation makes failures explainable.',
+    explanation: `Each of the ${layerRows.length} layers (${layerRows.map(r => r.label).join(', ')}) maps ${ioCols[0].label} to ${ioCols[1].label} — for example, ${layerIO[0][0]} become ${layerIO[0][1]}. Separation makes failures explainable: a UTF-8 decoder should not know JSON grammar.`,
   };
 
+  const memModels = [
+    { id: 'fsm', label: 'finite state' },
+    { id: 'stack', label: 'stack' },
+    { id: 'tree', label: 'tree' },
+    { id: 'table', label: 'table' },
+  ];
+  const memCols = [
+    { id: 'fits', label: 'fits' },
+    { id: 'example', label: 'example' },
+  ];
+  const memExamples = [
+    ['bounded modes', 'CSV quotes'],
+    ['nested structure', 'JSON arrays'],
+    ['semantic structure', 'expression AST'],
+    ['operator policy', 'Pratt parselets'],
+  ];
   yield {
-    state: labelMatrix(
-      'Which memory model fits?',
-      [
-        { id: 'fsm', label: 'finite state' },
-        { id: 'stack', label: 'stack' },
-        { id: 'tree', label: 'tree' },
-        { id: 'table', label: 'table' },
-      ],
-      [
-        { id: 'fits', label: 'fits' },
-        { id: 'example', label: 'example' },
-      ],
-      [
-        ['bounded modes', 'CSV quotes'],
-        ['nested structure', 'JSON arrays'],
-        ['semantic structure', 'expression AST'],
-        ['operator policy', 'Pratt parselets'],
-      ],
-    ),
+    state: labelMatrix('Which memory model fits?', memModels, memCols, memExamples),
     highlight: { active: ['fsm:example', 'stack:example', 'tree:example'], compare: ['table:fits'] },
-    explanation: 'The right state structure comes from the grammar. CSV needs a handful of modes. JSON needs nesting memory. Expressions need trees and operator tables.',
+    explanation: `The grammar determines which of ${memModels.length} memory models to use: ${memModels.map(m => m.label).join(', ')}. For example, a ${memModels[0].label} machine ${memCols[0].label} ${memExamples[0][0]} (${memExamples[0][1]}), while a ${memModels[1].label} handles ${memExamples[1][0]} (${memExamples[1][1]}).`,
   };
 
+  const binaryNotes = { bytes: 'wire', decode: 'varint', lexer: 'field tag', parser: 'schema', state: 'reader', output: 'record' };
+  const binaryActive = ['bytes', 'decode', 'parser', 'state'];
   yield {
-    state: parserGraph('Binary formats use the same discipline', { bytes: 'wire', decode: 'varint', lexer: 'field tag', parser: 'schema', state: 'reader', output: 'record' }),
-    highlight: { active: ['bytes', 'decode', 'parser', 'state'], found: ['output'] },
-    explanation: 'The pattern is not only for text. Protobuf and Avro still classify bytes, decode primitive values, consult schema state, and emit typed records.',
+    state: parserGraph('Binary formats use the same discipline', binaryNotes),
+    highlight: { active: binaryActive, found: ['output'] },
+    explanation: `The pattern is not only for text. Protobuf and Avro still pass through ${binaryActive.length} active stages — ${binaryActive.map(s => `${s} (${binaryNotes[s]})`).join(', ')} — and emit typed ${binaryNotes.output}s.`,
   };
 
+  const contractRows = [
+    { id: 'valid', label: 'valid input' },
+    { id: 'invalid', label: 'invalid input' },
+    { id: 'partial', label: 'partial input' },
+    { id: 'huge', label: 'huge input' },
+  ];
+  const contractCols = [
+    { id: 'must', label: 'must do' },
+    { id: 'avoid', label: 'avoid' },
+  ];
+  const contractRules = [
+    ['emit one meaning', 'ambiguous output'],
+    ['reject with location', 'silent repair'],
+    ['resume or wait', 'lose state'],
+    ['bound memory', 'load everything blindly'],
+  ];
   yield {
-    state: labelMatrix(
-      'The parser contract',
-      [
-        { id: 'valid', label: 'valid input' },
-        { id: 'invalid', label: 'invalid input' },
-        { id: 'partial', label: 'partial input' },
-        { id: 'huge', label: 'huge input' },
-      ],
-      [
-        { id: 'must', label: 'must do' },
-        { id: 'avoid', label: 'avoid' },
-      ],
-      [
-        ['emit one meaning', 'ambiguous output'],
-        ['reject with location', 'silent repair'],
-        ['resume or wait', 'lose state'],
-        ['bound memory', 'load everything blindly'],
-      ],
-    ),
+    state: labelMatrix('The parser contract', contractRows, contractCols, contractRules),
     highlight: { active: ['invalid:must', 'partial:must'], compare: ['huge:avoid'] },
-    explanation: 'A production parser is a contract. It should accept one language, reject everything else clearly, preserve streaming state, and keep resource limits visible.',
+    explanation: `A production parser covers ${contractRows.length} input classes (${contractRows.map(r => r.label).join(', ')}). For each, it "${contractCols[0].label}" one thing and "${contractCols[1].label}" another — for instance, ${contractRows[1].label} ${contractCols[0].label}: ${contractRules[1][0]}, ${contractCols[1].label}: ${contractRules[1][1]}.`,
   };
 }
 
 function* streamingVersusTree() {
+  const outputNotes = { state: 'stack', output: 'events/tree' };
+  const outputActive = ['parser', 'state', 'output', 'e-state-output'];
   yield {
-    state: parserGraph('The same parser can emit events or build a tree', { state: 'stack', output: 'events/tree' }),
-    highlight: { active: ['parser', 'state', 'output', 'e-state-output'], found: ['errors'] },
-    explanation: 'Output shape is a design choice. A SAX-style stream emits events as input arrives. A DOM-style parser builds a full tree. A compiler parser often builds an AST with source spans.',
+    state: parserGraph('The same parser can emit events or build a tree', outputNotes),
+    highlight: { active: outputActive, found: ['errors'] },
+    explanation: `Output shape is a design choice — the ${outputNotes.state} drives state while the output node produces ${outputNotes.output}. A SAX-style stream emits events as input arrives; a DOM-style parser builds a full tree; a compiler parser builds an AST with source spans. This step highlights ${outputActive.length} active elements.`,
     invariant: 'Choose output shape from the downstream workflow, not from parser convenience alone.',
   };
 
+  const shapeRows = [
+    { id: 'events', label: 'event stream' },
+    { id: 'rows', label: 'row batches' },
+    { id: 'tree', label: 'full tree' },
+    { id: 'ast', label: 'AST' },
+  ];
+  const shapeCols = [
+    { id: 'strength', label: 'strength' },
+    { id: 'cost', label: 'cost' },
+  ];
+  const shapeTradeoffs = [
+    ['low memory', 'consumer must track state'],
+    ['pipeline friendly', 'batch sizing'],
+    ['random access', 'memory heavy'],
+    ['analysis/refactor', 'more node types'],
+  ];
   yield {
-    state: labelMatrix(
-      'Output shapes',
-      [
-        { id: 'events', label: 'event stream' },
-        { id: 'rows', label: 'row batches' },
-        { id: 'tree', label: 'full tree' },
-        { id: 'ast', label: 'AST' },
-      ],
-      [
-        { id: 'strength', label: 'strength' },
-        { id: 'cost', label: 'cost' },
-      ],
-      [
-        ['low memory', 'consumer must track state'],
-        ['pipeline friendly', 'batch sizing'],
-        ['random access', 'memory heavy'],
-        ['analysis/refactor', 'more node types'],
-      ],
-    ),
+    state: labelMatrix('Output shapes', shapeRows, shapeCols, shapeTradeoffs),
     highlight: { active: ['events:strength', 'rows:strength'], compare: ['tree:cost'] },
-    explanation: 'CSV ingestion usually wants row batches. Large JSON logs may want event streams. Editors and compilers want trees because later passes navigate and rewrite structure.',
+    explanation: `There are ${shapeRows.length} output shapes — ${shapeRows.map(r => r.label).join(', ')} — each with a ${shapeCols[0].label} and a ${shapeCols[1].label}. CSV ingestion usually wants ${shapeRows[1].label} (${shapeTradeoffs[1][0]}), while editors want a ${shapeRows[2].label} despite the cost: ${shapeTradeoffs[2][1]}.`,
   };
 
+  const guardRows = [
+    { id: 'bytes', label: 'byte limit' },
+    { id: 'depth', label: 'depth limit' },
+    { id: 'field', label: 'field limit' },
+    { id: 'time', label: 'time budget' },
+  ];
+  const guardCols = [
+    { id: 'protects', label: 'protects' },
+    { id: 'failure', label: 'failure if missing' },
+  ];
+  const guardValues = [
+    ['memory', 'giant payload'],
+    ['stack/recursion', 'deep nesting'],
+    ['row shape', 'wide records'],
+    ['latency', 'UI freeze or timeout'],
+  ];
   yield {
-    state: labelMatrix(
-      'Resource guards',
-      [
-        { id: 'bytes', label: 'byte limit' },
-        { id: 'depth', label: 'depth limit' },
-        { id: 'field', label: 'field limit' },
-        { id: 'time', label: 'time budget' },
-      ],
-      [
-        { id: 'protects', label: 'protects' },
-        { id: 'failure', label: 'failure if missing' },
-      ],
-      [
-        ['memory', 'giant payload'],
-        ['stack/recursion', 'deep nesting'],
-        ['row shape', 'wide records'],
-        ['latency', 'UI freeze or timeout'],
-      ],
-    ),
+    state: labelMatrix('Resource guards', guardRows, guardCols, guardValues),
     highlight: { active: ['bytes:protects', 'depth:protects'], found: ['time:failure'] },
-    explanation: 'Parsers are attack surfaces. Size, depth, field-count, and time limits turn a neat grammar into something that survives production inputs.',
+    explanation: `Parsers are attack surfaces. ${guardRows.length} resource guards — ${guardRows.map(r => r.label).join(', ')} — each ${guardCols[0].label} a resource (e.g. ${guardRows[0].label} ${guardCols[0].label} ${guardValues[0][0]}) and causes a specific ${guardCols[1].label} when absent (e.g. ${guardValues[0][1]}).`,
   };
 
+  const diagNotes = { lexer: 'token span', parser: 'expected', errors: 'line/col' };
+  const diagActive = ['lexer', 'parser', 'errors', 'e-parser-errors'];
   yield {
-    state: parserGraph('Good diagnostics carry source spans through every layer', { lexer: 'token span', parser: 'expected', errors: 'line/col' }),
-    highlight: { active: ['lexer', 'parser', 'errors', 'e-parser-errors'], compare: ['output'] },
-    explanation: 'Diagnostics require bookkeeping. If the lexer discards positions, the parser can only say failed. If spans survive, the parser can say expected colon after key at line 12, column 8.',
+    state: parserGraph('Good diagnostics carry source spans through every layer', diagNotes),
+    highlight: { active: diagActive, compare: ['output'] },
+    explanation: `Diagnostics require bookkeeping across ${diagActive.length} highlighted elements. The lexer carries a ${diagNotes.lexer}, the parser knows what it ${diagNotes.parser}, and errors resolve to ${diagNotes.errors}. If spans survive, the parser can say "expected colon after key at line 12, column 8" instead of just "failed."`,
   };
 
+  const checklistRows = [
+    { id: 'language', label: 'language' },
+    { id: 'states', label: 'states' },
+    { id: 'output', label: 'output' },
+    { id: 'limits', label: 'limits' },
+    { id: 'errors', label: 'errors' },
+  ];
+  const checklistCols = [
+    { id: 'question', label: 'question' },
+    { id: 'artifact', label: 'artifact' },
+  ];
+  const checklistEntries = [
+    ['what is valid?', 'grammar/spec'],
+    ['what memory?', 'FSM/stack/tree'],
+    ['who consumes it?', 'events/tree/rows'],
+    ['what can grow?', 'caps and budgets'],
+    ['what helps repair?', 'source spans'],
+  ];
   yield {
-    state: labelMatrix(
-      'Complete design checklist',
-      [
-        { id: 'language', label: 'language' },
-        { id: 'states', label: 'states' },
-        { id: 'output', label: 'output' },
-        { id: 'limits', label: 'limits' },
-        { id: 'errors', label: 'errors' },
-      ],
-      [
-        { id: 'question', label: 'question' },
-        { id: 'artifact', label: 'artifact' },
-      ],
-      [
-        ['what is valid?', 'grammar/spec'],
-        ['what memory?', 'FSM/stack/tree'],
-        ['who consumes it?', 'events/tree/rows'],
-        ['what can grow?', 'caps and budgets'],
-        ['what helps repair?', 'source spans'],
-      ],
-    ),
+    state: labelMatrix('Complete design checklist', checklistRows, checklistCols, checklistEntries),
     highlight: { active: ['states:artifact', 'output:artifact'], found: ['errors:artifact'] },
-    explanation: 'This checklist is the reusable primer: name the language, choose the state structure, choose the output, cap the resources, and preserve enough source information to debug failures.',
+    explanation: `This ${checklistRows.length}-item checklist answers one ${checklistCols[0].label} per row and names the ${checklistCols[1].label}: ${checklistRows.map((r, i) => `${r.label} → ${checklistEntries[i][1]}`).join(', ')}. It is the reusable primer for any parser design.`,
   };
 }
 
@@ -236,6 +232,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/parser-design-patterns-primer.gif', alt: 'Animated walkthrough of the parser design patterns primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What A Parser Really Does',
       paragraphs: [

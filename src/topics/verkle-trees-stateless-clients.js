@@ -45,8 +45,8 @@ function* witnessShape() {
       ],
     }, { title: 'A stateless client verifies a block with a witness' }),
     highlight: { active: ['witness', 'commit'], found: ['client'] },
-    explanation: 'A stateless client does not keep the whole state database. It receives a block plus a witness for the state touched by that block, then verifies the witness against a trusted root.',
-    invariant: 'The witness replaces local state for verification, not consensus trust.',
+    explanation: `A ${5}-stage verification pipeline: a stateless client does not keep the whole state database. It receives a block plus a witness for the state touched by that block, then verifies the witness against a ${'trusted'} root.`,
+    invariant: `The witness replaces local state for verification, not consensus trust — the endpoint is ${'stateless'}.`,
   };
 
   yield {
@@ -68,7 +68,7 @@ function* witnessShape() {
       ],
     ),
     highlight: { found: ['verkle:proof', 'verkle:shape'], compare: ['mpt:shape'] },
-    explanation: 'A Merkle proof carries sibling hashes. Ethereum Merkle-Patricia proofs carry encoded path nodes. A Verkle proof uses vector commitments so one proof can cover many parent-child openings more compactly.',
+    explanation: `Comparing ${3} tree types: a Merkle proof carries sibling hashes, Ethereum Merkle-Patricia proofs carry encoded path nodes, and a Verkle proof uses vector commitments so one proof can cover many parent-child openings more ${'compact'}ly.`,
   };
 
   yield {
@@ -88,7 +88,7 @@ function* witnessShape() {
       ],
     }, { title: 'A vector commitment opens selected child positions' }),
     highlight: { active: ['root', 'proof'], found: ['ok'], compare: ['c17', 'c99'] },
-    explanation: 'Instead of sending every sibling commitment at a wide node, a Verkle witness proves that selected positions in the committed vector contain the claimed child commitments or values.',
+    explanation: `Instead of sending every sibling commitment at a wide node, a Verkle witness uses a ${'batched'} proof to show that selected positions in the committed vector contain the claimed child commitments — here opening ${2} children from the root.`,
   };
 
   yield {
@@ -100,7 +100,7 @@ function* witnessShape() {
       ],
     }),
     highlight: { found: ['verkle'], compare: ['mpt'] },
-    explanation: 'The chart is illustrative, not a rollout claim. The important shape is that vector-commitment witnesses aim to grow much more slowly than Merkle-Patricia witnesses for block-scale state access.',
+    explanation: `The chart is illustrative, not a rollup claim. At ${6000} state accesses the Verkle-style witness reaches only ${24}% of relative bytes versus ${100}% for hexary MPT — vector-commitment witnesses grow much more slowly at block scale.`,
   };
 }
 
@@ -126,7 +126,7 @@ function* tradeoffMap() {
       ],
     ),
     highlight: { active: ['commit:benefit', 'batch:benefit'], compare: ['commit:cost', 'state:cost'] },
-    explanation: 'Verkle trees move complexity from sending many hashes into proving openings of committed vectors. That is a real trade, not free compression.',
+    explanation: `Across ${4} design levers, Verkle trees move complexity from sending many hashes into proving openings of committed vectors — each lever has a ${'benefit'} and a ${'cost'}, a real trade, not free compression.`,
   };
 
   yield {
@@ -150,7 +150,7 @@ function* tradeoffMap() {
       ],
     ),
     highlight: { found: ['stateless:stores', 'stateless:sends'], active: ['builder:sends'] },
-    explanation: 'The stateless-client idea shifts state availability into witnesses. That affects block builders, peers, execution clients, and gas/accounting rules around state access.',
+    explanation: `The stateless-client idea shifts state availability into witnesses — a stateless node stores ${'little/no state'} and checks ${'witness'} data. That affects all ${4} client roles: block builders, peers, execution clients, and gas/accounting rules.`,
   };
 
   yield {
@@ -172,7 +172,7 @@ function* tradeoffMap() {
       ],
     ),
     highlight: { active: ['verkle:commit', 'verkle:best'], compare: ['merkle:best', 'mpt:best'] },
-    explanation: 'Merkle trees are simple and robust. Merkle-Patricia tries give Ethereum authenticated key-value state. Verkle trees target a different bottleneck: witness size for stateless validation.',
+    explanation: `${3} authenticated tree families compared: Merkle trees are simple and robust, Merkle-Patricia tries give Ethereum authenticated key-value state, and Verkle trees target a different bottleneck — ${'small witnesses'} for stateless validation.`,
   };
 
   yield {
@@ -196,7 +196,7 @@ function* tradeoffMap() {
       ],
     ),
     highlight: { removed: ['done:wrong', 'trust:wrong', 'size:wrong'], found: ['done:clean', 'trust:clean'] },
-    explanation: 'The clean mental model: Verkle trees are an authenticated-data-structure upgrade intended to make witnesses small enough for stateless or near-stateless validation, with new proving and migration costs.',
+    explanation: `${4} common misreadings contrasted — ${'wrong read'} versus ${'clean read'}: Verkle trees are an authenticated-data-structure upgrade intended to make witnesses small enough for stateless or near-stateless validation, with new proving and migration costs.`,
   };
 }
 
@@ -227,7 +227,8 @@ export const article = {
           ],
         },
         'In the witness-shape view, follow left to right: the block defines which state was accessed, the witness carries proof material, the commitment binds those openings, and the client checks them against a root it already trusts. At each frame, ask what trust anchor is being used and what data the client does not need to store.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/verkle-trees-stateless-clients.gif', alt: 'Animated walkthrough of the verkle trees stateless clients visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

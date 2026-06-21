@@ -57,41 +57,42 @@ function vebGraph(title) {
 }
 
 function* universeSplit() {
+  const U = 16;
+  const sqrtU = Math.sqrt(U);
+  const numClusters = sqrtU;
+  const minKey = 2;
+  const maxKey = 14;
+
   yield {
     state: vebGraph('Store bounded integer keys by recursively splitting U'),
     highlight: { active: ['root', 'summary', 'e-root-summary'], found: ['min', 'max'] },
-    explanation: 'A van Emde Boas tree assumes keys are integers in a fixed universe U. It stores global min and max directly, then recursively tracks which high-order clusters contain low-order keys.',
-    invariant: 'Every key x is decomposed into high(x) for the cluster and low(x) for the position inside that cluster.',
+    explanation: `A van Emde Boas tree assumes keys are integers in a fixed universe U=${U}. It stores global min=${minKey} and max=${maxKey} directly, then recursively tracks which of ${numClusters} high-order clusters contain low-order keys.`,
+    invariant: `Every key x is decomposed into high(x) = floor(x / ${sqrtU}) for the cluster and low(x) = x mod ${sqrtU} for the position inside that cluster.`,
   };
+
+  const keys = [2, 5, 9, 14];
+  const highOf = (k) => Math.floor(k / sqrtU);
+  const lowOf = (k) => k % sqrtU;
+  const labelsByRow = keys.map((k) => [String(highOf(k)), String(lowOf(k))]);
 
   yield {
     state: labelMatrix(
-      'For U=16, sqrt(U)=4',
-      [
-        { id: 'x2', label: 'key 2' },
-        { id: 'x5', label: 'key 5' },
-        { id: 'x9', label: 'key 9' },
-        { id: 'x14', label: 'key 14' },
-      ],
+      `For U=${U}, sqrt(U)=${sqrtU}`,
+      keys.map((k) => ({ id: `x${k}`, label: `key ${k}` })),
       [
         { id: 'high', label: 'high cluster' },
         { id: 'low', label: 'low offset' },
       ],
-      [
-        ['0', '2'],
-        ['1', '1'],
-        ['2', '1'],
-        ['3', '2'],
-      ],
+      labelsByRow,
     ),
     highlight: { active: ['x5:high', 'x5:low', 'x14:high'], compare: ['x2:low'] },
-    explanation: 'A key splits into high and low pieces. For U=16, key 14 lives in cluster 3 at offset 2. The same rule recurses inside the cluster.',
+    explanation: `A key splits into high and low pieces. For U=${U}, key ${maxKey} lives in cluster ${highOf(maxKey)} at offset ${lowOf(maxKey)}. The same rule recurses inside the cluster.`,
   };
 
   yield {
     state: vebGraph('Summary says which clusters are nonempty'),
     highlight: { active: ['summary', 'c0', 'c1', 'c2', 'c3', 'e-summary-c0', 'e-summary-c1', 'e-summary-c2', 'e-summary-c3'], compare: ['root'] },
-    explanation: 'The summary is itself a smaller van Emde Boas tree. It answers: which cluster should I visit next? This is how successor and predecessor skip empty ranges.',
+    explanation: `The summary is itself a smaller van Emde Boas tree over ${numClusters} cluster ids. It answers: which cluster should I visit next? This is how successor and predecessor skip empty ranges in a universe of ${U}.`,
   };
 
   yield {
@@ -115,17 +116,25 @@ function* universeSplit() {
       ],
     ),
     highlight: { found: ['succ:reason', 'insert:cost'], compare: ['delete:reason'] },
-    explanation: 'Each recursive step shrinks U to roughly sqrt(U), so the depth is log log U. This is universe-sensitive, not n-sensitive.',
+    explanation: `Each recursive step shrinks U=${U} to roughly sqrt(U)=${sqrtU}, so the depth is log log ${U} = ${Math.log2(Math.log2(U))}. This is universe-sensitive, not n-sensitive.`,
   };
 }
 
 function* successorQuery() {
+  const query = 6;
+  const sqrtU = 4;
+  const queryHigh = Math.floor(query / sqrtU);
+  const queryLow = query % sqrtU;
+  const nextCluster = 2;
+  const nextClusterMin = 1;
+  const answer = nextCluster * sqrtU + nextClusterMin;
+
   yield {
     state: labelMatrix(
-      'Successor of 6 with keys {2,5,9,14}',
+      `Successor of ${query} with keys {2,5,9,14}`,
       [
-        { id: 'step1', label: 'split 6' },
-        { id: 'step2', label: 'cluster 1' },
+        { id: 'step1', label: `split ${query}` },
+        { id: 'step2', label: `cluster ${queryHigh}` },
         { id: 'step3', label: 'summary successor' },
         { id: 'answer', label: 'combine' },
       ],
@@ -134,21 +143,21 @@ function* successorQuery() {
         { id: 'result', label: 'result' },
       ],
       [
-        ['high=1 low=2', 'look in cluster 1'],
+        [`high=${queryHigh} low=${queryLow}`, `look in cluster ${queryHigh}`],
         ['max low is 1', 'no local successor'],
-        ['next nonempty cluster after 1', 'cluster 2'],
-        ['high 2 + low min 1', 'key 9'],
+        [`next nonempty cluster after ${queryHigh}`, `cluster ${nextCluster}`],
+        [`high ${nextCluster} + low min ${nextClusterMin}`, `key ${answer}`],
       ],
     ),
     highlight: { active: ['step2:result', 'step3:result'], found: ['answer:result'] },
-    explanation: 'Successor first tries the same cluster. If the cluster has no larger low value, the summary finds the next nonempty cluster, and that cluster minimum completes the answer.',
+    explanation: `Successor first tries the same cluster ${queryHigh} where key ${query} lives. If the cluster has no larger low value, the summary finds the next nonempty cluster ${nextCluster}, and that cluster's minimum completes the answer: key ${answer}.`,
   };
 
   yield {
     state: vebGraph('The query skips entire empty key ranges'),
     highlight: { active: ['summary', 'c1', 'c2', 'e-summary-c2'], removed: ['c0'], found: ['c2'] },
-    explanation: 'The summary is the skip index. Instead of scanning 7, then 8, then 9, the structure jumps from cluster 1 to cluster 2 and takes cluster 2 minimum.',
-    invariant: 'If a cluster is absent from summary, every key in that cluster is absent.',
+    explanation: `The summary is the skip index. Instead of scanning ${query + 1}, then ${query + 2}, then ${answer}, the structure jumps from cluster ${queryHigh} to cluster ${nextCluster} and takes cluster ${nextCluster}'s minimum.`,
+    invariant: `If a cluster is absent from summary, every key in that cluster's range of ${sqrtU} values is absent.`,
   };
 
   yield {
@@ -172,7 +181,7 @@ function* successorQuery() {
       ],
     ),
     highlight: { found: ['bounded:effect', 'word:lesson'], compare: ['sparse:lesson', 'cache:effect'] },
-    explanation: 'van Emde Boas trees are a theory landmark. In production, B-trees, radix trees, skip lists, or bitsets often win unless the universe and workload fit very well.',
+    explanation: `van Emde Boas trees achieve O(log log U) predecessor queries -- a theory landmark. In production, B-trees, radix trees, skip lists, or bitsets often win unless the universe (here U=${sqrtU * sqrtU}) and workload fit very well.`,
   };
 
   yield {
@@ -196,7 +205,7 @@ function* successorQuery() {
       ],
     ),
     highlight: { active: ['veb:successor', 'veb:tradeoff'], compare: ['bst:successor', 'bitset:tradeoff'] },
-    explanation: 'The right lesson is not that vEB replaces every ordered set. It shows how integer keys let you beat comparison-tree bounds by using the universe itself as structure.',
+    explanation: `The right lesson is not that vEB replaces every ordered set. It shows how integer keys let you beat comparison-tree O(log n) by achieving O(log log U) -- using the universe of ${sqrtU * sqrtU} itself as structure.`,
   };
 }
 
@@ -209,6 +218,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/van-emde-boas-tree.gif', alt: 'Animated walkthrough of the van emde boas tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

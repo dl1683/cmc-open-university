@@ -16,6 +16,10 @@ export const topic = {
 };
 
 function* splitting() {
+  const shardCount = 4;
+  const totalUsers = 500; // millions
+  const perShardHash = totalUsers / shardCount; // 125M
+
   yield {
     state: matrixState({
       title: 'The wall: one machine, 500M users, write volume climbing',
@@ -29,8 +33,8 @@ function* splitting() {
       format: (v) => ['', '4 TB table on a 6 TB disk — months left', 'one primary takes EVERY write (replicas only help reads)', 'index no longer fits in memory — every lookup hits disk'][v],
     }),
     highlight: { removed: ['writes:status'] },
-    explanation: 'This is the moment sharding exists for. Read replicas can spread reads, but a single primary still owns the writes and the storage. When the table, index, or write rate no longer fits one machine, the remaining move is to partition the data across machines. The hard part is not "add shards"; it is choosing the key that decides which queries, writes, and transactions stay local.',
-    invariant: 'Replicas scale reads; only partitioning scales writes and storage.',
+    explanation: `This is the moment sharding exists for. Read replicas can spread reads, but a single primary still owns the writes and the storage. When the table, index, or write rate no longer fits one machine, the remaining move is to partition the data across ${shardCount} or more machines. The hard part is not "add shards"; it is choosing the key that decides which queries, writes, and transactions stay local.`,
+    invariant: `Replicas scale reads; only partitioning (here into ${shardCount} shards) scales writes and storage.`,
   };
 
   yield {
@@ -47,8 +51,8 @@ function* splitting() {
       format: (v) => (v > 10 ? `${v}M` : ['', '', 'âš  S-names are common — 2Ã— the load'][v]),
     }),
     highlight: { compare: ['sh3:rows', 'sh1:rows'] },
-    explanation: 'Range partitioning preserves order. That makes range scans, sorted pagination, and locality-friendly workloads cheap because adjacent keys live together. The price is skew. Names, timestamps, tenants, and regions are rarely uniform, and access is often more skewed than data. A timestamp range can put every new write on the newest shard. Range gives useful neighborhoods, but neighborhoods have rush hours.',
-    invariant: 'Range partitioning preserves order — and therefore concentrates both data skew and temporal hot spots.',
+    explanation: `Range partitioning preserves order across ${shardCount} shards. That makes range scans, sorted pagination, and locality-friendly workloads cheap because adjacent keys live together. The price is skew: with ${totalUsers}M users split into ${shardCount} ranges, names, timestamps, tenants, and regions are rarely uniform, and access is often more skewed than data. A timestamp range can put every new write on the newest shard. Range gives useful neighborhoods, but neighborhoods have rush hours.`,
+    invariant: `Range partitioning preserves order — and therefore concentrates both data skew and temporal hot spots across ${shardCount} shards.`,
   };
 
   yield {
@@ -65,7 +69,7 @@ function* splitting() {
       format: (v) => (v > 10 ? `${v}M` : 'scattered across ALL shards'),
     }),
     highlight: { found: ['h1:rows', 'h2:rows', 'h3:rows', 'h4:rows'], removed: ['h1:range'] },
-    explanation: 'Hash partitioning scrambles adjacent keys so the row count evens out. Point lookups become simple and balanced. Locality disappears: a query for users G through M now touches every shard. A naive hash modulo shard count also makes resharding brutal, because changing N changes most placements. Consistent hashing and virtual shards reduce movement, but they do not bring range locality back. Hash is a point-lookup bet.',
+    explanation: `Hash partitioning scrambles adjacent keys so each of the ${shardCount} shards holds exactly ${perShardHash}M rows. Point lookups become simple and balanced. Locality disappears: a query for users G through M now touches every shard. A naive hash modulo ${shardCount} also makes resharding brutal, because changing N changes most placements. Consistent hashing and virtual shards reduce movement, but they do not bring range locality back. Hash is a point-lookup bet.`,
   };
 
   yield {
@@ -81,12 +85,15 @@ function* splitting() {
       format: (v) => ['', 'spread evenly — fine', '40% of CLUSTER traffic on one shard âš ', 'celebrity#0…#15 â†’ 16 shards share the fire'][v],
     }),
     highlight: { removed: ['celeb:load'], found: ['salt:load'] },
-    explanation: 'Even perfect key balance is not traffic balance. A celebrity account, flash-sale SKU, or viral post can send a huge share of requests to one key and therefore one shard. The usual repair is to split the hot key itself: salt it into key#0 through key#15, cache it aggressively, or move it to special handling. This is Hot Rows & Append-and-Aggregate at cluster scale. Sharding solves average distribution; hot keys are workload distribution.',
-    invariant: 'Uniform key distribution does not imply uniform load: one hot key re-concentrates everything.',
+    explanation: `Even perfect key balance across ${shardCount} shards is not traffic balance. A celebrity account, flash-sale SKU, or viral post can send a huge share of requests to one key and therefore one shard. The usual repair is to split the hot key itself: salt it into key#0 through key#15, cache it aggressively, or move it to special handling. With ${totalUsers}M users perfectly balanced at ${perShardHash}M each, one hot key still re-concentrates everything.`,
+    invariant: `Uniform key distribution across ${shardCount} shards does not imply uniform load: one hot key re-concentrates everything.`,
   };
 }
 
 function* breaks() {
+  const shardCount = 4;
+  const newShardCount = 8;
+
   yield {
     state: graphState({
       nodes: [
@@ -104,8 +111,8 @@ function* breaks() {
       ],
     }),
     highlight: { active: ['e1', 'e2', 'e3'], removed: ['s4', 'e4'] },
-    explanation: 'The first thing sharding breaks is any query that cannot name the partition key. "Top posts site-wide" must fan out, ask every shard, wait for the slowest reply, and merge partial results. That means one unlucky shard pause becomes user-visible latency. Scatter-gather is sometimes necessary, but it should be budgeted like an expensive operation, not treated as an ordinary select.',
-    invariant: 'Scatter-gather latency = max over shards: fan-out converts one query\'s median into the fleet\'s tail.',
+    explanation: `The first thing sharding breaks is any query that cannot name the partition key. "Top posts site-wide" must fan out to all ${shardCount} shards, wait for the slowest reply, and merge partial results. That means one unlucky shard pause becomes user-visible latency. Scatter-gather is sometimes necessary, but it should be budgeted like an expensive operation, not treated as an ordinary select.`,
+    invariant: `Scatter-gather latency = max over ${shardCount} shards: fan-out converts one query's median into the fleet's tail.`,
   };
 
   yield {
@@ -120,7 +127,7 @@ function* breaks() {
       format: (v) => ['', 'ordinary ACID transaction — free, instant, atomic', 'needs Two-Phase Commit (2PC) or a Saga — slow, complex, can wedge'][v],
     }),
     highlight: { found: ['same:tx'], removed: ['cross:tx'] },
-    explanation: 'The second casualty is transaction simplicity. Inside one shard, ACID is ordinary database machinery. Across shards, you need Two-Phase Commit, a saga, escrow, or some other distributed protocol. That adds latency and new failure states. A good partition key follows the transaction boundary, not just the lookup boundary. If transfers frequently touch two accounts, sharding purely by account makes the hardest path distributed by default.',
+    explanation: `The second casualty is transaction simplicity. Inside one of the ${shardCount} shards, ACID is ordinary database machinery. Across shards, you need Two-Phase Commit, a saga, escrow, or some other distributed protocol. That adds latency and new failure states. A good partition key follows the transaction boundary, not just the lookup boundary. If transfers frequently touch two accounts, sharding purely by account across ${shardCount} shards makes the hardest path distributed by default.`,
   };
 
   yield {
@@ -136,7 +143,7 @@ function* breaks() {
       format: (v) => ['', '~75% of ALL rows', 'effectively a full re-import', 'only the split ranges (~1/8 each)', 'background copy + dual-write + cutover', 'weeks of careful work', 'still: copy, verify, dual-write, flip, watch'][v],
     }),
     highlight: { removed: ['naive:moves'], compare: ['ring:moves'] },
-    explanation: 'The third casualty is easy growth. Adding shards means data movement while the system is live: copy, dual-write or catch up changes, verify, switch routing, and monitor the fallout. Consistent hashing or range-split metadata reduces how much data moves, but not the need for a careful migration. This is why mature systems over-partition into virtual shards early; moving virtual ownership is easier than inventing partitioning during an emergency.',
+    explanation: `The third casualty is easy growth. Doubling from ${shardCount} to ${newShardCount} shards means data movement while the system is live: copy, dual-write or catch up changes, verify, switch routing, and monitor the fallout. Consistent hashing or range-split metadata reduces how much data moves (from ~75% with mod-${shardCount} to ~1/${newShardCount} each), but not the need for a careful migration. This is why mature systems over-partition into virtual shards early; moving virtual ownership is easier than inventing partitioning during an emergency.`,
   };
 
   yield {
@@ -153,7 +160,7 @@ function* breaks() {
       format: (v) => ['', 'common queries must name it and hit ONE shard', '2PC/Sagas are the tax on crossing the seam', 'reassigning virtual shards beats moving real ones', 'celebrities, time ranges, and growth re-skew everything'][v],
     }),
     highlight: { active: ['key:why'] },
-    explanation: 'The checklist is the whole topic: pick the key by common queries, keep important transactions single-shard, over-partition before you need it, and monitor skew continuously. Sharding does not make every workload faster. It makes the workloads aligned with the partition key cheaper, and makes the others pay with fan-out, distributed transactions, or special hot-key handling.',
+    explanation: `The checklist is the whole topic: pick the key by common queries, keep important transactions single-shard, over-partition before you need ${newShardCount} real shards, and monitor skew continuously. Sharding across ${shardCount} or more nodes does not make every workload faster. It makes the workloads aligned with the partition key cheaper, and makes the others pay with fan-out, distributed transactions, or special hot-key handling.`,
   };
 }
 
@@ -176,7 +183,8 @@ export const article = {
         },
         'The "what sharding breaks" view shows the costs. The graph frame draws a query router fanning out to four shards; the red shard and edge mark the straggler whose latency becomes the entire query\'s latency. Matrix frames compare single-shard transactions (green, fast) against cross-shard transactions (red, slow). The resharding frame contrasts naive mod-N remapping against consistent hashing by how much data must move.',
         'Watch for the contrast between highlighted and unhighlighted cells in each frame. The animation is designed so the highlighted state answers: "where is the pain right now?"',
-      ],
+      
+        {type: 'image', src: './assets/gifs/sharding.gif', alt: 'Animated walkthrough of the sharding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

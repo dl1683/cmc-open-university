@@ -94,17 +94,24 @@ function workflowGraph(title) {
 }
 
 function* graphView() {
+  const nodeCount = 10;
+  const edgeCount = 11;
+  const sourceCount = 4;
+  const claimCount = 2;
+  const recordFields = 6;
+  const contradictionTypes = 5;
+
   yield {
     state: claimGraph('Research synthesis should be a graph, not a pile of notes'),
     highlight: { active: ['q', 'c1', 'c2', 'e-q-c1', 'e-q-c2'], compare: ['answer'] },
-    explanation: 'A source ledger starts with scoped claims. Each claim is atomic enough to check, cite, contradict, or remove. The final answer should be downstream of this graph, not a memory of what the agent once read.',
+    explanation: `A source ledger starts with scoped claims across ${nodeCount} graph nodes linked by ${edgeCount} edges. Each claim is atomic enough to check, cite, contradict, or remove. The final answer should be downstream of this graph, not a memory of what the agent once read.`,
   };
 
   yield {
     state: claimGraph('Sources support, date, weaken, or contradict claims'),
     highlight: { active: ['s1', 's2', 's3', 's4', 'c1', 'c2', 'e-s1-c1', 'e-s2-c1', 'e-s3-c2', 'e-s4-c2'], found: ['conflict'] },
-    explanation: 'The edge label matters. A source can support a claim, merely mention it, provide a date, define a term, or contradict another source. Citation quality collapses when all edges are treated as "source says".',
-    invariant: 'A citation should support the exact sentence it is attached to.',
+    explanation: `The edge label matters. Each of the ${sourceCount} sources can support a claim, merely mention it, provide a date, define a term, or contradict another source. With ${claimCount} claims in play, citation quality collapses when all edges are treated as "source says".`,
+    invariant: `A citation should support the exact sentence it is attached to — ${sourceCount} sources feed ${claimCount} claims here, and each edge type matters.`,
   };
 
   yield {
@@ -132,7 +139,7 @@ function* graphView() {
       ],
     ),
     highlight: { active: ['source:stores', 'span:stores', 'time:stores', 'authority:stores'], removed: ['span:prevents'] },
-    explanation: 'The minimum record is claim, source pointer, exact support span, date, authority label, and intended report section. That is enough to audit an answer and to refresh only the stale or weak parts later.',
+    explanation: `The minimum record has ${recordFields} fields: claim, source pointer, exact support span, date, authority label, and intended report section. That is enough to audit an answer and to refresh only the stale or weak parts later.`,
   };
 
   yield {
@@ -158,43 +165,50 @@ function* graphView() {
       ],
     ),
     highlight: { active: ['version:response', 'method:response', 'scope:response', 'metric:response'], compare: ['interest:response'] },
-    explanation: 'Contradictions are not bugs to hide. They are where research becomes useful. The ledger should make the reason for disagreement explicit so the synthesis can explain it instead of averaging incompatible claims.',
+    explanation: `Contradictions are not bugs to hide. They are where research becomes useful. The ledger classifies ${contradictionTypes} contradiction types so the synthesis can explain disagreement instead of averaging incompatible claims.`,
   };
 }
 
 function* evidenceWorkflow() {
+  const workflowSteps = 10;
+  const workflowEdges = 11;
+  const maxEvidence = 80;
+  const stopPoint = 45;
+  const coverageAtStop = 0.84;
+  const confusionAtStop = 0.44;
+
   yield {
     state: workflowGraph('Evidence workflow: search, read, rank, ledger, audit, write'),
     highlight: { active: ['scope', 'search', 'read', 'ledger', 'e-scope-search', 'e-search-read', 'e-read-ledger'], compare: ['write'] },
-    explanation: 'A research agent should not write from raw search results. It should extract evidence into a ledger, rank source authority, and audit gaps before drafting. That is the data-structure version of critical thinking.',
+    explanation: `A research agent should not write from raw search results. Across ${workflowSteps} pipeline steps linked by ${workflowEdges} edges, it should extract evidence into a ledger, rank source authority, and audit gaps before drafting. That is the data-structure version of critical thinking.`,
   };
 
   yield {
     state: workflowGraph('Authority ranking happens before synthesis'),
     highlight: { active: ['search', 'rank', 'ledger', 'e-search-rank', 'e-rank-ledger'], found: ['audit'], compare: ['write'] },
-    explanation: 'Official docs, primary papers, benchmark repos, filings, vendor blogs, news stories, and social posts should not have equal weight. Ranking early prevents the final report from laundering weak sources into strong prose.',
+    explanation: `Official docs, primary papers, benchmark repos, filings, vendor blogs, news stories, and social posts should not have equal weight. With ${workflowSteps} stages in the pipeline, ranking early prevents the final report from laundering weak sources into strong prose.`,
   };
 
   yield {
     state: plotState({
-      axes: { x: { label: 'evidence items', min: 0, max: 80 }, y: { label: 'research value', min: 0, max: 1 } },
+      axes: { x: { label: 'evidence items', min: 0, max: maxEvidence }, y: { label: 'research value', min: 0, max: 1 } },
       series: [
-        { id: 'coverage', label: 'coverage', points: [{ x: 5, y: 0.25 }, { x: 12, y: 0.48 }, { x: 24, y: 0.7 }, { x: 45, y: 0.84 }, { x: 80, y: 0.9 }] },
-        { id: 'confusion', label: 'confusion', points: [{ x: 5, y: 0.03 }, { x: 12, y: 0.08 }, { x: 24, y: 0.19 }, { x: 45, y: 0.44 }, { x: 80, y: 0.8 }] },
+        { id: 'coverage', label: 'coverage', points: [{ x: 5, y: 0.25 }, { x: 12, y: 0.48 }, { x: 24, y: 0.7 }, { x: stopPoint, y: coverageAtStop }, { x: maxEvidence, y: 0.9 }] },
+        { id: 'confusion', label: 'confusion', points: [{ x: 5, y: 0.03 }, { x: 12, y: 0.08 }, { x: 24, y: 0.19 }, { x: stopPoint, y: confusionAtStop }, { x: maxEvidence, y: 0.8 }] },
       ],
       markers: [
-        { id: 'stop', x: 45, y: 0.84, label: 'audit before more crawl' },
+        { id: 'stop', x: stopPoint, y: coverageAtStop, label: 'audit before more crawl' },
       ],
     }),
     highlight: { active: ['coverage', 'stop'], compare: ['confusion'] },
-    explanation: 'More evidence helps until it becomes redundant or noisy. A ledger enables stop rules: if the remaining gaps are specific, search for those gaps instead of crawling another pile of weak sources.',
+    explanation: `More evidence helps until it becomes redundant or noisy. At ${stopPoint} items, coverage reaches ${coverageAtStop} but confusion hits ${confusionAtStop}. A ledger enables stop rules: if the remaining gaps are specific, search for those gaps instead of crawling up to ${maxEvidence} weak sources.`,
   };
 
   yield {
     state: workflowGraph('Audit sends stale or unsupported claims back to research'),
     highlight: { active: ['ledger', 'audit', 'refresh', 'e-ledger-audit', 'e-audit-refresh'], found: ['publish'], compare: ['write'] },
-    explanation: 'A good ledger supports refresh. Date-sensitive claims can be rechecked, unsupported claims can be removed, and contradictions can be reopened without rewriting the whole report.',
-    invariant: 'The answer is only as strong as the weakest important claim it depends on.',
+    explanation: `A good ledger supports refresh across all ${workflowSteps} workflow stages. Date-sensitive claims can be rechecked, unsupported claims can be removed, and contradictions can be reopened without rewriting the whole report.`,
+    invariant: `The answer is only as strong as the weakest important claim it depends on — audit the full ${workflowEdges}-edge pipeline before publishing.`,
   };
 }
 
@@ -207,6 +221,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/claim-graph-source-ledger.gif', alt: 'Animated walkthrough of the claim graph source ledger visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

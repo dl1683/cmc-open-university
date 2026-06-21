@@ -108,7 +108,8 @@ export const article = {
         'During search, the highlighted node is the current candidate. Visited nodes (dimmed) mark the path already checked. When a subtree is not entered, every key inside it was eliminated by a single comparison at the parent. The found marker means the target matched. If the search reaches a missing child, the target is provably absent: the ordering rule would have forced it down exactly this path if it existed.',
         {type: 'callout', text: 'A BST is editable binary search: each comparison chooses a subtree, but only balanced height preserves the logarithmic promise.'},
         {type: 'image', src: 'https://courses.grainger.illinois.edu/cs225/fa2021/assets/notes/bst/bstsearch.png', alt: 'Binary search tree search path with left and right decisions.', caption: 'Search follows one comparison path and ignores the rejected subtree. (Source: courses.grainger.illinois.edu)'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/binary-search-tree.gif', alt: 'Animated walkthrough of the binary search tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

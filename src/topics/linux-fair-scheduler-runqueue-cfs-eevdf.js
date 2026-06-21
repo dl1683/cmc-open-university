@@ -64,14 +64,14 @@ function* vruntimeTree() {
   yield {
     state: runqueueGraph('Classic CFS uses an ordered run queue by vruntime'),
     highlight: { active: ['root', 'left', 'mid', 'right'], found: ['min'] },
-    explanation: 'The classic Completely Fair Scheduler model keeps runnable schedulable entities ordered by virtual runtime. The leftmost entity has received the least weighted CPU service, so it is the next natural pick.',
-    invariant: 'The run queue is ordered by fairness debt, not by arrival time.',
+    explanation: `The classic Completely Fair Scheduler model keeps runnable schedulable entities ordered by virtual runtime. The leftmost entity (${topic.title} node B at vr=18) has received the least weighted CPU service, so it is the next natural pick.`,
+    invariant: `In the ${topic.title}, the run queue is ordered by fairness debt, not by arrival time.`,
   };
 
   yield {
     state: runqueueGraph('The leftmost task runs, then moves right', { left: 'B running', min: 'B', clock: '+slice', insert: 'vr=36', latency: 'others wait' }),
     highlight: { active: ['left', 'min', 'clock', 'insert', 'e-left-min', 'e-min-clock', 'e-clock-insert'], compare: ['mid', 'right'] },
-    explanation: 'After task B runs, its virtual runtime increases. It is reinserted farther to the right, which lets another task become the leftmost candidate.',
+    explanation: `After task B runs in this ${topic.title} view, its virtual runtime increases and it is reinserted at ${'vr=36'} — farther to the right — which lets another task become the leftmost candidate.`,
   };
 
   yield {
@@ -94,7 +94,7 @@ function* vruntimeTree() {
       ],
     ),
     highlight: { active: ['nice5:vr', 'group:effect'], compare: ['nice0:vr'] },
-    explanation: 'Virtual runtime is weighted service accounting. Lower-priority tasks accumulate virtual runtime faster for the same real CPU time, so priority changes fairness debt without abandoning the ordered run queue.',
+    explanation: `Virtual runtime is weighted service accounting. A ${'nice +5'} task accumulates virtual runtime faster than a ${'nice 0'} task for the same real CPU time, so priority changes fairness debt without abandoning the ordered run queue.`,
   };
 
   yield {
@@ -118,7 +118,7 @@ function* vruntimeTree() {
       ],
     ),
     highlight: { active: ['pick:data', 'insert:why'], found: ['rebalance:data'] },
-    explanation: 'The scheduler is not only a policy. It is a hot data-structure path: enqueue, dequeue, pick next, migrate, and update clocks must be predictable under interrupt and wakeup pressure.',
+    explanation: `The ${topic.title} is not only a policy. It is a hot data-structure path: ${'enqueue'}, ${'dequeue'}, ${'pick next'}, migrate, and update clocks must be predictable under interrupt and wakeup pressure.`,
   };
 }
 
@@ -146,8 +146,8 @@ function* eevdfDeadlineCaseStudy() {
       ],
     ),
     highlight: { active: ['A:lag', 'A:vd', 'A:choice'], compare: ['C:choice', 'D:vd'] },
-    explanation: 'EEVDF first filters for tasks with nonnegative lag: tasks still owed service. Among eligible tasks, it chooses the earliest virtual deadline, letting latency-sensitive shorter slices win without ignoring fairness.',
-    invariant: 'Earliest deadline matters only after eligibility is checked.',
+    explanation: `EEVDF first filters for tasks with nonnegative lag: tasks still owed service. Among eligible tasks, it chooses the earliest virtual deadline (A at ${'100.3'}, not C at ${'99.4'} which is ineligible), letting latency-sensitive shorter slices win without ignoring fairness.`,
+    invariant: `In ${topic.title}, earliest deadline matters only after eligibility (${'lag>=0'}) is checked.`,
   };
 
   yield {
@@ -161,7 +161,7 @@ function* eevdfDeadlineCaseStudy() {
       latency: 'short slice',
     }),
     highlight: { active: ['mid', 'min', 'clock', 'latency'], removed: ['left'], compare: ['right'] },
-    explanation: 'A task can have an early deadline but be ineligible because it has already received more than its fair share. EEVDF chooses the earliest virtual deadline among eligible tasks, not simply the smallest vruntime.',
+    explanation: `A task like C (${'vd=99.4'}) can have an early deadline but be ineligible because it has already received more than its fair share. EEVDF chooses A (${'vd=100.3'}) — the earliest virtual deadline among eligible tasks, not simply the smallest vruntime.`,
   };
 
   yield {
@@ -183,7 +183,7 @@ function* eevdfDeadlineCaseStudy() {
       ],
     ),
     highlight: { active: ['eevdf:key', 'eevdf:goal'], compare: ['cfs:key'] },
-    explanation: 'CFS teaches the ordered-service ledger. EEVDF keeps that ledger but adds eligibility and deadline choice, so latency-sensitive work can run sooner only when fairness debt allows it.',
+    explanation: `CFS picks by ${'smallest vruntime'} for approximate fair share. EEVDF keeps that ledger but adds eligibility and deadline choice (${'eligible + earliest VD'}), so latency-sensitive work can run sooner only when fairness debt allows it.`,
   };
 }
 
@@ -196,6 +196,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/linux-fair-scheduler-runqueue-cfs-eevdf.gif', alt: 'Animated walkthrough of the linux fair scheduler runqueue cfs eevdf visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What a fair run queue solves',
       paragraphs: [

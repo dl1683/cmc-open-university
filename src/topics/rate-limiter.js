@@ -92,7 +92,8 @@ export const article = {
         `The stack is the token bucket. Each circle is one token — permission to handle one request. The bucket starts full (capacity = ${CAPACITY}). Watch three frames: refill (a new token appears at the top, highlighted active), consume (a token vanishes when a request is allowed), and reject (the bucket is empty and a request is turned away). If the bucket is already full when a refill is due, the new token is discarded — capacity is the ceiling.`,
         {type: 'callout', text: 'A token bucket enforces an average by spending saved permission, not by slicing traffic into fragile calendar windows.'},
         `The input list sets how many requests arrive each tick. Try "1, 0, 4, 0, 1, 3, 0, 1" to see a quiet period build up tokens, a burst drain them, a rejection when the burst exceeds saved permission, and a slow recovery. The final tally shows accepted versus rejected across all ticks — the long-run average, not rigid per-tick enforcement.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/rate-limiter.gif', alt: 'Animated walkthrough of the rate limiter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

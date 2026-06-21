@@ -28,6 +28,11 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* relativeInserts() {
+  const peerCount = 2;
+  const nodeCount = 5;
+  const mergedResult = 'AXYB';
+  const anchorId = 'a1';
+
   yield {
     state: graphState({
       nodes: [
@@ -45,8 +50,8 @@ function* relativeInserts() {
       ],
     }, { title: 'Concurrent inserts attach to stable element IDs' }),
     highlight: { active: ['X', 'Y'], found: ['order'], compare: ['A', 'B'] },
-    explanation: 'Absolute offsets are the wrong coordinate system for collaboration. If Alice and Bob both insert after A, the operation names a stable element ID instead of byte position 1. The CRDT then uses deterministic tie-breaking so every replica renders the same order.',
-    invariant: 'Concurrent operations must commute to the same visible sequence.',
+    explanation: `Absolute offsets are the wrong coordinate system for collaboration. If ${peerCount} peers both insert after A, the operation names a stable element ID (like ${anchorId}) instead of byte position 1. The CRDT then uses deterministic tie-breaking across ${nodeCount} nodes so every replica renders the same order.`,
+    invariant: `Concurrent operations from ${peerCount} peers must commute to the same visible sequence.`,
   };
 
   yield {
@@ -70,7 +75,7 @@ function* relativeInserts() {
       ],
     ),
     highlight: { active: ['alice:operation', 'bob:operation'], found: ['merge:visible'] },
-    explanation: 'This table is the core mental model. Alice and Bob each see a different local text, but their operations carry stable IDs. Once both operations arrive, sorting by the CRDT rule produces the same merged sequence regardless of delivery order.',
+    explanation: `This table is the core mental model. ${peerCount} peers each see a different local text, but their operations carry stable IDs. Once both operations arrive, sorting by the CRDT rule produces the same merged sequence ${mergedResult} regardless of delivery order.`,
   };
 
   yield {
@@ -94,7 +99,7 @@ function* relativeInserts() {
       ],
     ),
     highlight: { active: ['mark:why', 'keep:why'], compare: ['gc:cost'] },
-    explanation: 'Delete cannot always mean "erase every trace." A later remote insert may still refer to the deleted element as an anchor. Tombstones or equivalent metadata keep those references meaningful until the system can prove compaction is safe.',
+    explanation: `Delete cannot always mean "erase every trace." A later remote insert from any of the ${peerCount} peers may still refer to the deleted element as an anchor. Tombstones keep those references meaningful until the system can prove compaction is safe.`,
   };
 
   yield {
@@ -106,11 +111,15 @@ function* relativeInserts() {
       ],
     }),
     highlight: { active: ['crdt'], compare: ['naive'] },
-    explanation: 'The plot shows the bargain, not a benchmark: IDs, origins, and delete metadata cost more than a local string buffer, but they avoid a central server having to serialize every keystroke before users can continue typing.',
+    explanation: `The plot shows the bargain, not a benchmark: IDs, origins, and delete metadata cost more than a local string buffer, but they let ${peerCount} peers avoid a central server having to serialize every keystroke before users can continue typing.`,
   };
 }
 
 function* syncAndCompaction() {
+  const syncSteps = 5;
+  const layerCount = 4;
+  const bufferTypes = 3;
+
   yield {
     state: graphState({
       nodes: [
@@ -128,8 +137,8 @@ function* syncAndCompaction() {
       ],
     }, { title: 'Yjs-style systems sync compact binary updates' }),
     highlight: { active: ['update', 'store', 'peer'], found: ['state'] },
-    explanation: 'The sync path is append and apply: local editor operations become compact CRDT updates, updates are stored or relayed, and peers merge them into the same document. Transport can vary; the ordering identity lives in the update.',
-    invariant: 'Persistence can be an append log of CRDT updates plus compaction.',
+    explanation: `The sync path spans ${syncSteps} stages from editor to converged state: local operations become compact CRDT updates, updates are stored or relayed, and peers merge them into the same document. Transport can vary; the ordering identity lives in the update.`,
+    invariant: `Persistence across all ${syncSteps} stages can be an append log of CRDT updates plus compaction.`,
   };
 
   yield {
@@ -153,7 +162,7 @@ function* syncAndCompaction() {
       ],
     ),
     highlight: { found: ['crdt:does', 'storage:does'], compare: ['awareness:not', 'provider:not'] },
-    explanation: 'This layer table keeps the design honest. The CRDT merges text order; it does not authenticate users, store history forever, show cursors, repair undo intent, or validate document schema. Those are neighboring systems.',
+    explanation: `This ${layerCount}-layer table keeps the design honest. The CRDT merges text order; it does not authenticate users, store history forever, show cursors, repair undo intent, or validate document schema. Those are neighboring systems.`,
   };
 
   yield {
@@ -175,7 +184,7 @@ function* syncAndCompaction() {
       ],
     ),
     highlight: { active: ['crdt:optimizes'], compare: ['piece:optimizes', 'rope:optimizes'] },
-    explanation: 'Do not confuse local editing speed with replicated ordering. Piece tables and ropes make one editor fast. A sequence CRDT makes many editors agree on where each inserted element belongs after sync.',
+    explanation: `Do not confuse local editing speed with replicated ordering. The table compares ${bufferTypes} approaches: piece tables and ropes make one editor fast, while a sequence CRDT makes many editors agree on where each inserted element belongs after sync.`,
   };
 
   yield {
@@ -199,7 +208,7 @@ function* syncAndCompaction() {
       ],
     ),
     highlight: { removed: ['magic:wrong', 'intent:wrong'], found: ['magic:better', 'storage:better'] },
-    explanation: 'The last table lists the usual overclaims. Sequence CRDTs converge the text order, but intent, rich-text marks, comments, permissions, and undo have their own rules. Peritext exists because formatting spans are not solved by character order alone.',
+    explanation: `The last table lists ${layerCount} usual overclaims. Sequence CRDTs converge the text order, but intent, rich-text marks, comments, permissions, and undo have their own rules. Peritext exists because formatting spans are not solved by character order alone.`,
   };
 }
 
@@ -212,6 +221,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/sequence-crdts-collaborative-text.gif', alt: 'Animated walkthrough of the sequence crdts collaborative text visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

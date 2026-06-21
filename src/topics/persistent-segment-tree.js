@@ -80,17 +80,24 @@ function versionGraph(title, updated) {
 }
 
 function* pathCopying() {
+  const arr = [1, 3, 2, 4];
+  const updateIdx = 3;
+  const oldVal = 4;
+  const newVal = 11;
+  const totalSum = arr.reduce((a, b) => a + b, 0);
+  const pathLen = Math.ceil(Math.log2(arr.length));
+
   yield {
     state: versionGraph('Version 0 stores sums for [1, 3, 2, 4]', false),
     highlight: { active: ['v0', 'a'], found: ['b', 'c'] },
-    explanation: 'A normal Segment Tree stores aggregate values over intervals. A persistent segment tree keeps old versions by never mutating nodes that old roots can reach.',
+    explanation: `A normal Segment Tree stores aggregate values over ${arr.length} intervals built from [${arr.join(', ')}]. A persistent segment tree keeps old versions by never mutating nodes that old roots can reach.`,
   };
 
   yield {
     state: versionGraph('Update index 3 from 4 to 11: copy only the path', true),
     highlight: { active: ['v1', 'a1', 'c1', 'g1'], compare: ['b', 'f'], found: ['v0'] },
-    explanation: 'Updating one leaf copies the root-to-leaf path and reuses every untouched subtree. Version 0 still points to old nodes. Version 1 points to new nodes where sums changed and shared nodes where they did not.',
-    invariant: 'Persistence is sharing plus immutability of old reachable nodes.',
+    explanation: `Updating index ${updateIdx} from ${oldVal} to ${newVal} copies the root-to-leaf path (${pathLen} levels) and reuses every untouched subtree. Version 0 still points to old nodes with sum ${totalSum}. Version 1 points to new nodes where sums changed and shared nodes where they did not.`,
+    invariant: `Persistence is sharing plus immutability: only ${pathLen + 1} nodes are copied to update one of ${arr.length} leaves.`,
   };
 
   yield {
@@ -114,7 +121,7 @@ function* pathCopying() {
       ],
     ),
     highlight: { found: ['update:cost', 'versions:cost'], compare: ['array:cost'] },
-    explanation: 'Copying the whole tree per version would be O(n) per update. Path copying makes point updates O(log n) new nodes while preserving access to every old root.',
+    explanation: `Copying the whole tree per version would be O(n) per update. Path copying makes point updates O(log n) new nodes — here ${pathLen + 1} nodes for an array of ${arr.length} — while preserving access to every old root.`,
   };
 
   yield {
@@ -138,15 +145,21 @@ function* pathCopying() {
       ],
     ),
     highlight: { active: ['partial:query', 'partial:update'], compare: ['full:update', 'confluent:update'] },
-    explanation: 'Most persistent segment tree uses are partially persistent: query any old version, but create new versions from the latest or from a chosen root with controlled rules.',
+    explanation: `Most persistent segment tree uses are partially persistent: query any old version, but create new versions only from the latest. Our example creates version 1 by updating index ${updateIdx} from ${oldVal} to ${newVal} while version 0 remains queryable.`,
   };
 }
 
 function* versionedQueries() {
+  const updateIdx = 3;
+  const oldVal = 4;
+  const newVal = 11;
+  const oldSum = 6;
+  const newSum = 13;
+
   yield {
     state: versionGraph('Two roots expose two histories', true),
     highlight: { active: ['v0', 'v1'], compare: ['g', 'g1'] },
-    explanation: 'A version is just a root pointer. Query version 0 through root v0 and index 3 is still 4. Query version 1 through root v1 and index 3 is 11.',
+    explanation: `A version is just a root pointer. Query version 0 through root v0 and index ${updateIdx} is still ${oldVal}. Query version 1 through root v1 and index ${updateIdx} is ${newVal}.`,
   };
 
   yield {
@@ -170,8 +183,8 @@ function* versionedQueries() {
       ],
     ),
     highlight: { found: ['q0:answer', 'q1:answer'], compare: ['old:answer', 'new:answer'] },
-    explanation: 'Persistent trees make time part of the query. This is the same conceptual move as Git commits and MVCC snapshots: old states remain addressable.',
-    invariant: 'Version roots are immutable snapshots.',
+    explanation: `Persistent trees make time part of the query. Sum [2,3] at v0 returns ${oldSum}, at v1 returns ${newSum} — same range, different version root, different answer. This is the same conceptual move as Git commits and MVCC snapshots.`,
+    invariant: `Version roots are immutable snapshots: leaf [${updateIdx}] is ${oldVal} through v0 and ${newVal} through v1.`,
   };
 
   yield {
@@ -195,7 +208,7 @@ function* versionedQueries() {
       ],
     ),
     highlight: { found: ['kth:how', 'undo:how', 'mvcc:how', 'audit:how'] },
-    explanation: 'Persistence turns a data structure into a timeline. Range queries, undo stacks, historical indexes, and snapshot isolation all use the same sharing idea at different scales.',
+    explanation: `Persistence turns a data structure into a timeline. The update at index ${updateIdx} (${oldVal} to ${newVal}) created a new version without destroying the old one. Range queries, undo stacks, historical indexes, and snapshot isolation all use this sharing idea.`,
   };
 
   yield {
@@ -219,7 +232,7 @@ function* versionedQueries() {
       ],
     ),
     highlight: { active: ['memory:response', 'gc:response', 'updates:response', 'debug:response'] },
-    explanation: 'The implementation bug to fear is accidental mutation of a shared node. Once a node is reachable from an old root, treat it as immutable.',
+    explanation: `The implementation bug to fear is accidental mutation of a shared node. Once a node is reachable from an old root — like the leaf [${updateIdx}] = ${oldVal} in v0 — treat it as immutable. Modifying it would silently corrupt version 0.`,
   };
 }
 
@@ -232,6 +245,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/persistent-segment-tree.gif', alt: 'Animated walkthrough of the persistent segment tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

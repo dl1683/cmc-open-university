@@ -62,7 +62,7 @@ function* telemetryFunnel() {
   yield {
     state: opsGraph('Telemetry must be normalized before AI can help'),
     highlight: { active: ['metrics', 'logs', 'traces', 'normalize'], found: ['e-metrics-normalize', 'e-logs-normalize', 'e-traces-normalize'] },
-    explanation: 'AIOps starts as data engineering. Metrics, logs, and traces must share service names, environments, versions, regions, and request identifiers before models can correlate them reliably.',
+    explanation: `AIOps starts as data engineering. ${['metrics', 'logs', 'traces'].join(', ')} must share service names, environments, versions, regions, and request identifiers before models can correlate them reliably.`,
   };
 
   yield {
@@ -89,25 +89,27 @@ function* telemetryFunnel() {
       ],
     ),
     highlight: { active: ['latency:decision', 'errors:decision', 'incident:decision'], found: ['deploy:context'] },
-    explanation: 'The point is compression with context. A good AIOps system does not page five times; it groups related symptoms, attaches change context, and routes one incident to the right owner.',
-    invariant: 'Correlation reduces alert count only when it preserves user impact and actionability.',
+    explanation: `The point is compression with context. A good AIOps system does not page ${['CPU high', 'p99 latency', '5xx errors', 'deploy event', 'incident'].length} times; it groups related symptoms, attaches change context, and routes one incident to the right owner.`,
+    invariant: `Correlation reduces alert count only when it preserves user impact and actionability across all ${['latency:decision', 'errors:decision', 'incident:decision'].length} primary decision cells.`,
   };
 
+  const separateJobs = ['detect', 'correlate'];
   yield {
     state: opsGraph('Detection and correlation are separate jobs'),
-    highlight: { active: ['detect', 'correlate'], found: ['e-detect-incident', 'e-correlate-incident'], compare: ['human'] },
-    explanation: 'Anomaly detection asks whether a signal is unusual or budget-burning. Correlation asks which unusual signals likely belong to the same incident. Confusing the two creates noisy automated guesses.',
+    highlight: { active: separateJobs, found: ['e-detect-incident', 'e-correlate-incident'], compare: ['human'] },
+    explanation: `Anomaly ${separateJobs[0]}ion asks whether a signal is unusual or budget-burning. ${separateJobs[1][0].toUpperCase() + separateJobs[1].slice(1)} asks which unusual signals likely belong to the same incident. Confusing the ${separateJobs.length} creates noisy automated guesses.`,
   };
 
+  const featureFamilies = [
+    { id: 'time', label: 'time' },
+    { id: 'topology', label: 'topology' },
+    { id: 'deploy', label: 'change' },
+    { id: 'trace', label: 'trace' },
+  ];
   yield {
     state: labelMatrix(
       'Useful feature families',
-      [
-        { id: 'time', label: 'time' },
-        { id: 'topology', label: 'topology' },
-        { id: 'deploy', label: 'change' },
-        { id: 'trace', label: 'trace' },
-      ],
+      featureFamilies,
       [
         { id: 'feature', label: 'feature' },
         { id: 'failure', label: 'failure caught' },
@@ -120,20 +122,21 @@ function* telemetryFunnel() {
       ],
     ),
     highlight: { found: ['topology:feature', 'trace:feature'], active: ['deploy:failure'] },
-    explanation: 'The most useful models are often not exotic. Time windows, topology, deployment metadata, and trace context give correlation algorithms the structure human responders already use.',
+    explanation: `The most useful models are often not exotic. ${featureFamilies.map(f => f.label).join(', ')} give correlation algorithms the structure human responders already use.`,
   };
 }
 
 function* incidentLoop() {
+  const routingCategories = [
+    { id: 'minor', label: 'minor anomaly' },
+    { id: 'burnfast', label: 'fast burn' },
+    { id: 'burnslow', label: 'slow burn' },
+    { id: 'unknown', label: 'unknown impact' },
+  ];
   yield {
     state: labelMatrix(
       'SLO-aware routing',
-      [
-        { id: 'minor', label: 'minor anomaly' },
-        { id: 'burnfast', label: 'fast burn' },
-        { id: 'burnslow', label: 'slow burn' },
-        { id: 'unknown', label: 'unknown impact' },
-      ],
+      routingCategories,
       [
         { id: 'signal', label: 'signal' },
         { id: 'route', label: 'route' },
@@ -146,24 +149,26 @@ function* incidentLoop() {
       ],
     ),
     highlight: { active: ['burnfast:route', 'burnslow:route'], compare: ['minor:route', 'unknown:route'] },
-    explanation: 'AIOps should not page because something looks statistically interesting. Page when user-visible reliability is burning fast enough that a human needs to respond now.',
+    explanation: `AIOps should not page because something looks statistically interesting. With ${routingCategories.length} routing categories, page only when user-visible reliability is burning fast enough that a human needs to respond now.`,
   };
 
+  const feedbackTargets = ['normalize', 'correlate'];
   yield {
     state: opsGraph('Human validation closes the loop'),
-    highlight: { active: ['incident', 'human', 'e-incident-human'], found: ['normalize', 'correlate'] },
-    explanation: 'The responder confirms or rejects the grouping, mitigates the incident, and records what actually happened. That feedback becomes labels for future correlation, routing, and suppression logic.',
+    highlight: { active: ['incident', 'human', 'e-incident-human'], found: feedbackTargets },
+    explanation: `The responder confirms or rejects the grouping, mitigates the incident, and records what actually happened. That feedback becomes labels for future ${feedbackTargets.join(', ')}, routing, and suppression logic.`,
   };
 
+  const maturityLevels = [
+    { id: 'suggest', label: 'suggest' },
+    { id: 'prepare', label: 'prepare' },
+    { id: 'execute', label: 'execute' },
+    { id: 'rollback', label: 'rollback' },
+  ];
   yield {
     state: labelMatrix(
       'Automation maturity ladder',
-      [
-        { id: 'suggest', label: 'suggest' },
-        { id: 'prepare', label: 'prepare' },
-        { id: 'execute', label: 'execute' },
-        { id: 'rollback', label: 'rollback' },
-      ],
+      maturityLevels,
       [
         { id: 'action', label: 'action' },
         { id: 'guardrail', label: 'guardrail' },
@@ -176,18 +181,19 @@ function* incidentLoop() {
       ],
     ),
     highlight: { active: ['suggest:action', 'prepare:action'], compare: ['execute:guardrail', 'rollback:guardrail'] },
-    explanation: 'Automation should climb slowly. Suggest causes first. Prepare commands next. Execute only low-risk actions with tight guardrails and measurable rollback criteria.',
+    explanation: `Automation should climb the ${maturityLevels.length} levels slowly. ${maturityLevels[0].label[0].toUpperCase() + maturityLevels[0].label.slice(1)} causes first. ${maturityLevels[1].label[0].toUpperCase() + maturityLevels[1].label.slice(1)} commands next. ${maturityLevels[2].label[0].toUpperCase() + maturityLevels[2].label.slice(1)} only low-risk actions with tight guardrails and measurable ${maturityLevels[3].label} criteria.`,
   };
 
+  const failureModes = [
+    { id: 'labels', label: 'bad labels' },
+    { id: 'feedback', label: 'missing feedback' },
+    { id: 'overfit', label: 'overfit patterns' },
+    { id: 'autonomy', label: 'unsafe autonomy' },
+  ];
   yield {
     state: labelMatrix(
       'Failure modes to design against',
-      [
-        { id: 'labels', label: 'bad labels' },
-        { id: 'feedback', label: 'missing feedback' },
-        { id: 'overfit', label: 'overfit patterns' },
-        { id: 'autonomy', label: 'unsafe autonomy' },
-      ],
+      failureModes,
       [
         { id: 'symptom', label: 'symptom' },
         { id: 'fix', label: 'fix' },
@@ -200,7 +206,7 @@ function* incidentLoop() {
       ],
     ),
     highlight: { active: ['labels:symptom', 'autonomy:symptom'], found: ['feedback:fix', 'overfit:fix'] },
-    explanation: 'The AIOps failure mode is false confidence. If telemetry is messy, feedback is missing, or automation lacks guardrails, AI turns the incident system into a faster noise generator.',
+    explanation: `The AIOps failure mode is false confidence. With ${failureModes.length} failure modes to guard against — ${failureModes.map(f => f.label).join(', ')} — AI turns the incident system into a faster noise generator if any defense is missing.`,
   };
 }
 
@@ -213,6 +219,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/aiops-incident-response.gif', alt: 'Animated walkthrough of the aiops incident response visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

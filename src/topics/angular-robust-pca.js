@@ -45,29 +45,41 @@ const OUTLIERS = [
 ];
 
 function* outlierResistantDirection() {
+  const numClean = CLEAN_POINTS.length;
   yield {
     state: scatterState({
       axes: { x: { label: 'feature 1', min: 0, max: 10 }, y: { label: 'feature 2', min: 0, max: 9 } },
       points: CLEAN_POINTS,
     }),
     highlight: { active: ['p0', 'p7'] },
-    explanation: 'Use this as the clean baseline. The inlier cloud has one obvious diagonal direction, so ordinary PCA does the right thing: it finds the line where the real data varies and ignores only small perpendicular noise.',
+    explanation: `Use these ${numClean} points as the clean baseline. The inlier cloud has one obvious diagonal direction from (${CLEAN_POINTS[0].x},${CLEAN_POINTS[0].y}) to (${CLEAN_POINTS[numClean - 1].x},${CLEAN_POINTS[numClean - 1].y}), so ordinary PCA does the right thing: it finds the line where the real data varies and ignores only small perpendicular noise.`,
   };
 
+  const allPoints = [...CLEAN_POINTS, ...OUTLIERS];
+  const numOutliers = OUTLIERS.length;
   yield {
     state: plotState({
       axes: { x: { label: 'feature 1', min: 0, max: 10 }, y: { label: 'feature 2', min: 0, max: 9 } },
-      markers: [...CLEAN_POINTS, ...OUTLIERS],
+      markers: allPoints,
       vectors: [
         { id: 'cleanPc', from: { x: 4.5, y: 3.5 }, to: { x: 7.5, y: 5.5 }, label: 'clean PC' },
         { id: 'badPc', from: { x: 4.8, y: 4.0 }, to: { x: 4.4, y: 7.0 }, label: 'dragged PC' },
       ],
     }),
     highlight: { active: ['o0', 'o1'], compare: ['badPc'], found: ['cleanPc'] },
-    explanation: 'Now add two far points and read the arrows as influence. PCA squares distance from the mean, so a small number of large residuals can buy enough leverage to rotate the principal direction away from the inlier pattern.',
-    invariant: 'Squared-distance methods let large residuals buy large influence.',
+    explanation: `Now add ${numOutliers} far points to the ${numClean} inliers (${allPoints.length} total) and read the arrows as influence. PCA squares distance from the mean, so a small number of large residuals can buy enough leverage to rotate the principal direction away from the inlier pattern.`,
+    invariant: `Squared-distance methods let ${numOutliers} large residuals buy disproportionate influence over ${numClean} inliers.`,
   };
 
+  const inlierMarkers = [
+    { id: 'a0', x: 0.77, y: 0.64, label: 'inlier' },
+    { id: 'a1', x: 0.80, y: 0.60, label: 'inlier' },
+    { id: 'a2', x: 0.73, y: 0.68, label: 'inlier' },
+  ];
+  const outlierMarkers = [
+    { id: 'b0', x: -0.1, y: 0.99, label: 'outlier' },
+    { id: 'b1', x: 0.98, y: -0.18, label: 'outlier' },
+  ];
   yield {
     state: plotState({
       axes: { x: { label: 'unit direction x', min: -1.1, max: 1.1 }, y: { label: 'unit direction y', min: -1.1, max: 1.1 } },
@@ -77,18 +89,16 @@ function* outlierResistantDirection() {
           { x: -1.0, y: 0.0 }, { x: -0.7, y: -0.7 }, { x: 0.0, y: -1.0 }, { x: 0.7, y: -0.7 }, { x: 1.0, y: 0.0 },
         ] },
       ],
-      markers: [
-        { id: 'a0', x: 0.77, y: 0.64, label: 'inlier' },
-        { id: 'a1', x: 0.80, y: 0.60, label: 'inlier' },
-        { id: 'a2', x: 0.73, y: 0.68, label: 'inlier' },
-        { id: 'b0', x: -0.1, y: 0.99, label: 'outlier' },
-        { id: 'b1', x: 0.98, y: -0.18, label: 'outlier' },
-      ],
+      markers: [...inlierMarkers, ...outlierMarkers],
     }),
-    highlight: { found: ['a0', 'a1', 'a2'], compare: ['b0', 'b1'] },
-    explanation: 'After normalization, every point lives on the unit circle. The inliers still agree on direction, but raw distance is gone, so an outlier can no longer dominate just by being far away.',
+    highlight: { found: inlierMarkers.map(m => m.id), compare: outlierMarkers.map(m => m.id) },
+    explanation: `After normalization, all ${inlierMarkers.length + outlierMarkers.length} points live on the unit circle. The ${inlierMarkers.length} inliers still agree on direction, but raw distance is gone, so the ${outlierMarkers.length} outliers can no longer dominate just by being far away.`,
   };
 
+  const methods = [
+    { id: 'PCA', label: 'PCA' },
+    { id: 'AR-PCA', label: 'AR-PCA' },
+  ];
   yield {
     state: labelMatrix(
       'Vanilla PCA vs angular robust PCA',
@@ -98,10 +108,7 @@ function* outlierResistantDirection() {
         { id: 'fit', label: 'fit target' },
         { id: 'failure', label: 'failure' },
       ],
-      [
-        { id: 'PCA', label: 'PCA' },
-        { id: 'AR-PCA', label: 'AR-PCA' },
-      ],
+      methods,
       [
         ['raw centered points', 'unit directions'],
         ['distance squared', 'angular density'],
@@ -110,21 +117,22 @@ function* outlierResistantDirection() {
       ],
     ),
     highlight: { active: ['influence:PCA', 'influence:AR-PCA'], found: ['fit:AR-PCA'] },
-    explanation: 'The robust version does not make PCA obsolete. It changes the influence function: a point can vote by direction, but its raw distance cannot hijack the fit.',
+    explanation: `The robust version (${methods[1].label}) does not make ${methods[0].label} obsolete. It changes the influence function: a point can vote by direction, but its raw distance cannot hijack the fit.`,
   };
 }
 
 function* trimmedAngularDensity() {
+  const pipelineSteps = [
+    { id: 'center', label: 'center' },
+    { id: 'normalize', label: 'normalize' },
+    { id: 'density', label: 'density' },
+    { id: 'trim', label: 'trim' },
+    { id: 'fit', label: 'fit' },
+  ];
   yield {
     state: labelMatrix(
       'Angular robust pipeline',
-      [
-        { id: 'center', label: 'center' },
-        { id: 'normalize', label: 'normalize' },
-        { id: 'density', label: 'density' },
-        { id: 'trim', label: 'trim' },
-        { id: 'fit', label: 'fit' },
-      ],
+      pipelineSteps,
       [
         { id: 'operation', label: 'operation' },
         { id: 'purpose', label: 'purpose' },
@@ -138,26 +146,31 @@ function* trimmedAngularDensity() {
       ],
     ),
     highlight: { active: ['normalize:operation', 'density:operation', 'trim:operation'] },
-    explanation: 'The robust recipe is simple to remember: remove offset, remove magnitude, find angular consensus, trim bad votes, then fit the low-dimensional subspace.',
+    explanation: `The robust recipe has ${pipelineSteps.length} steps: ${pipelineSteps.map(s => s.label).join(', ')}. Remove offset, remove magnitude, find angular consensus, trim bad votes, then fit the low-dimensional subspace.`,
   };
 
+  const pcaCleanError = 0.06;
+  const angularCleanError = 0.08;
+  const pcaMaxError = 0.92;
+  const angularMaxError = 0.48;
   yield {
     state: plotState({
       axes: { x: { label: 'outlier fraction', min: 0, max: 45 }, y: { label: 'subspace error', min: 0, max: 1.0 } },
       series: [
         { id: 'pca', label: 'PCA', points: [
-          { x: 0, y: 0.06 }, { x: 10, y: 0.18 }, { x: 20, y: 0.45 }, { x: 30, y: 0.72 }, { x: 40, y: 0.92 },
+          { x: 0, y: pcaCleanError }, { x: 10, y: 0.18 }, { x: 20, y: 0.45 }, { x: 30, y: 0.72 }, { x: 40, y: pcaMaxError },
         ] },
         { id: 'angular', label: 'trimmed angular', points: [
-          { x: 0, y: 0.08 }, { x: 10, y: 0.11 }, { x: 20, y: 0.16 }, { x: 30, y: 0.26 }, { x: 40, y: 0.48 },
+          { x: 0, y: angularCleanError }, { x: 10, y: 0.11 }, { x: 20, y: 0.16 }, { x: 30, y: 0.26 }, { x: 40, y: angularMaxError },
         ] },
       ],
     }),
     highlight: { active: ['angular'], compare: ['pca'] },
-    explanation: 'The toy curve shows the expected shape: robust methods may pay a small cost on perfectly clean data, then degrade more slowly when outliers increase. The real paper validates this on synthetic and image outlier settings.',
-    invariant: 'Robustness is a trade: slightly less efficient when clean, much less fragile when contaminated.',
+    explanation: `The toy curve shows the expected shape: at 0% outliers PCA error is ${pcaCleanError} vs angular ${angularCleanError}, but at 40% outliers PCA degrades to ${pcaMaxError} while angular stays at ${angularMaxError}. Robust methods pay a small clean-data cost and degrade more slowly under contamination.`,
+    invariant: `Robustness is a trade: the clean-data gap is only ${(angularCleanError - pcaCleanError).toFixed(2)} but the contaminated gap is ${(pcaMaxError - angularMaxError).toFixed(2)}.`,
   };
 
+  const paths = ['pca', 'angular'];
   yield {
     state: graphState({
       nodes: [
@@ -175,19 +188,20 @@ function* trimmedAngularDensity() {
         { id: 'e-audit-embed', from: 'audit', to: 'embed', weight: '' },
       ],
     }, { title: 'Robust PCA belongs beside the baseline, not instead of it' }),
-    highlight: { active: ['pca', 'angular'], found: ['embed'] },
-    explanation: 'A practical workflow runs ordinary PCA and a robust alternative. If they agree, the data is probably clean enough. If they disagree, the disagreement is a diagnostic gift.',
+    highlight: { active: paths, found: ['embed'] },
+    explanation: `A practical workflow runs ${paths.length} paths — ordinary ${paths[0].toUpperCase()} and a robust ${paths[1]} alternative. If they agree, the data is probably clean enough. If they disagree, the disagreement is a diagnostic gift.`,
   };
 
+  const domains = [
+    { id: 'vision', label: 'vision' },
+    { id: 'sensors', label: 'sensors' },
+    { id: 'finance', label: 'finance' },
+    { id: 'embeddings', label: 'embeddings' },
+  ];
   yield {
     state: labelMatrix(
       'Where angular robustness helps',
-      [
-        { id: 'vision', label: 'vision' },
-        { id: 'sensors', label: 'sensors' },
-        { id: 'finance', label: 'finance' },
-        { id: 'embeddings', label: 'embeddings' },
-      ],
+      domains,
       [
         { id: 'outlier type', label: 'outlier' },
         { id: 'next topic', label: 'read next' },
@@ -200,7 +214,7 @@ function* trimmedAngularDensity() {
       ],
     ),
     highlight: { found: ['vision:outlier type', 'sensors:outlier type', 'embeddings:outlier type'] },
-    explanation: 'Angular robust PCA is a good bridge between linear algebra and practical data cleaning. It makes the influence of outliers visible instead of burying it inside a covariance matrix.',
+    explanation: `Angular robust PCA applies across ${domains.length} domains — ${domains.map(d => d.label).join(', ')} — bridging linear algebra and practical data cleaning. It makes the influence of outliers visible instead of burying it inside a covariance matrix.`,
   };
 }
 
@@ -213,6 +227,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/angular-robust-pca.gif', alt: 'Animated walkthrough of the angular robust pca visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'The problem',
       paragraphs: [

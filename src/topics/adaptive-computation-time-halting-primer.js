@@ -101,8 +101,8 @@ function* haltingMass() {
       ],
     ),
     highlight: { active: ['s1:halt', 's2:halt', 's3:halt'], found: ['s4:action'] },
-    explanation: 'Adaptive Computation Time makes the model emit a halting probability at each recurrent step. The runtime accumulates that mass, uses the final remainder to make the weights sum to one, and then stops spending compute on this item.',
-    invariant: 'Halting is differentiable because the output is a weighted mixture of step states plus a final remainder.',
+    explanation: `Adaptive Computation Time makes the model emit a halting probability at each of ${4} recurrent steps. At step 1 the halt probability ${'p_t'} is ${'0.42'}, accumulating to ${'0.42'}; by step 4 the cumulative ${'cum p'} reaches ${'1.00'} and the action flips to ${'emit'}. The runtime accumulates that mass, uses the final remainder to make the weights sum to one, and then stops spending compute on this item.`,
+    invariant: `Halting is differentiable because the output is a weighted mixture of ${4} step states plus a final remainder — ${3} highlighted ${'p_t'} cells (active) lead to the found ${'emit'} action.`,
   };
 
   yield {
@@ -125,13 +125,13 @@ function* haltingMass() {
       ],
     }),
     highlight: { active: ['easy', 'easyStop'], compare: ['hard', 'hardStop'], found: ['target'] },
-    explanation: 'The same network can halt quickly for easy inputs and keep refining hard inputs. The promise is variable compute; the limit is that the halt policy must be calibrated, capped, and measured by hard-case quality.',
+    explanation: `The ${'easy'} series halts at step ${2} (y=${1.0}) while the ${'hard'} series needs all ${5} steps to reach the ${'halt'} target line at y=${1.0}. The same network can halt quickly for easy inputs (marker: ${'easy stop'} at x=${2}) and keep refining hard inputs (marker: ${'hard stop'} at x=${5}). The promise is variable compute; the limit is that the halt policy must be calibrated, capped, and measured by hard-case quality.`,
   };
 
   yield {
     state: actGraph('The ACT state machine'),
     highlight: { active: ['halt', 'accum', 'e-halt-accum'], found: ['emit'], compare: ['loop'] },
-    explanation: 'The data structure is tiny but load-bearing: recurrent state, p_t, cumulative halt mass, final remainder, ponder count, and an active mask. If any buffer is wrong, the model may keep updating halted examples or lose the gradient path for stopping.',
+    explanation: `The ${'ACT state machine'} graph has ${7} nodes — the active path runs through ${'halt'} (note: ${'p_t'}), ${'accum'} (note: ${'sum p'}), and their connecting edge, leading to ${'emit'} (note: ${'done'}) when the threshold ${'>= 1'} is reached, or back through ${'loop'} (note: ${'again'}) otherwise. The data structure is tiny but load-bearing: recurrent state, p_t, cumulative halt mass, final remainder, ponder count, and an active mask. If any buffer is wrong, the model may keep updating halted examples or lose the gradient path for stopping.`,
   };
 
   yield {
@@ -157,7 +157,7 @@ function* haltingMass() {
       ],
     ),
     highlight: { active: ['halt:stores', 'remain:purpose', 'cost:purpose'], compare: ['mask:stores'] },
-    explanation: 'The ponder cost matters because otherwise the model can spend too many recurrent steps. ACT is not just a halting rule; it is a loss term that makes compute part of the optimization target.',
+    explanation: `The ${'ACT buffers'} table tracks ${5} buffers across ${'stores'} and ${'purpose'} columns: ${'state h'} stores ${'hidden vec'} for ${'refine'}, ${'halt buf'} stores ${'p_t series'} for ${'when stop'}, ${'remainder'} stores ${'last mass'} for ${'grad path'}, ${'active mask'} stores ${'unfinished'} for ${'skip done'}, and ${'ponder cost'} stores ${'steps used'} for ${'regularize'}. The ponder cost matters because otherwise the model can spend too many recurrent steps. ACT is not just a halting rule; it is a loss term that makes compute part of the optimization target.`,
   };
 
   yield {
@@ -181,7 +181,7 @@ function* haltingMass() {
       ],
     ),
     highlight: { active: ['act:halt', 'ponder:halt'], found: ['early:risk', 'mod:risk'] },
-    explanation: 'PonderNet learns a distribution over halting steps rather than relying on exactly the ACT accumulator. It keeps the same product question: how much compute should this input receive before the answer is worth emitting?',
+    explanation: `The ${'PonderNet reframes halting'} table compares ${4} mechanisms: ${'ACT'} uses ${'cum mass'} (risk: ${'bias tuning'}), ${'PonderNet'} uses ${'halt dist'} (risk: ${'variance'}), ${'early exit'} uses ${'conf gate'} (risk: ${'miscalib'}), and ${'MoD'} uses ${'top-k cap'} (risk: ${'route bug'}). PonderNet learns a distribution over halting steps rather than relying on exactly the ACT accumulator. It keeps the same product question: how much compute should this input receive before the answer is worth emitting?`,
   };
 
   yield {
@@ -205,7 +205,7 @@ function* haltingMass() {
       ],
     ),
     highlight: { active: ['parity:why', 'reason:why'], compare: ['plainLM:warning'] },
-    explanation: 'ACT shines when examples genuinely need different numbers of internal steps. It is less compelling when fixed-depth parallel compute already solves the task efficiently or when halting is harder to train than the base model.',
+    explanation: `The ${'When ACT helps'} table lists ${4} tasks: ${'parity'} benefits because it ${'needs loops'} (warning: ${'data small'}), ${'sorting'} is ${'iterative'} (warning: ${'max steps'}), ${'reasoning'} because ${'hard varies'} (warning: ${'overthink'}), and ${'plain LM'} is ${'ambiguous'} (warning: ${'may not gain'}). ACT shines when examples genuinely need different numbers of internal steps. It is less compelling when fixed-depth parallel compute already solves the task efficiently or when halting is harder to train than the base model.`,
   };
 }
 
@@ -213,7 +213,7 @@ function* recurrentDepth() {
   yield {
     state: universalGraph('Universal Transformer recurs in depth'),
     highlight: { active: ['attn', 'ffn', 'next', 'e-next-attn'], found: ['halt'] },
-    explanation: 'Universal Transformer applies the same transformation function repeatedly across depth. Positions are processed in parallel at each step, while the halt policy decides which positions keep refining and which ones are copied forward.',
+    explanation: `The ${'Universal Transformer recurs in depth'} graph has ${6} nodes: ${'tokens'} (note: ${'all pos'}) feed through ${'self attn'} (note: ${'shared'}) and ${'transition'} (note: ${'shared'}), then the ${'halt'} node (note: ${'per pos'}) decides whether to ${'copy'} (note: ${'halted'}) or continue to ${'next step'} (note: ${'depth'}) — with ${4} active nodes and the ${'halt'} node found. Positions are processed in parallel at each step, while the halt policy decides which positions keep refining and which ones are copied forward.`,
   };
 
   yield {
@@ -237,7 +237,7 @@ function* recurrentDepth() {
       ],
     ),
     highlight: { active: ['bank:steps', 'river:steps'], compare: ['i:steps'] },
-    explanation: 'Google Research uses the sentence with bank and river to explain the point: some positions need extra contextual refinement, while unambiguous symbols can halt earlier.',
+    explanation: `The ${'Different symbols need different revisions'} table shows ${4} tokens: ${'I'} has ${'low'} ambiguity (${'1-2'} steps), ${'arrived'} has ${'low'} ambiguity (${'2'} steps), ${'bank'} has ${'high'} ambiguity (${'4-5'} steps), and ${'river'} has ${'medium'} ambiguity (${'3'} steps). Google Research uses the sentence with ${'bank'} and ${'river'} to explain the point: some positions need extra contextual refinement, while unambiguous symbols like ${'I'} can halt earlier.`,
   };
 
   yield {
@@ -253,7 +253,7 @@ function* recurrentDepth() {
       ],
     }),
     highlight: { active: ['steps', 'ambig'] },
-    explanation: 'A recurrent-depth transformer can allocate more revisions to hard positions while keeping the sequence-level representation synchronized through attention at each step.',
+    explanation: `The plot of ${'recurrent steps'} by ${'position'} shows ${5} data points: position ${3} peaks at ${5} steps (marked ${'ambiguous'}), while positions ${1}, ${2}, and ${5} each need only ${2} steps. A recurrent-depth transformer can allocate more revisions to hard positions while keeping the sequence-level representation synchronized through attention at each step.`,
   };
 
   yield {
@@ -279,7 +279,7 @@ function* recurrentDepth() {
       ],
     ),
     highlight: { active: ['shallow:control', 'deep:control', 'max:control'], compare: ['mask:symptom'] },
-    explanation: 'Adaptive depth is trainable only if the halt initialization, active mask, remainder gradient path, and maximum-step cap are all correct. Otherwise the model learns to stop too soon or never learns that stopping matters.',
+    explanation: `The ${'Halting policy failure modes'} table lists ${5} failure modes across ${'symptom'} and ${'control'} columns: ${'shallow trap'} (${'halts early'}, control: ${'bias warmup'}), ${'overthink'} (${'too costly'}, control: ${'ponder loss'}), ${'mask bug'} (${'done updates'}, control: ${'active mask'}), ${'grad path'} (${'no signal'}, control: ${'remainder'}), and ${'max steps'} (${'infinite loop'}, control: ${'hard cap'}). Adaptive depth is trainable only if the halt initialization, active mask, remainder gradient path, and maximum-step cap are all correct.`,
   };
 
   yield {
@@ -302,7 +302,7 @@ function* recurrentDepth() {
       ],
     }, { title: 'Adaptive compute becomes a control plane' }),
     highlight: { active: ['act', 'ut', 'ponder'], found: ['exit', 'mod', 'router'] },
-    explanation: 'The modern serving story turns old halting math into a compute controller. Early exit manages latency, MoD manages FLOPs by token and layer, and routing systems decide where extra computation is worth the cost.',
+    explanation: `The ${'Adaptive compute becomes a control plane'} graph connects ${6} nodes with ${6} edges: ${'ACT'} (note: ${'halt'}) feeds ${'UT'} (note: ${'depth'}, edge: ${'per pos'}) and ${'PonderNet'} (note: ${'dist'}, edge: ${'latent halt'}), which feed ${'early exit'} (note: ${'layers'}) and ${'MoD'} (note: ${'top-k'}), converging at ${'ctl'} (note: ${'budget'}). The modern serving story turns old halting math into a compute controller. Early exit manages latency, MoD manages FLOPs by token and layer, and routing systems decide where extra computation is worth the cost.`,
   };
 
   yield {
@@ -328,7 +328,7 @@ function* recurrentDepth() {
       ],
     ),
     highlight: { active: ['act:best', 'ut:best', 'mod:best'], compare: ['ponder:cost', 'exit:cost'] },
-    explanation: 'The right mechanism depends on the product bottleneck. ACT and Universal Transformer are modeling tools. Early exit and MoD are closer to inference economics. PonderNet sits between them as a learned halting distribution.',
+    explanation: `The ${'Choosing the mechanism'} table compares ${5} approaches across ${'best when'} and ${'cost'}: ${'ACT'} is best when ${'steps vary'} (cost: ${'sequential'}), ${'UT'} for ${'loop depth'} (cost: ${'shared block'}), ${'PonderNet'} for ${'latent halt'} (cost: ${'train variance'}), ${'early exit'} for ${'decode speed'} (cost: ${'calibration'}), and ${'MoD'} for ${'static budget'} (cost: ${'routing ops'}). The right mechanism depends on the product bottleneck. ACT and Universal Transformer are modeling tools. Early exit and MoD are closer to inference economics. PonderNet sits between them as a learned halting distribution.`,
   };
 }
 
@@ -349,7 +349,8 @@ export const article = {
         'In the recurrent-depth view, positions process in parallel but halt independently. Ambiguous tokens stay active longer while simple tokens freeze early. The graph shows shared weights applied in a loop, not a fixed stack of distinct layers.',
         'At each frame, ask: how much halt mass has accumulated, which examples or positions are still active, and what the ponder cost would be if the model stopped here versus continuing.',
         {type: 'callout', text: 'ACT turns compute depth into trainable state: halt mass, remainder, active mask, and ponder cost decide when thinking stops.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/adaptive-computation-time-halting-primer.gif', alt: 'Animated walkthrough of the adaptive computation time halting primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

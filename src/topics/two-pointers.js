@@ -67,7 +67,8 @@ export const article = {
         'When a pointer moves, the value it leaves behind has been eliminated by proof, not by guessing. The highlight color changes to mark it as visited -- permanently excluded from consideration.',
         'If a pair matching the target is found, both positions light up as found. If the pointers meet without a match, every position shows as visited: the entire array has been scanned in one pass, and no valid pair exists.',
         'Watch for the asymmetry: only one pointer moves per step. That is the mechanism. Each comparison produces a logical argument that kills exactly one endpoint.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/two-pointers.gif', alt: 'Animated walkthrough of the two pointers visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -138,7 +138,8 @@ export const article = {
         `Watch the descent first. Each new call pushes a frame, and the tree grows downward until a base case stops the growth. Then watch the unwind: base cases return values upward, and each waiting parent uses those child results to compute its own answer and return in turn. The call stack at any moment is the path from the root down to the currently active frame -- every frame on that path is paused, holding local state, waiting for something below it to finish.`,
         `For factorial, the tree is a straight chain: each frame calls exactly one child. For Fibonacci, the tree branches: each non-base frame calls two children, and the same subproblem can appear in multiple branches. That repeated work is visible in the animation as duplicate subtrees.`,
         {type: `callout`, text: `Recursion is stack-managed delegation: each frame owns one smaller promise and waits until the base case starts the return path.`},
-      ],
+      
+        {type: 'image', src: './assets/gifs/recursion.gif', alt: 'Animated walkthrough of the recursion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

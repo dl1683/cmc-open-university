@@ -233,7 +233,8 @@ export const article = {
       paragraphs: [
         'In the compression view, read each heatmap as a reconstruction, not a new image. Rank 1 keeps the strongest row-pattern times column-pattern layer. Rank 2 adds the next independent pattern. The ledger shows the storage cost and the recovered matrix energy.',
         'In the applications view, watch the same decomposition change vocabulary. PCA calls the layers components. Image compression calls them visual structure. LoRA calls them adapter directions. Recommenders call them latent tastes. The data changes; the low-rank bet is the same.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/svd.gif', alt: 'Animated walkthrough of the svd visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Worked example',

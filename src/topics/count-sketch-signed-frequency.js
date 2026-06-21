@@ -255,7 +255,8 @@ export const article = {
         },
         'In the "signed counters" view, watch how each key lands in one bucket per row but pushes the counter up or down depending on its sign hash. Negative counters are not errors. They encode the direction assigned to each key and are essential to the unbiased query.',
         'In the "turnstile merge" view, observe negative deltas flowing through the same update path as positive ones. The merge step adds matching cells from two shards, producing the same sketch as if both streams had been processed together. Follow the row estimates table to see how the sign is reversed at query time and the median selects the robust answer.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/count-sketch-signed-frequency.gif', alt: 'Animated walkthrough of the count sketch signed frequency visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

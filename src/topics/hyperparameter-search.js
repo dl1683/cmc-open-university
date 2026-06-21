@@ -167,7 +167,8 @@ export const article = {
         {type: 'callout', text: 'Hyperparameter search is budget allocation under uncertainty: every trial should either cover a new region or exploit evidence from earlier trials.'},
         'The second view shows two smarter ideas. Bayesian optimization fits a surrogate belief curve (mean plus uncertainty band) and picks the next trial where expected improvement is highest. Successive halving starts many candidates cheaply and promotes only survivors. The matrix at the end shows the protocol card: the rules that keep a search honest.',
         'Colors: "found" (green) marks the best configuration discovered. "Visited" (blue) marks evaluated candidates. "Compare" (orange) highlights the structural contrast between strategies. "Active" (yellow) marks the current evaluation step.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/hyperparameter-search.gif', alt: 'Animated walkthrough of the hyperparameter search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

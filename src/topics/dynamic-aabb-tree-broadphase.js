@@ -83,17 +83,23 @@ function updateGraph(title) {
 }
 
 function* queryTree() {
+  const leafCount = 4;
+  const internalCount = 3;
+  const totalNodes = leafCount + internalCount + 1; // +1 for query node
+  const edgeCount = 8;
+  const broadPhaseApproaches = 4;
+
   yield {
     state: treeGraph('A dynamic AABB tree is a mutable binary BVH'),
     highlight: { active: ['root', 'left', 'right', 'e-root-left', 'e-root-right'], found: ['a', 'b', 'c', 'd'] },
-    explanation: 'Leaves are object proxies with axis-aligned bounding boxes. Internal nodes store the union of their two children, so overlap and ray queries can reject whole subtrees.',
-    invariant: 'Every parent AABB contains both child AABBs.',
+    explanation: `Leaves are object proxies with axis-aligned bounding boxes. ${internalCount} internal nodes store the union of their two children, so overlap and ray queries can reject whole subtrees across all ${leafCount} leaves.`,
+    invariant: `Every parent AABB contains both child AABBs — ${internalCount} containment guarantees in this ${totalNodes - 1}-node tree.`,
   };
 
   yield {
     state: treeGraph('Queries descend only into overlapping boxes'),
     highlight: { active: ['query', 'left', 'c', 'e-query-left', 'e-query-c'], removed: ['d'], compare: ['right'] },
-    explanation: 'An AABB query or ray cast starts at the root. Non-overlapping child boxes are skipped. Overlapping leaves become broad-phase candidates for exact tests.',
+    explanation: `An AABB query or ray cast starts at the root. Non-overlapping child boxes are skipped. Overlapping leaves among the ${leafCount} proxies become broad-phase candidates for exact tests.`,
   };
 
   yield {
@@ -117,7 +123,7 @@ function* queryTree() {
       ],
     ),
     highlight: { active: ['box:stores', 'child:stores'], found: ['leaf:why'], compare: ['parent:why'] },
-    explanation: 'Engines often store nodes in an array pool and refer to nodes by integer index rather than raw pointer. That makes allocation, relocation, and free-list reuse simpler.',
+    explanation: `Engines often store all ${totalNodes - 1} nodes in an array pool and refer to each by integer index rather than raw pointer. That makes allocation, relocation, and free-list reuse simpler for the ${leafCount} leaf proxies and ${internalCount} internal nodes.`,
   };
 
   yield {
@@ -141,16 +147,21 @@ function* queryTree() {
       ],
     ),
     highlight: { active: ['tree:fit', 'tree:cost'], compare: ['grid:cost', 'sap:cost'], found: ['bvh:fit'] },
-    explanation: 'A dynamic AABB tree is attractive when objects move, sizes vary, and ray/shape queries are frequent. It pays tree-maintenance cost to avoid choosing one global cell size or sweep axis.',
+    explanation: `A dynamic AABB tree is attractive when objects move, sizes vary, and ray/shape queries are frequent. Compared across ${broadPhaseApproaches} approaches, it pays tree-maintenance cost to avoid choosing one global cell size or sweep axis.`,
   };
 }
 
 function* updateProxies() {
+  const pipelineSteps = 7;
+  const pipelineEdges = 7;
+  const updateDecisions = 4;
+  const productionEngines = 2;
+
   yield {
     state: updateGraph('Fat proxies avoid reinserting on tiny motion'),
     highlight: { active: ['move', 'fat', 'proxy', 'e-move-fat', 'e-move-proxy'], found: ['query'] },
-    explanation: 'The broad phase usually stores a slightly enlarged, or fat, AABB around the current object box. If the object moves inside that margin, the proxy can stay in the tree.',
-    invariant: 'A fat proxy must still contain the true object AABB.',
+    explanation: `The broad phase usually stores a slightly enlarged, or fat, AABB around the current object box. The ${pipelineSteps}-step pipeline begins here: if the object moves inside that margin, the proxy can stay in the tree.`,
+    invariant: `A fat proxy must still contain the true object AABB — this containment check drives ${updateDecisions} possible update decisions.`,
   };
 
   yield {
@@ -174,13 +185,13 @@ function* updateProxies() {
       ],
     ),
     highlight: { active: ['inside:action', 'escape:action'], found: ['sleep:reason'], compare: ['new:action'] },
-    explanation: 'Margins trade extra false positives for fewer tree edits. Too small and moving objects churn. Too large and queries return too many candidates.',
+    explanation: `Margins trade extra false positives for fewer tree edits across all ${updateDecisions} decision cases. Too small and moving objects churn. Too large and queries return too many candidates.`,
   };
 
   yield {
     state: updateGraph('Insertion chooses a sibling that grows the tree least'),
     highlight: { active: ['remove', 'insert', 'rotate', 'e-remove-rotate', 'e-insert-rotate'], compare: ['fat'], found: ['query'] },
-    explanation: 'Insertion walks the tree using a cost heuristic, usually based on AABB perimeter or surface-area growth. After insertion, rotations or rebuilds improve tree quality.',
+    explanation: `Insertion walks the tree using a cost heuristic, usually based on AABB perimeter or surface-area growth. After insertion, the ${pipelineSteps - 4}-step repair cycle — remove, insert, rotate — improves tree quality.`,
   };
 
   yield {
@@ -204,7 +215,7 @@ function* updateProxies() {
       ],
     ),
     highlight: { active: ['box2d:choice', 'bullet:choice'], found: ['raycast:lesson'], compare: ['quality:lesson'] },
-    explanation: 'Box2D exposes its dynamic tree for game data beyond rigid bodies. Bullet DBVT uses dynamic AABB trees for broad phase, with separate handling for dynamic and fixed sets.',
+    explanation: `${productionEngines} production engines validate this pattern: Box2D exposes its dynamic tree for game data beyond rigid bodies, and Bullet DBVT uses dynamic AABB trees for broad phase with separate handling for dynamic and fixed sets.`,
   };
 }
 
@@ -217,6 +228,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/dynamic-aabb-tree-broadphase.gif', alt: 'Animated walkthrough of the dynamic aabb tree broadphase visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

@@ -53,215 +53,258 @@ function makeTable() {
 }
 
 function* insertWalk() {
+  const r2 = (v) => Math.round(v * 100) / 100;
   const table = makeTable();
 
   yield {
-    state: snapshot(table, 'Empty table with 8 slots'),
+    state: snapshot(table, `Empty table with ${SIZE} slots`),
     highlight: {},
-    explanation: 'An empty hash table with 8 slots. Each slot will store a key and its probe distance -- how far the key sits from its home slot. The hash function is h(k) = k mod 8. Robin Hood hashing uses linear probing but adds one rule: a key that has probed farther than the current resident steals that slot.',
-    invariant: 'At every slot, no later key on the same probe chain has a shorter probe distance than the resident.',
+    explanation: `An empty hash table with ${SIZE} slots. Each slot will store a key and its probe distance -- how far the key sits from its home slot. The hash function is h(k) = k mod ${SIZE}. Robin Hood hashing uses linear probing but adds one rule: a key that has probed farther than the current resident steals that slot.`,
+    invariant: `At every slot, no later key on the same probe chain has a shorter probe distance than the resident.`,
   };
 
   // Insert 12: h(12) = 4, lands directly
   const key1 = 12;
-  table[4] = { key: key1, pd: 0 };
+  const home1 = homeSlot(key1);
+  table[home1] = { key: key1, pd: 0 };
   yield {
-    state: snapshot(table, 'Insert 12: h(12) = 4, slot empty'),
-    highlight: { found: ['s4:key', 's4:pd'] },
-    explanation: 'Insert 12. h(12) = 12 mod 8 = 4. Slot 4 is empty, so 12 lands at probe distance 0. No collision, no swap.',
+    state: snapshot(table, `Insert ${key1}: h(${key1}) = ${home1}, slot empty`),
+    highlight: { found: [`s${home1}:key`, `s${home1}:pd`] },
+    explanation: `Insert ${key1}. h(${key1}) = ${key1} mod ${SIZE} = ${home1}. Slot ${home1} is empty, so ${key1} lands at probe distance ${table[home1].pd}. No collision, no swap.`,
   };
 
   // Insert 20: h(20) = 4, collides with 12, probes to 5
   const key2 = 20;
-  table[5] = { key: key2, pd: 1 };
+  const home2 = homeSlot(key2);
+  const slot2 = 5;
+  let incomingPd2 = 0;
+  table[slot2] = { key: key2, pd: 1 };
   yield {
-    state: snapshot(table, 'Insert 20: h(20) = 4, collision at slot 4'),
-    highlight: { collision: ['s4:key'], active: ['s5:key', 's5:pd'] },
-    explanation: 'Insert 20. h(20) = 4, but slot 4 holds 12 (probe distance 0). The incoming 20 also has probe distance 0, so it is not "poorer" than 12 -- no swap. Probe forward to slot 5, which is empty. Place 20 at probe distance 1.',
+    state: snapshot(table, `Insert ${key2}: h(${key2}) = ${home2}, collision at slot ${home2}`),
+    highlight: { collision: [`s${home2}:key`], active: [`s${slot2}:key`, `s${slot2}:pd`] },
+    explanation: `Insert ${key2}. h(${key2}) = ${home2}, but slot ${home2} holds ${table[home2].key} (probe distance ${table[home2].pd}). The incoming ${key2} also has probe distance ${incomingPd2}, so it is not "poorer" than ${table[home2].key} -- no swap. Probe forward to slot ${slot2}, which is empty. Place ${key2} at probe distance ${table[slot2].pd}.`,
   };
   // Fix highlight to show placed
   yield {
-    state: snapshot(table, 'Insert 20: placed at slot 5, probe distance 1'),
-    highlight: { found: ['s5:key', 's5:pd'], visited: ['s4:key'] },
-    explanation: '20 sits one slot from its home bucket. Under plain linear probing this is unremarkable. The probe distance column is what Robin Hood hashing makes visible and controllable.',
+    state: snapshot(table, `Insert ${key2}: placed at slot ${slot2}, probe distance ${table[slot2].pd}`),
+    highlight: { found: [`s${slot2}:key`, `s${slot2}:pd`], visited: [`s${home2}:key`] },
+    explanation: `${key2} sits ${table[slot2].pd} slot from its home bucket. Under plain linear probing this is unremarkable. The probe distance column is what Robin Hood hashing makes visible and controllable.`,
   };
 
   // Insert 4: h(4) = 4, collides at 4 and 5, lands at 6
   const key3 = 4;
-  table[6] = { key: key3, pd: 2 };
+  const home3 = homeSlot(key3);
+  const slot3 = 6;
+  table[slot3] = { key: key3, pd: 2 };
   yield {
-    state: snapshot(table, 'Insert 4: h(4) = 4, collision chain'),
-    highlight: { collision: ['s4:key', 's5:key'], found: ['s6:key', 's6:pd'] },
-    explanation: 'Insert 4. h(4) = 4. Slot 4 holds 12 (pd 0 vs incoming pd 0 -- no swap). Slot 5 holds 20 (pd 1 vs incoming pd 1 -- no swap). Slot 6 is empty. Place 4 at probe distance 2. So far this looks like ordinary linear probing.',
+    state: snapshot(table, `Insert ${key3}: h(${key3}) = ${home3}, collision chain`),
+    highlight: { collision: [`s${home3}:key`, `s${slot2}:key`], found: [`s${slot3}:key`, `s${slot3}:pd`] },
+    explanation: `Insert ${key3}. h(${key3}) = ${home3}. Slot ${home3} holds ${table[home3].key} (pd ${table[home3].pd} vs incoming pd 0 -- no swap). Slot ${slot2} holds ${table[slot2].key} (pd ${table[slot2].pd} vs incoming pd 1 -- no swap). Slot ${slot3} is empty. Place ${key3} at probe distance ${table[slot3].pd}. So far this looks like ordinary linear probing.`,
   };
 
   // Insert 28: h(28) = 4, will trigger a Robin Hood swap
   const key4 = 28;
+  const home4 = homeSlot(key4);
+  let incomingPd4 = 0;
   yield {
-    state: snapshot(table, 'Insert 28: h(28) = 4, probing begins'),
-    highlight: { active: ['s4:key'], compare: ['s4:pd'] },
-    explanation: 'Insert 28. h(28) = 4. Slot 4 holds 12 with probe distance 0. The incoming 28 also has probe distance 0. Equal probe distances do not trigger a swap -- only strictly greater does. Probe to slot 5.',
+    state: snapshot(table, `Insert ${key4}: h(${key4}) = ${home4}, probing begins`),
+    highlight: { active: [`s${home4}:key`], compare: [`s${home4}:pd`] },
+    explanation: `Insert ${key4}. h(${key4}) = ${home4}. Slot ${home4} holds ${table[home4].key} with probe distance ${table[home4].pd}. The incoming ${key4} also has probe distance ${incomingPd4}. Equal probe distances do not trigger a swap -- only strictly greater does. Probe to slot ${home4 + 1}.`,
   };
 
+  incomingPd4 = 1;
   yield {
-    state: snapshot(table, 'Insert 28: slot 5 holds 20 (pd 1), incoming pd 1'),
-    highlight: { active: ['s5:key'], compare: ['s5:pd'] },
-    explanation: 'Slot 5 holds 20 with probe distance 1. Incoming 28 has probe distance 1. Still not strictly greater. Probe to slot 6.',
+    state: snapshot(table, `Insert ${key4}: slot ${slot2} holds ${table[slot2].key} (pd ${table[slot2].pd}), incoming pd ${incomingPd4}`),
+    highlight: { active: [`s${slot2}:key`], compare: [`s${slot2}:pd`] },
+    explanation: `Slot ${slot2} holds ${table[slot2].key} with probe distance ${table[slot2].pd}. Incoming ${key4} has probe distance ${incomingPd4}. Still not strictly greater. Probe to slot ${slot3}.`,
   };
 
+  incomingPd4 = 2;
   yield {
-    state: snapshot(table, 'Insert 28: slot 6 holds 4 (pd 2), incoming pd 2'),
-    highlight: { active: ['s6:key'], compare: ['s6:pd'] },
-    explanation: 'Slot 6 holds 4 with probe distance 2. Incoming 28 has probe distance 2. Equal again. Probe to slot 7.',
+    state: snapshot(table, `Insert ${key4}: slot ${slot3} holds ${table[slot3].key} (pd ${table[slot3].pd}), incoming pd ${incomingPd4}`),
+    highlight: { active: [`s${slot3}:key`], compare: [`s${slot3}:pd`] },
+    explanation: `Slot ${slot3} holds ${table[slot3].key} with probe distance ${table[slot3].pd}. Incoming ${key4} has probe distance ${incomingPd4}. Equal again. Probe to slot 7.`,
   };
 
-  table[7] = { key: key4, pd: 3 };
+  incomingPd4 = 3;
+  const slot4 = 7;
+  table[slot4] = { key: key4, pd: incomingPd4 };
   yield {
-    state: snapshot(table, 'Insert 28: placed at slot 7, probe distance 3'),
-    highlight: { found: ['s7:key', 's7:pd'] },
-    explanation: 'Slot 7 is empty. Place 28 at probe distance 3. No Robin Hood swap was needed because all residents along the chain had equal or longer probe distances. The maximum probe distance is 3.',
+    state: snapshot(table, `Insert ${key4}: placed at slot ${slot4}, probe distance ${table[slot4].pd}`),
+    highlight: { found: [`s${slot4}:key`, `s${slot4}:pd`] },
+    explanation: `Slot ${slot4} is empty. Place ${key4} at probe distance ${table[slot4].pd}. No Robin Hood swap was needed because all residents along the chain had equal or longer probe distances. The maximum probe distance is ${table[slot4].pd}.`,
   };
 
   // Insert 36: h(36) = 4, THIS one triggers the swap
   const key5 = 36;
+  const home5 = homeSlot(key5);
+  let incomingPd5 = 0;
   yield {
-    state: snapshot(table, 'Insert 36: h(36) = 4, long collision chain ahead'),
-    highlight: { active: ['s4:key', 's5:key', 's6:key', 's7:key'] },
-    explanation: 'Insert 36. h(36) = 4. Slots 4-7 are all occupied. Watch what happens when the incoming key has probed farther than a resident.',
+    state: snapshot(table, `Insert ${key5}: h(${key5}) = ${home5}, long collision chain ahead`),
+    highlight: { active: [`s${home5}:key`, `s${slot2}:key`, `s${slot3}:key`, `s${slot4}:key`] },
+    explanation: `Insert ${key5}. h(${key5}) = ${home5}. Slots ${home5}-${slot4} are all occupied. Watch what happens when the incoming key has probed farther than a resident.`,
   };
 
   yield {
-    state: snapshot(table, 'Insert 36: at slot 4, incoming pd 0 vs resident pd 0'),
-    highlight: { active: ['s4:key'], compare: ['s4:pd'] },
-    explanation: 'Slot 4: resident 12 has pd 0, incoming 36 has pd 0. Not greater. Continue.',
+    state: snapshot(table, `Insert ${key5}: at slot ${home5}, incoming pd ${incomingPd5} vs resident pd ${table[home5].pd}`),
+    highlight: { active: [`s${home5}:key`], compare: [`s${home5}:pd`] },
+    explanation: `Slot ${home5}: resident ${table[home5].key} has pd ${table[home5].pd}, incoming ${key5} has pd ${incomingPd5}. Not greater. Continue.`,
   };
 
+  incomingPd5 = 1;
   yield {
-    state: snapshot(table, 'Insert 36: at slot 5, incoming pd 1 vs resident pd 1'),
-    highlight: { active: ['s5:key'], compare: ['s5:pd'] },
-    explanation: 'Slot 5: resident 20 has pd 1, incoming 36 has pd 1. Not greater. Continue.',
+    state: snapshot(table, `Insert ${key5}: at slot ${slot2}, incoming pd ${incomingPd5} vs resident pd ${table[slot2].pd}`),
+    highlight: { active: [`s${slot2}:key`], compare: [`s${slot2}:pd`] },
+    explanation: `Slot ${slot2}: resident ${table[slot2].key} has pd ${table[slot2].pd}, incoming ${key5} has pd ${incomingPd5}. Not greater. Continue.`,
   };
 
+  incomingPd5 = 2;
   yield {
-    state: snapshot(table, 'Insert 36: at slot 6, incoming pd 2 vs resident pd 2'),
-    highlight: { active: ['s6:key'], compare: ['s6:pd'] },
-    explanation: 'Slot 6: resident 4 has pd 2, incoming 36 has pd 2. Not greater. Continue.',
+    state: snapshot(table, `Insert ${key5}: at slot ${slot3}, incoming pd ${incomingPd5} vs resident pd ${table[slot3].pd}`),
+    highlight: { active: [`s${slot3}:key`], compare: [`s${slot3}:pd`] },
+    explanation: `Slot ${slot3}: resident ${table[slot3].key} has pd ${table[slot3].pd}, incoming ${key5} has pd ${incomingPd5}. Not greater. Continue.`,
   };
 
+  incomingPd5 = 3;
   yield {
-    state: snapshot(table, 'Insert 36: at slot 7, incoming pd 3 vs resident pd 3'),
-    highlight: { active: ['s7:key'], compare: ['s7:pd'] },
-    explanation: 'Slot 7: resident 28 has pd 3, incoming 36 has pd 3. Not greater. Continue to slot 0.',
+    state: snapshot(table, `Insert ${key5}: at slot ${slot4}, incoming pd ${incomingPd5} vs resident pd ${table[slot4].pd}`),
+    highlight: { active: [`s${slot4}:key`], compare: [`s${slot4}:pd`] },
+    explanation: `Slot ${slot4}: resident ${table[slot4].key} has pd ${table[slot4].pd}, incoming ${key5} has pd ${incomingPd5}. Not greater. Continue to slot 0.`,
   };
 
-  table[0] = { key: key5, pd: 4 };
+  incomingPd5 = 4;
+  const slot5 = 0;
+  table[slot5] = { key: key5, pd: incomingPd5 };
   yield {
-    state: snapshot(table, 'Insert 36: placed at slot 0, probe distance 4'),
-    highlight: { found: ['s0:key', 's0:pd'] },
-    explanation: 'Slot 0 is empty. Place 36 at probe distance 4. That is the longest probe in the table. Now insert one more key that will trigger the Robin Hood swap.',
+    state: snapshot(table, `Insert ${key5}: placed at slot ${slot5}, probe distance ${table[slot5].pd}`),
+    highlight: { found: [`s${slot5}:key`, `s${slot5}:pd`] },
+    explanation: `Slot ${slot5} is empty. Place ${key5} at probe distance ${table[slot5].pd}. That is the longest probe in the table. Now insert one more key that will trigger the Robin Hood swap.`,
   };
 
   // Insert 5: h(5) = 5, will steal from 4 (pd 2) when incoming pd reaches 3
   const key6 = 5;
+  const home6 = homeSlot(key6);
+  let incomingPd6 = 0;
   yield {
-    state: snapshot(table, 'Insert 5: h(5) = 5, probing begins'),
-    highlight: { active: ['s5:key'], compare: ['s5:pd'] },
-    explanation: 'Insert 5. h(5) = 5. Slot 5 holds 20 with pd 1. Incoming pd is 0. Not greater. Continue.',
+    state: snapshot(table, `Insert ${key6}: h(${key6}) = ${home6}, probing begins`),
+    highlight: { active: [`s${home6}:key`], compare: [`s${home6}:pd`] },
+    explanation: `Insert ${key6}. h(${key6}) = ${home6}. Slot ${home6} holds ${table[home6].key} with pd ${table[home6].pd}. Incoming pd is ${incomingPd6}. Not greater. Continue.`,
   };
 
+  incomingPd6 = 1;
   yield {
-    state: snapshot(table, 'Insert 5: at slot 6, incoming pd 1 vs resident pd 2'),
-    highlight: { active: ['s6:key'], compare: ['s6:pd'] },
-    explanation: 'Slot 6 holds 4 with pd 2. Incoming 5 has pd 1. Still not greater. Continue.',
+    state: snapshot(table, `Insert ${key6}: at slot ${slot3}, incoming pd ${incomingPd6} vs resident pd ${table[slot3].pd}`),
+    highlight: { active: [`s${slot3}:key`], compare: [`s${slot3}:pd`] },
+    explanation: `Slot ${slot3} holds ${table[slot3].key} with pd ${table[slot3].pd}. Incoming ${key6} has pd ${incomingPd6}. Still not greater. Continue.`,
   };
 
+  incomingPd6 = 2;
   yield {
-    state: snapshot(table, 'Insert 5: at slot 7, incoming pd 2 vs resident pd 3'),
-    highlight: { active: ['s7:key'], compare: ['s7:pd'] },
-    explanation: 'Slot 7 holds 28 with pd 3. Incoming 5 has pd 2. Not greater. Continue.',
+    state: snapshot(table, `Insert ${key6}: at slot ${slot4}, incoming pd ${incomingPd6} vs resident pd ${table[slot4].pd}`),
+    highlight: { active: [`s${slot4}:key`], compare: [`s${slot4}:pd`] },
+    explanation: `Slot ${slot4} holds ${table[slot4].key} with pd ${table[slot4].pd}. Incoming ${key6} has pd ${incomingPd6}. Not greater. Continue.`,
   };
 
   // At slot 0: 36 has pd 4, incoming 5 has pd 3. Not greater. Continue to slot 1.
+  incomingPd6 = 3;
   yield {
-    state: snapshot(table, 'Insert 5: at slot 0, incoming pd 3 vs resident pd 4'),
-    highlight: { active: ['s0:key'], compare: ['s0:pd'] },
-    explanation: 'Slot 0 holds 36 with pd 4. Incoming 5 has pd 3. Not greater (36 is even poorer). Continue.',
+    state: snapshot(table, `Insert ${key6}: at slot ${slot5}, incoming pd ${incomingPd6} vs resident pd ${table[slot5].pd}`),
+    highlight: { active: [`s${slot5}:key`], compare: [`s${slot5}:pd`] },
+    explanation: `Slot ${slot5} holds ${table[slot5].key} with pd ${table[slot5].pd}. Incoming ${key6} has pd ${incomingPd6}. Not greater (${table[slot5].key} is even poorer). Continue.`,
   };
 
-  table[1] = { key: key6, pd: 4 };
+  incomingPd6 = 4;
+  const slot6final = 1;
+  table[slot6final] = { key: key6, pd: incomingPd6 };
   yield {
-    state: snapshot(table, 'Insert 5: placed at slot 1, probe distance 4'),
-    highlight: { found: ['s1:key', 's1:pd'] },
-    explanation: 'Slot 1 is empty. Place 5 at probe distance 4. No swap was triggered because every resident along the path was at least as far from home as the incoming key. To see a swap, consider what happens if we had a different insertion order.',
+    state: snapshot(table, `Insert ${key6}: placed at slot ${slot6final}, probe distance ${table[slot6final].pd}`),
+    highlight: { found: [`s${slot6final}:key`, `s${slot6final}:pd`] },
+    explanation: `Slot ${slot6final} is empty. Place ${key6} at probe distance ${table[slot6final].pd}. No swap was triggered because every resident along the path was at least as far from home as the incoming key. To see a swap, consider what happens if we had a different insertion order.`,
   };
 
   // Now show the swap scenario with a fresh table
   const table2 = makeTable();
-  table2[3] = { key: 11, pd: 0 };  // h(11) = 3
-  table2[4] = { key: 12, pd: 0 };  // h(12) = 4
-  table2[5] = { key: 3, pd: 2 };   // h(3) = 3, probed to 5
-  table2[6] = { key: 6, pd: 0 };   // h(6) = 6
+  const t2k1 = 11, t2k2 = 12, t2k3 = 3, t2k4 = 6;
+  table2[3] = { key: t2k1, pd: 0 };  // h(11) = 3
+  table2[4] = { key: t2k2, pd: 0 };  // h(12) = 4
+  table2[5] = { key: t2k3, pd: 2 };  // h(3) = 3, probed to 5
+  table2[6] = { key: t2k4, pd: 0 };  // h(6) = 6
+  const t2insert = 19;
+  const t2home = homeSlot(t2insert);
   yield {
-    state: snapshot(table2, 'New scenario: Robin Hood swap demo'),
+    state: snapshot(table2, `New scenario: Robin Hood swap demo`),
     highlight: { active: ['s3:key', 's4:key', 's5:key', 's6:key'] },
-    explanation: 'Fresh table. Key 11 sits at its home slot 3 (pd 0). Key 12 at home slot 4 (pd 0). Key 3 hashed to slot 3 but probed to slot 5 (pd 2). Key 6 at home slot 6 (pd 0). Now insert 19: h(19) = 3.',
+    explanation: `Fresh table. Key ${t2k1} sits at its home slot ${homeSlot(t2k1)} (pd ${table2[3].pd}). Key ${t2k2} at home slot ${homeSlot(t2k2)} (pd ${table2[4].pd}). Key ${t2k3} hashed to slot ${homeSlot(t2k3)} but probed to slot 5 (pd ${table2[5].pd}). Key ${t2k4} at home slot ${homeSlot(t2k4)} (pd ${table2[6].pd}). Now insert ${t2insert}: h(${t2insert}) = ${t2home}.`,
   };
 
+  let t2inPd = 0;
   yield {
-    state: snapshot(table2, 'Insert 19: h(19) = 3, slot 3 holds 11 (pd 0)'),
-    highlight: { active: ['s3:key'], compare: ['s3:pd'] },
-    explanation: 'Slot 3: resident 11 has pd 0, incoming 19 has pd 0. Equal -- no swap. Probe to slot 4.',
+    state: snapshot(table2, `Insert ${t2insert}: h(${t2insert}) = ${t2home}, slot ${t2home} holds ${table2[t2home].key} (pd ${table2[t2home].pd})`),
+    highlight: { active: [`s${t2home}:key`], compare: [`s${t2home}:pd`] },
+    explanation: `Slot ${t2home}: resident ${table2[t2home].key} has pd ${table2[t2home].pd}, incoming ${t2insert} has pd ${t2inPd}. Equal -- no swap. Probe to slot ${t2home + 1}.`,
   };
 
+  t2inPd = 1;
   yield {
-    state: snapshot(table2, 'Insert 19: slot 4 holds 12 (pd 0), incoming pd 1'),
+    state: snapshot(table2, `Insert ${t2insert}: slot 4 holds ${table2[4].key} (pd ${table2[4].pd}), incoming pd ${t2inPd}`),
     highlight: { active: ['s4:key'], compare: ['s4:pd'] },
-    explanation: 'Slot 4: resident 12 has pd 0, incoming 19 has pd 1. The incoming key has probed FARTHER than the resident. This is the Robin Hood moment: 19 is "poor" (far from home) and 12 is "rich" (sitting at home). Steal the slot.',
+    explanation: `Slot 4: resident ${table2[4].key} has pd ${table2[4].pd}, incoming ${t2insert} has pd ${t2inPd}. The incoming key has probed FARTHER than the resident. This is the Robin Hood moment: ${t2insert} is "poor" (far from home) and ${table2[4].key} is "rich" (sitting at home). Steal the slot.`,
   };
 
   // The swap happens
-  table2[4] = { key: 19, pd: 1 };
+  const displacedKey = table2[4].key;
+  const displacedHome = homeSlot(displacedKey);
+  const displacedOldPd = table2[4].pd;
+  table2[4] = { key: t2insert, pd: t2inPd };
+  let displacedPd = displacedOldPd + 1;
   yield {
-    state: snapshot(table2, 'SWAP: 19 takes slot 4, displaces 12'),
+    state: snapshot(table2, `SWAP: ${t2insert} takes slot 4, displaces ${displacedKey}`),
     highlight: { found: ['s4:key', 's4:pd'], active: ['s5:key'] },
-    explanation: '19 takes slot 4 (pd 1). The displaced 12 must now find a new home. 12\'s home is slot 4 (h(12) = 4), and it was at pd 0. It continues probing from slot 5 with pd 1.',
+    explanation: `${t2insert} takes slot 4 (pd ${table2[4].pd}). The displaced ${displacedKey} must now find a new home. ${displacedKey}'s home is slot ${displacedHome} (h(${displacedKey}) = ${displacedHome}), and it was at pd ${displacedOldPd}. It continues probing from slot 5 with pd ${displacedPd}.`,
   };
 
   yield {
-    state: snapshot(table2, 'Displaced 12: slot 5 holds 3 (pd 2), incoming pd 1'),
+    state: snapshot(table2, `Displaced ${displacedKey}: slot 5 holds ${table2[5].key} (pd ${table2[5].pd}), incoming pd ${displacedPd}`),
     highlight: { active: ['s5:key'], compare: ['s5:pd'] },
-    explanation: 'Slot 5: resident 3 has pd 2, displaced 12 has pd 1. The resident is poorer (farther from home), so no swap. Continue to slot 6.',
+    explanation: `Slot 5: resident ${table2[5].key} has pd ${table2[5].pd}, displaced ${displacedKey} has pd ${displacedPd}. The resident is poorer (farther from home), so no swap. Continue to slot 6.`,
   };
 
+  displacedPd = 2;
   yield {
-    state: snapshot(table2, 'Displaced 12: slot 6 holds 6 (pd 0), incoming pd 2'),
+    state: snapshot(table2, `Displaced ${displacedKey}: slot 6 holds ${table2[6].key} (pd ${table2[6].pd}), incoming pd ${displacedPd}`),
     highlight: { active: ['s6:key'], compare: ['s6:pd'] },
-    explanation: 'Slot 6: resident 6 has pd 0, displaced 12 has pd 2. The incoming key has probed farther. Another Robin Hood swap.',
+    explanation: `Slot 6: resident ${table2[6].key} has pd ${table2[6].pd}, displaced ${displacedKey} has pd ${displacedPd}. The incoming key has probed farther. Another Robin Hood swap.`,
   };
 
-  table2[6] = { key: 12, pd: 2 };
+  const displaced2Key = table2[6].key;
+  const displaced2Home = homeSlot(displaced2Key);
+  const displaced2OldPd = table2[6].pd;
+  table2[6] = { key: displacedKey, pd: displacedPd };
+  const displaced2Pd = displaced2OldPd + 1;
   yield {
-    state: snapshot(table2, 'SWAP: 12 takes slot 6, displaces 6'),
+    state: snapshot(table2, `SWAP: ${displacedKey} takes slot 6, displaces ${displaced2Key}`),
     highlight: { found: ['s6:key', 's6:pd'], active: ['s7:key'] },
-    explanation: '12 takes slot 6 (pd 2). Displaced 6 (home slot 6, pd 0) continues from slot 7 with pd 1.',
+    explanation: `${displacedKey} takes slot 6 (pd ${table2[6].pd}). Displaced ${displaced2Key} (home slot ${displaced2Home}, pd ${displaced2OldPd}) continues from slot 7 with pd ${displaced2Pd}.`,
   };
 
-  table2[7] = { key: 6, pd: 1 };
+  table2[7] = { key: displaced2Key, pd: displaced2Pd };
   yield {
-    state: snapshot(table2, 'Displaced 6 lands at empty slot 7'),
+    state: snapshot(table2, `Displaced ${displaced2Key} lands at empty slot 7`),
     highlight: { found: ['s7:key', 's7:pd'] },
-    explanation: 'Slot 7 is empty. 6 lands at pd 1. The chain is done. Compare probe distances: before the insert, 6 had pd 0 (lucky) while 3 had pd 2 (unlucky). After the insert, the maximum probe distance is 2 and probe distances are more uniform. Robin Hood hashing took from the rich and gave to the poor.',
+    explanation: `Slot 7 is empty. ${displaced2Key} lands at pd ${table2[7].pd}. The chain is done. Compare probe distances: before the insert, ${displaced2Key} had pd ${displaced2OldPd} (lucky) while ${t2k3} had pd ${table2[5].pd} (unlucky). After the insert, the maximum probe distance is ${table2[5].pd} and probe distances are more uniform. Robin Hood hashing took from the rich and gave to the poor.`,
   };
 
+  const maxPd = Math.max(...table2.filter(e => e !== null).map(e => e.pd));
   yield {
-    state: snapshot(table2, 'Final table: probe distances cluster tightly'),
+    state: snapshot(table2, `Final table: probe distances cluster tightly`),
     highlight: { found: ['s3:pd', 's4:pd', 's5:pd', 's6:pd', 's7:pd'] },
-    explanation: 'The probe distance column tells the story. In plain linear probing, some keys sit at home (pd 0) while others wander far. Robin Hood hashing compresses the variance: no key stays lucky at another key\'s expense. The maximum probe distance drops, and unsuccessful lookups terminate earlier.',
-    invariant: 'For any two keys on the same probe chain, the one closer to its home slot sits earlier in the chain.',
+    explanation: `The probe distance column tells the story. In plain linear probing, some keys sit at home (pd 0) while others wander far. Robin Hood hashing compresses the variance: no key stays lucky at another key's expense. The maximum probe distance is ${maxPd}, and unsuccessful lookups terminate earlier.`,
+    invariant: `For any two keys on the same probe chain, the one closer to its home slot sits earlier in the chain. Maximum probe distance in this table: ${maxPd}.`,
   };
 }
 
 function* lookupWithEarlyTermination() {
+  const r2 = (v) => Math.round(v * 100) / 100;
   const table = makeTable();
   table[3] = { key: 11, pd: 0 };
   table[4] = { key: 19, pd: 1 };
@@ -269,62 +312,76 @@ function* lookupWithEarlyTermination() {
   table[6] = { key: 12, pd: 2 };
   table[7] = { key: 6, pd: 1 };
 
+  const occupiedSlots = table.filter(e => e !== null).length;
+  const loadFactor = r2(occupiedSlots / SIZE);
   yield {
-    state: snapshot(table, 'Robin Hood table: lookup benefits'),
+    state: snapshot(table, `Robin Hood table: lookup benefits`),
     highlight: { active: ['s3:pd', 's4:pd', 's5:pd', 's6:pd', 's7:pd'] },
-    explanation: 'This table was built with Robin Hood insertion. Probe distances are stored alongside keys. This enables a powerful optimization: early termination on unsuccessful lookups. If the element you are searching for would have a probe distance greater than the resident\'s, the element cannot be in the table.',
+    explanation: `This table was built with Robin Hood insertion (${occupiedSlots} keys in ${SIZE} slots, load factor ${loadFactor}). Probe distances are stored alongside keys. This enables a powerful optimization: early termination on unsuccessful lookups. If the element you are searching for would have a probe distance greater than the resident's, the element cannot be in the table.`,
   };
 
   // Successful lookup: find 3
+  const searchKey1 = 3;
+  const searchHome1 = homeSlot(searchKey1);
+  let searchPd1 = 0;
   yield {
-    state: snapshot(table, 'Lookup 3: h(3) = 3, start probing'),
-    highlight: { active: ['s3:key'] },
-    explanation: 'Look up key 3. h(3) = 3. Check slot 3: it holds 11, not 3. In plain linear probing, we would keep scanning until we find 3 or hit an empty slot. Robin Hood hashing can do the same, but the probe distance gives us more information.',
+    state: snapshot(table, `Lookup ${searchKey1}: h(${searchKey1}) = ${searchHome1}, start probing`),
+    highlight: { active: [`s${searchHome1}:key`] },
+    explanation: `Look up key ${searchKey1}. h(${searchKey1}) = ${searchHome1}. Check slot ${searchHome1}: it holds ${table[searchHome1].key}, not ${searchKey1}. In plain linear probing, we would keep scanning until we find ${searchKey1} or hit an empty slot. Robin Hood hashing can do the same, but the probe distance gives us more information.`,
   };
 
+  searchPd1 = 1;
   yield {
-    state: snapshot(table, 'Lookup 3: slot 4 holds 19, not 3'),
+    state: snapshot(table, `Lookup ${searchKey1}: slot 4 holds ${table[4].key}, not ${searchKey1}`),
     highlight: { active: ['s4:key'], compare: ['s4:pd'] },
-    explanation: 'Slot 4 holds 19. Our search probe distance is now 1. The resident\'s probe distance is also 1. Keep scanning -- the resident is not "richer" than our search position.',
+    explanation: `Slot 4 holds ${table[4].key}. Our search probe distance is now ${searchPd1}. The resident's probe distance is ${table[4].pd}. Keep scanning -- the resident is not "richer" than our search position.`,
   };
 
+  searchPd1 = 2;
   yield {
-    state: snapshot(table, 'Lookup 3: slot 5 holds 3 -- found!'),
+    state: snapshot(table, `Lookup ${searchKey1}: slot 5 holds ${table[5].key} -- found!`),
     highlight: { found: ['s5:key', 's5:pd'] },
-    explanation: 'Slot 5 holds 3. Found in 3 probes (slots 3, 4, 5). The probe distance recorded is 2, which matches our search distance of 2. Successful lookups behave similarly to plain linear probing.',
+    explanation: `Slot 5 holds ${table[5].key}. Found in ${searchPd1 + 1} probes (slots ${searchHome1}, ${searchHome1 + 1}, ${searchHome1 + 2}). The probe distance recorded is ${table[5].pd}, which matches our search distance of ${searchPd1}. Successful lookups behave similarly to plain linear probing.`,
   };
 
   // Unsuccessful lookup with early termination: look for 27
+  const searchKey2 = 27;
+  const searchHome2 = homeSlot(searchKey2);
+  let searchPd2 = 0;
   yield {
-    state: snapshot(table, 'Lookup 27: h(27) = 3, does 27 exist?'),
-    highlight: { active: ['s3:key'] },
-    explanation: 'Look up key 27. h(27) = 3. Slot 3 holds 11 (pd 0). Our search pd is 0. Keep scanning.',
+    state: snapshot(table, `Lookup ${searchKey2}: h(${searchKey2}) = ${searchHome2}, does ${searchKey2} exist?`),
+    highlight: { active: [`s${searchHome2}:key`] },
+    explanation: `Look up key ${searchKey2}. h(${searchKey2}) = ${searchHome2}. Slot ${searchHome2} holds ${table[searchHome2].key} (pd ${table[searchHome2].pd}). Our search pd is ${searchPd2}. Keep scanning.`,
   };
 
+  searchPd2 = 1;
   yield {
-    state: snapshot(table, 'Lookup 27: slot 4, search pd 1 vs resident pd 1'),
+    state: snapshot(table, `Lookup ${searchKey2}: slot 4, search pd ${searchPd2} vs resident pd ${table[4].pd}`),
     highlight: { active: ['s4:key'], compare: ['s4:pd'] },
-    explanation: 'Slot 4 holds 19 (pd 1). Our search pd is 1. Equal. Keep scanning.',
+    explanation: `Slot 4 holds ${table[4].key} (pd ${table[4].pd}). Our search pd is ${searchPd2}. Equal. Keep scanning.`,
   };
 
+  searchPd2 = 2;
   yield {
-    state: snapshot(table, 'Lookup 27: slot 5, search pd 2 vs resident pd 2'),
+    state: snapshot(table, `Lookup ${searchKey2}: slot 5, search pd ${searchPd2} vs resident pd ${table[5].pd}`),
     highlight: { active: ['s5:key'], compare: ['s5:pd'] },
-    explanation: 'Slot 5 holds 3 (pd 2). Our search pd is 2. Equal. Keep scanning.',
+    explanation: `Slot 5 holds ${table[5].key} (pd ${table[5].pd}). Our search pd is ${searchPd2}. Equal. Keep scanning.`,
   };
 
+  searchPd2 = 3;
   yield {
-    state: snapshot(table, 'Lookup 27: slot 6, search pd 3 vs resident pd 2 -- STOP'),
+    state: snapshot(table, `Lookup ${searchKey2}: slot 6, search pd ${searchPd2} vs resident pd ${table[6].pd} -- STOP`),
     highlight: { active: ['s6:key'], compare: ['s6:pd'] },
-    explanation: 'Slot 6 holds 12 with pd 2. Our search pd is 3. Our probe distance exceeds the resident\'s. If 27 existed in the table and hashed to slot 3, the Robin Hood insertion rule would have placed it before any key with a shorter probe distance. Since the resident at pd 2 is "richer" than our pd 3 search position, 27 cannot exist beyond this point. Absent -- confirmed without reaching an empty slot.',
-    invariant: 'Robin Hood ordering means keys are sorted by probe distance along each chain. Once your search probe distance exceeds a resident\'s, the key is provably absent.',
+    explanation: `Slot 6 holds ${table[6].key} with pd ${table[6].pd}. Our search pd is ${searchPd2}. Our probe distance exceeds the resident's. If ${searchKey2} existed in the table and hashed to slot ${searchHome2}, the Robin Hood insertion rule would have placed it before any key with a shorter probe distance. Since the resident at pd ${table[6].pd} is "richer" than our pd ${searchPd2} search position, ${searchKey2} cannot exist beyond this point. Absent -- confirmed without reaching an empty slot.`,
+    invariant: `Robin Hood ordering means keys are sorted by probe distance along each chain. Once your search probe distance (${searchPd2}) exceeds a resident's (${table[6].pd}), the key is provably absent.`,
   };
 
   // Compare with plain linear probing
+  const probesUsed = searchPd2 + 1;
   yield {
-    state: snapshot(table, 'Early termination saves probes on misses'),
-    highlight: { visited: ['s3:key', 's4:key', 's5:key', 's6:key'] },
-    explanation: 'Plain linear probing would continue scanning slot 6, slot 7, and only stop at an empty slot. Robin Hood hashing stopped at slot 6 by comparing probe distances. For dense tables (load factor 80-90%), this makes unsuccessful lookups much faster. The variance in lookup cost shrinks because the maximum probe distance itself is smaller.',
+    state: snapshot(table, `Early termination saves probes on misses`),
+    highlight: { visited: [`s${searchHome2}:key`, 's4:key', 's5:key', 's6:key'] },
+    explanation: `Plain linear probing would continue scanning slot 6, slot 7, and only stop at an empty slot. Robin Hood hashing stopped at slot 6 after ${probesUsed} probes by comparing probe distances. For dense tables (load factor 80-90%), this makes unsuccessful lookups much faster. The variance in lookup cost shrinks because the maximum probe distance itself is smaller.`,
   };
 }
 
@@ -344,7 +401,8 @@ export const article = {
         {type: 'callout', text: 'Robin Hood hashing reduces lookup tail cost by equalizing probe distances across an open-addressed cluster.'},
         'The probe distance column is the heart of Robin Hood hashing. Watch it during insertion: when the incoming key\'s probe distance exceeds the resident\'s, the resident is evicted and the incoming key takes the slot. The evicted key then continues probing. During lookup, the probe distance enables early termination: if your search distance exceeds the resident\'s, the key is absent.',
         'The insert-walk view shows collisions, the swap decision, and the cascade of displaced keys. The lookup view shows how probe-distance ordering makes unsuccessful lookups fast.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/robin-hood-hashing.gif', alt: 'Animated walkthrough of the robin hood hashing visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

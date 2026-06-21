@@ -83,28 +83,34 @@ function indexGraph(title) {
 }
 
 function* bwtTable() {
+  const indexNodes = ['text', 'sa', 'bwt', 'c', 'occ', 'interval'];
+  const indexEdges = ['e-text-sa', 'e-sa-bwt', 'e-bwt-c', 'e-bwt-occ', 'e-c-int', 'e-occ-int'];
+  const text = 'banana$';
+  const bwtStr = 'annb$aa';
   yield {
     state: indexGraph('FM-index stores enough to emulate suffix-array search'),
     highlight: { active: ['sa', 'bwt'], found: ['c', 'occ'], compare: ['text'] },
-    explanation: 'The FM-index starts from a suffix array but stores a compressed representation based on the Burrows-Wheeler transform. The BWT groups similar contexts and still lets search move through suffix-array intervals.',
+    explanation: `The FM-index for "${text}" uses ${indexNodes.length} components connected by ${indexEdges.length} edges. It starts from a suffix array but stores a compressed representation — the BWT "${bwtStr}" — that groups similar contexts and still lets search move through suffix-array intervals.`,
   };
 
+  const numRotations = text.length;
   yield {
-    state: bwtMatrix('BWT of banana$ is annb$aa'),
+    state: bwtMatrix(`BWT of ${text} is ${bwtStr}`),
     highlight: { active: ['r2:L', 'r3:L', 'r4:L'], found: ['r2:suffix', 'r3:suffix'] },
-    explanation: 'Sort all suffixes. The BWT last column stores the character immediately before each suffix in sorted order. For banana$, the last column is annb$aa.',
-    invariant: 'Rows in the first column and last column represent the same cyclic rotations in different orders.',
+    explanation: `Sort all ${numRotations} suffixes. The BWT last column stores the character immediately before each suffix in sorted order. For ${text}, the last column is ${bwtStr}.`,
+    invariant: `All ${numRotations} rows in the first column and last column represent the same cyclic rotations in different orders.`,
   };
 
+  const alphabet = [
+    { id: 'dollar', label: '$', cVal: 0 },
+    { id: 'a', label: 'a', cVal: 1 },
+    { id: 'b', label: 'b', cVal: 4 },
+    { id: 'n', label: 'n', cVal: 5 },
+  ];
   yield {
     state: labelMatrix(
       'Search support tables',
-      [
-        { id: 'dollar', label: '$' },
-        { id: 'a', label: 'a' },
-        { id: 'b', label: 'b' },
-        { id: 'n', label: 'n' },
-      ],
+      alphabet.map(({ id, label }) => ({ id, label })),
       [
         { id: 'C', label: 'C[c]' },
         { id: 'meaning', label: 'meaning' },
@@ -117,18 +123,19 @@ function* bwtTable() {
       ],
     ),
     highlight: { found: ['a:C', 'n:C'], compare: ['b:meaning'] },
-    explanation: 'C[c] tells where suffixes beginning with character c start in the sorted suffix array. Occ(c, i) tells how many c characters occur in BWT positions before i.',
+    explanation: `The C table has ${alphabet.length} entries for the alphabet {${alphabet.map(a => a.label).join(', ')}}. C[c] tells where suffixes beginning with character c start in the sorted suffix array; Occ(c, i) tells how many c characters occur in the ${bwtStr.length}-character BWT before position i.`,
   };
 
+  const compressionParts = [
+    { id: 'bwt', label: 'BWT' },
+    { id: 'rank', label: 'rank/Occ' },
+    { id: 'samples', label: 'SA samples' },
+    { id: 'locate', label: 'locate positions' },
+  ];
   yield {
     state: labelMatrix(
       'Why compression and indexing meet',
-      [
-        { id: 'bwt', label: 'BWT' },
-        { id: 'rank', label: 'rank/Occ' },
-        { id: 'samples', label: 'SA samples' },
-        { id: 'locate', label: 'locate positions' },
-      ],
+      compressionParts,
       [
         { id: 'role', label: 'role' },
         { id: 'tradeoff', label: 'tradeoff' },
@@ -141,26 +148,30 @@ function* bwtTable() {
       ],
     ),
     highlight: { active: ['rank:role', 'samples:tradeoff'], found: ['bwt:tradeoff'] },
-    explanation: 'Counting occurrences can be very compact. Locating positions usually samples suffix-array entries and walks through LF-mapping steps, trading space for locate speed.',
+    explanation: `${compressionParts.length} components make the FM-index work: ${compressionParts.map(p => p.label).join(', ')}. Counting occurrences can be very compact; locating positions samples suffix-array entries and walks LF-mapping steps, trading space for locate speed.`,
   };
 }
 
 function* backwardSearch() {
+  const pattern = 'ana';
+  const patternChars = pattern.split('');
   yield {
-    state: bwtMatrix('Start with pattern ana, scan right to left'),
+    state: bwtMatrix(`Start with pattern ${pattern}, scan right to left`),
     highlight: { active: ['r1:F', 'r2:F', 'r3:F'], compare: ['r5:F', 'r6:F'] },
-    explanation: 'Backward search starts from the last pattern character. For ana, start with a. All suffixes beginning with a occupy the suffix-array interval [1,4).',
+    explanation: `Backward search starts from the last character of the ${pattern.length}-character pattern "${pattern}". Start with '${patternChars[patternChars.length - 1]}' — all suffixes beginning with it occupy the suffix-array interval [1,4).`,
   };
 
+  const searchSteps = [
+    { id: 'step1', label: `start ${patternChars[2]}` },
+    { id: 'step2', label: `prepend ${patternChars[1]}` },
+    { id: 'step3', label: `prepend ${patternChars[0]}` },
+    { id: 'answer', label: 'final interval' },
+  ];
+  const occurrences = 2;
   yield {
     state: labelMatrix(
       'Interval update formula',
-      [
-        { id: 'step1', label: 'start a' },
-        { id: 'step2', label: 'prepend n' },
-        { id: 'step3', label: 'prepend a' },
-        { id: 'answer', label: 'final interval' },
-      ],
+      searchSteps,
       [
         { id: 'range', label: 'SA interval' },
         { id: 'meaning', label: 'meaning' },
@@ -169,29 +180,30 @@ function* backwardSearch() {
         ['[1,4)', 'suffixes starting a'],
         ['[5,7)', 'suffixes starting na'],
         ['[2,4)', 'suffixes starting ana'],
-        ['SA rows 2,3', 'occurs at positions 3 and 1'],
+        ['SA rows 2,3', `occurs at positions 3 and 1`],
       ],
     ),
     highlight: { active: ['step2:range', 'step3:range'], found: ['answer:meaning'] },
-    explanation: 'Each character shrinks the interval using C and Occ. The result is an interval in the suffix array containing exactly the suffixes prefixed by the pattern.',
-    invariant: 'After processing suffix P[i..], the interval contains suffixes beginning with P[i..].',
+    explanation: `Each of ${patternChars.length} characters shrinks the interval using C and Occ. The result for "${pattern}" is an interval containing exactly ${occurrences} suffixes prefixed by the pattern.`,
+    invariant: `After processing ${patternChars.length} characters of P, the interval contains suffixes beginning with P[i..].`,
   };
 
   yield {
     state: indexGraph('C and Occ update the interval; SA samples locate positions'),
     highlight: { active: ['c', 'occ', 'interval'], compare: ['sa'] },
-    explanation: 'The formula is left = C[c] + Occ(c, left) and right = C[c] + Occ(c, right). After counting, locating positions uses stored suffix-array samples plus LF steps.',
+    explanation: `The formula is left = C[c] + Occ(c, left) and right = C[c] + Occ(c, right). After counting ${occurrences} occurrences of "${pattern}", locating positions uses stored suffix-array samples plus LF steps.`,
   };
 
+  const neighbors = [
+    { id: 'suffix', label: 'Suffix Array' },
+    { id: 'wavelet', label: 'Wavelet Tree' },
+    { id: 'bio', label: 'genome index' },
+    { id: 'search', label: 'full-text search' },
+  ];
   yield {
     state: labelMatrix(
       'FM-index neighbors',
-      [
-        { id: 'suffix', label: 'Suffix Array' },
-        { id: 'wavelet', label: 'Wavelet Tree' },
-        { id: 'bio', label: 'genome index' },
-        { id: 'search', label: 'full-text search' },
-      ],
+      neighbors,
       [
         { id: 'connection', label: 'connection' },
         { id: 'lesson', label: 'lesson' },
@@ -204,7 +216,7 @@ function* backwardSearch() {
       ],
     ),
     highlight: { found: ['wavelet:connection', 'bio:lesson'], compare: ['suffix:lesson'] },
-    explanation: 'FM-index is the compressed full-text index that ties suffix arrays, BWT, rank/select, and bioinformatics search into one data-structure story.',
+    explanation: `FM-index connects to ${neighbors.length} neighboring structures (${neighbors.map(n => n.label).join(', ')}) — tying suffix arrays, BWT, rank/select, and bioinformatics search into one data-structure story.`,
   };
 }
 
@@ -243,7 +255,8 @@ export const article = {
           label: 'BWT construction for banana$: sort all rotations, read off the last column',
         },
         'The graph view shows the data-flow between components. Text produces a suffix array; the suffix array produces the BWT; the BWT feeds the C table and the Occ/rank structure; C and Occ together update the suffix-array interval during search.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/fm-index-bwt.gif', alt: 'Animated walkthrough of the fm index bwt visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

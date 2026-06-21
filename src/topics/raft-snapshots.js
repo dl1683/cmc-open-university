@@ -58,8 +58,8 @@ function* compactCommittedPrefix() {
       found: ['s1:l6', 's1:l7', 's2:l6', 's2:l7', 's3:l6', 's3:l7'],
       active: ['s1:l8', 's2:l8', 's3:l8'],
     },
-    explanation: 'Raft Log Replication gives every server the same committed command history, but the history cannot grow forever. Once a prefix has been committed and applied to the state machine, the server can fold that prefix into a durable snapshot. The log keeps the recent suffix; the snapshot carries the old state.',
-    invariant: 'Only committed and applied entries are eligible for compaction.',
+    explanation: `Raft Log Replication gives every server the same committed command history, but the history cannot grow forever. Once a prefix has been committed and applied to the state machine, the server can fold that prefix into a durable snapshot. All ${SERVERS.length} servers share the same committed prefix; the log keeps the recent suffix while the snapshot carries the old state.`,
+    invariant: `Only committed and applied entries are eligible for compaction — each of the ${SERVERS.length} servers must independently verify this before snapshotting.`,
   };
 
   yield {
@@ -72,8 +72,8 @@ function* compactCommittedPrefix() {
       active: ['s1:snap', 's2:snap', 's3:snap'],
       removed: ['s1:l6', 's1:l7', 's2:l6', 's2:l7', 's3:l6', 's3:l7'],
     },
-    explanation: 'Each server writes a snapshot containing the state machine after log index 7, plus the last included index and term. Those two numbers are not decoration: they let future AppendEntries consistency checks connect the compacted prefix to the remaining suffix.',
-    invariant: 'A snapshot must record lastIncludedIndex and lastIncludedTerm, or the log has lost its continuity proof.',
+    explanation: `Each of the ${SERVERS.length} servers writes a snapshot containing the state machine after log index 7, plus the last included index and term. Those two numbers are not decoration: they let future AppendEntries consistency checks connect the compacted prefix to the remaining ${COLUMNS.length - 1} log columns worth of suffix.`,
+    invariant: `A snapshot must record lastIncludedIndex and lastIncludedTerm — without them the ${COLUMNS[0].label} cell has lost its continuity proof to the log suffix.`,
   };
 
   yield {
@@ -93,7 +93,7 @@ function* compactCommittedPrefix() {
       ],
     }, { title: 'Compaction is local storage cleanup, not consensus' }),
     highlight: { active: ['snap'], removed: ['gc'], found: ['rep'] },
-    explanation: 'Compaction does not change the consensus decision. The cluster already agreed on the prefix. Compaction changes how a server stores that prefix locally: snapshot plus suffix instead of an infinite log. This is the same deferred-cleanup family as LSM Trees (How Cassandra Writes), MVCC Internals & VACUUM, and Git Internals.',
+    explanation: `Compaction does not change the consensus decision. The ${SERVERS.length}-node cluster already agreed on the prefix. Compaction changes how a server stores that prefix locally: ${COLUMNS[0].label} plus suffix instead of an infinite log. This is the same deferred-cleanup family as LSM Trees (How Cassandra Writes), MVCC Internals & VACUUM, and Git Internals.`,
   };
 }
 
@@ -105,7 +105,7 @@ function* installSnapshot() {
       ['none', 'missing', 'missing', 'missing', 'missing'],
     ]),
     highlight: { active: ['s3:l6', 's3:l7', 's3:l8', 's3:l9'], compare: ['s1:snap'] },
-    explanation: 'Now S3 returns after a long outage. The leader wants to send entries starting near index 1, but those entries were compacted away. Raft cannot replay what it no longer stores, so it switches from AppendEntries to InstallSnapshot.',
+    explanation: `Now ${SERVERS[2].label} returns after a long outage. The ${SERVERS[0].label} wants to send entries starting near index 1, but those entries were compacted away. Raft cannot replay what it no longer stores, so it switches from AppendEntries to InstallSnapshot.`,
   };
 
   yield {
@@ -126,8 +126,8 @@ function* installSnapshot() {
       ],
     }, { title: 'InstallSnapshot catches up a lagging follower' }),
     highlight: { active: ['chunk1', 'chunk2'], found: ['follower'], compare: ['suffix'] },
-    explanation: 'The leader streams the snapshot to S3. The follower writes it safely, discards any older covered log entries, updates its last included index and term, and then resumes normal log replication from the suffix after the snapshot.',
-    invariant: 'Snapshot first, suffix second: a follower needs a valid prefix before later log entries make sense.',
+    explanation: `The ${SERVERS[0].label} streams the ${COLUMNS[0].label} to ${SERVERS[2].label}. The follower writes it safely, discards any older covered log entries, updates its last included index and term, and then resumes normal log replication from the suffix after the snapshot.`,
+    invariant: `Snapshot first, suffix second: a follower like ${SERVERS[2].label} needs a valid prefix before the remaining ${COLUMNS.length - 1} log slots make sense.`,
   };
 
   yield {
@@ -137,7 +137,7 @@ function* installSnapshot() {
       ['idx7/t3: x,y', 'discarded', 'discarded', 't3:set z', 't3:set q'],
     ]),
     highlight: { found: ['s3:snap', 's3:l8', 's3:l9'] },
-    explanation: 'S3 is now useful again without downloading the entire history. Production systems depend on this path: a node that was offline for hours, a newly added replica, or a restored disk can catch up from a bounded snapshot plus a recent log suffix instead of replaying every command since cluster birth.',
+    explanation: `${SERVERS[2].label} is now useful again without downloading the entire history. All ${SERVERS.length} servers match: each holds a ${COLUMNS[0].label} plus the same log suffix. A node that was offline for hours, a newly added replica, or a restored disk can catch up from a bounded snapshot instead of replaying every command since cluster birth.`,
   };
 }
 
@@ -150,6 +150,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/raft-snapshots.gif', alt: 'Animated walkthrough of the raft snapshots visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -78,6 +78,13 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/url-shortener.gif', alt: 'Animated walkthrough of the url shortener visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'A URL shortener looks like a toy service: accept a long URL, return a short code, and redirect clicks. It is useful because it compresses long links for messages, QR codes, campaigns, internal tools, and analytics.',

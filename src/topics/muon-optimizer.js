@@ -28,6 +28,7 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* orthogonalizedMomentum() {
+  const pipelineSteps = 5;
   yield {
     state: graphState({
       nodes: [
@@ -45,9 +46,10 @@ function* orthogonalizedMomentum() {
       ],
     }, { title: 'Muon update path for matrix-shaped hidden weights' }),
     highlight: { active: ['mom', 'ortho'], found: ['update'] },
-    explanation: 'Read the graph as a change in the unit of optimization. Adam treats parameters coordinate by coordinate; Muon treats many hidden-layer weights as matrices. It builds a momentum-like matrix update, approximately orthogonalizes it, then applies a step meant to spread motion across directions instead of letting one direction dominate.',
+    explanation: `Read the ${pipelineSteps}-stage graph as a change in the unit of optimization. Adam treats parameters coordinate by coordinate; Muon treats many hidden-layer weights as matrices. It builds a momentum-like matrix update, approximately orthogonalizes it, then applies a step meant to spread motion across directions instead of letting one direction dominate.`,
   };
 
+  const optimizerCount = 4;
   yield {
     state: labelMatrix(
       'What changes from common optimizers',
@@ -69,10 +71,11 @@ function* orthogonalizedMomentum() {
       ],
     ),
     highlight: { active: ['Muon:geometry'], compare: ['Adam:geometry', 'Lion:geometry'] },
-    explanation: 'The comparison table is the mental map. SGD follows raw velocity, Adam rescales coordinates, Lion keeps sign direction, and Muon changes the matrix geometry. It is not Adam with a new beta; it is a different preconditioning choice for matrix-shaped weights.',
-    invariant: 'The optimizer is choosing a geometry for parameter motion.',
+    explanation: `The comparison table is the mental map across ${optimizerCount} optimizers. SGD follows raw velocity, Adam rescales coordinates, Lion keeps sign direction, and Muon changes the matrix geometry. It is not Adam with a new beta; it is a different preconditioning choice for matrix-shaped weights.`,
+    invariant: `Each of the ${optimizerCount} optimizers is choosing a geometry for parameter motion.`,
   };
 
+  const paramGroupCount = 4;
   yield {
     state: labelMatrix(
       'Where Muon is usually applied',
@@ -94,7 +97,7 @@ function* orthogonalizedMomentum() {
       ],
     ),
     highlight: { found: ['hidden:choice'], compare: ['emb:choice', 'head:choice'] },
-    explanation: 'This table prevents the common misuse. Muon is usually aimed at hidden matrix weights where orthogonalized updates make sense. Embeddings, output heads, biases, and normalization parameters often stay on AdamW or simpler updates because their structure and failure modes are different.',
+    explanation: `This table prevents the common misuse across ${paramGroupCount} parameter groups. Muon is usually aimed at hidden matrix weights where orthogonalized updates make sense. Embeddings, output heads, biases, and normalization parameters often stay on AdamW or simpler updates because their structure and failure modes are different.`,
   };
 
   yield {
@@ -106,11 +109,12 @@ function* orthogonalizedMomentum() {
       ],
     }),
     highlight: { active: ['muon'], compare: ['adam'] },
-    explanation: 'The curve shows the kind of win Muon claims: faster loss reduction under a tuned recipe. The correct read is not "Muon always wins." Ask whether AdamW was equally tuned, whether extra matrix multiplications changed wall-clock cost, and whether final validation quality improved, not just early training loss.',
+    explanation: `The curve compares ${optimizerCount} optimizer families and shows the kind of win Muon claims: faster loss reduction under a tuned recipe. The correct read is not "Muon always wins." Ask whether AdamW was equally tuned, whether extra matrix multiplications changed wall-clock cost, and whether final validation quality improved, not just early training loss.`,
   };
 }
 
 function* newtonSchulzTradeoffs() {
+  const nsStepCount = 4;
   yield {
     state: labelMatrix(
       'Newton-Schulz approximation',
@@ -132,7 +136,7 @@ function* newtonSchulzTradeoffs() {
       ],
     ),
     highlight: { active: ['iterate:operation'], found: ['output:purpose'] },
-    explanation: 'Newton-Schulz is the hardware trick. Exact SVD-style orthogonalization would be too slow in a training loop, but a few matrix multiplications can approximate the desired matrix sign or orthogonalized direction. Muon exists because the approximation matches what GPUs are good at.',
+    explanation: `Newton-Schulz is the hardware trick. The ${nsStepCount}-step pipeline shows the flow: exact SVD-style orthogonalization would be too slow in a training loop, but a few matrix multiplications can approximate the desired matrix sign or orthogonalized direction. Muon exists because the approximation matches what GPUs are good at.`,
   };
 
   yield {
@@ -145,8 +149,8 @@ function* newtonSchulzTradeoffs() {
       ],
     }),
     highlight: { active: ['err'] },
-    explanation: 'This error curve is the tradeoff in one line: more Newton-Schulz iterations reduce approximation error, but each one costs more matrix multiplication. In training, exactness is not the goal. The useful point is the cheapest approximation that improves quality per unit time.',
-    invariant: 'Approximate enough can beat exact but expensive.',
+    explanation: `This error curve is the tradeoff in one line: more Newton-Schulz iterations reduce approximation error, but each one costs more matrix multiplication. In training across all ${nsStepCount} pipeline stages, exactness is not the goal. The useful point is the cheapest approximation that improves quality per unit time.`,
+    invariant: `Approximate enough can beat exact but expensive — ${nsStepCount} stages are practical, more may not be.`,
   };
 
   yield {
@@ -170,9 +174,10 @@ function* newtonSchulzTradeoffs() {
       ],
     ),
     highlight: { found: ['shape:control', 'scale:control', 'params:control', 'dist:control'] },
-    explanation: 'Muon has real engineering edges. Skinny matrices, bad scaling, wrong parameter groups, or distributed matmul overhead can erase the optimizer gain. The control column is the deployment checklist: shape tests, normalization, explicit parameter groups, and GPU profiling.',
+    explanation: `Muon has ${nsStepCount} real engineering edges to audit. Skinny matrices, bad scaling, wrong parameter groups, or distributed matmul overhead can erase the optimizer gain. The control column is the deployment checklist: shape tests, normalization, explicit parameter groups, and GPU profiling.`,
   };
 
+  const protocolNodeCount = 5;
   yield {
     state: graphState({
       nodes: [
@@ -191,7 +196,7 @@ function* newtonSchulzTradeoffs() {
       ],
     }, { title: 'A fair Muon comparison is recipe-level' }),
     highlight: { active: ['groups', 'profile', 'seeds'], found: ['claim'] },
-    explanation: 'The final graph is the fair-comparison protocol. Start from a strong baseline recipe, define parameter groups, profile the added matmuls, run seed sweeps, then make the optimizer claim. Otherwise you may be measuring retuning effort or hardware overhead, not Muon.',
+    explanation: `The final ${protocolNodeCount}-node graph is the fair-comparison protocol. Start from a strong baseline recipe, define parameter groups, profile the added matmuls, run seed sweeps, then make the optimizer claim. Otherwise you may be measuring retuning effort or hardware overhead, not Muon.`,
   };
 }
 
@@ -204,6 +209,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/muon-optimizer.gif', alt: 'Animated walkthrough of the muon optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why Muon Exists',
       paragraphs: [

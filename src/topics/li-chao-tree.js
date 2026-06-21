@@ -62,7 +62,7 @@ function* lineInsertion() {
       { id: 'mid', x: 5, y: 6, label: 'midpoint' },
     ]),
     highlight: { active: ['a', 'b', 'c'], found: ['mid'] },
-    explanation: 'A Li Chao tree stores linear functions and answers minimum-at-x queries. The lower envelope is the visible winner curve, but the structure avoids explicitly maintaining all intersection order.',
+    explanation: `A ${topic.title} stores ${lines.length} linear functions (${lines.map(l => l.label).join(', ')}) and answers minimum-at-x queries. The lower envelope is the visible winner curve, but the structure avoids explicitly maintaining all intersection order.`,
   };
 
   yield {
@@ -86,8 +86,8 @@ function* lineInsertion() {
       ],
     ),
     highlight: { active: ['mid:action', 'child:action'], compare: ['left:compare', 'right:compare'] },
-    explanation: 'At each node, compare the old and new line at the segment midpoint. Store the line that is lower at the midpoint. The other line can only beat it on one side, so recurse into that half.',
-    invariant: 'Along every root-to-leaf path, at least one stored line is the minimum for that x.',
+    explanation: `At each node, compare the old and new line at the segment midpoint (x = 5 for ${lines[0].label} gives ${y(lines[0], 5)}). Store the line that is lower at the midpoint. The other line can only beat it on one side, so recurse into that half.`,
+    invariant: `Along every root-to-leaf path in the ${topic.title}, at least one of the ${lines.length} stored lines is the minimum for that x.`,
   };
 
   yield {
@@ -111,7 +111,7 @@ function* lineInsertion() {
       ],
     ),
     highlight: { found: ['root:stored', 'left:stored', 'right:stored'], active: ['leaf:reason'] },
-    explanation: 'The tree stores a sparse certificate, not the full envelope. A query follows one x-coordinate path and tests all lines stored along that path.',
+    explanation: `The ${topic.title} stores a sparse certificate, not the full envelope. A query follows one x-coordinate path and tests all ${lines.length} lines (${lines.map(l => l.id).join(', ')}) stored along that path.`,
   };
 
   yield {
@@ -135,7 +135,7 @@ function* lineInsertion() {
       ],
     ),
     highlight: { active: ['online:support', 'queries:support'], found: ['segments:note'] },
-    explanation: 'Li Chao shines when lines arrive online and queries ask for the best value at a coordinate. It is a practical alternative when convex-hull-trick assumptions are awkward.',
+    explanation: `${topic.title} shines when lines arrive online and queries ask for the best value at a coordinate. With ${lines.length} lines like ${lines[0].label}, it is a practical alternative when convex-hull-trick assumptions are awkward.`,
   };
 }
 
@@ -146,7 +146,7 @@ function* pointQuery() {
       { id: 'best', x: 7, y: y(lines[1], 7), label: 'best' },
     ]),
     highlight: { active: ['b', 'query', 'best'], compare: ['a', 'c'] },
-    explanation: 'A query does not scan every line. It descends to the leaf for x and evaluates only the lines stored on that path, taking the minimum value seen.',
+    explanation: `A query does not scan every line. It descends to the leaf for x = 7 and evaluates only the lines stored on that path, taking the minimum value seen (${lines[1].label} yields ${y(lines[1], 7)}).`,
   };
 
   yield {
@@ -170,7 +170,7 @@ function* pointQuery() {
       ],
     ),
     highlight: { active: ['root:value', 'right:value'], found: ['answer:value'] },
-    explanation: 'The answer is the minimum among path candidates. Correctness comes from insertion preserving the invariant that the true best line for any x is somewhere on that path.',
+    explanation: `The answer is the minimum among path candidates: ${lines[2].label} gives ${y(lines[2], 7)} while ${lines[1].label} gives ${y(lines[1], 7)}. Correctness comes from insertion preserving the invariant that the true best line for any x is somewhere on that path.`,
   };
 
   yield {
@@ -194,7 +194,7 @@ function* pointQuery() {
       ],
     ),
     highlight: { found: ['static:cost', 'dynamic:cost'], compare: ['delete:caveat'] },
-    explanation: 'Insertion and query are logarithmic in the coordinate domain. Deletion is not native because lines are woven into path invariants; offline rollback is a separate trick.',
+    explanation: `Insertion and query are O(log C) in the coordinate domain. With ${lines.length} lines, deletion is not native because lines like ${lines[0].label} are woven into path invariants; offline rollback is a separate trick.`,
   };
 
   yield {
@@ -218,7 +218,7 @@ function* pointQuery() {
       ],
     ),
     highlight: { active: ['formula:structure', 'line:structure', 'query:structure'], found: ['insert:structure'] },
-    explanation: 'Many dynamic programs become fast once you see every old state as a line and every new state as an x-query. Li Chao tree is the online engine for that pattern.',
+    explanation: `Many dynamic programs become fast once you see every old state as a line (e.g. ${lines[0].label}) and every new state as an x-query. ${topic.title} is the online engine for that pattern.`,
   };
 }
 
@@ -231,6 +231,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/li-chao-tree.gif', alt: 'Animated walkthrough of the li chao tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

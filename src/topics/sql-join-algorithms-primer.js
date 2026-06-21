@@ -135,23 +135,32 @@ function joinGraph(title, mode) {
 }
 
 function* nestedLoop() {
+  const custCount = 3;
+  const orderCount = 4;
+  const custIds = [7, 9, 12];
+  const method = joinRows[0].label;
+  const badRow = joinRows[3].label;
+  const lowEst = 10;
+  const highActual = '10 million';
+  const matchCount = 3;
+
   yield {
     state: joinGraph('Nested loop with an indexed inner side', 'nested'),
     highlight: { active: ['c1', 'idx', 'e-c1-idx', 'e-idx-o1', 'e-idx-o2'], found: ['o1', 'o2', 'out'], compare: ['c2', 'c3'] },
-    explanation: 'Nested loop join is repeated lookup. For each outer customer, the executor asks the inner side for matching orders. With a B-tree on orders.customer_id, each question is a targeted seek instead of a full scan.',
-    invariant: 'Nested loop is not always bad. Nested loop plus selective indexed probes is a powerful shape.',
+    explanation: `Nested ${method} join is repeated lookup. For each of the ${custCount} outer customers, the executor asks the inner side for matching orders among ${orderCount} rows. With a B-tree on orders.customer_id, each of the ${custCount} questions is a targeted seek instead of a full scan.`,
+    invariant: `Nested ${method} is not always bad. Nested ${method} plus selective indexed probes is a powerful shape for ${custCount} outer rows.`,
   };
 
   yield {
     state: choiceMatrix('Join choice'),
     highlight: { active: ['nested:shape', 'nested:structure'], compare: ['bad:risk'] },
-    explanation: 'The optimizer starts with a logical join, then chooses a physical method. Nested loop join is attractive when the outer input is tiny or each outer row can probe an index on the inner side.',
+    explanation: `The optimizer starts with a logical join, then chooses among ${joinRows.length} physical methods. Nested ${method} join is attractive when the outer input is tiny (like ${custCount} customers) or each outer row can probe an index on the inner side.`,
   };
 
   yield {
     state: joinGraph('The same loop becomes dangerous when the estimate lies', 'nested'),
     highlight: { active: ['c1', 'c2', 'c3', 'idx'], compare: ['o1', 'o2', 'o3', 'o4'], found: ['out'] },
-    explanation: 'The same shape becomes dangerous when the estimate lies. If the planner expects 10 outer rows but sees 10 million, the inner probe cost is multiplied 10 million times. Compare estimated rows with actual rows first.',
+    explanation: `The same shape becomes dangerous when the estimate lies. If the planner expects ${lowEst} outer rows but sees ${highActual}, the inner probe cost is multiplied ${highActual} times. Compare estimated rows with actual rows first — a ${badRow} estimate is the root cause.`,
   };
 
   yield {
@@ -175,28 +184,37 @@ function* nestedLoop() {
       ],
     ),
     highlight: { active: ['plan:evidence', 'cause:evidence'], found: ['repair:move'] },
-    explanation: 'A realistic fix is not "disable nested loops." It is: find the bad cardinality estimate, teach the planner the data shape, and make the indexed path visible for the selective tenant or time window.',
+    explanation: `A realistic fix is not "disable nested ${method}s." It is: find the bad cardinality estimate, teach the planner the data shape (${custCount} customers, ${orderCount} orders), and make the indexed path visible for the selective tenant or time window. Keys ${custIds.join(', ')} should each resolve via a single seek.`,
   };
 }
 
 function* hashJoin() {
+  const custIds = [7, 9, 12];
+  const bucketCount = custIds.length;
+  const orderCount = 4;
+  const method = joinRows[1].label;
+  const hitKeys = [7, 9];
+  const missKey = 15;
+  const hitOrders = ['o11', 'o12', 'o13'];
+  const missOrder = 'o14';
+
   yield {
     state: joinGraph('Build phase: hash the smaller input by join key', 'hash'),
     highlight: { active: ['build', 'b7', 'b9', 'b12', 'e-build-b7', 'e-build-b9', 'e-build-b12'], compare: ['probe'] },
-    explanation: 'The build side is usually the smaller side after filters. Every customer row is placed in a bucket keyed by customer_id. This is a hash table, but now memory limits, spilling, and key skew are part of the algorithm.',
-    invariant: 'Hash joins need equality keys because the hash table answers exact-key lookup, not ranges.',
+    explanation: `The build side is usually the smaller side after filters. Each of the ${bucketCount} customer rows is placed in a bucket keyed by customer_id (keys ${custIds.join(', ')}). This is a ${method} table, but now memory limits, spilling, and key skew are part of the algorithm.`,
+    invariant: `${method[0].toUpperCase() + method.slice(1)} joins need equality keys because the ${method} table answers exact-key lookup, not ranges.`,
   };
 
   yield {
     state: choiceMatrix('Hash join choice'),
     highlight: { active: ['hash:shape', 'hash:structure'], compare: ['hash:risk'] },
-    explanation: 'Hash join is the workhorse for large equality joins. Build a hash table on one input, then stream the other input and look up matching keys.',
+    explanation: `${method[0].toUpperCase() + method.slice(1)} join is the workhorse for large equality joins. Build a ${method} table on one input (${bucketCount} buckets here), then stream the other ${orderCount} rows and look up matching keys.`,
   };
 
   yield {
     state: joinGraph('Probe phase: stream orders and look up each key', 'hash'),
     highlight: { active: ['probe', 'hit7', 'hit9', 'e-probe-hit7', 'e-probe-hit9'], found: ['out'], removed: ['miss'] },
-    explanation: 'The probe side can stream. Order rows with customer_id 7 and 9 find buckets and emit joined rows; customer_id 15 misses. Average-case work is build O(n) plus probe O(m).',
+    explanation: `The probe side can stream ${orderCount} orders. Orders ${hitOrders.join(', ')} with customer_ids ${hitKeys.join(' and ')} find buckets and emit ${hitOrders.length} joined rows; ${missOrder} with customer_id ${missKey} misses. Average-case work is build O(n) plus probe O(m).`,
   };
 
   yield {
@@ -220,28 +238,36 @@ function* hashJoin() {
       ],
     ),
     highlight: { active: ['fit:lesson'], compare: ['spill:lesson', 'skew:lesson'], found: ['guard:lesson'] },
-    explanation: 'The case study is a nightly revenue join. It is fast until a dimension table grows past memory or one customer dominates the key distribution. Then the same algorithm becomes an IO and skew problem.',
+    explanation: `The case study is a nightly revenue join over ${bucketCount} dimension keys. It is fast until a dimension table grows past memory or one customer (like key ${custIds[0]}) dominates the key distribution. Then the same ${method} algorithm becomes an IO and skew problem.`,
   };
 }
 
 function* mergeJoin() {
+  const leftCount = 3;
+  const rightCount = 4;
+  const method = joinRows[2].label;
+  const firstKey = 7;
+  const custIds = [7, 9, 12];
+  const matchCount = 3;
+  const cursorCount = 2;
+
   yield {
     state: joinGraph('Two sorted streams advance with cursors', 'merge'),
     highlight: { active: ['left1', 'right1', 'right2', 'cmp', 'e-left-cmp', 'e-right-cmp', 'e-right2-cmp'], found: ['out'] },
-    explanation: 'Merge join is two cursors walking sorted streams. Equal keys emit a run of matches; the smaller key advances. The invariant is the same as Merge Sort: sorted order turns search into one forward pass.',
-    invariant: 'Merge join is linear after sorting: advance cursors, never rewind the full inputs.',
+    explanation: `${method[0].toUpperCase() + method.slice(1)} join is ${cursorCount} cursors walking sorted streams of ${leftCount} left and ${rightCount} right rows. Equal keys emit a run of matches; the smaller key advances. The invariant is the same as ${method[0].toUpperCase() + method.slice(1)} Sort: sorted order turns search into one forward pass.`,
+    invariant: `${method[0].toUpperCase() + method.slice(1)} join is linear after sorting: advance ${cursorCount} cursors, never rewind the full ${leftCount + rightCount} input rows.`,
   };
 
   yield {
     state: choiceMatrix('Merge join choice'),
     highlight: { active: ['merge:shape', 'merge:structure'], compare: ['merge:risk'] },
-    explanation: 'Merge join is ideal when both inputs already arrive sorted by the join key, often because indexes or earlier sort nodes provide that order.',
+    explanation: `${method[0].toUpperCase() + method.slice(1)} join is ideal when both inputs (${leftCount} left, ${rightCount} right) already arrive sorted by the join key, often because indexes or earlier sort nodes provide that order.`,
   };
 
   yield {
     state: joinGraph('Sorted indexes can remove the sorting bill', 'merge'),
     highlight: { active: ['left1', 'left2', 'left3', 'right1', 'right2', 'right3', 'right4'], compare: ['cmp'], found: ['out'] },
-    explanation: 'If both sides are already ordered by the join key, merge join avoids building a hash table and avoids a separate sort. If the inputs are not sorted, the sort cost has to be justified.',
+    explanation: `If both sides (${leftCount} + ${rightCount} rows) are already ordered by the join key, ${method} join avoids building a hash table and avoids a separate sort. If the inputs are not sorted, the sort cost for ${leftCount + rightCount} rows has to be justified.`,
   };
 
   yield {
@@ -265,7 +291,7 @@ function* mergeJoin() {
       ],
     ),
     highlight: { active: ['join:property', 'join:result'], found: ['benefit:result'] },
-    explanation: 'In an ETL pipeline, both the fact feed and dimension table may already be sorted by user_id. Merge join then becomes a low-memory streaming join whose output is still ordered for downstream grouping.',
+    explanation: `In an ETL pipeline, both the fact feed and dimension table may already be sorted by user_id. ${method[0].toUpperCase() + method.slice(1)} join then becomes a low-memory streaming join using ${cursorCount} cursors, producing ${matchCount} matches whose output is still ordered for downstream grouping.`,
   };
 }
 
@@ -279,6 +305,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/sql-join-algorithms-primer.gif', alt: 'Animated walkthrough of the sql join algorithms primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why physical joins exist',
       paragraphs: [

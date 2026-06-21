@@ -197,6 +197,13 @@ export function* run(input) {
 const legacyArticle = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/regression-discontinuity.gif', alt: 'Animated walkthrough of the regression discontinuity visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: `What it is`,
       paragraphs: [
         `Regression discontinuity (RD) measures a causal effect when a sharp threshold divides treatment and control. The visualization: a scholarship rule (score ≥ 70). Assignment is deterministic, yet right at the line, a 69 and 70 are statistical twins — differing by one careless answer, not intent. Bureaucratic determinism becomes luck locally. The estimator: fit a line on each side and read the vertical jump where they meet.`,

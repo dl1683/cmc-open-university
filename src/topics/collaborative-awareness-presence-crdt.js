@@ -83,29 +83,33 @@ function cursorGraph(title) {
 }
 
 function* awarenessMap() {
+  const awarenessNodes = 8;
+  const awarenessEdges = 8;
+  const stateFields = 5;
+
   yield {
     state: awarenessGraph('Awareness is a per-client state map'),
     highlight: { active: ['local', 'state', 'map', 'e-local-state', 'e-clock-map'], compare: ['remote'] },
-    explanation: 'The first split is content versus presence. Durable document data belongs in the CRDT document; live user state belongs in an awareness map keyed by client id. Each client owns only its own ephemeral record.',
+    explanation: `The first split is content versus presence. Across ${awarenessNodes} stages in the awareness pipeline, durable document data belongs in the CRDT document; live user state belongs in an awareness map keyed by client id. Each client owns only its own ephemeral record.`,
   };
 
   yield {
     state: awarenessGraph('Each local change increments a clock'),
     highlight: { active: ['state', 'clock', 'map', 'e-state-clock', 'e-clock-map'], compare: ['ttl'] },
-    explanation: 'The clock is only per-client freshness. Receivers keep the newer awareness record for that client and discard older ones. This is a lossy last-writer-wins register, not a history of every cursor move.',
-    invariant: 'Awareness state should be replaceable; document content should be durable.',
+    explanation: `The clock is only per-client freshness. Receivers keep the newer awareness record for that client and discard older ones across ${awarenessEdges} edges. This is a lossy last-writer-wins register, not a history of every cursor move.`,
+    invariant: `Awareness state should be replaceable across all ${stateFields} fields; document content should be durable.`,
   };
 
   yield {
     state: awarenessGraph('Providers broadcast encoded awareness updates'),
     highlight: { active: ['map', 'encode', 'provider', 'remote', 'e-map-encode', 'e-encode-provider', 'e-provider-remote'], found: ['ttl'] },
-    explanation: 'Providers broadcast changed client records, not durable edits. A joining peer can receive the current map; later messages can carry only changed client ids. Dropping one cursor update should not damage document state.',
+    explanation: `Providers broadcast changed client records through ${awarenessNodes} pipeline nodes, not durable edits. A joining peer can receive the current map; later messages can carry only changed client ids. Dropping one cursor update should not damage document state.`,
   };
 
   yield {
     state: awarenessGraph('Timeouts remove stale presence'),
     highlight: { active: ['provider', 'ttl', 'map', 'e-provider-ttl', 'e-ttl-map'], removed: ['remote'] },
-    explanation: 'Presence needs expiry because tabs crash and networks vanish. If heartbeats stop, peers mark the record offline after a timeout. A clean disconnect can speed that up by sending null state.',
+    explanation: `Presence needs expiry because tabs crash and networks vanish. If heartbeats stop across the ${awarenessEdges}-edge flow, peers mark the record offline after a timeout. A clean disconnect can speed that up by sending null state.`,
   };
 
   yield {
@@ -131,33 +135,37 @@ function* awarenessMap() {
       ],
     ),
     highlight: { active: ['cursor:stores', 'clock:rule', 'focus:rule'], compare: ['user:rule'] },
-    explanation: 'Awareness should stay small, public to the room, and safe to lose. It makes collaboration feel live without filling the durable document log with cursor twitches and typing flags.',
+    explanation: `Awareness should stay small across ${stateFields} fields, public to the room, and safe to lose. It makes collaboration feel live without filling the durable document log with cursor twitches and typing flags.`,
   };
 }
 
 function* cursorLifecycle() {
+  const cursorNodes = 8;
+  const cursorEdges = 7;
+  const contentTypes = 4;
+
   yield {
     state: cursorGraph('Cursor coordinates must survive document edits'),
     highlight: { active: ['editor', 'relative', 'awareness', 'e-editor-relative', 'e-relative-awareness'], compare: ['doc'] },
-    explanation: 'Raw offsets drift while everyone types. Cursor state should use relative positions or anchors tied to stable CRDT structure, then resolve against the receiver\'s current document at render time.',
+    explanation: `Raw offsets drift while everyone types. Across ${cursorNodes} lifecycle stages, cursor state should use relative positions or anchors tied to stable CRDT structure, then resolve against the receiver's current document at render time.`,
   };
 
   yield {
     state: cursorGraph('Awareness updates travel beside document updates'),
     highlight: { active: ['awareness', 'network', 'peer', 'e-awareness-network', 'e-network-peer'], compare: ['doc'] },
-    explanation: 'Awareness travels beside document sync, not inside it. The provider may throttle, drop, or expire presence updates because the document truth is stored in the CRDT update path.',
+    explanation: `Awareness travels beside document sync through ${cursorEdges} edges, not inside it. The provider may throttle, drop, or expire presence updates because the document truth is stored in the CRDT update path.`,
   };
 
   yield {
     state: cursorGraph('Remote cursors render from current local state'),
     highlight: { active: ['peer', 'render', 'e-peer-render'], found: ['relative'] },
-    explanation: 'The receiver resolves the remote relative position against its current document and renders a cursor, selection highlight, name tag, or avatar. Rendering should degrade gracefully when the anchor is gone.',
+    explanation: `The receiver resolves the remote relative position against its current document across ${cursorNodes} pipeline stages and renders a cursor, selection highlight, name tag, or avatar. Rendering should degrade gracefully when the anchor is gone.`,
   };
 
   yield {
     state: cursorGraph('Disconnects fade out rather than conflict'),
     highlight: { active: ['peer', 'offline', 'e-peer-offline'], removed: ['render'], compare: ['doc'] },
-    explanation: 'If a collaborator closes the tab, changes network, or stops heartbeating, the presence record should disappear. That is not a conflict in the document; it is an ephemeral liveness transition.',
+    explanation: `If a collaborator closes the tab, changes network, or stops heartbeating, the presence record should disappear across the ${cursorEdges}-edge lifecycle. That is not a conflict in the document; it is an ephemeral liveness transition.`,
   };
 
   yield {
@@ -181,7 +189,7 @@ function* cursorLifecycle() {
       ],
     ),
     highlight: { active: ['cursor:layer', 'typing:retention'], compare: ['text:retention', 'marks:retention'] },
-    explanation: 'The table draws the retention boundary. Text and marks are durable collaboration data. Cursors and typing flags expire quickly. Mixing them creates noisy history, larger sync, and worse privacy defaults.',
+    explanation: `The table draws the retention boundary across ${contentTypes} content types. Text and marks are durable collaboration data. Cursors and typing flags expire quickly. Mixing them creates noisy history, larger sync, and worse privacy defaults.`,
   };
 }
 
@@ -194,6 +202,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/collaborative-awareness-presence-crdt.gif', alt: 'Animated walkthrough of the collaborative awareness presence crdt visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -69,27 +69,34 @@ function pairsPlot(markers = []) {
 }
 
 function* attentionMask() {
+  const n = TOKENS.length;
+  const windowSize = 4;
+  const lastToken = TOKENS[n - 1].id;
+
   yield {
     state: maskState('Full causal attention: every past token remains visible', 'full'),
     highlight: { active: ['t7:t0', 't7:t1', 't7:t2', 't7:t3', 't7:t4', 't7:t5', 't7:t6', 't7:t7'] },
-    explanation: 'Full causal attention keeps every old token visible to every later token. That preserves maximum access, but pair count grows quadratically.',
+    explanation: `Full causal attention keeps every old token visible to every later token across all ${n} positions. That preserves maximum access, but pair count grows quadratically with O(${n}^2) = ${n * n} pairs.`,
   };
 
   yield {
     state: maskState('Sliding window: each token sees only the recent past', 'window'),
     highlight: { active: ['t7:t4', 't7:t5', 't7:t6', 't7:t7'], removed: ['t7:t0', 't7:t1', 't7:t2', 't7:t3'] },
-    explanation: 'A sliding window caps each row. Token t7 sees only t4 through t7, so old detail leaves the local attention path.',
-    invariant: 'Full attention uses O(n^2) pairs; a fixed window uses O(n w) pairs.',
+    explanation: `A sliding window of size ${windowSize} caps each row. Token ${lastToken} sees only t${n - windowSize} through ${lastToken}, so old detail leaves the local attention path.`,
+    invariant: `Full attention uses O(n^2) = ${n * n} pairs for ${n} tokens; a fixed window of ${windowSize} uses O(n * w) = ${n * windowSize} pairs.`,
   };
 
   yield {
     state: maskState('Local window plus global anchor', 'local-global'),
     highlight: { active: ['t7:t4', 't7:t5', 't7:t6', 't7:t7'], found: ['t7:t0'], removed: ['t7:t1', 't7:t2', 't7:t3'] },
-    explanation: 'Some designs keep global anchors or summary tokens while using local windows. That gives the model a cheap route to persistent context, but it is no longer all-pairs memory.',
+    explanation: `Some designs keep global anchors (like ${TOKENS[0].id}) while using a local window of ${windowSize}. Token ${lastToken} sees ${windowSize} recent tokens plus the anchor, giving ${windowSize + 1} visible positions instead of all ${n}.`,
   };
 }
 
 function* rollingCache() {
+  const windowW = 4096;
+  const contextPolicies = 4;
+
   yield {
     state: pairsPlot([
       { id: 'full32k', x: 32768, y: 1.07, label: '32k full' },
@@ -97,7 +104,7 @@ function* rollingCache() {
       { id: 'full64k', x: 65536, y: 4.29, label: '64k full' },
     ]),
     highlight: { active: ['full'], found: ['windowed', 'win32k'], compare: ['full32k', 'full64k'] },
-    explanation: 'Windowing changes the growth law. Doubling context quadruples full attention pairs, but only doubles fixed-window pairs.',
+    explanation: `Windowing with w=${windowW} changes the growth law. Doubling context from 32k to 64k quadruples full attention pairs (1.07B to 4.29B), but only doubles fixed-window pairs since cost is O(n * ${windowW}).`,
   };
 
   yield {
@@ -121,7 +128,7 @@ function* rollingCache() {
       ],
     ),
     highlight: { active: ['append:cache action', 'inside:cache action'], removed: ['outside:cache action'], found: ['anchor:cache action'] },
-    explanation: 'Sliding-window attention is also a cache policy. Recent tokens stay resident; old tokens are evicted, compressed, summarized, or reachable only through special anchors.',
+    explanation: `Sliding-window attention is also a cache policy with ${contextPolicies} actions: append, keep inside, evict outside, and anchor. Recent tokens within the w=${windowW} window stay resident; old tokens are evicted or reachable only through special anchors.`,
   };
 
   yield {
@@ -145,7 +152,7 @@ function* rollingCache() {
       ],
     ),
     highlight: { found: ['chat:policy', 'code:policy', 'rag:policy', 'book:policy'] },
-    explanation: 'A context policy should match the task. If old tokens can be retrieved or summarized, a bounded window can be cheaper than keeping every pair alive.',
+    explanation: `A context policy should match the task across all ${contextPolicies} use cases shown. If old tokens can be retrieved or summarized, a bounded window of w=${windowW} can be cheaper than keeping every pair alive.`,
   };
 }
 
@@ -158,6 +165,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/sliding-window-attention-context-policy.gif', alt: 'Animated walkthrough of the sliding window attention context policy visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'The context budget problem',
       paragraphs: [

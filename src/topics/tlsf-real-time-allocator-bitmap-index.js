@@ -59,22 +59,31 @@ function tlsfGraph(title, notes = {}) {
 }
 
 function* binMap() {
+  const nodeIds = ['req', 'map', 'fl', 'sl', 'matrix', 'list', 'split', 'block'];
+  const reqSize = 100;
+  const flLevels = [
+    { id: 'fl5', label: 'FL 5', range: '32-63',  slots: ['32', '40', '48', '56'] },
+    { id: 'fl6', label: 'FL 6', range: '64-127', slots: ['64', '80', '96', '112'] },
+    { id: 'fl7', label: 'FL 7', range: '128-255', slots: ['128', '160', '192', '224'] },
+    { id: 'fl8', label: 'FL 8', range: '256-511', slots: ['256', '320', '384', '448'] },
+  ];
+  const slCount = 4;
+  const targetFL = 6;
+  const targetSL = 2;
+  const flBits = '100100';
+  const slBits = '0100';
+
   yield {
     state: tlsfGraph('TLSF indexes free memory with two bitmap levels'),
     highlight: { active: ['map', 'fl', 'sl', 'matrix'], found: ['list', 'block'] },
-    explanation: 'TLSF, Two-Level Segregated Fit, keeps free blocks in a matrix of lists. A first-level index chooses a power-of-two size band; a second-level index subdivides that band.',
-    invariant: 'The search path is bounded: map size, scan bitmaps, pop a list head.',
+    explanation: `TLSF, Two-Level Segregated Fit, keeps free blocks in a matrix of lists. A first-level index chooses a power-of-two size band; a second-level index subdivides that band into ${slCount} sub-bins across ${nodeIds.length} pipeline stages.`,
+    invariant: `The search path is bounded: map the ${reqSize}-byte request, scan ${flLevels.length} FL bands and ${slCount} SL slots, pop a list head.`,
   };
 
   yield {
     state: labelMatrix(
       'Two-level bins',
-      [
-        { id: 'fl5', label: 'FL 5' },
-        { id: 'fl6', label: 'FL 6' },
-        { id: 'fl7', label: 'FL 7' },
-        { id: 'fl8', label: 'FL 8' },
-      ],
+      flLevels.map(({ id, label }) => ({ id, label })),
       [
         { id: 'range', label: 'range' },
         { id: 'sl0', label: 'SL0' },
@@ -82,16 +91,18 @@ function* binMap() {
         { id: 'sl2', label: 'SL2' },
         { id: 'sl3', label: 'SL3' },
       ],
-      [
-        ['32-63', '32', '40', '48', '56'],
-        ['64-127', '64', '80', '96', '112'],
-        ['128-255', '128', '160', '192', '224'],
-        ['256-511', '256', '320', '384', '448'],
-      ],
+      flLevels.map(({ range, slots }) => [range, ...slots]),
     ),
     highlight: { active: ['fl6:range', 'fl6:sl2'], found: ['fl6:sl3'], compare: ['fl7:range'] },
-    explanation: 'A 100-byte request maps into the 64-127 band and the sub-bin starting at 96. If that exact sub-bin is empty, the allocator looks for the next nonempty sub-bin or higher band.',
+    explanation: `A ${reqSize}-byte request maps into the ${flLevels[1].range} band (FL ${targetFL}) and the sub-bin starting at ${flLevels[1].slots[targetSL]} (SL ${targetSL}). If that sub-bin is empty, the allocator scans SL bits or advances to the next FL band among ${flLevels.length} levels shown.`,
   };
+
+  const bitmapData = [
+    [`FL${targetFL} SL${targetSL}`, 'start here'],
+    [slBits, `SL${targetSL} has blk`],
+    [flBits, `FL${targetFL} live`],
+    [`FL${targetFL} SL${targetSL}`, 'pop list'],
+  ];
 
   yield {
     state: labelMatrix(
@@ -106,16 +117,15 @@ function* binMap() {
         { id: 'value', label: 'val' },
         { id: 'meaning', label: 'means' },
       ],
-      [
-        ['FL6 SL2', 'start here'],
-        ['0100', 'SL2 has blk'],
-        ['100100', 'FL6 live'],
-        ['FL6 SL2', 'pop list'],
-      ],
+      bitmapData,
     ),
     highlight: { active: ['sl:value', 'fl:value'], found: ['pick:value', 'pick:meaning'] },
-    explanation: 'The key data structure is the bitmap index. Machine instructions such as find-first-set can jump to an available bin without walking a long list of arbitrary free blocks.',
+    explanation: `The key data structure is the bitmap index. The SL word ${slBits} and FL word ${flBits} let machine instructions like find-first-set jump to FL${targetFL} SL${targetSL} without walking ${bitmapData.length} rows of free blocks.`,
   };
+
+  const allocators = ['buddy', 'slab', 'TLSF', 'malloc bins'];
+  const tlsfIndex = 'FL+SL';
+  const tlsfFit = 'good fit';
 
   yield {
     state: labelMatrix(
@@ -134,13 +144,15 @@ function* binMap() {
       [
         ['orders', 'power2', 'waste'],
         ['class', 'exact-ish', 'idle objs'],
-        ['FL+SL', 'good fit', 'metadata'],
+        [tlsfIndex, tlsfFit, 'metadata'],
         ['bins/tree', 'varies', 'tail'],
       ],
     ),
     highlight: { found: ['tlsf:index', 'tlsf:fit'], compare: ['buddy:risk', 'malloc:risk'] },
-    explanation: 'TLSF sits between simple buddy splitting and general malloc bins. It keeps enough size resolution for good fit while keeping the bin search bounded for real-time use.',
+    explanation: `TLSF sits between ${allocators[0]} splitting and general ${allocators[3]}. Its ${tlsfIndex} index provides ${tlsfFit} while keeping the bin search bounded across ${allocators.length} compared strategies.`,
   };
+
+  const sliOptions = [4, 8, 16, 32];
 
   yield {
     state: labelMatrix(
@@ -164,53 +176,52 @@ function* binMap() {
       ],
     ),
     highlight: { active: ['s8:use', 's16:use'], found: ['s16:fit'], compare: ['s32:meta'] },
-    explanation: 'The second-level count is a real design knob. More sub-bins reduce slack and improve fit quality, but they expand the bin matrix and bitmap metadata.',
+    explanation: `The second-level count is a real design knob. Options range from ${sliOptions[0]} to ${sliOptions[sliOptions.length - 1]} sub-bins across ${sliOptions.length} configurations. More sub-bins reduce slack and improve fit quality, but they expand the ${flLevels.length} x N bin matrix and bitmap metadata.`,
   };
 }
 
 function* allocatePath() {
+  const pipelineNodes = ['req', 'map', 'fl', 'sl', 'matrix', 'list'];
+  const reqSize = 100;
+
   yield {
     state: tlsfGraph('Allocation maps size to a nonempty bin'),
     highlight: { active: ['req', 'map', 'fl', 'sl', 'matrix'], found: ['list'] },
-    explanation: 'Allocation begins by rounding the request for header and alignment, mapping the adjusted size to first-level and second-level indexes, and consulting the bitmaps.',
-    invariant: 'A successful lookup returns a free block at least as large as the adjusted request.',
+    explanation: `Allocation begins by rounding the ${reqSize}-byte request for header and alignment, mapping the adjusted size to first-level and second-level indexes, and consulting the bitmaps across ${pipelineNodes.length} pipeline stages.`,
+    invariant: `A successful lookup returns a free block at least as large as the adjusted ${reqSize}-byte request.`,
   };
+
+  const steps = ['round', 'locate', 'remove', 'split', 'return'];
+  const stepActs = ['align+hdr', 'bit scan', 'unlink head', 'if tail ok', 'payload ptr'];
+  const stepBounds = ['constant', 'constant', 'constant', 'constant', 'done'];
 
   yield {
     state: labelMatrix(
       'Allocate steps',
-      [
-        { id: 'round', label: 'round' },
-        { id: 'locate', label: 'locate' },
-        { id: 'remove', label: 'remove' },
-        { id: 'split', label: 'split' },
-        { id: 'return', label: 'return' },
-      ],
+      steps.map((id) => ({ id, label: id })),
       [
         { id: 'act', label: 'act' },
         { id: 'bound', label: 'bound' },
       ],
-      [
-        ['align+hdr', 'constant'],
-        ['bit scan', 'constant'],
-        ['unlink head', 'constant'],
-        ['if tail ok', 'constant'],
-        ['payload ptr', 'done'],
-      ],
+      steps.map((_, i) => [stepActs[i], stepBounds[i]]),
     ),
     highlight: { active: ['locate:act', 'remove:act'], found: ['return:bound'], compare: ['split:act'] },
-    explanation: 'The fast path does not compare against many free blocks. It finds a suitable list, removes one block, and optionally splits the leftover tail if the remainder can form a legal free block.',
+    explanation: `The fast path runs ${steps.length} steps, each bounded. It finds a suitable list via ${stepActs[1]}, removes one block (${stepActs[2]}), and optionally splits the leftover tail (${stepActs[3]}) if the remainder can form a legal free block.`,
   };
+
+  const freeSize = 160;
+  const needSize = 112;
+  const tailSize = freeSize - needSize;
 
   yield {
     state: graphState({
       nodes: [
-        { id: 'big', label: 'free 160', x: 1.0, y: 3.8, note: 'from bin' },
-        { id: 'need', label: 'need 112', x: 3.0, y: 3.8, note: 'incl hdr' },
+        { id: 'big', label: `free ${freeSize}`, x: 1.0, y: 3.8, note: 'from bin' },
+        { id: 'need', label: `need ${needSize}`, x: 3.0, y: 3.8, note: 'incl hdr' },
         { id: 'cut', label: 'cut', x: 5.0, y: 3.8, note: 'split' },
-        { id: 'used', label: 'used 112', x: 7.0, y: 2.4, note: 'return' },
-        { id: 'tail', label: 'tail 48', x: 7.0, y: 5.2, note: 'free' },
-        { id: 'bin', label: 'bin 48', x: 9.0, y: 5.2, note: 'insert' },
+        { id: 'used', label: `used ${needSize}`, x: 7.0, y: 2.4, note: 'return' },
+        { id: 'tail', label: `tail ${tailSize}`, x: 7.0, y: 5.2, note: 'free' },
+        { id: 'bin', label: `bin ${tailSize}`, x: 9.0, y: 5.2, note: 'insert' },
       ],
       edges: [
         { id: 'e-big-need', from: 'big', to: 'need' },
@@ -221,8 +232,11 @@ function* allocatePath() {
       ],
     }, { title: 'Split the leftover tail if it is useful' }),
     highlight: { active: ['big', 'cut', 'used'], found: ['tail', 'bin'], compare: ['need'] },
-    explanation: 'TLSF is a good-fit allocator, not an exact-fit allocator. A larger free block may be used, but a sufficiently large leftover tail is inserted back into the correct bin.',
+    explanation: `TLSF is a good-fit allocator, not an exact-fit allocator. The ${freeSize}-byte free block satisfies a ${needSize}-byte need, and the ${tailSize}-byte leftover tail is inserted back into the bin for ${tailSize}-byte blocks.`,
   };
+
+  const gateChecks = ['search', 'split', 'locks', 'OOM'];
+  const gatePromises = ['bounded', 'bounded', 'external', 'possible'];
 
   yield {
     state: labelMatrix(
@@ -245,8 +259,11 @@ function* allocatePath() {
       ],
     ),
     highlight: { found: ['search:promise', 'split:promise'], compare: ['locks:audit', 'oom:promise'] },
-    explanation: 'The allocator can bound its own bin search and list edits. A real-time system still has to bound synchronization, pool size, and the behavior of code that runs when allocation fails.',
+    explanation: `The allocator can bound its own ${gateChecks[0]} (${gatePromises[0]}) and ${gateChecks[1]} (${gatePromises[1]}). But ${gateChecks[2]} are ${gatePromises[2]} and ${gateChecks[3]} is ${gatePromises[3]} -- a real-time system must bound all ${gateChecks.length} concerns.`,
   };
+
+  const auditMetrics = ['latency', 'fail path', 'max block', 'frag'];
+  const auditGates = ['p99+max', 'no alloc', 'no OOM', 'trend'];
 
   yield {
     state: labelMatrix(
@@ -269,11 +286,21 @@ function* allocatePath() {
       ],
     ),
     highlight: { found: ['lat:gate', 'fail:gate', 'largest:gate'], compare: ['frag:gate'] },
-    explanation: 'A serious allocator rollout measures the whole pool, not only one malloc call. Worst-case latency, largest free block, fragmentation trend, and failure-path behavior all belong in the gate.',
+    explanation: `A serious allocator rollout measures ${auditMetrics.length} dimensions: ${auditMetrics[0]} (gate: ${auditGates[0]}), ${auditMetrics[1]} (${auditGates[1]}), ${auditMetrics[2]} (${auditGates[2]}), and ${auditMetrics[3]} (${auditGates[3]}).`,
   };
 }
 
 function* freeCoalesce() {
+  const freeNodes = ['free', 'hdr', 'prev', 'next', 'merge', 'bin'];
+  const freeEdges = [
+    { from: 'free', to: 'hdr' },
+    { from: 'hdr', to: 'prev' },
+    { from: 'hdr', to: 'next' },
+    { from: 'prev', to: 'merge' },
+    { from: 'next', to: 'merge' },
+    { from: 'merge', to: 'bin' },
+  ];
+
   yield {
     state: graphState({
       nodes: [
@@ -284,19 +311,16 @@ function* freeCoalesce() {
         { id: 'merge', label: 'merge', x: 6.4, y: 3.8, note: 'adjacent' },
         { id: 'bin', label: 'insert bin', x: 8.5, y: 3.8, note: 'FL SL' },
       ],
-      edges: [
-        { id: 'e-free-hdr', from: 'free', to: 'hdr' },
-        { id: 'e-hdr-prev', from: 'hdr', to: 'prev' },
-        { id: 'e-hdr-next', from: 'hdr', to: 'next' },
-        { id: 'e-prev-merge', from: 'prev', to: 'merge' },
-        { id: 'e-next-merge', from: 'next', to: 'merge' },
-        { id: 'e-merge-bin', from: 'merge', to: 'bin' },
-      ],
+      edges: freeEdges.map(({ from, to }) => ({ id: `e-${from}-${to}`, from, to })),
     }, { title: 'Free checks adjacent physical blocks' }),
     highlight: { active: ['free', 'hdr', 'prev', 'next'], found: ['merge', 'bin'] },
-    explanation: 'Freeing is not just pushing a pointer. TLSF reads block metadata, checks adjacent physical blocks, immediately coalesces free neighbors, and inserts the merged block into the right bin.',
-    invariant: 'Immediate coalescing keeps future allocation lookup bounded by bin state, not by a later cleanup walk.',
+    explanation: `Freeing is not just pushing a pointer. TLSF walks ${freeNodes.length} stages (${freeNodes.join(' -> ')}): reads block metadata, checks ${freeEdges.filter((e) => e.from === 'hdr').length} adjacent physical blocks, immediately coalesces free neighbors, and inserts the merged block into the right bin.`,
+    invariant: `Immediate coalescing across ${freeNodes.length} nodes keeps future allocation lookup bounded by bin state, not by a later cleanup walk.`,
   };
+
+  const headerFields = ['size', 'used bit', 'prev free', 'links'];
+  const headerRoles = ['block bytes', 'this state', 'left state', 'prev/next'];
+  const headerWhys = ['map bin', 'validate', 'merge left', 'free list'];
 
   yield {
     state: labelMatrix(
@@ -319,32 +343,29 @@ function* freeCoalesce() {
       ],
     ),
     highlight: { active: ['size:role', 'prev:why'], found: ['links:why'] },
-    explanation: 'Metadata makes free bounded. Size maps the merged block back to a bin; state bits tell whether neighbors can merge; free-list links let the allocator remove or insert blocks locally.',
+    explanation: `Metadata makes free bounded. ${headerFields.length} header fields drive the process: ${headerFields[0]} (${headerWhys[0]}), ${headerFields[1]} (${headerWhys[1]}), ${headerFields[2]} (${headerWhys[2]}), and ${headerFields[3]} (${headerWhys[3]}).`,
   };
+
+  const cases = ['none free', 'left free', 'right free', 'both free'];
+  const caseActions = ['insert self', 'merge left', 'merge right', 'merge all'];
+  const caseBinEdits = ['one add', 'rm+add', 'rm+add', '2rm+add'];
 
   yield {
     state: labelMatrix(
       'Coalesce cases',
-      [
-        { id: 'none', label: 'none free' },
-        { id: 'left', label: 'left free' },
-        { id: 'right', label: 'right free' },
-        { id: 'both', label: 'both free' },
-      ],
+      cases.map((label, i) => ({ id: ['none', 'left', 'right', 'both'][i], label })),
       [
         { id: 'action', label: 'action' },
         { id: 'bin', label: 'bin edit' },
       ],
-      [
-        ['insert self', 'one add'],
-        ['merge left', 'rm+add'],
-        ['merge right', 'rm+add'],
-        ['merge all', '2rm+add'],
-      ],
+      cases.map((_, i) => [caseActions[i], caseBinEdits[i]]),
     ),
     highlight: { active: ['left:action', 'right:action'], found: ['both:action'], compare: ['none:bin'] },
-    explanation: 'Coalescing only touches adjacent free blocks. Existing free neighbors are first removed from their old bins; the merged result is inserted into its new bin exactly once.',
+    explanation: `Coalescing handles ${cases.length} cases. When ${cases[3]}, the action is ${caseActions[3]} with ${caseBinEdits[3]} (2 removes + 1 add). Even the worst case (${cases[3]}) touches only adjacent free blocks; the merged result is inserted into its new bin exactly once.`,
   };
+
+  const useCases = ['RTOS', 'game loop', 'audio', 'server'];
+  const useCaseNeeds = ['bounded', 'no spikes', 'no stalls', 'throughput'];
 
   yield {
     state: labelMatrix(
@@ -367,8 +388,12 @@ function* freeCoalesce() {
       ],
     ),
     highlight: { found: ['rtos:need', 'game:need', 'audio:need'], compare: ['server:watch'] },
-    explanation: 'TLSF is attractive when worst-case allocation time matters more than peak allocator throughput. For many server workloads, thread-cache allocators may still win on average throughput.',
+    explanation: `TLSF is attractive for ${useCases.length - 1} of ${useCases.length} listed domains: ${useCases[0]} (${useCaseNeeds[0]}), ${useCases[1]} (${useCaseNeeds[1]}), ${useCases[2]} (${useCaseNeeds[2]}). For ${useCases[3]} workloads seeking ${useCaseNeeds[3]}, thread-cache allocators may still win.`,
   };
+
+  const auditSignals = ['high', 'many', 'skewed', 'mixed'];
+  const auditFixes = ['healthy', 'lifetime', 'SLI tune', 'pools'];
+  const auditLabels = ['merge rate', 'holes', 'bins', 'owner'];
 
   yield {
     state: labelMatrix(
@@ -383,15 +408,10 @@ function* freeCoalesce() {
         { id: 'signal', label: 'signal' },
         { id: 'fix', label: 'fix' },
       ],
-      [
-        ['high', 'healthy'],
-        ['many', 'lifetime'],
-        ['skewed', 'SLI tune'],
-        ['mixed', 'pools'],
-      ],
+      auditLabels.map((_, i) => [auditSignals[i], auditFixes[i]]),
     ),
     highlight: { found: ['merge:fix'], active: ['holes:fix', 'bins:fix'], compare: ['owner:signal'] },
-    explanation: 'Free-side telemetry explains fragmentation. If holes stay high, bin pressure is skewed, or many owners share one pool, the fix may be lifetime separation, sub-bin tuning, or per-subsystem pools.',
+    explanation: `Free-side telemetry tracks ${auditLabels.length} dimensions. If ${auditLabels[1]} signal is ${auditSignals[1]}, fix via ${auditFixes[1]} separation. If ${auditLabels[2]} are ${auditSignals[2]}, fix via ${auditFixes[2]}. If ${auditLabels[3]} are ${auditSignals[3]}, split into per-subsystem ${auditFixes[3]}.`,
   };
 }
 
@@ -405,6 +425,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/tlsf-real-time-allocator-bitmap-index.gif', alt: 'Animated walkthrough of the tlsf real time allocator bitmap index visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

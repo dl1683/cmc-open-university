@@ -54,35 +54,39 @@ function pipelineGraph(title) {
 }
 
 function* trainingServingSkew() {
+  const features = [
+    ['rides7d', 'rider_rides_7d'],
+    ['cancel1h', 'driver_cancel_1h'],
+    ['city', 'city_surge_level'],
+    ['device', 'device_age_days'],
+  ];
+  const risks = [
+    ['Spark window includes full day', 'Redis window at request time', 'definition drift'],
+    ['computed after trip closes', 'not available yet', 'time travel'],
+    ['hourly batch table', 'stream updates every minute', 'freshness gap'],
+    ['same library, same timestamp', 'same library, same timestamp', 'healthy'],
+  ];
+  const unhealthy = risks.filter(r => r[2] !== 'healthy');
   yield {
     state: labelMatrix(
       'The bug feature stores were built to kill',
-      [
-        ['rides7d', 'rider_rides_7d'],
-        ['cancel1h', 'driver_cancel_1h'],
-        ['city', 'city_surge_level'],
-        ['device', 'device_age_days'],
-      ],
+      features,
       [
         ['offline', 'training value'],
         ['online', 'serving value'],
         ['risk', 'risk'],
       ],
-      [
-        ['Spark window includes full day', 'Redis window at request time', 'definition drift'],
-        ['computed after trip closes', 'not available yet', 'time travel'],
-        ['hourly batch table', 'stream updates every minute', 'freshness gap'],
-        ['same library, same timestamp', 'same library, same timestamp', 'healthy'],
-      ],
+      risks,
     ),
     highlight: {
       removed: ['rides7d:risk', 'cancel1h:risk', 'city:risk'],
       found: ['device:risk'],
     },
-    explanation: 'A model is trained offline and served online. If those two paths compute "the same" feature differently, the model learns one world and lives in another. Feature stores exist to make features reusable, governed, and consistent: one definition, materialized into an offline history for training and an online value for low-latency serving.',
-    invariant: 'A feature is production-ready only if the training value and serving value obey the same definition at the same prediction time.',
+    explanation: `A model is trained offline and served online. If those two paths compute "the same" feature differently, the model learns one world and lives in another. Of ${features.length} features examined, ${unhealthy.length} show skew — feature stores exist to make features reusable, governed, and consistent: one definition, materialized into an offline history for training and an online value for low-latency serving.`,
+    invariant: `A feature is production-ready only if the training value and serving value obey the same definition at the same prediction time — ${unhealthy.length} of ${features.length} features here violate that.`,
   };
 
+  const pipelineNodes = ['events', 'definition', 'offline', 'online', 'training', 'serving'];
   yield {
     state: pipelineGraph('one definition, two materializations'),
     highlight: {
@@ -90,19 +94,20 @@ function* trainingServingSkew() {
       compare: ['offline', 'online'],
       found: ['e-definition-offline', 'e-definition-online'],
     },
-    explanation: 'The core architecture is deliberately boring. Raw events feed one feature definition. That definition writes historical rows into the offline store and fresh values into the online store. Training reads historical snapshots; serving reads the current online row. The hard part is not drawing the boxes. The hard part is proving both boxes came from the same contract.',
+    explanation: `The core architecture is deliberately boring. ${pipelineNodes.length} nodes form the pipeline: raw events feed one feature definition. That definition writes historical rows into the offline store and fresh values into the online store. Training reads historical snapshots; serving reads the current online row. The hard part is not drawing the ${pipelineNodes.length} boxes — the hard part is proving both materializations came from the same contract.`,
   };
 
+  const contractFields = [
+    ['entity', 'entity key'],
+    ['time', 'event timestamp'],
+    ['window', 'window logic'],
+    ['freshness', 'freshness SLO'],
+    ['owner', 'owner + tests'],
+  ];
   yield {
     state: labelMatrix(
       'Feature contract: what must be written down',
-      [
-        ['entity', 'entity key'],
-        ['time', 'event timestamp'],
-        ['window', 'window logic'],
-        ['freshness', 'freshness SLO'],
-        ['owner', 'owner + tests'],
-      ],
+      contractFields,
       [
         ['question', 'question'],
         ['failure', 'if missing'],
@@ -116,19 +121,21 @@ function* trainingServingSkew() {
       ],
     ),
     highlight: { active: ['time:question', 'window:question'], compare: ['freshness:failure'] },
-    explanation: 'A feature store is more governance system than database. Every feature needs an entity key, timestamp semantics, window definition, freshness target, owner, tests, and lineage. Without those, reuse becomes copy-paste with better branding. With them, teams can share features without reopening the same leakage and skew bugs in every project.',
+    explanation: `A feature store is more governance system than database. Every feature needs ${contractFields.length} contract fields — ${contractFields.map(f => f[1]).join(', ')} — plus lineage. Without those, reuse becomes copy-paste with better branding. With them, teams can share features without reopening the same leakage and skew bugs in every project.`,
   };
 }
 
 function* pointInTimeJoins() {
+  const predictions = [
+    ['t1005', '10:05 prediction'],
+    ['t1020', '10:20 prediction'],
+    ['t1050', '10:50 prediction'],
+  ];
+  const leakedRows = predictions.slice(0, -1);
   yield {
     state: labelMatrix(
       'Wrong join: latest value leaks the future',
-      [
-        ['t1005', '10:05 prediction'],
-        ['t1020', '10:20 prediction'],
-        ['t1050', '10:50 prediction'],
-      ],
+      predictions,
       [
         ['latest', 'latest join'],
         ['pit', 'point-in-time join'],
@@ -144,19 +151,20 @@ function* pointInTimeJoins() {
       removed: ['t1005:latest', 't1020:latest'],
       found: ['t1005:pit', 't1020:pit', 't1050:pit'],
     },
-    explanation: 'Training data construction is where many feature stores earn their keep. If you join every label row to the latest feature value, early examples inherit facts that happened later. The model trains on tomorrow. A point-in-time join instead asks: "what was the last known feature value as of this prediction timestamp?" That is Data Leakage & Contamination defense in database form.',
-    invariant: 'For training row at time t, every joined feature must be computed from information available at or before t.',
+    explanation: `Training data construction is where many feature stores earn their keep. With ${predictions.length} prediction times, a latest-value join leaks the future into ${leakedRows.length} of them. The model trains on tomorrow. A point-in-time join instead asks: "what was the last known feature value as of this prediction timestamp?" That is Data Leakage & Contamination defense in database form.`,
+    invariant: `For each of the ${predictions.length} training rows at time t, every joined feature must be computed from information available at or before t.`,
   };
 
+  const joinSteps = [
+    ['lookup', 'lookup key'],
+    ['filter', 'time filter'],
+    ['rank', 'rank values'],
+    ['select', 'select value'],
+  ];
   yield {
     state: labelMatrix(
       'Point-in-time join mechanics',
-      [
-        ['lookup', 'lookup key'],
-        ['filter', 'time filter'],
-        ['rank', 'rank values'],
-        ['select', 'select value'],
-      ],
+      joinSteps,
       [
         ['operation', 'operation'],
         ['why', 'why it matters'],
@@ -169,7 +177,7 @@ function* pointInTimeJoins() {
       ],
     ),
     highlight: { active: ['filter:operation'], compare: ['rank:operation'], found: ['select:why'] },
-    explanation: 'Mechanically, the point-in-time join is a constrained nearest-neighbor lookup in time: same entity, timestamp no later than prediction time, newest qualifying value wins. This sounds like SQL plumbing until you see the consequence: Cross-Validation & Honest Evaluation can be perfectly coded and still meaningless if feature joins leaked future rows before the split.',
+    explanation: `Mechanically, the point-in-time join is a ${joinSteps.length}-step constrained nearest-neighbor lookup in time: ${joinSteps.map(s => s[1]).join(' → ')}. This sounds like SQL plumbing until you see the consequence: Cross-Validation & Honest Evaluation can be perfectly coded and still meaningless if feature joins leaked future rows before the split.`,
   };
 
   yield {
@@ -179,7 +187,7 @@ function* pointInTimeJoins() {
       compare: ['training', 'offline'],
       found: ['e-online-serving', 'e-offline-training'],
     },
-    explanation: 'In production, the feature store is watched like any other serving system. Message Queues deliver events, online stores need cache-like freshness guarantees, offline stores need backfills, and Distributed Tracing needs to show which feature lookup slowed or failed. The model is only one dependency; the feature pipeline is the nervous system feeding it.',
+    explanation: `In production, the feature store is watched like any other serving system. All ${joinSteps.length} join steps must execute within latency budgets — Message Queues deliver events, online stores need cache-like freshness guarantees, offline stores need backfills, and Distributed Tracing needs to show which feature lookup slowed or failed. The model is only one dependency; the feature pipeline is the nervous system feeding it.`,
   };
 }
 
@@ -192,6 +200,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/feature-store.gif', alt: 'Animated walkthrough of the feature store visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

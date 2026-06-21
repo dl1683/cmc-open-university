@@ -55,12 +55,14 @@ function searchGraph(title) {
 }
 
 function* searchLoop() {
+  const loopNodeCount = 6;
   yield {
     state: searchGraph('NAS is a search loop over model designs'),
     highlight: { active: ['space', 'sample', 'train', 'select', 'e-space-sample', 'e-sample-train', 'e-train-select'], compare: ['final'] },
-    explanation: 'Neural Architecture Search turns model design into an outer-loop optimization problem. Read the graph left to right: the search space is the human-written menu of possible blocks and wiring, the sampler proposes one model, the evaluator gives it a score, and selection pressure changes what gets tried next. The final node is deliberately separate because a discovered architecture is not real until it is retrained and evaluated outside the proxy loop.',
+    explanation: `Neural Architecture Search turns model design into an outer-loop optimization problem. Read the ${loopNodeCount}-node graph left to right: the search space is the human-written menu of possible blocks and wiring, the sampler proposes one model, the evaluator gives it a score, and selection pressure changes what gets tried next. The final node is deliberately separate because a discovered architecture is not real until it is retrained and evaluated outside the proxy loop.`,
   };
 
+  const strategyCount = 4;
   yield {
     state: labelMatrix(
       'Search strategies',
@@ -82,8 +84,8 @@ function* searchLoop() {
       ],
     ),
     highlight: { active: ['random:move', 'evolution:move', 'gradient:move'], compare: ['rl:cost'] },
-    explanation: 'The table is the naive-baseline check. Random search is simple and often hard to embarrass; evolution mutates winners; reinforcement learning trains a controller; differentiable NAS relaxes graph choices into weights. The important column is not the method name but the cost profile. A fancy searcher over a biased space is still just a fast way to rediscover the bias.',
-    invariant: 'The search can only discover architectures expressible in the search space.',
+    explanation: `The table is the naive-baseline check across ${strategyCount} strategies. Random search is simple and often hard to embarrass; evolution mutates winners; reinforcement learning trains a controller; differentiable NAS relaxes graph choices into weights. The important column is not the method name but the cost profile. A fancy searcher over a biased space is still just a fast way to rediscover the bias.`,
+    invariant: `The search can only discover architectures expressible in the search space — all ${strategyCount} strategies share this ceiling.`,
   };
 
   yield {
@@ -107,7 +109,7 @@ function* searchLoop() {
       ],
     ),
     highlight: { active: ['proxy:risk', 'shared:risk', 'short:risk'], found: ['final:why use it'] },
-    explanation: 'This is the danger zone. Proxy tasks, weight sharing, and short training exist because full NAS is expensive, but each can change the ranking. A candidate can look good because it learns early, shares lucky weights, or exploits a proxy dataset. The final retrain row is expensive because it removes those shortcuts; without it, the search may have optimized the evaluator rather than the architecture.',
+    explanation: `This is the danger zone. Proxy tasks, weight sharing, and short training exist because full NAS is expensive, but each of ${strategyCount} evaluation shortcuts can change the ranking. A candidate can look good because it learns early, shares lucky weights, or exploits a proxy dataset. The final retrain row is expensive because it removes those shortcuts; without it, the search may have optimized the evaluator rather than the architecture.`,
   };
 
   yield {
@@ -131,11 +133,12 @@ function* searchLoop() {
       ],
     ),
     highlight: { found: ['hyper:shared idea', 'evolve:shared idea', 'alpha:shared idea'] },
-    explanation: 'NAS belongs with Hyperparameter Search, Evolutionary Search, AutoML, and AlphaEvolve: generate candidates, score them, keep pressure on what works. What changes is the object being searched. Hyperparameter search tunes knobs around a fixed model; NAS changes the graph itself. That extra power is useful only when the score actually represents the deployment goal.',
+    explanation: `NAS belongs with Hyperparameter Search, Evolutionary Search, AutoML, and AlphaEvolve: generate candidates, score them, keep pressure on what works across a ${loopNodeCount}-stage loop. What changes is the object being searched. Hyperparameter search tunes knobs around a fixed model; NAS changes the graph itself. That extra power is useful only when the score actually represents the deployment goal.`,
   };
 }
 
 function* differentiableNas() {
+  const opCount = 4;
   yield {
     state: labelMatrix(
       'DARTS relaxes discrete choices into weighted mixtures',
@@ -157,14 +160,14 @@ function* differentiableNas() {
       ],
     ),
     highlight: { active: ['conv3:alpha', 'skip:alpha'], compare: ['none:alpha'] },
-    explanation: 'DARTS makes the discrete choice differentiable. Instead of choosing one edge operation now, the supernet runs a weighted mixture of candidate operations and learns the architecture weights with Gradient Descent. Read the alpha column as a temporary voting system, not the final model: high weight means this operation is winning inside the relaxed proxy.',
+    explanation: `DARTS makes the discrete choice differentiable. Instead of choosing one edge operation now, the supernet runs a weighted mixture of ${opCount} candidate operations and learns the architecture weights with Gradient Descent. Read the alpha column as a temporary voting system, not the final model: high weight means this operation is winning inside the relaxed proxy.`,
   };
 
   yield {
     state: searchGraph('Weights and architecture parameters alternate'),
     highlight: { active: ['train', 'mutate', 'e-train-select', 'e-select-mutate'], found: ['space'] },
-    explanation: 'The loop has two jobs that must not be confused. One update trains ordinary model weights so each candidate operation gets a fair chance to perform; the other update changes the architecture weights. The supernet is a proxy arena, not the final product, which is why the selected graph must later be rebuilt and trained from scratch.',
-    invariant: 'The relaxed supernet is a proxy for the final discrete architecture.',
+    explanation: `The loop has two jobs that must not be confused. One update trains ordinary model weights so each of the ${opCount} candidate operations gets a fair chance to perform; the other update changes the architecture weights. The supernet is a proxy arena, not the final product, which is why the selected graph must later be rebuilt and trained from scratch.`,
+    invariant: `The relaxed supernet mixing ${opCount} operations is a proxy for the final discrete architecture.`,
   };
 
   yield {
@@ -188,7 +191,7 @@ function* differentiableNas() {
       ],
     ),
     highlight: { active: ['op:audit', 'depth:audit', 'skip:audit', 'proxy:audit'] },
-    explanation: 'Here is where differentiable NAS can fool you. Cheap operations, shallow paths, or skip connections may win because they optimize early inside the relaxation, not because the final discrete architecture is best. The audit column tells you how to read any NAS result: equalize training, check depth bias, retrain the winner, and test transfer.',
+    explanation: `Here is where differentiable NAS can fool you. Among ${opCount} operation types, cheap operations, shallow paths, or skip connections may win because they optimize early inside the relaxation, not because the final discrete architecture is best. The audit column tells you how to read any NAS result: equalize training, check depth bias, retrain the winner, and test transfer.`,
   };
 
   yield {
@@ -212,7 +215,7 @@ function* differentiableNas() {
       ],
     ),
     highlight: { found: ['baseline:why', 'budget:why', 'retrain:why', 'transfer:why'] },
-    explanation: 'This protocol card is the practical takeaway. A NAS claim is incomplete until it beats random or hand-designed baselines, reports GPU days and trials, retrains the final architecture from scratch, and transfers beyond the exact proxy task. Otherwise the animation has shown candidate generation, not evidence of a better model family.',
+    explanation: `This protocol card is the practical takeaway. A NAS claim is incomplete until it beats random or hand-designed baselines, reports GPU days and trials, retrains the final architecture from scratch, and transfers beyond the exact proxy task. All ${opCount} candidate operations must survive this ${opCount}-step protocol. Otherwise the animation has shown candidate generation, not evidence of a better model family.`,
   };
 }
 
@@ -225,6 +228,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/neural-architecture-search.gif', alt: 'Animated walkthrough of the neural architecture search visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why neural architecture search exists',
       paragraphs: [

@@ -64,23 +64,26 @@ function prefixTable(title) {
 }
 
 function* buildPrefixTable() {
+  const pattern = 'ababac';
+  const patternLen = pattern.length;
+
   yield {
     state: chars('ababac', 'Pattern: ababac'),
     highlight: { active: ['c0', 'c1', 'c2', 'c3', 'c4', 'c5'] },
-    explanation: 'KMP starts by studying the pattern, not the text. For each prefix ending at i, it records the length of the longest proper prefix that is also a suffix, called a border.',
+    explanation: `KMP starts by studying the ${patternLen}-character pattern, not the text. For each prefix ending at i, it records the length of the longest proper prefix that is also a suffix, called a border.`,
   };
 
   yield {
     state: prefixTable('Prefix-function table for ababac'),
     highlight: { found: ['i2:border', 'i3:border', 'i4:border'], compare: ['i5:fallback'] },
-    explanation: 'At i=4, the prefix ababa has border aba, so pi[4] = 3. That means if the next character mismatches after matching ababa, the pattern can fall back to length 3 without losing useful work.',
-    invariant: 'pi[i] is always a border length of pattern[0..i].',
+    explanation: `At i=${patternLen - 2}, the prefix ababa has border aba, so pi[${patternLen - 2}] = 3. That means if the next character mismatches after matching ababa, the pattern can fall back to length 3 without losing useful work.`,
+    invariant: `pi[i] is always a border length of pattern[0..i] for the ${patternLen}-character pattern.`,
   };
 
   yield {
     state: prefixTable('Mismatch while building c: fall through old borders'),
     highlight: { active: ['i5:fallback'], compare: ['i4:pi', 'i2:pi', 'i0:pi'] },
-    explanation: 'When c mismatches the expected b after ababa, the builder does not restart from scratch. It tries the next shorter border: aba, then a, then empty. Each fallback is another prefix-function lookup.',
+    explanation: `When ${pattern[patternLen - 1]} mismatches the expected b after ababa, the builder does not restart from scratch. It tries the next shorter border: aba, then a, then empty. Each fallback is another prefix-function lookup.`,
   };
 
   yield {
@@ -104,27 +107,33 @@ function* buildPrefixTable() {
       ],
     ),
     highlight: { found: ['total:bound'], active: ['fallback:bound'] },
-    explanation: 'KMP is an amortized pointer argument over borders. The fallback pointer can drop many times, but it can only drop after previous successful advances.',
+    explanation: `KMP builds the table in O(${patternLen}) time — an amortized pointer argument over borders. The fallback pointer can drop many times, but it can only drop after previous successful advances.`,
   };
 }
 
 function* searchFallback() {
+  const text = 'ababababac';
+  const textLen = text.length;
+  const pattern = 'ababac';
+  const patternLen = pattern.length;
+  const matchPos = 4;
+
   yield {
     state: chars('ababababac', 'Text: ababababac, pattern: ababac'),
     highlight: { active: ['c0', 'c1', 'c2', 'c3', 'c4'], compare: ['c5'] },
-    explanation: 'The search scans the text once. Suppose the pattern has matched ababa and the next text character is b, but the pattern expects c. Naive search would slide the pattern and recheck characters.',
+    explanation: `The search scans all ${textLen} text characters once. Suppose the pattern has matched ${patternLen - 1} characters and the next text character is b, but the pattern expects c. Naive search would slide the pattern and recheck characters.`,
   };
 
   yield {
     state: prefixTable('Fallback from length 5 to length 3'),
     highlight: { active: ['i4:pi'], found: ['i4:border'], compare: ['i5:fallback'] },
-    explanation: 'KMP uses pi[4] = 3. The already matched suffix aba can also be the pattern prefix aba, so the algorithm keeps those three matched characters and continues from pattern index 3.',
+    explanation: `KMP uses pi[${patternLen - 2}] = 3. The already matched suffix aba can also be the ${patternLen}-character pattern's prefix aba, so the algorithm keeps those three matched characters and continues from pattern index 3.`,
   };
 
   yield {
     state: chars('ababababac', 'Continue from the same text position'),
     highlight: { active: ['c5', 'c6', 'c7', 'c8', 'c9'], found: ['c4', 'c5', 'c6', 'c7', 'c8', 'c9'] },
-    explanation: 'The text index never moves backward. After enough fallback and forward matches, the pattern ababac is found at text position 4. The saved work is exactly the overlap encoded in the prefix table.',
+    explanation: `The text index never moves backward across all ${textLen} characters. After enough fallback and forward matches, the pattern ${pattern} is found at text position ${matchPos}. The saved work is exactly the overlap encoded in the prefix table.`,
   };
 
   yield {
@@ -148,7 +157,7 @@ function* searchFallback() {
       ],
     ),
     highlight: { active: ['kmp:best'], compare: ['aho:best', 'suffix:best'] },
-    explanation: 'KMP is the single-pattern streaming member of the string-search family. It is the simplest place to learn failure links before Aho-Corasick generalizes them to a trie.',
+    explanation: `KMP searches ${textLen} characters in O(${textLen} + ${patternLen}) time — the single-pattern streaming member of the string-search family. It is the simplest place to learn failure links before Aho-Corasick generalizes them to a trie.`,
   };
 }
 
@@ -168,7 +177,8 @@ export const article = {
         { type: 'callout', text: 'KMP never moves the text pointer backward because every fallback is a proof about pattern self-overlap, not a guess about the text.' },
         'The search-fallback view runs KMP on text ababababac. Active cells are the text window currently aligned with the pattern. Found cells mark characters confirmed as part of a match. On mismatch, the pattern pointer drops through the fallback chain while the text pointer stays fixed. That frozen text pointer is the visual proof that KMP never backtracks through the text.',
         'In both views, track two things: the text pointer only moves right, and every fallback of the pattern pointer was paid for by an earlier advance. Those two facts make the algorithm linear.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/kmp-prefix-function.gif', alt: 'Animated walkthrough of the kmp prefix function visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

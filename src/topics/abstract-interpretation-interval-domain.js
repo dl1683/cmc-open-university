@@ -53,75 +53,94 @@ function aiGraph(title) {
 }
 
 function* intervalLoop() {
+  const graph = aiGraph('Abstract interpretation tracks sets of states compactly');
+  const graphNodeCount = graph.nodes.length;
+  const graphEdgeCount = graph.edges.length;
+  const intervalNode = graph.nodes.find(n => n.id === 'interval');
+  const concreteNode = graph.nodes.find(n => n.id === 'concrete');
+
   yield {
-    state: aiGraph('Abstract interpretation tracks sets of states compactly'),
+    state: graph,
     highlight: { active: ['program', 'abstract', 'interval', 'e-program-abstract', 'e-abstract-interval'], compare: ['concrete'] },
-    explanation: 'A concrete run has exact values. Abstract interpretation replaces many concrete states with one abstract value. The interval domain represents every possible value of x as [low, high].',
+    explanation: `A concrete run has exact values (node "${concreteNode.label}", note: ${concreteNode.note}). Abstract interpretation replaces many concrete states with one abstract value across ${graphNodeCount} nodes and ${graphEdgeCount} edges. The interval domain represents every possible value of x as ${intervalNode.note}.`,
   };
+
+  const loopRows = [
+    { id: 'entry', label: 'x = 1' },
+    { id: 'head1', label: 'loop head 1' },
+    { id: 'body', label: 'x = x + 1' },
+    { id: 'head2', label: 'loop head 2' },
+  ];
+  const loopCols = [
+    { id: 'interval', label: 'x interval' },
+    { id: 'meaning', label: 'meaning' },
+  ];
+  const loopData = [
+    ['[1,1]', 'exact init'],
+    ['[1,1]', 'first visit'],
+    ['[2,2]', 'after body'],
+    ['[1,2]', 'join paths'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Interval loop',
-      [
-        { id: 'entry', label: 'x = 1' },
-        { id: 'head1', label: 'loop head 1' },
-        { id: 'body', label: 'x = x + 1' },
-        { id: 'head2', label: 'loop head 2' },
-      ],
-      [
-        { id: 'interval', label: 'x interval' },
-        { id: 'meaning', label: 'meaning' },
-      ],
-      [
-        ['[1,1]', 'exact init'],
-        ['[1,1]', 'first visit'],
-        ['[2,2]', 'after body'],
-        ['[1,2]', 'join paths'],
-      ],
-    ),
+    state: labelMatrix('Interval loop', loopRows, loopCols, loopData),
     highlight: { active: ['entry:interval', 'body:interval'], found: ['head2:interval'], compare: ['head1:interval'] },
-    explanation: 'The loop head sees two paths: the initial entry path and the backedge path. Joining [1,1] and [2,2] gives [1,2]. Repeating this process keeps expanding the interval.',
-    invariant: 'A sound interval must contain every real value that can arrive there.',
+    explanation: `The loop head sees two paths across ${loopRows.length} rows: the initial entry path and the backedge path. Joining ${loopData[0][0]} and ${loopData[2][0]} gives ${loopData[3][0]}. Repeating this process keeps expanding the interval.`,
+    invariant: `A sound interval like ${loopData[3][0]} must contain every real value that can arrive at "${loopRows[3].label}".`,
   };
+
+  const alarmNode = graph.nodes.find(n => n.id === 'alarm');
+
   yield {
     state: aiGraph('A warning means not proven safe, not automatically unsafe'),
     highlight: { active: ['interval', 'transfer', 'join', 'alarm'], found: ['e-join-alarm'], compare: ['widen'] },
-    explanation: 'If an interval for i is [0, 20] and the array length is 10, the analyzer cannot prove the access safe. That creates an alarm even if some concrete paths would never hit the bad index.',
+    explanation: `If an interval for i is [0, 20] and the array length is 10, the analyzer cannot prove the access safe. That creates an ${alarmNode.label} (${alarmNode.note}) even if some concrete paths would never hit the bad index.`,
   };
 }
 
 function* widenAndNarrow() {
+  const wnRows = [
+    { id: 'slow', label: 'plain join' },
+    { id: 'wide', label: 'widen' },
+    { id: 'narrow', label: 'narrow' },
+    { id: 'alarm', label: 'alarm' },
+  ];
+  const wnCols = [
+    { id: 'result', label: 'result' },
+    { id: 'tradeoff', label: 'tradeoff' },
+  ];
+  const wnData = [
+    ['[1,2],[1,3]...', 'may take long'],
+    ['[1,+inf]', 'terminates fast'],
+    ['[1,9999]', 'recovers precision'],
+    ['possible bug', 'needs triage'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Widening and narrowing',
-      [
-        { id: 'slow', label: 'plain join' },
-        { id: 'wide', label: 'widen' },
-        { id: 'narrow', label: 'narrow' },
-        { id: 'alarm', label: 'alarm' },
-      ],
-      [
-        { id: 'result', label: 'result' },
-        { id: 'tradeoff', label: 'tradeoff' },
-      ],
-      [
-        ['[1,2],[1,3]...', 'may take long'],
-        ['[1,+inf]', 'terminates fast'],
-        ['[1,9999]', 'recovers precision'],
-        ['possible bug', 'needs triage'],
-      ],
-    ),
+    state: labelMatrix('Widening and narrowing', wnRows, wnCols, wnData),
     highlight: { active: ['wide:result', 'narrow:result'], compare: ['slow:tradeoff'], found: ['alarm:result'] },
-    explanation: 'Widening deliberately loses precision to force convergence over loops. Narrowing then tries to recover some precision after the widening point stabilizes.',
+    explanation: `Widening deliberately loses precision to force convergence: ${wnRows[0].label} gives ${wnData[0][0]}, but ${wnRows[1].label} jumps to ${wnData[1][0]}. Narrowing then recovers to ${wnData[2][0]} after the widening point stabilizes. The ${wnRows.length}-row matrix shows ${wnCols.length} columns: ${wnCols.map(c => c.label).join(' and ')}.`,
   };
+
+  const domainGraph = aiGraph('The abstract domain is a design choice');
+  const widenNode = domainGraph.nodes.find(n => n.id === 'widen');
+  const domainNode = domainGraph.nodes.find(n => n.id === 'abstract');
+
   yield {
-    state: aiGraph('The abstract domain is a design choice'),
+    state: domainGraph,
     highlight: { active: ['abstract', 'interval', 'transfer', 'join'], found: ['widen'], compare: ['alarm'] },
-    explanation: 'Intervals are easy to visualize, but other domains track signs, nullness, shapes, ownership, string constraints, or relational facts. Better domains reduce false positives but cost more.',
+    explanation: `Intervals are easy to visualize, but the "${domainNode.label}" node (${domainNode.note}) can represent other domains that track signs, nullness, shapes, ownership, string constraints, or relational facts. The "${widenNode.label}" node (${widenNode.note}) reduces false positives but better domains cost more.`,
   };
+
+  const fullGraph = aiGraph('Abstract interpretation sits under many analyzers');
+  const fullNodeCount = fullGraph.nodes.length;
+  const programNode = fullGraph.nodes.find(n => n.id === 'program');
+  const alarmNode = fullGraph.nodes.find(n => n.id === 'alarm');
+
   yield {
-    state: aiGraph('Abstract interpretation sits under many analyzers'),
+    state: fullGraph,
     highlight: { active: ['program', 'abstract', 'transfer', 'alarm'], visited: ['join', 'widen'], found: ['interval'] },
-    explanation: 'Static analyzers use abstract interpretation to scale beyond tests. The analyzer over-approximates behavior, proves what it can, and reports the remaining uncertain paths for humans or deeper tools.',
+    explanation: `Static analyzers use abstract interpretation to scale beyond tests. Starting from "${programNode.label}" (${programNode.note}), the ${fullNodeCount}-node graph over-approximates behavior, proves what it can, and routes uncertain paths to "${alarmNode.label}" (${alarmNode.note}) for humans or deeper tools.`,
   };
 }
 
@@ -129,11 +148,18 @@ export function* run(input) {
   const view = String(input.view);
   if (view === 'interval loop') yield* intervalLoop();
   else if (view === 'widen and narrow') yield* widenAndNarrow();
-  else throw new InputError('Pick an abstract-interpretation view.');
+  else throw new InputError(`Pick an abstract-interpretation view, not "${view}".`);
 }
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/abstract-interpretation-interval-domain.gif', alt: 'Animated walkthrough of the abstract interpretation interval domain visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

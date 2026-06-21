@@ -32,43 +32,138 @@ const cols = EXPERTS.map((e, j) => ({ id: `e${j}`, label: e }));
 export function* run(input) {
   const k = parseInt(String(input.topk), 10);
   if (![1, 2].includes(k)) throw new InputError('Pick k = 1 or 2.');
+  const r2 = (v) => Math.round(v * 100) / 100;
 
+  // --- 1. Dense baseline: all 16 cells active ---
   yield {
-    state: matrixState({ title: 'The dense way: one giant FFN, every token pays full price', rows, columns: cols, values: ROUTER.map((r) => r.map(() => 1)), format: () => 'run' }),
+    state: matrixState({ title: 'Dense baseline: every token runs every expert-sized block', rows, columns: cols, values: ROUTER.map((r) => r.map(() => 1)), format: () => 'run' }),
     highlight: { active: rows.flatMap((r) => cols.map((c) => `${r.id}:${c.id}`)) },
-    explanation: 'A dense Transformer sends every token through the same feed-forward block. In this toy matrix, 4 tokens touch 4 expert-sized blocks each, so capacity and per-token compute grow together.',
+    explanation: `A dense Transformer sends every token through the same feed-forward block. All ${TOKENS.length * EXPERTS.length} cells are active: ${TOKENS.length} tokens x ${EXPERTS.length} expert-sized blocks. Capacity and per-token compute grow together — to store more knowledge, you must also spend more FLOPs on every token.`,
   };
 
+  // --- 2. Introduce the router: raw score matrix ---
   yield {
-    state: matrixState({ title: 'The router scores which expert suits each token', rows, columns: cols, values: ROUTER, format: pct }),
+    state: matrixState({ title: 'The router: learned scores for each token-expert pair', rows, columns: cols, values: ROUTER, format: pct }),
     highlight: {},
-    explanation: 'MoE replaces one large feed-forward block with several expert blocks plus a small router. Each row is a token, each column is an expert score, and the top scores decide where that token will spend compute.',
+    explanation: `MoE replaces the single FFN with ${EXPERTS.length} expert FFNs plus a small router. The router is a linear layer: g(x) = softmax(W_g * x). Each cell shows the probability that a token should be sent to that expert. Higher scores mean a better match — but the model will only USE the top-${k}.`,
   };
 
+  // Compute picks for each token
   const picks = ROUTER.map((row) => row
     .map((v, j) => ({ v, j }))
     .sort((a, b) => b.v - a.v)
-    .slice(0, k)
-    .map(({ j }) => j));
-  const activeCells = picks.flatMap((expertIdxs, i) => expertIdxs.map((j) => `t${i}:e${j}`));
+    .slice(0, k));
 
+  // --- 3. Step through token "the" ---
+  const theScores = ROUTER[0];
+  const thePicks = picks[0];
+  const theCells = thePicks.map(({ j }) => `t0:e${j}`);
   yield {
-    state: matrixState({ title: `Top-${k} routing: only the chosen experts run`, rows, columns: cols, values: ROUTER, format: pct }),
-    highlight: { active: activeCells },
-    explanation: `Each token activates only its top-${k} expert${k === 1 ? '' : 's'}: ${activeCells.length} of 16 possible expert runs (${pct(activeCells.length / 16)} of the dense toy cost)${k === 2 ? ', with the selected outputs blended by router weight' : ''}. Unchosen experts stay loaded but do not run for that token.`,
-    invariant: 'Per-token expert compute is fixed by k, not by the total number of experts.',
+    state: matrixState({ title: `Routing "${TOKENS[0]}": router scores the 4 experts`, rows, columns: cols, values: ROUTER, format: pct }),
+    highlight: { active: theCells, visited: cols.map((c) => `t0:${c.id}`).filter((c) => !theCells.includes(c)) },
+    explanation: `Token "${TOKENS[0]}" gets scores [${theScores.map(pct).join(', ')}]. Top-${k}: ${thePicks.map(({ j }) => `${EXPERTS[j]} (${pct(theScores[j])})`).join(' and ')}. ${k === 2 ? 'Two experts fire; the other two stay idle for this token.' : 'One expert fires; the other three stay idle.'}`,
   };
 
+  // --- 4. Step through token "protein" ---
+  const proteinScores = ROUTER[1];
+  const proteinPicks = picks[1];
+  const proteinCells = proteinPicks.map(({ j }) => `t1:e${j}`);
   yield {
-    state: matrixState({ title: 'The failure mode: a collapsed router', rows, columns: cols, values: [[0.05, 0.85, 0.05, 0.05], [0.04, 0.88, 0.04, 0.04], [0.06, 0.84, 0.05, 0.05], [0.05, 0.86, 0.05, 0.04]], format: pct }),
-    highlight: { swap: rows.map((r) => `${r.id}:e1`) },
-    explanation: 'The main training hazard is router collapse. If most tokens go to E2, that expert bottlenecks the batch while the other experts receive little gradient. Load-balancing losses and capacity limits keep routing useful.',
+    state: matrixState({ title: `Routing "${TOKENS[1]}": different experts selected`, rows, columns: cols, values: ROUTER, format: pct }),
+    highlight: { active: proteinCells, visited: theCells },
+    explanation: `Token "${TOKENS[1]}" scores [${proteinScores.map(pct).join(', ')}]. Top-${k}: ${proteinPicks.map(({ j }) => `${EXPERTS[j]} (${pct(proteinScores[j])})`).join(' and ')}. Different content activates different experts — the router learns a soft partition of hidden-state space.`,
   };
 
+  // --- 5. Step through token "folds" ---
+  const foldsScores = ROUTER[2];
+  const foldsPicks = picks[2];
+  const foldsCells = foldsPicks.map(({ j }) => `t2:e${j}`);
+  const prevCells = [...theCells, ...proteinCells];
   yield {
-    state: matrixState({ title: 'Top-2 routing at production scale', rows, columns: cols, values: ROUTER, format: pct }),
-    highlight: { active: activeCells },
-    explanation: 'At scale, adding experts can raise total parameters while active parameters per token stay bounded. The bill moves to memory, all-to-all communication, routing balance, and overflow handling. Sparse FLOPs are not the same thing as simple serving.',
+    state: matrixState({ title: `Routing "${TOKENS[2]}": which experts activate`, rows, columns: cols, values: ROUTER, format: pct }),
+    highlight: { active: foldsCells, visited: prevCells },
+    explanation: `Token "${TOKENS[2]}" scores [${foldsScores.map(pct).join(', ')}]. Top-${k}: ${foldsPicks.map(({ j }) => `${EXPERTS[j]} (${pct(foldsScores[j])})`).join(' and ')}. Notice how the router distributes tokens across experts — no single expert dominates.`,
+  };
+
+  // --- 6. Step through token "quickly" ---
+  const quicklyScores = ROUTER[3];
+  const quicklyPicks = picks[3];
+  const quicklyCells = quicklyPicks.map(({ j }) => `t3:e${j}`);
+  const allPrevCells = [...prevCells, ...foldsCells];
+  yield {
+    state: matrixState({ title: `Routing "${TOKENS[3]}": completing the dispatch`, rows, columns: cols, values: ROUTER, format: pct }),
+    highlight: { active: quicklyCells, visited: allPrevCells },
+    explanation: `Token "${TOKENS[3]}" scores [${quicklyScores.map(pct).join(', ')}]. Top-${k}: ${quicklyPicks.map(({ j }) => `${EXPERTS[j]} (${pct(quicklyScores[j])})`).join(' and ')}. All four tokens are now routed.`,
+  };
+
+  // --- 7. Full routing decision: all tokens with selected experts highlighted ---
+  const allActiveCells = picks.flatMap((expertIdxs, i) => expertIdxs.map(({ j }) => `t${i}:e${j}`));
+  const allInactiveCells = rows.flatMap((r) => cols.map((c) => `${r.id}:${c.id}`)).filter((c) => !allActiveCells.includes(c));
+  yield {
+    state: matrixState({ title: `Full routing decision: top-${k} per token`, rows, columns: cols, values: ROUTER, format: pct }),
+    highlight: { active: allActiveCells, removed: allInactiveCells },
+    explanation: `The complete routing table: ${allActiveCells.length} of ${TOKENS.length * EXPERTS.length} expert runs are selected (${pct(allActiveCells.length / (TOKENS.length * EXPERTS.length))} of dense cost). Dimmed cells are experts that exist in memory but do zero work for that token. This is the core MoE tradeoff: large capacity, small per-token compute.`,
+    invariant: `Per-token compute is fixed at ${k} expert${k === 1 ? '' : 's'}, regardless of total expert count.`,
+  };
+
+  // --- 8. Renormalize weights for top-2 (or show raw for top-1) ---
+  const renormValues = ROUTER.map((row, i) => {
+    const selected = picks[i];
+    const sumSelected = selected.reduce((s, { v }) => s + v, 0);
+    return row.map((v, j) => {
+      const isSelected = selected.some(({ j: sj }) => sj === j);
+      return isSelected ? r2(v / sumSelected) : 0;
+    });
+  });
+  const renormFormat = (v) => v === 0 ? '-' : `${Math.round(v * 100)}%`;
+  yield {
+    state: matrixState({ title: k === 2 ? 'Renormalized blending weights for top-2' : 'Final routing weights (top-1: winner takes all)', rows, columns: cols, values: renormValues, format: renormFormat }),
+    highlight: { active: allActiveCells },
+    explanation: k === 2
+      ? `After selecting top-2, the router renormalizes so weights sum to 1. For "${TOKENS[0]}": ${picks[0].map(({ v, j }) => `${EXPERTS[j]} raw ${pct(v)}`).join(', ')} -> renorm ${picks[0].map(({ v, j }) => { const s = picks[0].reduce((a, b) => a + b.v, 0); return `${EXPERTS[j]} ${pct(r2(v / s))}`; }).join(', ')}. The final output = w1 * Expert1(x) + w2 * Expert2(x).`
+      : `With k=1, the winning expert handles the token alone — no blending. Each token's output is simply the selected expert's output, weighted at 100%.`,
+  };
+
+  // --- 9. Expert load distribution ---
+  const expertLoads = EXPERTS.map((_, j) => picks.reduce((count, tokenPicks) => count + (tokenPicks.some(({ j: sj }) => sj === j) ? 1 : 0), 0));
+  const loadRows = [{ id: 'load', label: 'tokens' }];
+  const loadValues = [expertLoads.map((l) => l)];
+  yield {
+    state: matrixState({ title: 'Expert load distribution: tokens per expert', rows: loadRows, columns: cols, values: loadValues, format: (v) => `${v}` }),
+    highlight: { active: expertLoads.map((l, j) => l > 0 ? `load:e${j}` : null).filter(Boolean) },
+    explanation: `Load balance: ${EXPERTS.map((e, j) => `${e} serves ${expertLoads[j]} token${expertLoads[j] === 1 ? '' : 's'}`).join(', ')}. Ideal balance is ${r2(TOKENS.length * k / EXPERTS.length)} tokens per expert. ${Math.max(...expertLoads) - Math.min(...expertLoads) <= 1 ? 'This routing is well-balanced.' : 'Some imbalance exists — the auxiliary loss penalizes this during training.'}`,
+  };
+
+  // --- 10. Collapsed router failure mode ---
+  const collapsedRouter = [[0.05, 0.85, 0.05, 0.05], [0.04, 0.88, 0.04, 0.04], [0.06, 0.84, 0.05, 0.05], [0.05, 0.86, 0.05, 0.04]];
+  const collapsedPicks = collapsedRouter.map((row) => row
+    .map((v, j) => ({ v, j }))
+    .sort((a, b) => b.v - a.v)
+    .slice(0, k));
+  const collapsedActive = collapsedPicks.flatMap((ep, i) => ep.map(({ j }) => `t${i}:e${j}`));
+  const collapsedLoads = EXPERTS.map((_, j) => collapsedPicks.reduce((count, tp) => count + (tp.some(({ j: sj }) => sj === j) ? 1 : 0), 0));
+  yield {
+    state: matrixState({ title: 'Failure mode: collapsed router — E2 gets everything', rows, columns: cols, values: collapsedRouter, format: pct }),
+    highlight: { swap: collapsedActive },
+    explanation: `Router collapse: E2 receives scores of ${collapsedRouter.map((r) => pct(r[1])).join(', ')} across all tokens. Load: ${EXPERTS.map((e, j) => `${e}=${collapsedLoads[j]}`).join(', ')}. E2 bottlenecks the batch, gets most gradients, improves fastest, attracts even more tokens — a positive feedback loop. The other experts starve and their parameters become dead weight.`,
+  };
+
+  // --- 11. Balanced vs collapsed comparison ---
+  yield {
+    state: matrixState({ title: 'Balanced routing (healthy) vs collapsed routing (broken)', rows, columns: cols, values: ROUTER, format: pct }),
+    highlight: { active: allActiveCells, compare: collapsedActive },
+    explanation: `Highlighted: the healthy routing from earlier — tokens spread across experts. Compared (outlined): the collapsed routing where E2 dominates. The auxiliary loss L_balance = alpha * sum(f_i * P_i) penalizes this by measuring the product of each expert's token fraction (f_i) and average routing probability (P_i). When one expert hogs tokens, f_i * P_i spikes, the loss rises, and gradients push the router to distribute more evenly.`,
+    invariant: 'Load-balancing losses keep MoE from degenerating into a dense model with dead experts.',
+  };
+
+  // --- 12. Final summary: FLOPs saved, memory cost ---
+  const denseOps = TOKENS.length * EXPERTS.length;
+  const sparseOps = TOKENS.length * k;
+  const savedPct = pct(1 - sparseOps / denseOps);
+  yield {
+    state: matrixState({ title: `Summary: top-${k} MoE at a glance`, rows, columns: cols, values: ROUTER, format: pct }),
+    highlight: { active: allActiveCells },
+    explanation: `Dense baseline: ${denseOps} expert runs. Top-${k} MoE: ${sparseOps} expert runs — ${savedPct} compute saved. But all ${EXPERTS.length} experts stay in memory (${EXPERTS.length}x the parameter footprint of one expert). At production scale (Mixtral 8x7B: 46.7B params, 13B active; DeepSeek-V3: 671B params, 37B active), MoE trades memory and communication cost for quality-per-FLOP. The router is the critical learned component: if it collapses, the model pays for capacity it cannot use.`,
   };
 }
 
@@ -81,7 +176,8 @@ export const article = {
         `The matrix shows a router score table. Each row is a token, each column is an expert (a small feed-forward network). Cell values are the router's learned preference for sending that token to that expert. Highlighted cells are the top-k experts selected for each token — only those experts actually run.`,
         `The first frame shows the dense baseline: every token activates every expert-sized block, so capacity and compute grow together. The second frame reveals the router scores. The third frame applies top-k selection — most cells go dark because those experts skip that token entirely. The fourth frame shows the failure mode: a collapsed router where all tokens crowd into one expert.`,
         `Watch for three things at each step. Which experts light up (where the token spends compute). How many stay dark (the compute saved). And in the collapse frame, how routing degenerates when balancing fails.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/mixture-of-experts.gif', alt: 'Animated walkthrough of the mixture of experts visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

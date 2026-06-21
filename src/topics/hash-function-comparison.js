@@ -267,7 +267,8 @@ export const article = {
         {type: 'callout', text: 'A hash function protects O(1) lookup only when it erases input patterns before the bucket index is chosen.'},
         'Histogram frames: each bar is one bucket. Height is the number of keys in that bucket. A flat histogram means uniform distribution — ideal. Tall spikes mean overloaded buckets and degraded lookup time.',
         'The invariant line below each frame reports the worst-bucket count, empty-bucket count, and ideal load, so you can compare distribution quality numerically rather than guessing from the chart.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/hash-function-comparison.gif', alt: 'Animated walkthrough of the hash function comparison visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

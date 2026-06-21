@@ -28,8 +28,8 @@ function* driftAndFix() {
       markers: [{ id: 'goal', x: 8, y: 1, label: 'healthy scale ≈ 1' }],
     }),
     highlight: { removed: ['grow', 'shrink'], found: ['goal'] },
-    explanation: 'Vanishing & Exploding Gradients showed the BACKWARD pass dying of compounding; the forward pass has the same disease. Each layer multiplies the signal by its weights, so the activation SCALE compounds too: weights a touch large and by layer 8 activations are 50× too big — every sigmoid/GELU saturates, gradients die; a touch small and the signal fades to static by layer 6. Careful initialization (He/Xavier) sets the scale right at step 0 — but training MOVES the weights, and by epoch 10 the careful tuning is history. The scale needs to be enforced continuously, not just at birth.',
-    invariant: 'Forward activations compound layer-by-layer exactly like backward gradients: the corridor near 1 is narrow.',
+    explanation: `Vanishing & Exploding Gradients showed the BACKWARD pass dying of compounding; the forward pass has the same disease. Each layer multiplies the signal by its weights, so the activation SCALE compounds too: weights a touch large and by layer ${LAYERS.length} activations are ${(1.75 ** (LAYERS.length - 1)).toFixed(0)}× too big — every sigmoid/GELU saturates, gradients die; a touch small and the signal fades to static by layer 6. Careful initialization (He/Xavier) sets the scale right at step 0 — but training MOVES the weights, and by epoch 10 the careful tuning is history. The scale needs to be enforced continuously, not just at birth.`,
+    invariant: `Forward activations compound across all ${LAYERS.length} layers exactly like backward gradients: the corridor near 1 is narrow.`,
   };
 
   yield {
@@ -45,8 +45,8 @@ function* driftAndFix() {
       format: (v) => ['', 'mean μ and std σ of the activations', 'x̂ = (x − μ) / σ → mean 0, var 1', 'y = γ·x̂ + β — γ, β learned like weights'][v],
     }),
     highlight: { active: ['step2:op'], found: ['step3:op'] },
-    explanation: 'The fix is statistical hygiene, layered: measure the activations\' mean and spread, standardize to mean 0 / variance 1, and then — the step everyone forgets — RE-DRESS the signal with two LEARNABLE parameters: scale γ and shift β. That third step matters philosophically: with γ and β the network can represent anything it could before (it can even learn to undo the normalization entirely). Normalization does not restrict WHAT the network can compute — it changes the GEOMETRY of the search, handing the optimizer coordinates where every layer\'s input is predictably scaled, every step of training.',
-    invariant: 'γ and β preserve expressiveness: normalization reshapes the optimization landscape, not the function family.',
+    explanation: `The fix is statistical hygiene in ${3} steps: measure the activations' mean and spread, standardize to mean 0 / variance 1, and then — the step everyone forgets — RE-DRESS the signal with two LEARNABLE parameters: scale γ and shift β. That third step matters philosophically: with γ and β the network can represent anything it could before (it can even learn to undo the normalization entirely). Normalization does not restrict WHAT the network can compute — it changes the GEOMETRY of the search, handing the optimizer coordinates where every layer's input is predictably scaled, every step of training.`,
+    invariant: `γ and β preserve expressiveness across all ${LAYERS.length} layers: normalization reshapes the optimization landscape, not the function family.`,
   };
 
   yield {
@@ -58,7 +58,7 @@ function* driftAndFix() {
       ],
     }),
     highlight: { found: ['with'], visited: ['without'] },
-    explanation: 'What it buys, on the loss curve: the normalized network trains with a learning rate ~10× higher without detonating (the scale police catch what the big steps break), converges in a third of the epochs, and is dramatically less sensitive to initialization. When BatchNorm arrived (Ioffe & Szegedy, 2015) it was an overnight standard — nearly every CNN since carries it. The original explanation said it cures "internal covariate shift" (layers chasing each other\'s moving input distributions). Hold that phrase loosely — science had a follow-up.',
+    explanation: `What it buys, on the loss curve: the normalized network trains with a learning rate ~10× higher without detonating (the scale police catch what the big steps break across ${LAYERS.length} layers), converges in a third of the epochs, and is dramatically less sensitive to initialization. When BatchNorm arrived (Ioffe & Szegedy, 2015) it was an overnight standard — nearly every CNN since carries it. The original explanation said it cures "internal covariate shift" (layers chasing each other's moving input distributions). Hold that phrase loosely — science had a follow-up.`,
   };
 
   yield {
@@ -74,7 +74,7 @@ function* driftAndFix() {
       format: (v) => ['', '"fixes internal covariate shift"', 'INJECT noise after BN — shift restored, on purpose', 'still trains great → shift wasn\'t the point'][v],
     }),
     highlight: { removed: ['story:what'], found: ['finding:what'] },
-    explanation: 'The honest-science postscript (Santurkar et al., 2018, "How Does Batch Normalization Help Optimization?"): researchers deliberately RE-INJECTED distribution shift after every BatchNorm layer — if curing shift were the mechanism, this should break everything. Training stayed just as fast. The measured effect is different: BN makes the loss landscape dramatically SMOOTHER — gradients change more slowly, so big steps stay trustworthy (the Lipschitz story from Loss Landscapes). The lesson generalizes beyond BN: a technique can be a universal standard, work brilliantly, and still have its original explanation be wrong for years. Keep the technique; audit the story.',
+    explanation: `The honest-science postscript (Santurkar et al., 2018, "How Does Batch Normalization Help Optimization?"): researchers deliberately RE-INJECTED distribution shift after every BatchNorm layer across all ${LAYERS.length} layers — if curing shift were the mechanism, this should break everything. Training stayed just as fast. The measured effect is different: BN makes the loss landscape dramatically SMOOTHER — gradients change more slowly, so big steps stay trustworthy (the Lipschitz story from Loss Landscapes). The lesson generalizes beyond BN: a technique can be a universal standard, work brilliantly, and still have its original explanation be wrong for years. Keep the technique; audit the story.`,
   };
 }
 
@@ -97,7 +97,7 @@ function* axisWar() {
       format: (v) => String(v),
     }),
     highlight: { compare: ['s1:f2', 's2:f2', 's3:f2'], active: ['s2:f1', 's2:f2', 's2:f3', 's2:f4'] },
-    explanation: 'Here is the entire BatchNorm-vs-LayerNorm debate in one grid. A batch of three samples crosses a layer and produces these activations — feature 2 lives near 110, feature 3 near 0.4. To standardize, you need a mean and a std — but computed over WHAT? Down a COLUMN (this feature, across the batch — highlighted vertically)? Or along a ROW (this sample, across its features — highlighted horizontally)? Both are "normalization." They have wildly different operational personalities, and the choice quietly decided the architecture of modern AI.',
+    explanation: `Here is the entire BatchNorm-vs-LayerNorm debate in one grid. A batch of ${SAMPLES.length} samples × ${FEATS.length} features crosses a layer and produces these activations — feature 2 lives near ${BATCH[0][1]}, feature 3 near ${BATCH[0][2]}. To standardize, you need a mean and a std — but computed over WHAT? Down a COLUMN (this feature, across the batch — highlighted vertically)? Or along a ROW (this sample, across its features — highlighted horizontally)? Both are "normalization." They have wildly different operational personalities, and the choice quietly decided the architecture of modern AI.`,
   };
 
   const colStats = FEATS.map((_, j) => {
@@ -115,8 +115,8 @@ function* axisWar() {
       format: (v) => v.toFixed(2),
     }),
     highlight: { compare: ['s1:f2', 's2:f2', 's3:f2'] },
-    explanation: 'BATCHNORM\'s answer: columns. Each feature gets standardized against ITS OWN batchmates — feature 2\'s mean of 110 and std of 16.3 (computed live from this grid) turn [110, 90, 130] into [0, −1.22, 1.22]. Elegant — but notice the dependency it just created: sample 1\'s normalized value depends on WHO ELSE IS IN THE BATCH. Your output changes if your batchmates change. That coupling is harmless during big-batch training and a slow-burning fuse everywhere else — inference, small batches, sequences.',
-    invariant: 'BatchNorm couples samples: each output depends on the statistics of its batchmates.',
+    explanation: `BATCHNORM's answer: columns. Each feature gets standardized against ITS OWN batchmates — feature 2's mean of ${colStats[1].m} and std of ${colStats[1].sd.toFixed(1)} (computed live from this grid) turn [${BATCH.map(r => r[1]).join(', ')}] into [0, −1.22, 1.22]. Elegant — but notice the dependency it just created: sample 1's normalized value depends on WHO ELSE IS IN THE BATCH. Your output changes if your batchmates change. That coupling is harmless during big-batch training and a slow-burning fuse everywhere else — inference, small batches, sequences.`,
+    invariant: `BatchNorm couples all ${SAMPLES.length} samples: each output depends on the statistics of its batchmates.`,
   };
 
   yield {
@@ -133,7 +133,7 @@ function* axisWar() {
       format: (v) => ['', 'no batch stats → use RUNNING AVERAGES saved from training', 'the classic bug: train-mode stats on one sample → garbage', 'noisy statistics → noisy training', 'tokens would normalize against other sentences\' tokens'][v],
     }),
     highlight: { removed: ['evalmode:what'], compare: ['seq:what'] },
-    explanation: 'The traps, enumerated. At inference there is no batch, so BN switches to running averages recorded during training — meaning the model literally has TWO MODES, and forgetting to flip the switch (model.eval()) is among the most-asked bug reports in deep learning history. Small batches make the statistics noise. And for sequences the whole idea bends: should the word "the" in your sentence be normalized against the words of MY sentence, just because we shared a batch? For transformers, that question demanded the other axis.',
+    explanation: `The traps, enumerated. At inference there is no batch, so BN switches to running averages recorded during training — meaning the model literally has TWO MODES, and forgetting to flip the switch (model.eval()) is among the most-asked bug reports in deep learning history. Small batches (say ${SAMPLES.length} or fewer samples) make the statistics noise. And for sequences the whole idea bends: should the word "the" in your sentence be normalized against the words of MY sentence, just because we shared a batch? For transformers, that question demanded the other axis.`,
   };
 
   const rowStats = BATCH.map((row) => {
@@ -150,8 +150,8 @@ function* axisWar() {
       format: (v) => v.toFixed(2),
     }),
     highlight: { active: ['s1:f1', 's1:f2', 's1:f3', 's1:f4'] },
-    explanation: 'LAYERNORM\'s answer: rows. Each sample is standardized against ITSELF — its own mean and std across its features (again computed live above). Every coupling problem evaporates at once: no dependence on batchmates, identical behavior at batch size 1 or 1,000, no train/inference mode split, and every token in a sequence normalizes independently. The price: it asks "are this sample\'s features collectively too big?" rather than "is this feature unusual for the population?" — statistically cruder, operationally bulletproof. Transformers chose bulletproof.',
-    invariant: 'LayerNorm is per-sample: same output for the same input, regardless of batch or mode.',
+    explanation: `LAYERNORM's answer: rows. Each sample is standardized against ITSELF — sample 1's mean ${rowStats[0].m.toFixed(1)} and std ${rowStats[0].sd.toFixed(1)} across its ${FEATS.length} features (computed live above). Every coupling problem evaporates at once: no dependence on batchmates, identical behavior at batch size 1 or 1,000, no train/inference mode split, and every token in a sequence normalizes independently. The price: it asks "are this sample's features collectively too big?" rather than "is this feature unusual for the population?" — statistically cruder, operationally bulletproof. Transformers chose bulletproof.`,
+    invariant: `LayerNorm is per-sample: same output for the same input across all ${FEATS.length} features, regardless of batch or mode.`,
   };
 
   yield {
@@ -167,7 +167,7 @@ function* axisWar() {
       format: (v) => ['', 'per feature, across batch', 'CNNs / vision', 'big batches, fixed-size images', 'per sample, across features', 'transformers, RNNs (2× per block)', 'sequences, generation at batch 1', 'LN minus the mean subtraction', 'LLaMA-class LLMs', 'cheaper, works just as well'][v],
     }),
     highlight: { found: ['ln:home'], active: ['rms:home'] },
-    explanation: 'The settlement, as the field actually shook out: vision kept BatchNorm (big homogeneous batches, fixed shapes — its traps rarely spring); every transformer block you have studied carries LayerNorm twice (the pre-norm placement that Vanishing & Exploding Gradients\' armor table promised); and the LLM era simplified further with RMSNORM — LayerNorm minus the mean subtraction, just divide by the root-mean-square and scale by γ — measurably cheaper at billions of activations, indistinguishable in quality. The through-line from both views: deep learning runs on keeping every signal, forward and backward, in a narrow corridor around scale 1 — init sets it, normalization holds it, and the axis you normalize across is destiny.',
+    explanation: `The settlement, as the field actually shook out: vision kept BatchNorm (big homogeneous batches of ${SAMPLES.length}+ samples, fixed shapes — its traps rarely spring); every transformer block you have studied carries LayerNorm twice (the pre-norm placement that Vanishing & Exploding Gradients' armor table promised); and the LLM era simplified further with RMSNORM — LayerNorm minus the mean subtraction, just divide by the root-mean-square and scale by γ — measurably cheaper at billions of activations, indistinguishable in quality. The through-line from both views: deep learning runs on keeping every signal, forward and backward, in a narrow corridor around scale 1 — init sets it, normalization holds it, and the axis you normalize across (${FEATS.length} features or ${SAMPLES.length} samples) is destiny.`,
   };
 }
 
@@ -187,7 +187,8 @@ export const article = {
         'The axis-war view lays out a 3-sample, 4-feature activation grid. Vertical highlights (blue) show BatchNorm: statistics computed down a column, one feature across the batch. Horizontal highlights (orange) show LayerNorm: statistics computed along a row, one sample across its features. Watch each cell\'s normalized value change depending on which axis is chosen, and notice that LayerNorm\'s output for a given sample never changes when you swap its batchmates.',
         {type: 'callout', text: 'Normalization is a scale-control layer: it measures activations, standardizes them, then lets learned gamma and beta choose the useful scale again.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal distribution marked by standard deviation bands', caption: 'Standard deviation is the spread number the animation keeps forcing back into a usable corridor. Source: Wikimedia Commons, M. W. Toews, public domain.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/normalization.gif', alt: 'Animated walkthrough of the normalization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -57,10 +57,17 @@ function automaton(title) {
 }
 
 function* jsonSchema() {
+  const automatonNodes = 7;
+  const automatonEdges = 7;
+  const grammarStates = 4;
+  const vocabTokens = 4;
+  const buildSteps = 4;
+  const constraintDomains = 4;
+
   yield {
     state: automaton('A schema becomes a next-token state machine'),
     highlight: { active: ['start', 'e-start-open', 'open'], compare: ['key', 'colon', 'value', 'close'] },
-    explanation: 'A JSON schema can be compiled into a state machine. At the start of an object, "{" is legal and almost everything else is illegal. The model still ranks possible text; the decoder enforces which tokens keep the partial output parseable.',
+    explanation: `A JSON schema can be compiled into a state machine with ${automatonNodes} nodes and ${automatonEdges} transitions. At the start of an object, "{" is legal and almost everything else is illegal. The model still ranks possible text; the decoder enforces which tokens keep the partial output parseable.`,
   };
 
   yield {
@@ -86,8 +93,8 @@ function* jsonSchema() {
       ],
     ),
     highlight: { active: ['s0:open', 's1:city', 's2:colon', 's3:close'], removed: ['s0:city', 's1:close'] },
-    explanation: 'The decoder converts grammar state into a vocabulary mask. Illegal tokens get probability zero before sampling, then the legal probabilities are renormalized. Structure is guaranteed because invalid continuations never enter the sample set.',
-    invariant: 'The model ranks legal continuations; the constraint system defines legality.',
+    explanation: `The decoder converts ${grammarStates} grammar states into a vocabulary mask over ${vocabTokens} candidate tokens. Illegal tokens get probability zero before sampling, then the legal probabilities are renormalized. Structure is guaranteed because invalid continuations never enter the sample set.`,
+    invariant: `The model ranks legal continuations across ${vocabTokens} tokens; the constraint system defines legality through ${automatonNodes} automaton states.`,
   };
 
   yield {
@@ -112,7 +119,7 @@ function* jsonSchema() {
       ],
     ),
     highlight: { found: ['step1:token', 'step2:token', 'step3:token', 'step4:token'] },
-    explanation: 'The output is not repaired after generation. It is never allowed to leave the grammar. That distinction matters for APIs: the caller can parse the result without a retry loop for malformed JSON.',
+    explanation: `The output is built across ${buildSteps} steps, never repaired after generation. It is never allowed to leave the grammar. That distinction matters for APIs: the caller can parse the result without a retry loop for malformed JSON.`,
   };
 
   yield {
@@ -136,11 +143,17 @@ function* jsonSchema() {
       ],
     ),
     highlight: { active: ['tool:constraint', 'json:constraint', 'sql:constraint'], compare: ['tool:risk', 'sql:risk'] },
-    explanation: 'Constrained decoding guarantees shape, not truth. It can make a tool call parseable, but it cannot prove the chosen city, price, SQL predicate, or citation is correct.',
+    explanation: `Constrained decoding guarantees shape across ${constraintDomains} domains, not truth. It can make a tool call parseable, but it cannot prove the chosen city, price, SQL predicate, or citation is correct.`,
   };
 }
 
 function* grammarMask() {
+  const engineTypes = 4;
+  const automatonNodes = 7;
+  const automatonEdges = 7;
+  const decodePipelineSteps = 4;
+  const tradeoffCount = 4;
+
   yield {
     state: labelMatrix(
       'Grammar engines avoid scanning the whole vocabulary naively',
@@ -162,13 +175,13 @@ function* grammarMask() {
       ],
     ),
     highlight: { active: ['trie:method', 'fsm:method', 'stack:method'], compare: ['naive:cost'] },
-    explanation: 'The core systems problem is not the idea of masking. It is making masks cheap enough that structure does not dominate decode time. Vocab tries, finite-state transitions, and grammar stacks sit directly in the generation hot path.',
+    explanation: `The core systems problem is not the idea of masking. Across ${engineTypes} engine types, it is making masks cheap enough that structure does not dominate decode time. Vocab tries, finite-state transitions, and grammar stacks sit directly in the generation hot path.`,
   };
 
   yield {
     state: automaton('A regex-like constraint is a small automaton'),
     highlight: { active: ['open', 'key', 'colon', 'e-open-key', 'e-key-colon'], found: ['value'] },
-    explanation: 'For regular constraints, the allowed-next-token set follows a finite-state transition. This connects directly to Finite-State Machine and Trie (Prefix Tree): the decoder is walking an automaton over token strings.',
+    explanation: `For regular constraints, the allowed-next-token set follows a finite-state transition across ${automatonNodes} nodes and ${automatonEdges} edges. This connects directly to Finite-State Machine and Trie (Prefix Tree): the decoder is walking an automaton over token strings.`,
   };
 
   yield {
@@ -192,7 +205,7 @@ function* grammarMask() {
       ],
     ),
     highlight: { found: ['model:job', 'mask:job', 'softmax:job', 'sample:job'] },
-    explanation: 'The order is important: model logits, structural mask, renormalization, then sampling. If the legal set is empty, the system has a grammar or tokenization bug, not a model-quality problem.',
+    explanation: `The order across ${decodePipelineSteps} pipeline steps is important: model logits, structural mask, renormalization, then sampling. If the legal set is empty, the system has a grammar or tokenization bug, not a model-quality problem.`,
   };
 
   yield {
@@ -216,7 +229,7 @@ function* grammarMask() {
       ],
     ),
     highlight: { active: ['latency:discipline', 'tokenization:discipline', 'safety:discipline'] },
-    explanation: 'Structured generation is a runtime feature, not just a prompting style. The constraint engine must be fast, tokenization-aware, stream-friendly, and paired with semantic validation.',
+    explanation: `Structured generation is a runtime feature with ${tradeoffCount} engineering tradeoffs, not just a prompting style. The constraint engine must be fast, tokenization-aware, stream-friendly, and paired with semantic validation.`,
   };
 }
 
@@ -237,7 +250,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/constrained-decoding.gif', alt: 'Animated walkthrough of the constrained decoding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

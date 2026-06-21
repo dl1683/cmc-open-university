@@ -48,63 +48,126 @@ const layerNorm = (A) => A.map((row) => {
 const relu = (A) => A.map((row) => row.map((v) => Math.max(0, v)));
 
 export function* run(input) {
+  const r2 = (v) => Math.round(v * 100) / 100;
   const tokens = parseWordList(input.text, { min: 2, max: 4 }).map((w) => w.toLowerCase());
   const dims = Array.from({ length: D }, (_, j) => ({ id: `d${j}`, label: `d${j}` }));
   const rows = tokens.map((t, i) => ({ id: `t${i}`, label: t }));
   const show = (values, title) => matrixState({ title, rows, columns: dims, values });
+  const showVec = (vec) => `[${vec.map(r2).join(', ')}]`;
 
-  yield {
-    state: show(tokens.map(embed), 'You are looking at the inside of a GPT'),
-    highlight: {},
-    explanation: 'This frame shows the contract of a Transformer block: a token-by-dimension matrix goes in, the same shape comes out, and the block can be stacked many times. Tokenization creates the rows; the final model head later turns the last rows into next-token probabilities.',
-  };
+  const X = tokens.map((t, i) => embed(t, i));
 
-  const X = tokens.map(embed);
   yield {
     state: show(X, 'Input: embeddings + position'),
     highlight: { active: rows.map((r) => r.id) },
-    explanation: 'Tokens first become vectors, then a small position signal is mixed in. Attention is order-blind without this signal, so the visible drift down the rows is what lets the block distinguish the same word in different places.',
+    explanation: `Each token becomes a ${D}-dimensional vector. ${tokens.map((t, i) => `"${t}" → ${showVec(X[i])}`).join('; ')}. Position 0 gets a +0.00 offset in d0, position 1 gets +0.05, etc. That d0 drift is the only way the block knows word order — attention is permutation-blind without it.`,
   };
 
+  // --- Q, K, V projections ---
   const Q = matMul(X, Wq);
   const K = matMul(X, Wk);
   const V = matMul(X, Wv);
-  const scores = Q.map((q) => K.map((k) => dot(q, k) / Math.sqrt(D)));
-  const weights = scores.map(softmaxRow);
-  const attnOut = matMul(weights, V);
+
   yield {
-    state: show(attnOut, 'Sublayer 1: attention output'),
-    highlight: {},
-    explanation: 'Attention is the communication step. Queries compare with keys, softmax turns scores into weights, and values are mixed so each row can carry information from other rows. This is the only sublayer where tokens directly exchange context.',
+    state: show(Q, 'Projections: Q = X·Wq'),
+    highlight: { active: rows.map((r) => r.id) },
+    explanation: `Three learned weight matrices (Wq, Wk, Wv) project every token into query, key, and value spaces. For "${tokens[0]}": Q=${showVec(Q[0])}, K=${showVec(K[0])}, V=${showVec(V[0])}. Queries ask "what am I looking for?", keys answer "what do I contain?", and values carry the actual payload to mix.`,
   };
 
+  // --- Attention scores (raw dot products) ---
+  const scores = Q.map((q) => K.map((k) => dot(q, k) / Math.sqrt(D)));
+
+  const scorePairs = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const maxJ = scores[i].indexOf(Math.max(...scores[i]));
+    scorePairs.push(`"${tokens[i]}"·"${tokens[maxJ]}" = ${r2(scores[i][maxJ])}`);
+  }
+
+  yield {
+    state: show(scores, 'Attention scores: Q·Kᵀ / √' + D),
+    highlight: {},
+    explanation: `Each query dot-products every key, divided by √${D} = ${r2(Math.sqrt(D))} to prevent saturation. Strongest raw scores: ${scorePairs.join('; ')}. These are logits — not yet probabilities. Softmax next converts them so each row sums to 1.`,
+  };
+
+  // --- Softmax weights ---
+  const weights = scores.map(softmaxRow);
+
+  const weightDetails = tokens.map((t, i) => {
+    const maxJ = weights[i].indexOf(Math.max(...weights[i]));
+    return `"${t}" → "${tokens[maxJ]}" ${Math.round(weights[i][maxJ] * 100)}%`;
+  });
+
+  yield {
+    state: show(weights, 'Softmax attention weights'),
+    highlight: {},
+    explanation: `Softmax turns scores into a probability distribution per row. Strongest attention: ${weightDetails.join('; ')}. These weights decide how much each token reads from every other token's value vector. A 50% weight means half the value payload is copied.`,
+    invariant: `Each row sums to 1.00: ${tokens.map((t, i) => `"${t}" → ${r2(weights[i].reduce((a, b) => a + b, 0))}`).join(', ')}.`,
+  };
+
+  // --- Attention output ---
+  const attnOut = matMul(weights, V);
+
+  yield {
+    state: show(attnOut, 'Attention output: weights × V'),
+    highlight: {},
+    explanation: `Multiply attention weights by value vectors to produce the context-mixed output. "${tokens[0]}" output = ${showVec(attnOut[0])} (a weighted blend of all tokens' V vectors). This is the ONLY step where tokens exchange information — the rest of the block is per-row.`,
+  };
+
+  // --- Residual + LayerNorm ---
   const res1 = addM(X, attnOut);
   const norm1 = layerNorm(res1);
+
+  const normStats = tokens.map((t, i) => {
+    const row = res1[i];
+    const mean = row.reduce((a, b) => a + b, 0) / row.length;
+    const variance = row.reduce((a, b) => a + (b - mean) ** 2, 0) / row.length;
+    return `"${t}": mean=${r2(mean)}, var=${r2(variance)}`;
+  });
+
   yield {
     state: show(norm1, 'Add & Norm: x + attention(x), then LayerNorm'),
     highlight: {},
-    explanation: 'The residual addition keeps the original row available instead of replacing it with attention output. LayerNorm then rescales each row, preserving the invariant that deep stacks keep a controlled activation scale.',
+    explanation: `Residual addition keeps the original embedding: res = X + attn(X). For "${tokens[0]}": ${showVec(X[0])} + ${showVec(attnOut[0])} = ${showVec(res1[0])}. LayerNorm then centers and scales each row. Pre-norm stats: ${normStats.join('; ')}. After norm, "${tokens[0]}" → ${showVec(norm1[0])} (mean ≈ 0, var ≈ 1).`,
     invariant: 'After LayerNorm every token row has mean ≈ 0 and variance ≈ 1.',
   };
 
-  const ffnOut = matMul(relu(matMul(norm1, W1)), W2);
+  // --- FFN ---
+  const ffnHidden = matMul(norm1, W1);
+  const ffnRelu = relu(ffnHidden);
+  const ffnOut = matMul(ffnRelu, W2);
+
+  const reluCounts = tokens.map((t, i) => {
+    const alive = ffnRelu[i].filter((v) => v > 0).length;
+    return `"${t}": ${alive}/${D} neurons alive`;
+  });
+
   yield {
-    state: show(ffnOut, 'Sublayer 2: feed-forward output'),
+    state: show(ffnOut, 'Sublayer 2: FFN = ReLU(x·W1) · W2'),
     highlight: {},
-    explanation: 'The feed-forward network processes each row independently after attention has gathered context. It changes features within a token representation, while the row-to-row information flow has already happened.',
+    explanation: `The feed-forward network transforms each row independently. First, expand through W1: "${tokens[0]}" hidden = ${showVec(ffnHidden[0])}. ReLU zeros negatives: ${showVec(ffnRelu[0])} (${reluCounts.join('; ')}). Then compress through W2: output = ${showVec(ffnOut[0])}. Attention gathered context; the FFN now rewrites each token's features using that context.`,
   };
 
-  const out = layerNorm(addM(norm1, ffnOut));
+  // --- Final residual + LayerNorm ---
+  const res2 = addM(norm1, ffnOut);
+  const out = layerNorm(res2);
+
+  const outStats = tokens.map((t, i) => {
+    const row = res2[i];
+    const mean = row.reduce((a, b) => a + b, 0) / row.length;
+    const variance = row.reduce((a, b) => a + (b - mean) ** 2, 0) / row.length;
+    return `"${t}": mean=${r2(mean)}, var=${r2(variance)}`;
+  });
+
   yield {
-    state: show(out, 'Block output: ready for the next block'),
+    state: show(out, 'Block output: second add & norm'),
     highlight: { found: rows.map((r) => r.id) },
-    explanation: 'The second add-and-normalize step returns the same token-by-dimension shape. That shape invariant is why the next block can consume the output without a special adapter.',
+    explanation: `Second residual adds FFN output to the pre-FFN representation, then LayerNorm stabilizes again. Pre-norm stats: ${outStats.join('; ')}. Final output for "${tokens[0]}": ${showVec(out[0])}. Same ${tokens.length}×${D} shape in, same shape out — that contract lets blocks stack.`,
   };
 
   yield {
-    state: show(out, 'attention → add&norm → FFN → add&norm, times 100'),
+    state: show(out, 'Stack this block 100 times → a language model'),
     highlight: {},
-    explanation: 'A language model repeats this block many times, then projects the final vectors to vocabulary scores. Serving work such as KV cache, speculative decoding, quantization, and adapters optimizes this same repeated block rather than changing its basic contract.',
+    explanation: `Each block rewrites the ${tokens.length}×${D} matrix without changing its shape. A real model (GPT-3: 96 blocks, d=12288, 96 heads) repeats this exact sequence — project Q/K/V, attend, add & norm, FFN, add & norm — then a final linear layer maps the last token's vector to vocabulary logits for next-token prediction. KV caching, Flash Attention, and quantization optimize this loop; they never change the contract.`,
   };
 }
 
@@ -117,7 +180,8 @@ export const article = {
         'Active rows (highlighted) mark the tokens currently being transformed. The attention frame shows the result of row-to-row communication: every token has absorbed a weighted mix of every other token. The feed-forward frame shows row-local transformation: each row changes independently. Found rows at the end confirm the output shape matches the input shape, ready for the next block.',
         'Watch two things across the frames. First, the rows mix during attention but stay separate during the FFN. Second, the residual additions keep the original signal present, so no sublayer can destroy information that a later layer might need.',
         {type: 'callout', text: 'A Transformer block is shape preserving: it changes what each token row knows, but it returns the same token-by-dimension rectangle so the next block can reuse the exact contract.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/transformer-block.gif', alt: 'Animated walkthrough of the transformer block visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

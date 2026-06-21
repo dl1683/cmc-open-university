@@ -86,22 +86,24 @@ function orderGraph(title) {
 }
 
 function* zTest() {
+  const pipelineStages = ['tri', 'clip', 'rast', 'frag', 'depth', 'test'];
   yield {
     state: depthGraph('Fragments compare their depth against stored depth'),
-    highlight: { active: ['tri', 'clip', 'rast', 'frag', 'depth', 'test', 'e-tri-clip', 'e-clip-rast', 'e-rast-frag', 'e-frag-test', 'e-depth-test'], compare: ['color'] },
-    explanation: 'Rasterization turns triangles into fragments. Each fragment has a screen position and depth. The depth test compares that depth against the current per-pixel depth value.',
-    invariant: 'For ordinary opaque rendering, the depth buffer stores the nearest accepted surface so far.',
+    highlight: { active: [...pipelineStages, 'e-tri-clip', 'e-clip-rast', 'e-rast-frag', 'e-frag-test', 'e-depth-test'], compare: ['color'] },
+    explanation: `Rasterization turns triangles into fragments across ${pipelineStages.length} pipeline stages. Each fragment has a screen position and depth. The depth test at "${pipelineStages[pipelineStages.length - 1]}" compares that depth against the current per-pixel depth value.`,
+    invariant: `For ordinary opaque rendering, the depth buffer at "${pipelineStages[4]}" stores the nearest accepted surface so far.`,
   };
 
+  const compareModes = [
+    { id: 'less', label: 'less' },
+    { id: 'lequal', label: 'lequal' },
+    { id: 'greater', label: 'greater' },
+    { id: 'always', label: 'always' },
+  ];
   yield {
     state: labelMatrix(
       'Depth compare modes',
-      [
-        { id: 'less', label: 'less' },
-        { id: 'lequal', label: 'lequal' },
-        { id: 'greater', label: 'greater' },
-        { id: 'always', label: 'always' },
-      ],
+      compareModes,
       [
         { id: 'passes', label: 'passes when' },
         { id: 'use', label: 'use' },
@@ -114,42 +116,47 @@ function* zTest() {
       ],
     ),
     highlight: { active: ['less:passes', 'greater:use'], compare: ['always:use'] },
-    explanation: 'The comparison function defines what "closer" means for the projection convention. Normal depth often uses less; reversed-Z pipelines commonly use greater with a floating-point depth format.',
+    explanation: `The ${compareModes.length} comparison functions (${compareModes.map(m => m.label).join(', ')}) define what "closer" means for the projection convention. Normal depth often uses ${compareModes[0].label}; reversed-Z pipelines commonly use ${compareModes[2].label} with a floating-point depth format.`,
   };
 
+  const passPath = ['test', 'color', 'depth', 'frame'];
   yield {
     state: depthGraph('Passing fragments update color and depth'),
-    highlight: { active: ['test', 'color', 'depth', 'frame', 'e-test-color', 'e-color-depth', 'e-color-frame'], found: ['frag'], compare: ['reject'] },
-    explanation: 'If the fragment passes, it can write color and update depth. Later farther fragments at the same pixel are rejected without changing the visible result.',
+    highlight: { active: [...passPath, 'e-test-color', 'e-color-depth', 'e-color-frame'], found: ['frag'], compare: ['reject'] },
+    explanation: `If the fragment passes at "${passPath[0]}", it can write ${passPath[1]} and update ${passPath[2]}. Later farther fragments at the same pixel are rejected without changing the visible result in the "${passPath[3]}".`,
   };
 
+  const rejectPath = ['test', 'reject', 'e-test-reject'];
   yield {
     state: depthGraph('Rejected fragments avoid hidden-surface work'),
-    highlight: { active: ['test', 'reject', 'e-test-reject'], found: ['depth'], compare: ['color'] },
-    explanation: 'A rejected fragment is hidden by something nearer. Implementations may use early depth tests to reject work before running an expensive fragment shader when the pipeline allows it.',
+    highlight: { active: rejectPath, found: ['depth'], compare: ['color'] },
+    explanation: `A rejected fragment at "${rejectPath[1]}" is hidden by something nearer. Implementations may use early depth tests to reject work before running an expensive fragment shader when the pipeline allows it.`,
   };
 }
 
 function* precisionAndOrder() {
+  const opaqueNodes = ['near', 'far', 'opaque', 'early'];
   yield {
     state: orderGraph('Opaque geometry can render in almost any order'),
-    highlight: { active: ['near', 'far', 'opaque', 'early', 'e-near-opaque', 'e-far-opaque', 'e-opaque-early'], found: ['frame'] },
-    explanation: 'For opaque surfaces, the z-test makes draw order less fragile. Rendering far before near or near before far can produce the same final visible surface, although performance differs.',
+    highlight: { active: [...opaqueNodes, 'e-near-opaque', 'e-far-opaque', 'e-opaque-early'], found: ['frame'] },
+    explanation: `For ${opaqueNodes.length} opaque stages ("${opaqueNodes[0]}" and "${opaqueNodes[1]}" through "${opaqueNodes[2]}"), the z-test makes draw order less fragile. Rendering far before near or near before far can produce the same final visible surface, although performance differs.`,
   };
 
+  const pitfallRows = [
+    { id: 'range', label: 'range' },
+    { id: 'fight', label: 'z fight' },
+    { id: 'alpha', label: 'alpha' },
+    { id: 'shader', label: 'shader z' },
+  ];
+  const pitfallCols = [
+    { id: 'cause', label: 'cause' },
+    { id: 'fix', label: 'fix' },
+  ];
   yield {
     state: labelMatrix(
       'Depth pitfalls',
-      [
-        { id: 'range', label: 'range' },
-        { id: 'fight', label: 'z fight' },
-        { id: 'alpha', label: 'alpha' },
-        { id: 'shader', label: 'shader z' },
-      ],
-      [
-        { id: 'cause', label: 'cause' },
-        { id: 'fix', label: 'fix' },
-      ],
+      pitfallRows,
+      pitfallCols,
       [
         ['wide range', 'tight planes'],
         ['same depth', 'bias/layer'],
@@ -158,19 +165,21 @@ function* precisionAndOrder() {
       ],
     ),
     highlight: { active: ['range:fix', 'fight:fix', 'alpha:fix'], compare: ['shader:cause'] },
-    explanation: 'Depth buffers are simple but not magic. Precision distribution, coplanar geometry, alpha blending, and shaders that write depth can all change the rendering strategy.',
+    explanation: `Depth buffers have ${pitfallRows.length} common pitfalls (${pitfallRows.map(r => r.label).join(', ')}). Each maps a ${pitfallCols[0].label} to a ${pitfallCols[1].label} — precision distribution, coplanar geometry, alpha blending, and shaders that write depth can all change the rendering strategy.`,
   };
 
+  const transNodes = ['trans', 'frame'];
   yield {
     state: orderGraph('Transparency is not solved by a normal depth buffer'),
-    highlight: { active: ['trans', 'frame', 'e-trans-frame'], compare: ['opaque'], found: ['near', 'far'] },
-    explanation: 'Alpha blending is order dependent because colors accumulate. Transparent objects usually render after opaque objects, often sorted back-to-front or handled with order-independent transparency techniques.',
+    highlight: { active: [...transNodes, 'e-trans-frame'], compare: ['opaque'], found: ['near', 'far'] },
+    explanation: `Alpha blending at "${transNodes[0]}" is order dependent because colors accumulate. Transparent objects usually render after opaque objects, often sorted back-to-front or handled with order-independent transparency techniques before reaching the "${transNodes[1]}".`,
   };
 
+  const prepassNodes = ['prepass', 'early', 'frame'];
   yield {
     state: orderGraph('A depth prepass trades extra geometry work for fewer costly shades'),
-    highlight: { active: ['prepass', 'early', 'frame', 'e-early-prepass', 'e-prepass-frame'], compare: ['trans'], found: ['opaque'] },
-    explanation: 'A depth-only prepass fills depth before expensive shading. Later color passes can reject hidden fragments early. The tradeoff pays when fragment shading is expensive and overdraw is high.',
+    highlight: { active: [...prepassNodes, 'e-early-prepass', 'e-prepass-frame'], compare: ['trans'], found: ['opaque'] },
+    explanation: `A depth-only "${prepassNodes[0]}" fills depth before expensive shading. Later color passes leverage "${prepassNodes[1]}" Z to reject hidden fragments before reaching the "${prepassNodes[2]}". The tradeoff pays when fragment shading is expensive and overdraw is high.`,
   };
 }
 
@@ -183,6 +192,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/depth-buffer-z-test-visibility.gif', alt: 'Animated walkthrough of the depth buffer z test visibility visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

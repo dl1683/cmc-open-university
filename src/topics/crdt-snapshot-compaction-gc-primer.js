@@ -53,22 +53,24 @@ function compactGraph(title, notes = {}) {
 }
 
 function* snapshotCompaction() {
+  const pipelineNodes = ['ops', 'state', 'summary', 'snap', 'tail', 'peer', 'gc', 'store'];
   yield {
     state: compactGraph('CRDT storage needs snapshots plus causal summaries'),
     highlight: { active: ['ops', 'state', 'summary', 'snap', 'e-ops-state', 'e-ops-summary'], found: ['store'] },
-    explanation: 'The graph shows what must survive a compaction. You can fold old operations into a checkpoint, but the snapshot still needs a causal summary so future peers know what history it represents.',
-    invariant: 'A compacted snapshot must still know what history it represents.',
+    explanation: `The ${pipelineNodes.length}-node graph shows what must survive a compaction. You can fold old operations into a checkpoint, but the snapshot still needs a causal summary so future peers know what history it represents.`,
+    invariant: `A compacted snapshot at "${pipelineNodes[3]}" must still know what history it represents.`,
   };
 
+  const survivalRows = [
+    { id: 'state', label: 'doc state' },
+    { id: 'heads', label: 'heads' },
+    { id: 'sv', label: 'state vec' },
+    { id: 'tail', label: 'recent tail' },
+  ];
   yield {
     state: labelMatrix(
       'What must survive compaction',
-      [
-        { id: 'state', label: 'doc state' },
-        { id: 'heads', label: 'heads' },
-        { id: 'sv', label: 'state vec' },
-        { id: 'tail', label: 'recent tail' },
-      ],
+      survivalRows,
       [
         { id: 'why', label: 'why' },
         { id: 'breaks', label: 'if lost' },
@@ -81,24 +83,25 @@ function* snapshotCompaction() {
       ],
     ),
     highlight: { found: ['heads:why', 'sv:why'], compare: ['tail:breaks'] },
-    explanation: 'Visible document bytes are only one row. Heads, state vectors, and a recent tail are what let sync continue after compaction. A plain JSON export can look correct and still be useless for incremental merge.',
+    explanation: `Visible document bytes are only 1 of ${survivalRows.length} survival requirements (${survivalRows.map(r => r.label).join(', ')}). Heads, state vectors, and a recent tail are what let sync continue after compaction.`,
   };
 
   yield {
     state: compactGraph('Compaction keeps a checkpoint and recent operation tail', { snap: 'base', tail: 'after base', store: 'base+tail' }),
     highlight: { active: ['snap', 'tail', 'store', 'e-snap-tail', 'e-gc-store'], compare: ['ops'] },
-    explanation: 'Base plus tail is the common shape. Load the compact base, replay recent updates, and keep enough tail to serve peers that are only slightly behind. Far-behind peers may need a reset from snapshot.',
+    explanation: `Base plus tail is the common shape across the ${pipelineNodes.length}-node pipeline. Load the compact base, replay recent updates, and keep enough tail to serve peers that are only slightly behind.`,
   };
 
+  const compactionStyles = [
+    { id: 'merge', label: 'merge upd' },
+    { id: 'snapshot', label: 'snapshot' },
+    { id: 'rewrite', label: 'rewrite hist' },
+    { id: 'archive', label: 'archive' },
+  ];
   yield {
     state: labelMatrix(
       'Compaction styles',
-      [
-        { id: 'merge', label: 'merge upd' },
-        { id: 'snapshot', label: 'snapshot' },
-        { id: 'rewrite', label: 'rewrite hist' },
-        { id: 'archive', label: 'archive' },
-      ],
+      compactionStyles,
       [
         { id: 'benefit', label: 'benefit' },
         { id: 'risk', label: 'risk' },
@@ -111,26 +114,27 @@ function* snapshotCompaction() {
       ],
     ),
     highlight: { active: ['merge:benefit', 'snapshot:benefit'], compare: ['rewrite:risk'] },
-    explanation: 'These are different tools with the same danger. Merging updates, compacting columns, or writing app snapshots can save space, but rewriting history is unsafe if peers, undo, audit, or old snapshots still depend on old IDs.',
+    explanation: `${compactionStyles.length} compaction styles (${compactionStyles.map(s => s.label).join(', ')}) are different tools with the same danger. Rewriting history is unsafe if peers, undo, audit, or old snapshots still depend on old IDs.`,
   };
 
   yield {
     state: compactGraph('The store shrinks only after safety checks pass', { peer: 'known', gc: 'safe cut', store: 'compact' }),
     highlight: { active: ['peer', 'gc', 'store', 'e-peer-gc', 'e-gc-store'], found: ['snap', 'summary'] },
-    explanation: 'The safe cut is a protocol and product decision. Age is a hint, not proof. Known peer state, retention policy, audit requirements, privacy deletion, and snapshot reset rules decide what may disappear.',
+    explanation: `The safe cut is a protocol and product decision involving ${pipelineNodes.length} pipeline stages. Age is a hint, not proof. Known peer state, retention policy, audit requirements, privacy deletion, and snapshot reset rules decide what may disappear.`,
   };
 }
 
 function* gcSafety() {
+  const gcBlockers = [
+    { id: 'offline', label: 'offline peer' },
+    { id: 'snapshot', label: 'old snap' },
+    { id: 'undo', label: 'undo stack' },
+    { id: 'audit', label: 'audit' },
+  ];
   yield {
     state: labelMatrix(
       'Garbage collection blockers',
-      [
-        { id: 'offline', label: 'offline peer' },
-        { id: 'snapshot', label: 'old snap' },
-        { id: 'undo', label: 'undo stack' },
-        { id: 'audit', label: 'audit' },
-      ],
+      gcBlockers,
       [
         { id: 'needs', label: 'needs' },
         { id: 'blocks', label: 'blocks' },
@@ -143,25 +147,26 @@ function* gcSafety() {
       ],
     ),
     highlight: { active: ['offline:blocks', 'undo:blocks'], compare: ['audit:blocks'] },
-    explanation: 'Garbage collection is not just freeing memory. Offline peers, old snapshots, undo stacks, audit trails, and retention rules may all still reference metadata that is invisible in the current document.',
-    invariant: 'If future sync can refer to it, GC cannot blindly erase it.',
+    explanation: `Garbage collection has ${gcBlockers.length} blockers (${gcBlockers.map(b => b.label).join(', ')}). It is not just freeing memory. Offline peers, old snapshots, undo stacks, and audit trails may all still reference metadata invisible in the current document.`,
+    invariant: `All ${gcBlockers.length} blocker categories must be checked: if future sync can refer to it, GC cannot blindly erase it.`,
   };
 
   yield {
     state: compactGraph('Lagging peers define a safe cut', { peer: 'min known', gc: 'cut', tail: 'keep after' }),
     highlight: { active: ['peer', 'tail', 'gc', 'e-peer-gc', 'e-tail-gc'], compare: ['ops'] },
-    explanation: 'If the system knows every active peer has seen a prefix of history, it can sometimes compact before that cut. Without that knowledge, the conservative answer is to keep more history or force a resync from snapshot.',
+    explanation: `If the system knows every active peer has seen a prefix of history, it can compact before that cut. Without that knowledge across all ${gcBlockers.length} blocker types, the conservative answer is to keep more history or force a resync from snapshot.`,
   };
 
+  const tombstoneRoles = [
+    { id: 'delete', label: 'delete mark' },
+    { id: 'anchor', label: 'anchor' },
+    { id: 'render', label: 'render' },
+    { id: 'purge', label: 'purge' },
+  ];
   yield {
     state: labelMatrix(
       'Tombstone cleanup',
-      [
-        { id: 'delete', label: 'delete mark' },
-        { id: 'anchor', label: 'anchor' },
-        { id: 'render', label: 'render' },
-        { id: 'purge', label: 'purge' },
-      ],
+      tombstoneRoles,
       [
         { id: 'role', label: 'role' },
         { id: 'risk', label: 'risk' },
@@ -174,18 +179,19 @@ function* gcSafety() {
       ],
     ),
     highlight: { found: ['delete:role', 'anchor:role'], compare: ['purge:risk'] },
-    explanation: 'Tombstones are ugly but useful: they can be the only anchor a future remote operation understands. Purging them safely requires evidence that no accepted future update can reference those IDs.',
+    explanation: `Tombstones serve ${tombstoneRoles.length} lifecycle roles (${tombstoneRoles.map(r => r.label).join(', ')}). They are ugly but useful: they can be the only anchor a future remote operation understands. Purging them safely requires evidence that no future update can reference those IDs.`,
   };
 
+  const policies = [
+    { id: 'small', label: 'small team' },
+    { id: 'offline', label: 'offline app' },
+    { id: 'regulated', label: 'regulated' },
+    { id: 'public', label: 'public doc' },
+  ];
   yield {
     state: labelMatrix(
       'Policy choices',
-      [
-        { id: 'small', label: 'small team' },
-        { id: 'offline', label: 'offline app' },
-        { id: 'regulated', label: 'regulated' },
-        { id: 'public', label: 'public doc' },
-      ],
+      policies,
       [
         { id: 'policy', label: 'policy' },
         { id: 'tradeoff', label: 'tradeoff' },
@@ -198,13 +204,13 @@ function* gcSafety() {
       ],
     ),
     highlight: { active: ['offline:policy', 'regulated:policy'], compare: ['public:tradeoff'] },
-    explanation: 'There is no universal GC policy. Some products prefer durable audit history; others prefer privacy deletion or small client stores. The data structure must expose the cut points so product policy can choose.',
+    explanation: `${policies.length} deployment contexts (${policies.map(p => p.label).join(', ')}) need different GC policies. Some products prefer durable audit history; others prefer privacy deletion or small client stores.`,
   };
 
   yield {
     state: compactGraph('Safe GC is a protocol plus product contract', { summary: 'proof', peer: 'known', gc: 'policy', store: 'retained' }),
     highlight: { active: ['summary', 'peer', 'gc', 'store'], found: ['snap'] },
-    explanation: 'The final graph is the right mental model: checkpointing plus distributed sync plus product policy. Aggressive GC is fine only when the protocol says how old peers, snapshots, undo, audit, and deletion requests behave afterward.',
+    explanation: `The final graph is the right mental model: checkpointing plus distributed sync plus product policy. Aggressive GC is fine only when the protocol addresses all ${gcBlockers.length} blocker categories.`,
   };
 }
 
@@ -231,7 +237,8 @@ export const article = {
           text: 'The graph is not a data-flow diagram of a running system. It is a decision map: each edge says "this output feeds that decision." Follow active-to-found to see what the compactor produces; follow compare markers to see what constrains it.',
         },
         'At each frame, ask: what information survived the step, what was discarded, and what invariant makes the discard safe.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/crdt-snapshot-compaction-gc-primer.gif', alt: 'Animated walkthrough of the crdt snapshot compaction gc primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

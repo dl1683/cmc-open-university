@@ -43,26 +43,26 @@ function* buildAndSearch() {
   yield {
     state: suffixTable('All suffixes before sorting', raw),
     highlight: {},
-    explanation: 'A suffix array starts with a text and writes down every suffix: banana$, anana$, nana$, and so on. The dollar sign is a sentinel smaller than normal characters, so every suffix has a unique ending.',
+    explanation: `A suffix array starts with a text and writes down every suffix: ${raw[0].suffix}, ${raw[1].suffix}, ${raw[2].suffix}, and so on. With ${raw.length} suffixes from a ${TEXT.length}-character text, the dollar sign is a sentinel smaller than normal characters, so every suffix has a unique ending.`,
   };
 
   yield {
     state: suffixTable('Suffix array: suffixes sorted lexicographically'),
     highlight: { active: suffixes.map((_, i) => `r${i}:suffix`) },
-    explanation: 'Sort those suffixes lexicographically and keep only their start positions. For banana$, the suffix array is [6, 5, 3, 1, 0, 4, 2]. This is a Trie flattened into a sorted array: common prefixes become neighboring rows.',
-    invariant: 'Suffix array entry SA[i] is the start index of the i-th sorted suffix.',
+    explanation: `Sort those ${suffixes.length} suffixes lexicographically and keep only their start positions. For ${TEXT}, the suffix array is [${suffixes.map(s => s.index).join(', ')}]. This is a Trie flattened into a sorted array: common prefixes become neighboring rows.`,
+    invariant: `Suffix array entry SA[i] is the start index of the i-th sorted suffix. SA[0] = ${suffixes[0].index} points to "${suffixes[0].suffix}", the lexicographically smallest.`,
   };
 
   yield {
     state: suffixTable('Binary search for pattern "ana"'),
     highlight: { compare: ['r3:suffix'], range: ['r1:suffix', 'r2:suffix', 'r3:suffix'] },
-    explanation: 'To search for "ana", binary-search the sorted suffixes. Compare the pattern with the middle suffix. If the suffix is too small, move right; if too large, move left. Then expand to the neighboring suffixes that share the same prefix.',
+    explanation: `To search for "ana", binary-search the ${suffixes.length} sorted suffixes. Compare the pattern with the middle suffix at rank 3 ("${suffixes[3].suffix}"). If the suffix is too small, move right; if too large, move left. Then expand to the neighboring suffixes that share the same prefix.`,
   };
 
   yield {
     state: suffixTable('Matches are adjacent: anana$ and ana$'),
     highlight: { found: ['r2:suffix', 'r3:suffix'], active: ['r2:start', 'r3:start'] },
-    explanation: 'The matches for "ana" are adjacent in suffix-array order: starts 3 and 1. That is the core power: substring search becomes Binary Search over sorted suffixes. No hash collisions, no backtracking, and the original text remains untouched.',
+    explanation: `The matches for "ana" are adjacent in suffix-array order: starts ${suffixes[2].index} and ${suffixes[3].index}. That is the core power: substring search becomes Binary Search over ${suffixes.length} sorted suffixes. No hash collisions, no backtracking, and the original ${TEXT.length}-character text remains untouched.`,
   };
 }
 
@@ -92,7 +92,7 @@ function* lcpView() {
       },
     }),
     highlight: { active: ['r2:lcp', 'r3:lcp'] },
-    explanation: 'The LCP array stores how many characters each sorted suffix shares with the previous sorted suffix. For banana$, "ana$" and "anana$" share 3 characters. Neighboring suffixes expose repeated substrings.',
+    explanation: `The LCP array stores how many characters each sorted suffix shares with the previous sorted suffix. For ${TEXT}, "${suffixes[2].suffix}" and "${suffixes[3].suffix}" share ${lcps[3]} characters. Neighboring suffixes expose repeated substrings.`,
   };
 
   yield {
@@ -124,7 +124,7 @@ function* lcpView() {
       ][v],
     }),
     highlight: { found: ['lca:structure', 'search:structure'] },
-    explanation: 'LCP turns the suffix array from a search index into a string-analysis tool. Range-minimum queries over LCP answer suffix-tree-style questions, so Sparse Table becomes a natural companion. This is one of the cleanest examples of data structures composing.',
+    explanation: `LCP turns the suffix array from a search index into a string-analysis tool. The max LCP value is ${Math.max(...lcps)}, revealing the longest repeated substring. Range-minimum queries over the ${lcps.length}-entry LCP array answer suffix-tree-style questions, so Sparse Table becomes a natural companion.`,
   };
 
   yield {
@@ -156,7 +156,7 @@ function* lcpView() {
       ][v],
     }),
     highlight: { active: ['bio:why_sa', 'compress:why_sa'] },
-    explanation: 'Suffix arrays sit behind search engines, genome tooling, compression, plagiarism detection, and large-scale deduplication. They are what happens when you take every possible substring entry point and make it searchable with one sorted index.',
+    explanation: `Suffix arrays sit behind search engines, genome tooling, compression, plagiarism detection, and large-scale deduplication. For a text of length ${TEXT.length}, you get ${suffixes.length} sorted entry points -- every possible substring becomes searchable with one sorted index.`,
   };
 }
 
@@ -176,7 +176,8 @@ export const article = {
         {type: 'callout', text: 'A suffix array flattens the suffix tree idea into sorted integers: every substring search becomes a prefix search over neighboring suffixes.'},
         'During the search steps, highlighted cells mark the active binary-search window. The compared cell is the midpoint. When matches appear, notice that they occupy a contiguous block of rows -- no gaps. That contiguity is the structural guarantee that makes binary search over suffixes correct: all suffixes sharing a prefix are neighbors in sorted order.',
         'In the LCP view, each row carries the count of leading characters shared with the previous sorted suffix. A high LCP value means a long repeated substring. The operations table shows what the LCP array unlocks beyond basic search: longest repeated substring, distinct substring count, and suffix-tree-equivalent queries via range-minimum.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/suffix-array.gif', alt: 'Animated walkthrough of the suffix array visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

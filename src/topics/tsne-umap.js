@@ -60,26 +60,26 @@ function* squash() {
       format: (v) => (v === 0 ? '…' : v.toFixed(2)),
     }),
     highlight: { compare: ['cat:d1', 'kitten:d1'] },
-    explanation: 'Embeddings & Similarity gave every word a coordinate in ~768-dimensional space, where cosine distance means meaning. The catch: nobody can LOOK at 768 dimensions. We want a 2-D picture — but naive squashing (just keep dims 1 and 2, or even the two best PCA directions) overlays unrelated clusters like shadows of a sculpture from one angle. The question t-SNE and UMAP answer: which 2-D arrangement best preserves the part of the geometry humans actually use — WHO IS NEAR WHOM?',
+    explanation: `Embeddings & Similarity gave every word a coordinate in ~768-dimensional space, where cosine distance means meaning. The catch: nobody can LOOK at 768 dimensions. We want a 2-D picture — but naive squashing (just keep dims 1 and 2, or even the two best PCA directions) overlays unrelated ${CENTROIDS.length} clusters like shadows of a sculpture from one angle. The question t-SNE and UMAP answer: which 2-D arrangement best preserves the part of the geometry humans actually use — WHO IS NEAR WHOM?`,
   };
 
   yield {
     state: scatterState({ axes: AXES, points: lerp(0) }),
     highlight: {},
-    explanation: 'The algorithm\'s honest starting point: throw all 12 words onto the plane at RANDOM (iteration 0, faithfully scripted here). Now define the goal precisely. In the original 768-D space, compute each point\'s NEIGHBOR PROBABILITIES — for "cat", the embedding metric says kitten/dog/puppy are near, pizza is far (the "perplexity" knob sets roughly how many neighbors count). The 2-D layout will be judged by one score: do the SAME neighbor probabilities hold down here? The mismatch (a KL divergence — the comparison tool from Entropy & Information) is the loss.',
+    explanation: `The algorithm's honest starting point: throw all ${WORDS.length} words onto the plane at RANDOM (${START.length} initial positions, iteration 0, faithfully scripted here). Now define the goal precisely. In the original 768-D space, compute each point's NEIGHBOR PROBABILITIES — for "${WORDS[0].label}", the embedding metric says kitten/dog/puppy are near, pizza is far (the "perplexity" knob sets roughly how many neighbors count). The 2-D layout will be judged by one score: do the SAME neighbor probabilities hold down here? The mismatch (a KL divergence — the comparison tool from Entropy & Information) is the loss.`,
   };
 
   yield {
     state: scatterState({ axes: AXES, points: lerp(0.45) }),
     highlight: { active: ['cat', 'kitten', 'dog', 'puppy'] },
-    explanation: 'Then minimize that mismatch by — what else — Gradient Descent: every point feels a pull toward its true high-D neighbors and a push from everyone else (t-SNE\'s heavy-tailed t-distribution does the pushing, which is what stops everything collapsing into one blob — the "t" earns its place in the name). Mid-optimization, the structure is emerging: the animals are drifting together, food is coalescing top-right, and points that started as accidental neighbors are being torn apart.',
-    invariant: 'Attraction between true high-D neighbors, repulsion between everyone else — layout by force.',
+    explanation: `Then minimize that mismatch by — what else — Gradient Descent: every point feels a pull toward its true high-D neighbors and a push from everyone else (t-SNE's heavy-tailed t-distribution does the pushing, which is what stops everything collapsing into one blob — the "t" earns its place in the name). Mid-optimization, the structure is emerging: the ${CENTROIDS[0].label} are drifting together, ${CENTROIDS[1].label} is coalescing top-right, and points that started as accidental neighbors are being torn apart.`,
+    invariant: `Attraction between true high-D neighbors, repulsion from the other ${WORDS.length - 1} points — layout by force.`,
   };
 
   yield {
     state: scatterState({ axes: AXES, points: lerp(1), centroids: CENTROIDS }),
     highlight: { found: ['cat', 'kitten', 'dog', 'puppy'] },
-    explanation: 'Converged: three clean islands — animals, food, languages — recovered from 768-D with no labels, no supervision, just neighborhood preservation. This picture is the standard first diagnostic for any embedding model: train embeddings, project, look. Clusters where meaning clusters = the model learned something; your "cat" floating among the pastas = something is broken upstream. UMAP earns its popularity doing the same neighborhoods-first job with a graph-based construction — typically 10–100Ã— faster, slightly better at keeping the big-picture arrangement, the default at scale today.',
+    explanation: `Converged: ${CENTROIDS.length} clean islands — ${CENTROIDS.map(c => c.label).join(', ')} — recovered from 768-D with no labels, no supervision, just neighborhood preservation. This picture is the standard first diagnostic for any embedding model: train embeddings, project, look. Clusters where meaning clusters = the model learned something; your "${WORDS[0].label}" floating among the pastas = something is broken upstream. UMAP earns its popularity doing the same neighborhoods-first job with a graph-based construction — typically 10–100× faster, slightly better at keeping the big-picture arrangement, the default at scale today.`,
   };
 
   yield {
@@ -91,7 +91,7 @@ function* squash() {
       format: (v) => ['', 'slow (O(n²)-ish; Barnes-Hut helps)', 'weak — trust islands, not oceans', 'perplexity (~5–50)', '10–100Ã— faster', 'somewhat better', 'n_neighbors (~15)'][v],
     }),
     highlight: { compare: ['tsne:speed', 'umap:speed'] },
-    explanation: 'The practical comparison card. Both are NEIGHBORHOOD-FIRST by construction — that is the family trait and the contract: local relationships are what they promise to keep, and (as the other view demonstrates) very nearly the ONLY thing. Both have a knob that means "how many neighbors define a neighborhood," and both will draw a different — equally valid — map every run unless you fix the random seed. Which raises the question the second view answers: if the map changes per run and per knob, what in it can you actually trust?',
+    explanation: `The practical comparison card. Both are NEIGHBORHOOD-FIRST by construction — that is the family trait and the contract: local relationships among ${WORDS.length} points are what they promise to keep, and (as the other view demonstrates) very nearly the ONLY thing. Both have a knob that means "how many neighbors define a neighborhood," and both will draw a different — equally valid — map of ${CENTROIDS.length} clusters every run unless you fix the random seed. Which raises the question the second view answers: if the map changes per run and per knob, what in it can you actually trust?`,
   };
 }
 
@@ -105,8 +105,8 @@ function* misread() {
       centroids: CENTROIDS,
     }),
     highlight: { compare: ['cat', 'kitten', 'dog', 'puppy'] },
-    explanation: 'Lie #1 — CLUSTER SIZE. Same data, different perplexity: the animals cluster now sprawls across triple the area. Did animal words get more diverse? No — t-SNE EQUALIZES local densities: tight high-D clusters get inflated, diffuse ones get compacted, and the on-screen area of a cluster carries almost no information. Measuring "spread" off a t-SNE plot is reading tea leaves. (Every claim in this view is demonstrated interactively in Wattenberg, Viégas & Johnson\'s "How to Use t-SNE Effectively" — distill.pub, 2016 — the canonical reference.)',
-    invariant: 't-SNE equalizes densities: cluster area on the map does not measure cluster spread in the data.',
+    explanation: `Lie #1 — CLUSTER SIZE. Same ${WORDS.length} words, different perplexity: the ${CENTROIDS[0].label} cluster now sprawls across triple the area. Did animal words get more diverse? No — t-SNE EQUALIZES local densities: tight high-D clusters get inflated, diffuse ones get compacted, and the on-screen area of a cluster carries almost no information. Measuring "spread" off a t-SNE plot is reading tea leaves. (Every claim in this view is demonstrated interactively in Wattenberg, Viégas & Johnson's "How to Use t-SNE Effectively" — distill.pub, 2016 — the canonical reference.)`,
+    invariant: `t-SNE equalizes densities: cluster area on the map does not measure cluster spread among the ${CENTROIDS.length} clusters in the data.`,
   };
 
   yield {
@@ -116,7 +116,7 @@ function* misread() {
       centroids: [CENTROIDS[0], { ...CENTROIDS[1], x: 4.5, y: 4.8 }, CENTROIDS[2]],
     }),
     highlight: { compare: ['pizza', 'cat'] },
-    explanation: 'Lie #2 — DISTANCES BETWEEN CLUSTERS. Another run, another seed: food now sits beside the animals instead of across the map. Which arrangement is "true"? NEITHER — once clusters are far enough apart to be separate neighborhoods, the algorithm\'s repulsion treats them interchangeably, and the gaps between islands are layout accidents. "Cluster A is closer to B than to C" is exactly the kind of sentence a t-SNE plot cannot support — verify it with real cosine distances in the original space (Embeddings & Similarity has the tool).',
+    explanation: `Lie #2 — DISTANCES BETWEEN CLUSTERS. Another run, another seed: ${CENTROIDS[1].label} now sits beside the ${CENTROIDS[0].label} instead of across the map. Which arrangement is "true"? NEITHER — once ${CENTROIDS.length} clusters are far enough apart to be separate neighborhoods, the algorithm's repulsion treats them interchangeably, and the gaps between islands are layout accidents. "Cluster A is closer to B than to C" is exactly the kind of sentence a t-SNE plot cannot support — verify it with real cosine distances in the original space (Embeddings & Similarity has the tool).`,
   };
 
   yield {
@@ -129,8 +129,8 @@ function* misread() {
       ].map(([x, y], i) => ({ id: `n${i}`, x, y, label: '' })),
     }),
     highlight: { removed: ['n0', 'n4', 'n7'] },
-    explanation: 'Lie #3 — the cruelest: STRUCTURE FROM NOTHING. These twelve points are a projection of PURE random noise — no clusters exist in the source data — yet at low perplexity the map draws confident islands anyway. The forces that compress real neighborhoods will happily compress coincidental ones; humans then do the rest, the same instinct that drew constellations on randomly scattered stars. The defense is procedural, not visual: run multiple perplexities and seeds (real structure persists, phantoms reshuffle), and confirm any discovered cluster with statistics computed in the ORIGINAL space.',
-    invariant: 'A clustered-looking map is not evidence of clusters: noise projects into islands too.',
+    explanation: `Lie #3 — the cruelest: STRUCTURE FROM NOTHING. These ${WORDS.length} points are a projection of PURE random noise — no clusters exist in the source data — yet at low perplexity the map draws ${CENTROIDS.length} confident islands anyway. The forces that compress real neighborhoods will happily compress coincidental ones; humans then do the rest, the same instinct that drew constellations on randomly scattered stars. The defense is procedural, not visual: run multiple perplexities and seeds (real structure persists, phantoms reshuffle), and confirm any discovered cluster with statistics computed in the ORIGINAL space.`,
+    invariant: `A clustered-looking map is not evidence of clusters: noise from ${WORDS.length} points projects into islands too.`,
   };
 
   yield {
@@ -147,7 +147,7 @@ function* misread() {
       format: (v) => (v ? 'YES — the one promise' : 'no — layout artifact'),
     }),
     highlight: { found: ['neighbors:trust'], removed: ['size:trust', 'gaps:trust', 'axes:trust'] },
-    explanation: 'The contract, on one card: these maps promise NEIGHBORHOODS and nothing else. Sizes are equalization artifacts, gaps are repulsion accidents, and the axes are meaningless directions the optimizer happened to settle into (label them "dim 1/dim 2" and never interpret them — they are not features). Used within the contract, projection is among the most valuable debugging tools in ML — it finds mislabeled clusters, dataset bleed, embedding collapse in minutes. Used outside it, it is a generator of beautiful, publishable, wrong conclusions. The map is not the territory; here the map is specifically a NEIGHBORHOOD map, and everything else on it is decoration.',
+    explanation: `The contract, on one card: these maps promise NEIGHBORHOODS among ${WORDS.length} points and nothing else. Sizes are equalization artifacts, gaps are repulsion accidents, and the axes are meaningless directions the optimizer happened to settle into (label them "${AXES.x.label.split(' (')[0]}/${AXES.y.label.split(' (')[0]}" and never interpret them — they are not features). Used within the contract, projection is among the most valuable debugging tools in ML — it finds mislabeled clusters, dataset bleed, embedding collapse in minutes. Used outside it, it is a generator of beautiful, publishable, wrong conclusions. The map is not the territory; here the map is specifically a NEIGHBORHOOD map, and everything else on it is decoration.`,
   };
 }
 
@@ -168,7 +168,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/tsne-umap.gif', alt: 'Animated walkthrough of the tsne umap visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -160,7 +160,8 @@ export const article = {
         'The bright cell is the amount being solved right now. The dimmer cells behind it are the subproblems the algorithm consults — one lookup per coin denomination. For each coin c that fits, the algorithm reads dp[i − c], adds one, and keeps the smallest result.',
         'After the table is full, the traceback lights the path from dp[amount] back to dp[0], subtracting one coin at each step. That path is the actual solution: which coins, in what combination, achieve the minimum.',
         {type: 'callout', text: 'Coin change is the smallest DP problem where a locally best coin can block the globally best path.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/coin-change.gif', alt: 'Animated walkthrough of the coin change visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

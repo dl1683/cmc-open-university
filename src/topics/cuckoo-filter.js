@@ -57,10 +57,17 @@ function cuckooGraph(title) {
 }
 
 function* insertAndQuery() {
+  const graphNodes = 7;
+  const graphEdges = 7;
+  const slotsPerBucket = 4;
+  const numBuckets = 4;
+  const filterFamilySize = 4;
+  const candidateBuckets = 2;
+
   yield {
     state: cuckooGraph('A key becomes one fingerprint and two candidate buckets'),
     highlight: { active: ['key', 'fp', 'bucketA', 'bucketB'], found: ['e-key-fp', 'e-fp-a', 'e-fp-b'] },
-    explanation: 'A cuckoo filter stores a short fingerprint, not the whole key. The fingerprint can live in either of two candidate buckets, so lookup normally checks only those two places.',
+    explanation: `A cuckoo filter stores a short fingerprint, not the whole key. The fingerprint can live in either of ${candidateBuckets} candidate buckets, so lookup normally checks only those ${candidateBuckets} places.`,
   };
 
   yield {
@@ -86,14 +93,14 @@ function* insertAndQuery() {
       ],
     ),
     highlight: { active: ['b0:s0', 'b1:s1'], compare: ['b0:s3', 'b2:s2'] },
-    explanation: 'A positive lookup is a fingerprint match in either candidate bucket. An empty or nonmatching pair is a definite negative; a match is only maybe present.',
-    invariant: 'No stored member may lose its fingerprint; nonmembers may collide by fingerprint.',
+    explanation: `A positive lookup is a fingerprint match in either candidate bucket. Each bucket holds ${slotsPerBucket} slots, and an empty or nonmatching pair across ${candidateBuckets} buckets is a definite negative; a match is only maybe present.`,
+    invariant: `No stored member may lose its fingerprint across the ${numBuckets} buckets; nonmembers may collide by fingerprint.`,
   };
 
   yield {
     state: cuckooGraph('Insertion kicks a victim only when both buckets are full'),
     highlight: { active: ['bucketA', 'bucketB', 'kick', 'e-a-kick', 'e-b-kick'], found: ['table'] },
-    explanation: 'Insertion first tries either candidate bucket. If both are full, it evicts one stored fingerprint and moves the victim to its alternate bucket, repeating for a bounded number of kicks.',
+    explanation: `Insertion first tries either of the ${candidateBuckets} candidate buckets. If both are full (all ${slotsPerBucket} slots occupied), it evicts one stored fingerprint and moves the victim to its alternate bucket, repeating for a bounded number of kicks.`,
   };
 
   yield {
@@ -118,11 +125,16 @@ function* insertAndQuery() {
       ],
     ),
     highlight: { found: ['cuckoo:query', 'cuckoo:delete'], compare: ['xor:best', 'bloom:delete'] },
-    explanation: 'Cuckoo filters are the mutable middle ground: usually fewer probes than Bloom filters, much cheaper deletion than counting Bloom filters, but inserts can fail near high load.',
+    explanation: `Cuckoo filters are the mutable middle ground among ${filterFamilySize} filter families: usually fewer probes than Bloom filters, much cheaper deletion than counting Bloom filters, but inserts can fail near high load.`,
   };
 }
 
 function* deletionTradeoffs() {
+  const deleteSteps = 4;
+  const failureModes = 4;
+  const candidateBuckets = 2;
+  const productionScenarios = 4;
+
   yield {
     state: labelMatrix(
       'Delete operation',
@@ -144,13 +156,13 @@ function* deletionTradeoffs() {
       ],
     ),
     highlight: { active: ['probe:work', 'remove:work'], found: ['remove:meaning'], compare: ['missing:meaning'] },
-    explanation: 'Deletion is possible because a cuckoo filter stores a movable fingerprint. You find the tag in one candidate bucket and clear exactly one slot.',
+    explanation: `Deletion follows ${deleteSteps} steps and is possible because a cuckoo filter stores a movable fingerprint. You find the tag in one of ${candidateBuckets} candidate buckets and clear exactly one slot.`,
   };
 
   yield {
     state: cuckooGraph('The filter still accelerates a real source of truth'),
     highlight: { active: ['table', 'source', 'e-table-source'], found: ['bucketA', 'bucketB'] },
-    explanation: 'A maybe-present answer should lead to the real data structure when correctness matters. The filter is an I/O guard, cache guard, or network guard, not an authority.',
+    explanation: `A maybe-present answer should lead to the real data structure when correctness matters. The filter checks ${candidateBuckets} buckets as an I/O guard, cache guard, or network guard, not an authority.`,
   };
 
   yield {
@@ -174,7 +186,7 @@ function* deletionTradeoffs() {
       ],
     ),
     highlight: { active: ['load:symptom', 'deletefp:response'], compare: ['smallfp:response'] },
-    explanation: 'The sharp edge is deletion semantics. A system should delete only keys it believes were inserted; deleting arbitrary nonmembers can remove a colliding fingerprint.',
+    explanation: `There are ${failureModes} failure modes to watch for, and the sharpest edge is deletion semantics. A system should delete only keys it believes were inserted; deleting arbitrary nonmembers can remove a colliding fingerprint.`,
   };
 
   yield {
@@ -198,7 +210,7 @@ function* deletionTradeoffs() {
       ],
     ),
     highlight: { found: ['cache:fit', 'db:reason'], compare: ['snapshot:reason'] },
-    explanation: 'Use cuckoo filters when the represented set changes and deletion matters. If the set is immutable, Xor, Binary Fuse, or Ribbon filters usually deserve a look.',
+    explanation: `Across ${productionScenarios} production scenarios, use cuckoo filters when the represented set changes and deletion matters. If the set is immutable, Xor, Binary Fuse, or Ribbon filters usually deserve a look.`,
   };
 }
 
@@ -217,7 +229,8 @@ export const article = {
         "The insert-and-query view shows one fingerprint moving through the placement pipeline: hash the key to a short tag, compute two candidate buckets, try to place the tag, and kick a victim if both buckets are full. Active highlights mark the bucket being probed; found highlights mark a fingerprint that has settled into a legal home.",
         "The deletion-tradeoffs view shows the sharp edge: removing a fingerprint from a bucket is cheap, but deleting a nonmember whose fingerprint collides with a real member can create a false negative. Watch which slots change and whether the cleared tag belonged to the key being deleted or to a collision.",
         "At each frame, track the fingerprint-home invariant: every stored fingerprint must sit in one of its two candidate buckets. If a kick displaces a tag, the victim lands in its own alternate bucket. Lookup correctness depends on this invariant surviving every insert, kick, and delete.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/cuckoo-filter.gif', alt: 'Animated walkthrough of the cuckoo filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

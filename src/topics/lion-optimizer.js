@@ -49,7 +49,7 @@ function* signMomentum() {
       ],
     ),
     highlight: { active: ['state:Lion', 'update:Lion', 'memory:Lion'], compare: ['state:AdamW'] },
-    explanation: 'Use the table as an AdamW contrast. Adam keeps direction memory m and scale memory v; Lion keeps only momentum-like direction state. Its update is the sign of a momentum blend, so gradient magnitude is mostly discarded before the learning rate and weight decay are applied. That makes Lion memory-light, but also changes the learning-rate scale.',
+    explanation: `Use the table as an AdamW contrast. Adam keeps direction memory m and scale memory v; ${topic.title} keeps only momentum-like direction state. Its update is the sign of a momentum blend, so gradient magnitude is mostly discarded before the learning rate and weight decay are applied. That makes ${topic.title} memory-light, but also changes the learning-rate scale.`,
   };
 
   yield {
@@ -61,8 +61,8 @@ function* signMomentum() {
       ],
     }),
     highlight: { active: ['lion'], compare: ['sgd'] },
-    explanation: 'The plot shows the price of sign updates. The SGD-like line changes smoothly with gradient size; Lion jumps to -1 or +1 once the blended direction crosses zero. This can keep motion decisive when gradients are small, but it can also make the effective update norm larger than an AdamW recipe expects. Smaller learning rates are usually not optional.',
-    invariant: 'Lion changes the optimizer geometry from adaptive magnitude to signed direction.',
+    explanation: `The plot shows the price of sign updates. The SGD-like line changes smoothly with gradient size; ${topic.title} jumps to -1 or +1 once the blended direction crosses zero. This can keep motion decisive when gradients are small, but it can also make the effective update norm larger than an AdamW recipe expects. Smaller learning rates are usually not optional.`,
+    invariant: `${topic.title} changes the optimizer geometry from adaptive magnitude to signed direction.`,
   };
 
   yield {
@@ -83,7 +83,7 @@ function* signMomentum() {
       ],
     }, { title: 'Lion update path' }),
     highlight: { active: ['mom', 'blend', 'sign'], found: ['param'] },
-    explanation: 'Follow the update path: the current gradient refreshes momentum, momentum and the fresh gradient are blended, the sign turns that blend into a direction-only step, and the weights move. Framework details differ, but the stable mental model is sign momentum plus decoupled weight decay.',
+    explanation: `Follow the ${topic.title} update path: the current gradient refreshes momentum, momentum and the fresh gradient are blended, the sign turns that blend into a direction-only step, and the weights move. Framework details differ, but the stable mental model is ${topic.category} sign momentum plus decoupled weight decay.`,
   };
 
   yield {
@@ -107,7 +107,7 @@ function* signMomentum() {
       ],
     ),
     highlight: { found: ['lr:rule', 'batch:rule', 'eval:rule'] },
-    explanation: 'The practical knobs are where Lion claims succeed or die. Retune learning rate and decoupled weight decay, account for batch size, and run enough seeds to see variance. A one-seed win over an untuned AdamW baseline is not evidence; optimizer gains are usually recipe-level claims.',
+    explanation: `The practical knobs are where ${topic.title} claims succeed or die. Retune learning rate and decoupled weight decay, account for batch size, and run enough seeds to see variance. A one-seed win over an untuned AdamW baseline is not evidence; ${topic.id} gains are usually recipe-level claims.`,
   };
 }
 
@@ -129,7 +129,7 @@ function* discoveredOptimizer() {
       ],
     }, { title: 'Optimizer discovery as program search' }),
     highlight: { active: ['search', 'proxy', 'select'], found: ['lion'] },
-    explanation: 'This graph is the meta-lesson. Lion was found by program search: generate optimizer rules, test them on proxy tasks, select and simplify the ones that transfer. That makes Lion both an optimizer and a warning about search. Proxy tasks can discover useful rules, but they can also reward shortcuts.',
+    explanation: `This graph is the meta-lesson. ${topic.title} was found by program search: generate optimizer rules, test them on proxy tasks, select and simplify the ones that transfer. That makes ${topic.title} both an optimizer and a warning about search. Proxy tasks can discover useful rules, but they can also reward shortcuts.`,
   };
 
   yield {
@@ -151,7 +151,7 @@ function* discoveredOptimizer() {
       ],
     ),
     highlight: { active: ['u:operation'], found: ['w:operation'] },
-    explanation: 'The rule sketch is intentionally small: keep an EMA of gradients, form a sign direction, step weights. Its value is not just fewer lines of code. Sign momentum is a different inductive bias from Adam variance scaling, so it may prefer different schedules, batch sizes, and regularization.',
+    explanation: `The ${topic.title} rule sketch is intentionally small: keep an EMA of gradients, form a sign direction, step weights. Its value is not just fewer lines of code. Sign momentum is a different inductive bias from Adam variance scaling, so it may prefer different schedules, batch sizes, and regularization.`,
   };
 
   yield {
@@ -164,7 +164,7 @@ function* discoveredOptimizer() {
       ],
     }),
     highlight: { active: ['gain'] },
-    explanation: 'Read this curve as a hypothesis from the paper, not a promise. Larger batches may make Lion more attractive because sign momentum has cleaner direction estimates and lower optimizer-state memory, but the trend can disappear under different data, schedules, or model sizes.',
+    explanation: `Read this curve as a hypothesis from the paper, not a promise. Larger batches may make ${topic.title} more attractive because sign momentum has cleaner direction estimates and lower optimizer-state memory, but the trend can disappear under different data, schedules, or model sizes.`,
   };
 
   yield {
@@ -188,7 +188,7 @@ function* discoveredOptimizer() {
       ],
     ),
     highlight: { found: ['vision:lesson', 'diffusion:lesson', 'language:audit', 'ads:lesson'] },
-    explanation: 'The safe conclusion is deliberately narrow. Lion is worth benchmarking when optimizer memory, large batches, or update simplicity matter. It is not a default replacement for AdamW until the full recipe wins on quality, cost, and variance.',
+    explanation: `The safe conclusion is deliberately narrow. ${topic.title} is worth benchmarking when optimizer memory, large batches, or update simplicity matter. It is not a default replacement for AdamW until the full ${topic.id} recipe wins on quality, cost, and variance.`,
   };
 }
 
@@ -201,6 +201,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/lion-optimizer.gif', alt: 'Animated walkthrough of the lion optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why Lion Exists',
       paragraphs: [

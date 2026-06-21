@@ -84,16 +84,19 @@ function bundleGraph(title) {
 }
 
 function* decisionGraphView() {
+  const nodeCount = 8;
+  const edgeCount = 8;
+  const pipelineStages = ['PEP', 'input', 'data', 'Rego', 'eval', 'decision', 'trace', 'audit'];
   yield {
     state: decisionGraph('OPA decouples policy decision from enforcement'),
     highlight: { active: ['pep', 'input', 'rego', 'e-pep-input', 'e-input-rego'], compare: ['decision'] },
-    explanation: 'The policy enforcement point sends OPA a structured question at the moment it needs a decision. The service still enforces the result, but the rule logic is centralized in Rego instead of scattered through request handlers.',
+    explanation: `The policy enforcement point sends OPA a structured question at the moment it needs a decision. The full decision graph has ${nodeCount} nodes spanning ${pipelineStages.length} pipeline stages, but the service still enforces the result while Rego centralizes rule logic.`,
   };
   yield {
     state: decisionGraph('Input plus data documents feed declarative rules'),
     highlight: { active: ['input', 'data', 'rego', 'e-input-rego', 'e-data-rego'], found: ['eval'] },
-    explanation: 'Rego evaluates JSON-like input against data documents. Input is the current request; data holds slower-changing facts such as roles, allowed registries, trusted builders, risk tiers, or network metadata.',
-    invariant: 'Policy is a query over structured data, not scattered if statements.',
+    explanation: `Rego evaluates JSON-like input against data documents across ${edgeCount} edges in the decision graph. Input is the current request; data holds slower-changing facts such as roles, allowed registries, trusted builders, risk tiers, or network metadata.`,
+    invariant: `Policy is a query over ${nodeCount} structured-data nodes, not scattered if statements.`,
   };
   yield {
     state: labelMatrix(
@@ -118,30 +121,33 @@ function* decisionGraphView() {
       ],
     ),
     highlight: { active: ['allow:type', 'deny:use', 'reasons:use'], compare: ['score:type'] },
-    explanation: 'OPA decisions can be richer than allow or deny. A policy can return deny reasons, filtered data, required approvals, risk scores, or routing metadata that the enforcement point knows how to use.',
+    explanation: `OPA supports ${5} distinct decision types beyond simple allow or deny. A policy can return deny reasons, filtered data, required approvals, risk scores, or routing metadata that the enforcement point knows how to use.`,
   };
   yield {
     state: decisionGraph('Explain traces make policy debuggable'),
     highlight: { active: ['eval', 'trace', 'audit', 'e-eval-trace', 'e-decision-audit'], found: ['decision'] },
-    explanation: 'A policy decision must be explainable after the incident. Record the input shape, policy bundle version, decision id, result, and important reasons while avoiding secret leakage.',
+    explanation: `A policy decision must be explainable after the incident. The ${pipelineStages[pipelineStages.length - 2]} and ${pipelineStages[pipelineStages.length - 1]} nodes capture the input shape, policy bundle version, decision id, result, and important reasons while avoiding secret leakage.`,
   };
 }
 
 function* policyBundleLifecycle() {
+  const lifecycleStages = ['repo', 'test', 'build', 'sign', 'dist', 'cache', 'serve', 'metric'];
+  const stageCount = lifecycleStages.length;
+  const deploymentModes = ['sidecar', 'host-local daemon', 'embedded library', 'centralized service'];
   yield {
     state: bundleGraph('Policy changes need the same discipline as code changes'),
     highlight: { active: ['repo', 'test', 'build', 'e-repo-test', 'e-repo-build'], compare: ['dist'] },
-    explanation: 'Policy-as-code is production code. It should live in reviewable files, use fixtures, run tests, and build a bundle that can be promoted through environments.',
+    explanation: `Policy-as-code is production code. The bundle lifecycle spans ${stageCount} stages from repo to metrics, and each stage should live in reviewable files, use fixtures, run tests, and build a bundle that can be promoted through environments.`,
   };
   yield {
     state: bundleGraph('Bundles should be signed or otherwise pinned'),
     highlight: { active: ['build', 'sign', 'dist', 'e-build-sign', 'e-sign-dist'], found: ['test'] },
-    explanation: 'The bundle is executable authorization logic. Treat it like a supply-chain artifact: identify it by digest, sign it when appropriate, and know which services consumed which version.',
+    explanation: `The bundle is executable authorization logic passing through ${lifecycleStages[2]}, ${lifecycleStages[3]}, and ${lifecycleStages[4]}. Treat it like a supply-chain artifact: identify it by digest, sign it when appropriate, and know which services consumed which version.`,
   };
   yield {
     state: bundleGraph('Local caches avoid one central policy bottleneck'),
     highlight: { active: ['dist', 'cache', 'serve', 'e-dist-cache', 'e-cache-serve'], compare: ['repo'] },
-    explanation: 'OPA can run as a sidecar, host-local daemon, embedded library, or centralized service. Local caches avoid a central bottleneck, but every service needs an explicit stale-bundle policy.',
+    explanation: `OPA can run in ${deploymentModes.length} modes: ${deploymentModes.join(', ')}. Local caches avoid a central bottleneck, but every service needs an explicit stale-bundle policy.`,
   };
   yield {
     state: labelMatrix(
@@ -166,7 +172,7 @@ function* policyBundleLifecycle() {
       ],
     ),
     highlight: { active: ['input:control', 'bundle:control', 'shadow:control'], compare: ['break:failure'] },
-    explanation: 'The hard problems are schema stability, data freshness, rollout, and incident behavior. A correct rule in the wrong bundle or data version can still make the wrong decision.',
+    explanation: `The matrix lists ${5} lifecycle hazards across the ${stageCount}-stage pipeline. The hard problems are schema stability, data freshness, rollout, and incident behavior. A correct rule in the wrong bundle or data version can still make the wrong decision.`,
   };
 }
 
@@ -188,7 +194,8 @@ export const article = {
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: "callout", text: "OPA turns authorization into a replayable data query: input, data, rules, decision, and enforcement all have named boundaries."},
         {type: "image", src: "https://developer.gs.com/blog/blog-posts/scaling-opa-through-oces/oces_1_v2.png", alt: "Open Policy Agent policy decision point in a service request path", caption: "OPA separates the policy decision point from the application code that enforces the result. Source: Goldman Sachs Developer Blog."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/opa-rego-policy-decision-graph.gif', alt: 'Animated walkthrough of the opa rego policy decision graph visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

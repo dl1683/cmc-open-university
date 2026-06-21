@@ -115,111 +115,141 @@ function verificationGraph(title) {
 }
 
 function* buildLadder() {
+  const l1Active = ['source', 'builder', 'artifact', 'prov', 'e-source-builder', 'e-builder-artifact', 'e-builder-prov', 'e-artifact-prov'];
+  const l1Compare = ['signed'];
+  const l1Title = 'Build L1 means provenance exists';
   yield {
-    state: buildGraph('Build L1 means provenance exists'),
-    highlight: { active: ['source', 'builder', 'artifact', 'prov', 'e-source-builder', 'e-builder-artifact', 'e-builder-prov', 'e-artifact-prov'], compare: ['signed'] },
-    explanation: 'SLSA Build L1 gives you provenance: a record of what built the artifact, what process ran, and which top-level inputs were used. It helps with debugging and expectation checks, but it can still be incomplete or unsigned.',
+    state: buildGraph(l1Title),
+    highlight: { active: l1Active, compare: l1Compare },
+    explanation: `SLSA ${l1Title.split(' means')[0]} gives you provenance: a record linking ${l1Active.filter(id => !id.startsWith('e-')).length} nodes (${l1Active.filter(id => !id.startsWith('e-')).join(', ')}) via ${l1Active.filter(id => id.startsWith('e-')).length} edges. It helps with debugging and expectation checks, but without the ${l1Compare[0]} node it can still be incomplete or unsigned.`,
   };
+  const l2Active = ['builder', 'prov', 'signed', 'expect', 'e-builder-prov', 'e-prov-signed', 'e-signed-expect'];
+  const l2Found = ['verify'];
+  const l2Title = 'Build L2 adds hosted, signed provenance';
   yield {
-    state: buildGraph('Build L2 adds hosted, signed provenance'),
-    highlight: { active: ['builder', 'prov', 'signed', 'expect', 'e-builder-prov', 'e-prov-signed', 'e-signed-expect'], found: ['verify'] },
-    explanation: 'Build L2 moves trust into a hosted build platform that generates and signs provenance. The verifier can reject unsigned or inauthentic provenance instead of trusting a loose JSON file.',
+    state: buildGraph(l2Title),
+    highlight: { active: l2Active, found: l2Found },
+    explanation: `${l2Title}: trust moves into a hosted build platform where ${l2Active.filter(id => !id.startsWith('e-')).length} nodes (${l2Active.filter(id => !id.startsWith('e-')).join(', ')}) are active and the ${l2Found[0]} node is now reachable. The verifier can reject unsigned or inauthentic provenance instead of trusting a loose JSON file.`,
     invariant: 'The verifier must compare provenance against expectations, not only check that it exists.',
   };
+  const l3Active = ['builder', 'prov', 'hardened', 'expect', 'e-prov-hardened', 'e-hardened-expect'];
+  const l3Compare = ['signed'];
+  const l3Title = 'Build L3 hardens the build platform itself';
   yield {
-    state: buildGraph('Build L3 hardens the build platform itself'),
-    highlight: { active: ['builder', 'prov', 'hardened', 'expect', 'e-prov-hardened', 'e-hardened-expect'], compare: ['signed'] },
-    explanation: 'Build L3 is about tampering during the build. The platform must isolate builds from one another and keep provenance-signing secrets away from user-defined build steps.',
+    state: buildGraph(l3Title),
+    highlight: { active: l3Active, compare: l3Compare },
+    explanation: `${l3Title}. With ${l3Active.filter(id => !id.startsWith('e-')).length} active nodes (${l3Active.filter(id => !id.startsWith('e-')).join(', ')}), the platform must isolate builds from one another and keep provenance-signing secrets away from user-defined build steps. The ${l3Compare[0]} path is shown for comparison against L2.`,
   };
+  const matrixRows = [
+    { id: 'l0', label: 'Build L0' },
+    { id: 'l1', label: 'Build L1' },
+    { id: 'l2', label: 'Build L2' },
+    { id: 'l3', label: 'Build L3' },
+  ];
+  const matrixCols = [
+    { id: 'claim', label: 'claim' },
+    { id: 'blocks', label: 'blocks' },
+  ];
+  const matrixValues = [
+    ['none', 'nothing'],
+    ['provenance exists', 'mistakes'],
+    ['hosted+signed', 'post-build tamper'],
+    ['hardened build', 'in-build tamper'],
+  ];
+  const matrixActive = ['l1:claim', 'l2:claim', 'l3:claim'];
+  const matrixFound = ['l2:blocks', 'l3:blocks'];
   yield {
-    state: labelMatrix(
-      'Build track ladder',
-      [
-        { id: 'l0', label: 'Build L0' },
-        { id: 'l1', label: 'Build L1' },
-        { id: 'l2', label: 'Build L2' },
-        { id: 'l3', label: 'Build L3' },
-      ],
-      [
-        { id: 'claim', label: 'claim' },
-        { id: 'blocks', label: 'blocks' },
-      ],
-      [
-        ['none', 'nothing'],
-        ['provenance exists', 'mistakes'],
-        ['hosted+signed', 'post-build tamper'],
-        ['hardened build', 'in-build tamper'],
-      ],
-    ),
-    highlight: { active: ['l1:claim', 'l2:claim', 'l3:claim'], found: ['l2:blocks', 'l3:blocks'] },
-    explanation: 'The ladder is cumulative: higher build levels make the provenance harder to forge or bypass, but the consumer still needs policy expectations.',
+    state: labelMatrix('Build track ladder', matrixRows, matrixCols, matrixValues),
+    highlight: { active: matrixActive, found: matrixFound },
+    explanation: `The ladder is a ${matrixRows.length}-row by ${matrixCols.length}-column matrix (${matrixCols.map(c => c.label).join(', ')}). ${matrixActive.length} claim cells are active (${matrixRows.filter((_, i) => i > 0).map(r => r.label).join(', ')}); ${matrixFound.length} blocking outcomes are confirmed (${matrixFound.map(f => f.split(':')[0]).map(id => matrixRows.find(r => r.id === id).label).join(', ')}). Higher build levels make provenance harder to forge, but the consumer still needs policy expectations.`,
   };
 }
 
 function* sourceLadder() {
+  const s1Active = ['repo', 'rev', 'e-repo-rev'];
+  const s1Compare = ['history', 'controls'];
+  const s1Title = 'Source L1 starts with version-controlled revisions';
   yield {
-    state: sourceGraph('Source L1 starts with version-controlled revisions'),
-    highlight: { active: ['repo', 'rev', 'e-repo-rev'], compare: ['history', 'controls'] },
-    explanation: 'The Source track reintroduces source integrity. L1 starts with discrete source revisions in a source control system, so consumers can name exactly what source they are consuming.',
+    state: sourceGraph(s1Title),
+    highlight: { active: s1Active, compare: s1Compare },
+    explanation: `The Source track reintroduces source integrity. ${s1Title}: ${s1Active.filter(id => !id.startsWith('e-')).length} nodes (${s1Active.filter(id => !id.startsWith('e-')).join(', ')}) are active so consumers can name exactly what source they are consuming. The ${s1Compare.join(' and ')} nodes come later.`,
   };
+  const s2Active = ['rev', 'history', 'vsa', 'e-rev-history', 'e-controls-vsa'];
+  const s2Compare = ['review'];
+  const s2Title = 'Source L2 preserves history and provenance';
   yield {
-    state: sourceGraph('Source L2 preserves history and provenance'),
-    highlight: { active: ['rev', 'history', 'vsa', 'e-rev-history', 'e-controls-vsa'], compare: ['review'] },
-    explanation: 'Source L2 focuses on reliable change history and source provenance. A consumer should be able to inspect how a revision came to exist, not only see its final tree hash.',
+    state: sourceGraph(s2Title),
+    highlight: { active: s2Active, compare: s2Compare },
+    explanation: `${s2Title}: ${s2Active.filter(id => !id.startsWith('e-')).length} nodes are now active (${s2Active.filter(id => !id.startsWith('e-')).join(', ')}), connected by ${s2Active.filter(id => id.startsWith('e-')).length} edges. A consumer should be able to inspect how a revision came to exist, not only see its final tree hash. The ${s2Compare[0]} node remains pending for L4.`,
   };
+  const s3Active = ['access', 'controls', 'vsa', 'e-access-controls', 'e-controls-vsa'];
+  const s3Found = ['consumer'];
+  const s3Title = 'Source L3 makes controls continuous and technical';
   yield {
-    state: sourceGraph('Source L3 makes controls continuous and technical'),
-    highlight: { active: ['access', 'controls', 'vsa', 'e-access-controls', 'e-controls-vsa'], found: ['consumer'] },
-    explanation: 'Source L3 requires enforced organizational controls. The data structure is not just commits; it includes roles, protected references, policy configuration, and evidence that controls were active.',
+    state: sourceGraph(s3Title),
+    highlight: { active: s3Active, found: s3Found },
+    explanation: `${s3Title}: ${s3Active.filter(id => !id.startsWith('e-')).length} nodes (${s3Active.filter(id => !id.startsWith('e-')).join(', ')}) enforce organizational controls while the ${s3Found[0]} node is now reachable. The data structure is not just commits; it includes roles, protected references, policy configuration, and evidence that controls were active.`,
     invariant: 'A source level is a claim about managed process, not a property of git alone.',
   };
+  const s4Active = ['controls', 'review', 'vsa', 'consumer', 'e-controls-review', 'e-review-vsa', 'e-vsa-consumer'];
+  const s4Compare = ['repo'];
+  const s4Title = 'Source L4 adds required code review';
   yield {
-    state: sourceGraph('Source L4 adds required code review'),
-    highlight: { active: ['controls', 'review', 'vsa', 'consumer', 'e-controls-review', 'e-review-vsa', 'e-vsa-consumer'], compare: ['repo'] },
-    explanation: 'Source L4 adds review as an integrity control. It raises the bar against insider mistakes and unauthorized changes, but the verifier still has to know which source control system and claims it trusts.',
+    state: sourceGraph(s4Title),
+    highlight: { active: s4Active, compare: s4Compare },
+    explanation: `${s4Title}: ${s4Active.filter(id => !id.startsWith('e-')).length} nodes are active (${s4Active.filter(id => !id.startsWith('e-')).join(', ')}), linked by ${s4Active.filter(id => id.startsWith('e-')).length} edges. Review raises the bar against insider mistakes and unauthorized changes, but the verifier still has to know which source control system (${s4Compare[0]}) and claims it trusts.`,
   };
 }
 
 function* verificationMap() {
+  const v1Active = ['buildProv', 'sourceVsa', 'roots', 'e-build-roots', 'e-source-roots'];
+  const v1Compare = ['decision'];
+  const v1Title = 'Verification starts with trust roots';
   yield {
-    state: verificationGraph('Verification starts with trust roots'),
-    highlight: { active: ['buildProv', 'sourceVsa', 'roots', 'e-build-roots', 'e-source-roots'], compare: ['decision'] },
-    explanation: 'A verifier needs configured roots of trust: which build platforms, source control systems, signing identities, or verification-summary issuers can speak for a package.',
+    state: verificationGraph(v1Title),
+    highlight: { active: v1Active, compare: v1Compare },
+    explanation: `${v1Title}: ${v1Active.filter(id => !id.startsWith('e-')).length} nodes (${v1Active.filter(id => !id.startsWith('e-')).join(', ')}) feed into verification via ${v1Active.filter(id => id.startsWith('e-')).length} edges. A verifier needs configured roots of trust: which build platforms, source control systems, signing identities, or verification-summary issuers can speak for a package. The ${v1Compare[0]} node is the eventual outcome.`,
   };
+  const v2Active = ['artifact', 'buildProv', 'sourceVsa', 'e-artifact-build', 'e-artifact-source'];
+  const v2Found = ['expect'];
+  const v2Title = 'Subject matching binds claims to the artifact';
   yield {
-    state: verificationGraph('Subject matching binds claims to the artifact'),
-    highlight: { active: ['artifact', 'buildProv', 'sourceVsa', 'e-artifact-build', 'e-artifact-source'], found: ['expect'] },
-    explanation: 'A valid attestation for the wrong artifact or revision is irrelevant. Subject digests, source revision identifiers, builder IDs, and verifier IDs are join keys.',
+    state: verificationGraph(v2Title),
+    highlight: { active: v2Active, found: v2Found },
+    explanation: `${v2Title}: ${v2Active.filter(id => !id.startsWith('e-')).length} nodes (${v2Active.filter(id => !id.startsWith('e-')).join(', ')}) are matched by subject digest, unlocking the ${v2Found[0]} node. A valid attestation for the wrong artifact or revision is irrelevant. Subject digests, source revision identifiers, builder IDs, and verifier IDs are join keys.`,
   };
+  const v3Active = ['expect', 'policy', 'decision', 'e-expect-policy', 'e-policy-decision'];
+  const v3Compare = ['roots'];
+  const v3Title = 'Expectations turn attestations into a decision';
   yield {
-    state: verificationGraph('Expectations turn attestations into a decision'),
-    highlight: { active: ['expect', 'policy', 'decision', 'e-expect-policy', 'e-policy-decision'], compare: ['roots'] },
-    explanation: 'SLSA verification is a comparison. The actual claims are compared with expected source repo, branch or tag policy, build type, builder ID, parameters, and minimum trusted level.',
+    state: verificationGraph(v3Title),
+    highlight: { active: v3Active, compare: v3Compare },
+    explanation: `${v3Title}: ${v3Active.filter(id => !id.startsWith('e-')).length} nodes (${v3Active.filter(id => !id.startsWith('e-')).join(', ')}) form the decision chain, referencing the ${v3Compare[0]} established earlier. SLSA verification is a comparison: actual claims versus expected source repo, branch or tag policy, build type, builder ID, parameters, and minimum trusted level.`,
   };
+  const failRows = [
+    { id: 'subject', label: 'subject mismatch' },
+    { id: 'root', label: 'unknown root' },
+    { id: 'builder', label: 'bad builder' },
+    { id: 'params', label: 'bad params' },
+    { id: 'level', label: 'low level' },
+  ];
+  const failCols = [
+    { id: 'decision', label: 'decision' },
+    { id: 'why', label: 'why' },
+  ];
+  const failValues = [
+    ['deny', 'wrong artifact'],
+    ['deny', 'cannot trust issuer'],
+    ['deny', 'unexpected platform'],
+    ['deny', 'unapproved build input'],
+    ['warn/deny', 'risk threshold'],
+  ];
+  const failRemoved = ['subject:decision', 'root:decision', 'builder:decision', 'params:decision'];
+  const failActive = ['level:decision'];
   yield {
-    state: labelMatrix(
-      'Verifier failures',
-      [
-        { id: 'subject', label: 'subject mismatch' },
-        { id: 'root', label: 'unknown root' },
-        { id: 'builder', label: 'bad builder' },
-        { id: 'params', label: 'bad params' },
-        { id: 'level', label: 'low level' },
-      ],
-      [
-        { id: 'decision', label: 'decision' },
-        { id: 'why', label: 'why' },
-      ],
-      [
-        ['deny', 'wrong artifact'],
-        ['deny', 'cannot trust issuer'],
-        ['deny', 'unexpected platform'],
-        ['deny', 'unapproved build input'],
-        ['warn/deny', 'risk threshold'],
-      ],
-    ),
-    highlight: { removed: ['subject:decision', 'root:decision', 'builder:decision', 'params:decision'], active: ['level:decision'] },
-    explanation: 'The useful product shape is a policy table. Each denial has a field-level reason so humans can fix the release process instead of guessing.',
+    state: labelMatrix('Verifier failures', failRows, failCols, failValues),
+    highlight: { removed: failRemoved, active: failActive },
+    explanation: `The policy table has ${failRows.length} failure modes across ${failCols.length} columns (${failCols.map(c => c.label).join(', ')}). ${failRemoved.length} rows produce hard denials (${failRemoved.map(r => r.split(':')[0]).map(id => failRows.find(r => r.id === id).label).join(', ')}); the ${failActive[0].split(':')[0]} row (${failRows.find(r => r.id === failActive[0].split(':')[0]).label}) may warn or deny based on risk threshold. Each denial carries a field-level reason so humans can fix the release process instead of guessing.`,
   };
 }
 
@@ -241,7 +271,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/slsa-build-source-trust-ladder.gif', alt: 'Animated walkthrough of the slsa build source trust ladder visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

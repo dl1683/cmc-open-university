@@ -82,11 +82,16 @@ function treeCaseGraph(title) {
 }
 
 function* mergeSets() {
+  const bigSize = 7;
+  const small1Size = 2;
+  const small2Size = 1;
+  const totalElements = bigSize + small1Size + small2Size;
+
   yield {
     state: mergeGraph('Always merge the smaller container into the larger one'),
     highlight: { active: ['big', 'small1', 'small2', 'insert', 'e-small1-insert', 'e-small2-insert'], found: ['stats'] },
-    explanation: 'Small-to-large merging keeps the largest child container and inserts every entry from smaller containers into it. The contents are the same, but the total movement becomes much smaller.',
-    invariant: 'An element only moves when its destination container at least doubles in size.',
+    explanation: `Small-to-large merging keeps the largest child container (size ${bigSize}) and inserts every entry from ${small1Size + small2Size} smaller elements into it. The ${totalElements} total elements end up in one place, but total movement becomes much smaller.`,
+    invariant: `An element only moves when its destination container at least doubles in size, so each of the ${totalElements} elements moves at most O(log ${totalElements}) times.`,
   };
 
   yield {
@@ -110,13 +115,13 @@ function* mergeSets() {
       ],
     ),
     highlight: { active: ['first:container', 'second:container', 'third:container'], found: ['limit:meaning'] },
-    explanation: 'If an item moves from the smaller set into the larger set, its new container has at least twice as many items as before. That doubling can happen only logarithmically many times.',
+    explanation: `If an item moves from the smaller set into the larger set, its new container has at least twice as many items as before. With ${totalElements} total elements, that doubling can happen at most O(log ${totalElements}) times per element.`,
   };
 
   yield {
     state: mergeGraph('Swapping pointers avoids copying the largest set'),
     highlight: { active: ['swap', 'big', 'e-big-swap'], compare: ['small1', 'small2'], found: ['stats'] },
-    explanation: 'Implementation detail matters: pick the largest child set as the destination, then merge the smaller sets into it. Do not allocate a fresh set and copy everything at every node.',
+    explanation: `Implementation detail matters: pick the largest child set (size ${bigSize}) as the destination, then merge the ${small1Size} + ${small2Size} smaller entries into it. Do not allocate a fresh set and copy all ${totalElements} elements at every node.`,
   };
 
   yield {
@@ -140,16 +145,20 @@ function* mergeSets() {
       ],
     ),
     highlight: { active: ['dsu:lesson', 'tree:lesson'], found: ['maps:lesson'], compare: ['logs:lesson'] },
-    explanation: 'The idea is broader than one named algorithm. Whenever repeated merges dominate runtime, ask whether smaller-to-larger movement gives a doubling bound.',
+    explanation: `The idea is broader than one named algorithm. All ${4} rows in the table share the same doubling argument: whenever repeated merges dominate runtime, ask whether smaller-to-larger movement gives an O(log ${totalElements}) bound per element.`,
   };
 }
 
 function* subtreeColorsCaseStudy() {
+  const childCount = 3;
+  const distinctColors = 2;
+  const toolCount = 4;
+
   yield {
     state: treeCaseGraph('Subtree distinct colors by merging child maps'),
     highlight: { active: ['u', 'a', 'b', 'c', 'map', 'e-a-map', 'e-b-map', 'e-c-map'], found: ['distinct'] },
-    explanation: 'For each tree node, compute a map from color to frequency for its subtree. The answer for the node is the number of keys in that map.',
-    invariant: 'After processing node u, its kept map contains exactly the colors in u\'s subtree.',
+    explanation: `For each tree node, compute a map from color to frequency for its subtree. Node u has ${childCount} children, and the answer is the number of distinct keys (${distinctColors} colors here) in that map.`,
+    invariant: `After processing node u and merging all ${childCount} child maps, the kept map contains exactly the colors in u's subtree.`,
   };
 
   yield {
@@ -173,13 +182,13 @@ function* subtreeColorsCaseStudy() {
       ],
     ),
     highlight: { active: ['big:action', 'smallA:action', 'smallB:action'], found: ['self:answer'] },
-    explanation: 'The node keeps the largest child map, inserts entries from smaller child maps, adds its own color, then records the map size as the subtree distinct-color answer.',
+    explanation: `The node keeps the largest child map, inserts entries from the other ${childCount - 1} smaller child maps, adds its own color, then records the map size (${distinctColors} distinct colors) as the subtree answer.`,
   };
 
   yield {
     state: treeCaseGraph('Keep the big child map alive and discard small maps'),
     highlight: { active: ['keep', 'map', 'e-keep-map'], compare: ['a', 'b', 'c'], found: ['distinct'] },
-    explanation: 'DSU-on-tree implementations often call the largest child the heavy child. Its data is kept; smaller children are folded in and then their temporary containers can be released.',
+    explanation: `DSU-on-tree implementations often call the largest of the ${childCount} children the heavy child. Its data is kept; the remaining ${childCount - 1} smaller children are folded in and then their temporary containers can be released.`,
   };
 
   yield {
@@ -203,7 +212,7 @@ function* subtreeColorsCaseStudy() {
       ],
     ),
     highlight: { active: ['small:best', 'small:constraint'], compare: ['hld:best', 'mo:best'], found: ['euler:best'] },
-    explanation: 'Small-to-large is strongest for aggregating rich subtree metadata. It is not the same tool as Heavy-Light Decomposition, which targets path queries.',
+    explanation: `Among the ${toolCount} tree-query tools compared, small-to-large is strongest for aggregating rich subtree metadata like ${distinctColors}-color frequency maps. It is not the same tool as Heavy-Light Decomposition, which targets path queries.`,
   };
 }
 
@@ -216,6 +225,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/small-to-large-merging-dsu-on-tree.gif', alt: 'Animated walkthrough of the small to large merging dsu on tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -66,54 +66,77 @@ const terrain = (M, markers = []) =>
 const w = (M, q, k) => M[q][k];
 
 function* contentHead() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const n = TOKENS.length;
+  const totalCells = n * n;
+  const causalZeros = CONTENT.reduce((sum, row, q) => sum + row.filter((_, k) => k > q).length, 0);
+
   yield {
     state: terrain(CONTENT, [{ id: 'peak', x: 1, y: 7, z: w(CONTENT, 7, 1), label: '"it" → "cat"' }]),
     highlight: {},
-    explanation: 'The sentence: "The cat sat on the mat because it…" — and this terrain is one attention head\'s entire view of it. The floor is a grid: the axis running one way is the QUERY (the token doing the looking), the other is the KEY (the token being looked at), and the HEIGHT at each point is the attention weight — how much that query pulls information from that key. Multi-Head Attention showed this as a flat heatmap of numbers; in 3D the numbers become geography, and the camera\'s slow orbit will walk you past three landmarks worth knowing by name.',
+    explanation: `The sentence: "${TOKENS.join(' ')}…" — ${n} tokens, so the terrain is an ${n}x${n} = ${totalCells}-cell grid. The QUERY axis is the token doing the looking, the KEY axis is the token being looked at, and the HEIGHT at each point is the attention weight. "${TOKENS[0]}" attends 100% to itself (${pct(w(CONTENT, 0, 0))}), while "${TOKENS[7]}" splits attention across ${CONTENT[7].filter((v) => v > 0.01).length} tokens. Multi-Head Attention showed this as a flat heatmap; in 3D the numbers become geography.`,
   };
 
+  const diagWeights = CONTENT.map((row, i) => row[i]);
+  const avgDiag = r2(diagWeights.reduce((a, b) => a + b, 0) / diagWeights.length);
   yield {
     state: terrain(CONTENT, [{ id: 'diag', x: 3.5, y: 3.5, z: 0.36, label: 'the locality ridge' }]),
     highlight: { active: ['diag'] },
-    explanation: 'Landmark 1 — THE RIDGE along the diagonal: most tokens attend substantially to themselves and their recent neighbors, so the terrain rises where query ≈ key. Locality is the default posture of language (most words relate to words nearby), and the ridge is that prior made solid. Notice it is a ridge and not a wall — weights leak off it toward semantically relevant tokens, like "sat" reaching back to "cat" (the verb finding its subject). Flat heatmaps show these as faint cells; in relief, you can see the leakage flow downhill.',
+    explanation: `Landmark 1 — THE RIDGE along the diagonal: self-attention weights are ${diagWeights.map((v, i) => `"${TOKENS[i]}" ${pct(v)}`).join(', ')} — averaging ${pct(avgDiag)}. Locality is the default posture of language, and the ridge is that prior made solid. Notice it is a ridge and not a wall — "sat" leaks ${pct(w(CONTENT, 2, 1))} to "cat" (the verb finding its subject). Flat heatmaps show these as faint cells; in relief, you can see the leakage flow downhill.`,
     invariant: 'Each query row is a probability distribution: the terrain along any query line sums to exactly 1.',
   };
 
+  const itRow = CONTENT[7];
+  const itBest = itRow.indexOf(Math.max(...itRow));
+  const itSorted = itRow.map((v, k) => ({ token: TOKENS[k], w: v })).filter((e) => e.w > 0.01).sort((a, b) => b.w - a.w);
   yield {
-    state: terrain(CONTENT, [{ id: 'peak', x: 1, y: 7, z: w(CONTENT, 7, 1), label: '"it" → "cat": 0.62' }]),
+    state: terrain(CONTENT, [{ id: 'peak', x: 1, y: 7, z: w(CONTENT, 7, 1), label: `"it" → "cat": ${r2(w(CONTENT, 7, 1))}` }]),
     highlight: { found: ['peak'] },
-    explanation: 'Landmark 2 — THE MOUNTAIN, and the reason this page exists: walk to the last query row, the token "it". Its attention does NOT pile on the diagonal — it leaps six tokens back and erupts at "cat" with weight 0.62. That single peak is COREFERENCE RESOLUTION happening in front of you: for the model to continue the sentence ("…was tired"? "…was comfortable"?), "it" must mean something, and attention is the mechanism that fetches the meaning — a learned, content-based lookup that no fixed window or convolution could do. One mountain in the terrain = one pronoun understood.',
+    explanation: `Landmark 2 — THE MOUNTAIN: token "it" (row 7) does NOT pile on the diagonal — it leaps ${7 - itBest} tokens back and erupts at "${TOKENS[itBest]}" with weight ${pct(itRow[itBest])}. Full distribution: ${itSorted.map((e) => `"${e.token}" ${pct(e.w)}`).join(', ')}. That single peak is COREFERENCE RESOLUTION: "it" must mean something, and attention fetches the meaning — a learned, content-based lookup that no fixed window or convolution could do.`,
     invariant: 'Attention is content-addressed: a query can summit ANY visible key, regardless of distance.',
   };
 
   yield {
     state: terrain(CONTENT, [{ id: 'cliff', x: 5.5, y: 2, z: 0.02, label: 'the causal cliff (zeros)' }]),
     highlight: { removed: ['cliff'] },
-    explanation: 'Landmark 3 — THE CLIFF: the entire half of the map where key > query is dead flat at zero. That is the CAUSAL MASK, the rule that a token may only attend to the PAST — token 2 cannot look at token 5, because at generation time token 5 does not exist yet. In the 2D heatmap this is a gray triangle; as terrain it is a sheer escarpment splitting the world into the knowable past and the forbidden future. Every autoregressive LLM you have used lives entirely on the landward side of this cliff, one token at a time (and the KV Cache is precisely a cache of the cliff-side terrain already computed).',
+    explanation: `Landmark 3 — THE CLIFF: ${causalZeros} of ${totalCells} cells (the upper triangle where key > query) are dead flat at zero. That is the CAUSAL MASK — token ${2} ("${TOKENS[2]}") cannot look at token ${5} ("${TOKENS[5]}"), because at generation time "${TOKENS[5]}" does not exist yet. In the 2D heatmap this is a gray triangle; as terrain it is a sheer escarpment. Every autoregressive LLM lives entirely on the landward side of this cliff, one token at a time.`,
     invariant: 'Causal masking zeroes all key > query: the future is geometrically absent, not merely discouraged.',
   };
 }
 
 function* positionalHead() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const n = TOKENS.length;
+
+  const prevWeights = POSITIONAL.slice(1).map((row, q) => row[q]); // weight on q-1 for each q>=1
+  const avgPrev = r2(prevWeights.reduce((a, b) => a + b, 0) / prevWeights.length);
   yield {
     state: terrain(POSITIONAL, [{ id: 'prev', x: 4, y: 5, z: 0.7, label: 'the previous-token ridge' }]),
     highlight: { active: ['prev'] },
-    explanation: 'Same sentence, DIFFERENT HEAD — and a completely different country. This head\'s terrain is one clean, sharp ridge exactly one step below the diagonal: every token attends ~70% to its immediate predecessor, regardless of meaning. This is a POSITIONAL head — pure structure, no semantics — and heads like it (previous-token heads, induction-pattern heads) are found in every trained transformer, where they serve as plumbing for syntax and copying patterns. Multi-head attention\'s whole premise is here: run many heads in parallel, each free to learn its own geography — one watches meaning, one watches position, others watch things we are still naming.',
+    explanation: `Same sentence, DIFFERENT HEAD — and a completely different country. This head puts ${pct(avgPrev)} of attention (on average) on the immediately preceding token: ${TOKENS.slice(1).map((t, i) => `"${t}" -> "${TOKENS[i]}" ${pct(POSITIONAL[i + 1][i])}`).join(', ')}. This is a POSITIONAL head — pure structure, no semantics. Multi-head attention's premise: run many heads in parallel, each free to learn its own geography.`,
     invariant: 'Heads specialize: the same sentence produces independent terrains, one per head, combined downstream.',
   };
 
+  const itPosRow = POSITIONAL[7];
+  const itPosPrev = r2(itPosRow[6]);
+  const itPosCat = r2(itPosRow[1]);
+  const contentItCat = r2(CONTENT[7][1]);
   yield {
     state: terrain(POSITIONAL, [
-      { id: 'prev', x: 6, y: 7, z: 0.7, label: 'this head: "it" → "because"' },
+      { id: 'prev', x: 6, y: 7, z: 0.7, label: `this head: "it" → "because"` },
     ]),
     highlight: { compare: ['prev'] },
-    explanation: 'Look where THIS head sends "it": dutifully to "because", its previous token — weight 0.7, zero interest in "cat". Neither head is wrong; they answer different questions ("what came just before?" vs "what does this refer to?"), and the model\'s next layer combines both terrains, weighted by what the task needs. That division of labor is why ablating single heads often barely dents a model while ablating a head TYPE can cripple it. When you read attention visualizations in papers — or audit one with Saliency Maps & Feature Attribution\'s skepticism — the first question is always: which geography am I looking at, structure or meaning?',
+    explanation: `Look where THIS head sends "it": dutifully to "because" (position 6), weight ${pct(itPosPrev)} — and "cat" gets only ${pct(itPosCat)}. Compare: the content head gave "it" -> "cat" = ${pct(contentItCat)}. Neither head is wrong; they answer different questions ("what came just before?" vs "what does this refer to?"), and the model's next layer combines both terrains. That division of labor is why ablating single heads often barely dents a model while ablating a head TYPE can cripple it.`,
   };
 
+  const totalCells = n * n;
+  const nonZeroCells = POSITIONAL.reduce((sum, row) => sum + row.filter((v) => v > 0).length, 0);
   yield {
     state: terrain(POSITIONAL),
     highlight: {},
-    explanation: 'A closing thought from the terrain itself: both of this page\'s landscapes were 8×8 — sixty-four numbers, computable by hand. A modern model runs sequences of 100,000+ tokens through dozens of layers with dozens of heads each: billions of these terrains per response, each recomputed per token generated (minus what the KV Cache remembers). The geometry you just walked — ridge, mountain, cliff — is the atomic unit of how transformers relate words, repeated at a scale no visualization can hold. Which is exactly why it is worth knowing ONE of them this intimately: every context window you will ever fill is made of these hills.',
+    explanation: `Both landscapes were ${n}x${n} — ${totalCells} cells, ${nonZeroCells} nonzero (the causal half), computable by hand. A modern model runs 100,000+ tokens through dozens of layers with dozens of heads each: billions of these terrains per response, each recomputed per token generated (minus what the KV Cache remembers). The geometry you just walked — ridge, mountain, cliff — is the atomic unit of how transformers relate words, repeated at a scale no visualization can hold.`,
   };
 }
 
@@ -126,6 +149,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/attention-3d.gif', alt: 'Animated walkthrough of the attention 3d visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

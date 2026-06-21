@@ -28,6 +28,10 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* lookupAndBitmap() {
+  const chunkBits = 5;
+  const fanout = 1 << chunkBits; // 32
+  const pipelineStages = ['key', 'hash', 'chunk', 'bitmap', 'array', 'leaf'];
+
   yield {
     state: graphState({
       nodes: [
@@ -47,8 +51,8 @@ function* lookupAndBitmap() {
       ],
     }, { title: 'A HAMT walks chunks of the hash, not characters' }),
     highlight: { active: ['hash', 'chunk', 'bitmap'], found: ['leaf'] },
-    explanation: 'A HAMT starts like a Hash Table: hash the key. Then it reads the hash in fixed-size chunks, commonly 5 bits at a time, and uses those chunks as levels in a Trie.',
-    invariant: 'Same hash prefix means shared trie path.',
+    explanation: `A HAMT starts like a Hash Table: hash the key. Then it reads the hash in ${chunkBits}-bit chunks, each selecting one of ${fanout} logical children, and uses those chunks as ${pipelineStages.length}-stage levels in a Trie.`,
+    invariant: `Same hash prefix means shared trie path across the ${fanout}-way branching nodes.`,
   };
 
   yield {
@@ -72,7 +76,7 @@ function* lookupAndBitmap() {
       ],
     ),
     highlight: { active: ['bitmap:example', 'rank:example'], found: ['dense:meaning'] },
-    explanation: 'The trick is not storing 32 pointers in every node. A bitmap marks which logical children exist, and popcount maps a logical slot to the compact child-array index.',
+    explanation: `The trick is not storing ${fanout} pointers in every node. A ${fanout}-bit bitmap marks which logical children exist, and popcount maps a logical slot to the compact child-array index.`,
   };
 
   yield {
@@ -94,7 +98,7 @@ function* lookupAndBitmap() {
       ],
     ),
     highlight: { found: ['leaf:action'], active: ['l0:bits', 'l1:bits'] },
-    explanation: 'A good hash spreads keys so the trie stays shallow. Collisions are handled at leaves with key equality, collision nodes, or deeper chunks depending on implementation.',
+    explanation: `A good hash spreads keys so the trie stays shallow. With ${chunkBits}-bit chunks giving ${fanout}-way branching, collisions are handled at leaves with key equality, collision nodes, or deeper chunks depending on implementation.`,
   };
 
   yield {
@@ -105,11 +109,15 @@ function* lookupAndBitmap() {
       ],
     }),
     highlight: { found: ['depth'] },
-    explanation: 'The branching factor is why HAMT operations feel close to O(1) in practice. A million keys need only a handful of 5-bit levels before leaf checks.',
+    explanation: `The branching factor of ${fanout} is why HAMT operations feel close to O(1) in practice. A million keys need only about ${Math.ceil(Math.log(1000000) / Math.log(fanout))} levels of ${chunkBits}-bit chunks before leaf checks.`,
   };
 }
 
 function* persistentUpdate() {
+  const versions = 2;
+  const pathDepth = 3; // root -> A -> B -> leaf
+  const copiedNodes = ['root1', 'a1', 'b1', 'leaf1'];
+
   yield {
     state: graphState({
       nodes: [
@@ -132,8 +140,8 @@ function* persistentUpdate() {
       ],
     }, { title: 'Persistent update copies only the changed path' }),
     highlight: { active: ['root1', 'a1', 'b1', 'leaf1'], compare: ['root0', 'leaf0'] },
-    explanation: 'Updating an immutable HAMT does not copy the whole map. It copies the root-to-leaf path selected by the key hash and reuses every untouched branch.',
-    invariant: 'Old roots still point to old nodes.',
+    explanation: `Updating an immutable HAMT does not copy the whole map. It copies the ${copiedNodes.length}-node root-to-leaf path selected by the key hash and reuses every untouched branch across ${versions} versions.`,
+    invariant: `Old roots still point to old nodes — both ${versions} versions coexist safely.`,
   };
 
   yield {
@@ -157,7 +165,7 @@ function* persistentUpdate() {
       ],
     ),
     highlight: { found: ['set:cost', 'delete:cost'], compare: ['iterate:cost'] },
-    explanation: 'Asymptotically, HAMT depth is logarithmic in the number of keys with a large base. Practically, the constants are dominated by hashing, popcount, allocation, and cache locality.',
+    explanation: `Asymptotically, HAMT depth is logarithmic in the number of keys with a large base. A persistent set costs O(${pathDepth}) copies per update — dominated by hashing, popcount, allocation, and cache locality.`,
   };
 
   yield {
@@ -181,7 +189,7 @@ function* persistentUpdate() {
       ],
     ),
     highlight: { active: ['undo:benefit', 'state:benefit', 'share:benefit'], compare: ['batch:caveat'] },
-    explanation: 'Immutable collections want old versions to remain usable. HAMTs make that affordable, while transient builders or batched mutation often recover construction speed when many updates happen together.',
+    explanation: `Immutable collections want old ${versions} versions to remain usable. HAMTs make that affordable by copying only ${copiedNodes.length} nodes per update, while transient builders or batched mutation often recover construction speed when many updates happen together.`,
   };
 
   yield {
@@ -203,7 +211,7 @@ function* persistentUpdate() {
       ],
     ),
     highlight: { found: ['hamt:strength'], compare: ['hash:strength', 'trie:strength'] },
-    explanation: 'A HAMT is not a replacement for every hash table. It is the versioned-map answer when updates should return a new map and old maps must keep working.',
+    explanation: `A HAMT is not a replacement for every hash table. With ${pathDepth}-level path copying across ${versions} versions, it is the versioned-map answer when updates should return a new map and old maps must keep working.`,
   };
 }
 
@@ -216,6 +224,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/hash-array-mapped-trie-hamt.gif', alt: 'Animated walkthrough of the hash array mapped trie hamt visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What It Is',
       paragraphs: [

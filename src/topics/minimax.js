@@ -314,7 +314,8 @@ export const article = {
         'The animation runs two passes. Pass one is plain minimax: every node is visited and evaluated. Pass two is alpha-beta pruning: some nodes are dimmed and skipped. These dimmed nodes are pruned branches -- subtrees the algorithm proved irrelevant without examining them. The root value is identical in both passes.',
         'Watch the alpha and beta bounds reported at each step. Alpha is the best the maximizer can guarantee so far; beta is the best the minimizer can guarantee. When alpha >= beta at any node, the remaining children are pruned. The cascade is the payoff: pruning one node often eliminates its entire subtree.',
         {type: 'callout', text: 'Alpha-beta pruning is minimax with proof-carrying bounds: skipped nodes are skipped because they cannot change the root value.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/minimax.gif', alt: 'Animated walkthrough of the minimax visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

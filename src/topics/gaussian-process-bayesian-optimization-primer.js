@@ -74,8 +74,8 @@ function* kernelPosterior() {
   yield {
     state: gpGraph('A function prior becomes a posterior band'),
     highlight: { active: ['trials', 'kernel', 'chol', 'alpha', 'post'], compare: ['acq', 'next'] },
-    explanation: 'A Gaussian process is a distribution over functions. Observed trials define a kernel matrix: how similar every tried x is to every other tried x. Conditioning that prior on the observations gives a posterior mean and uncertainty band at every candidate x.',
-    invariant: 'The kernel decides which observations should influence which candidate points.',
+    explanation: `A Gaussian process is a distribution over functions. ${TRIALS.length} observed trials define a ${TRIALS.length}x${TRIALS.length} kernel matrix: how similar every tried x is to every other tried x. Conditioning that prior on the observations gives a posterior mean and uncertainty band at every candidate x (${xs.length} candidates from ${fmt(xs[0])} to ${fmt(xs[xs.length - 1])}).`,
+    invariant: `The kernel decides which of the ${TRIALS.length} observations should influence which of the ${xs.length} candidate points.`,
   };
 
   yield {
@@ -91,7 +91,7 @@ function* kernelPosterior() {
       ],
     ),
     highlight: { active: ['t2:t2', 't2:t3', 't3:t4'], compare: ['t1:t4'] },
-    explanation: 'Nearby trials have high kernel similarity, distant trials have little influence. The kernel matrix is the GP data structure: it stores the covariance implied by the prior plus noise on the diagonal for numerical stability.',
+    explanation: `Nearby trials have high kernel similarity, distant trials have little influence. The ${TRIALS.length}x${TRIALS.length} kernel matrix is the GP data structure: it stores the covariance implied by the prior plus noise on the diagonal for numerical stability. Trial ${TRIALS[0].id} at x=${fmt(TRIALS[0].x)} and ${TRIALS[1].id} at x=${fmt(TRIALS[1].x)} are close, so K[1,2]=0.46; ${TRIALS[0].id} and ${TRIALS[3].id} at x=${fmt(TRIALS[3].x)} are far apart, so K[1,4]=0.00.`,
   };
 
   yield {
@@ -117,7 +117,7 @@ function* kernelPosterior() {
       ],
     ),
     highlight: { active: ['K:stores', 'L:stores', 'a:stores'], compare: ['X:job'] },
-    explanation: 'Implementations usually avoid explicitly inverting K. They factor K with Cholesky and solve triangular systems. The alpha vector is the dual coefficient state used for posterior means. Posterior variance reuses the same factor.',
+    explanation: `Implementations usually avoid explicitly inverting the ${TRIALS.length}x${TRIALS.length} K. They factor K with Cholesky into a lower-triangular L and solve triangular systems. The alpha vector (length ${TRIALS.length}) is the dual coefficient state K^-1 y used for posterior means. Posterior variance reuses the same Cholesky factor L.`,
   };
 
   yield {
@@ -131,7 +131,7 @@ function* kernelPosterior() {
       markers: TRIALS.map((t) => ({ id: t.id, x: t.x, y: t.y, label: t.id })),
     }),
     highlight: { active: ['mean'], compare: ['upper', 'lower'], visited: ['t1', 't2', 't3', 't4'] },
-    explanation: 'The mean interpolates the useful trials. The band pinches near tried points and widens in gaps. That uncertainty is not decoration: it is exactly what lets Bayesian optimization spend a trial in promising ignorance rather than repeatedly sampling the current best point.',
+    explanation: `The mean interpolates the ${TRIALS.length} trials across ${xs.length} candidate points (x from ${fmt(xs[0])} to ${fmt(xs[xs.length - 1])}). At x=${fmt(TRIALS[1].x)}, mean=${fmt(mean(TRIALS[1].x))} and sigma=${fmt(sigma(TRIALS[1].x))} (tight near a trial). At x=${fmt(0.5)}, mean=${fmt(mean(0.5))} and sigma=${fmt(sigma(0.5))} (wider in a gap). That uncertainty is not decoration: it is exactly what lets Bayesian optimization spend a trial in promising ignorance rather than repeatedly sampling the current best point.`,
   };
 
   yield {
@@ -155,7 +155,7 @@ function* kernelPosterior() {
       ],
     ),
     highlight: { active: ['matern:assume', 'white:assume'], compare: ['rbf:risk', 'period:risk'] },
-    explanation: 'A GP is only as honest as its kernel. RBF assumes very smooth functions. Matern allows rougher functions. White kernels model observation noise. Periodic kernels are powerful when cycles are real and harmful when they are wishful thinking.',
+    explanation: `A GP is only as honest as its kernel. RBF assumes very smooth functions. Matern allows rougher functions and is often a safer default for the ${TRIALS.length}-trial regime. White kernels model observation noise (our trials have y values from ${fmt(Math.min(...TRIALS.map(t => t.y)))} to ${fmt(Math.max(...TRIALS.map(t => t.y)))}). Periodic kernels are powerful when cycles are real and harmful when they are wishful thinking.`,
   };
 
   yield {
@@ -179,7 +179,7 @@ function* kernelPosterior() {
       ],
     ),
     highlight: { active: ['fit:cost', 'store:cost'], compare: ['update:fix'] },
-    explanation: 'Exact Gaussian processes are elegant and expensive. The kernel matrix grows with the number of trials. That is fine for hyperparameter search where n may be dozens, not millions. Larger settings need sparse approximations, inducing points, batching, or low-rank update tricks.',
+    explanation: `Exact Gaussian processes are elegant and expensive. The kernel matrix grows as n^2 (with n=${TRIALS.length} trials, that is ${TRIALS.length * TRIALS.length} entries). Fit cost is O(n^3)=${TRIALS.length}^3=${TRIALS.length ** 3} operations. That is fine for hyperparameter search where n may be dozens, not millions. Larger settings need sparse approximations, inducing points, batching, or low-rank update tricks.`,
   };
 }
 
@@ -187,8 +187,8 @@ function* acquisitionLoop() {
   yield {
     state: gpGraph('Bayesian optimization loop'),
     highlight: { active: ['post', 'acq', 'next', 'trials'], found: ['next'] },
-    explanation: 'Bayesian optimization uses the GP posterior to choose the next expensive experiment. The acquisition function turns mean and uncertainty into one score. After the trial finishes, append the observation and refit the surrogate.',
-    invariant: 'The surrogate is cheap; the real experiment is expensive.',
+    explanation: `Bayesian optimization uses the GP posterior (fitted on ${TRIALS.length} trials) to choose the next expensive experiment. The acquisition function turns mean and uncertainty into one score across ${xs.length} candidates. After the trial finishes, append the observation and refit the ${TRIALS.length + 1}x${TRIALS.length + 1} surrogate.`,
+    invariant: `The surrogate is cheap (evaluate ${xs.length} candidates instantly); the real experiment is expensive.`,
   };
 
   yield {
@@ -213,7 +213,7 @@ function* acquisitionLoop() {
       ],
     ),
     highlight: { active: ['x45:ucb', 'x75:sigma'], compare: ['x98:ucb'] },
-    explanation: 'UCB acquisition is the same shape as LinUCB: mean plus an uncertainty bonus. x=.45 looks best by mean and still has uncertainty, so it wins. x=.75 is worth watching because uncertainty can compensate for a lower mean.',
+    explanation: `UCB acquisition is the same shape as LinUCB: mean plus an uncertainty bonus (beta=1.4). At x=0.45, mean=${fmt(mean(0.45))} + 1.4*sigma=${fmt(sigma(0.45))} gives UCB=${fmt(acq(0.45))}. At x=0.75, mean=${fmt(mean(0.75))} but sigma=${fmt(sigma(0.75))} is higher, giving UCB=${fmt(acq(0.75))}. x=0.45 wins because its mean dominates; x=0.75 is worth watching because uncertainty can compensate for a lower mean.`,
   };
 
   yield {
@@ -228,7 +228,7 @@ function* acquisitionLoop() {
       ],
     }),
     highlight: { active: ['ucb', 'next'], compare: ['mean'] },
-    explanation: 'The acquisition curve is not the model prediction. It is a policy for spending the next trial. Exploitation alone would maximize the mean. UCB lifts uncertain regions so the search can escape a local favorite.',
+    explanation: `The acquisition curve is not the model prediction. It is a policy for spending the next trial. The peak mean is ${fmt(Math.max(...xs.map(x => mean(x))))} but the peak UCB is ${fmt(Math.max(...xs.map(x => Math.min(1, acq(x)))))} — the gap is the exploration premium. Exploitation alone would maximize the mean. UCB lifts uncertain regions so the search can escape a local favorite.`,
   };
 
   yield {
@@ -252,7 +252,7 @@ function* acquisitionLoop() {
       ],
     ),
     highlight: { active: ['ucb:uses', 'ei:uses', 'ts:uses'], compare: ['pi:risk'] },
-    explanation: 'Different acquisitions spend uncertainty differently. UCB is explicit optimism. Expected improvement values the amount by which a candidate might beat the incumbent. Probability of improvement can be too local. Thompson sampling draws a plausible function and optimizes that draw.',
+    explanation: `Different acquisitions spend uncertainty differently. UCB (beta=1.4 here) is explicit optimism. Expected improvement values the amount by which a candidate might beat the incumbent (current best y=${fmt(Math.max(...TRIALS.map(t => t.y)))} at ${TRIALS.reduce((a, b) => a.y > b.y ? a : b).id}). Probability of improvement can be too local. Thompson sampling draws a plausible function and optimizes that draw.`,
   };
 
   yield {
@@ -278,13 +278,13 @@ function* acquisitionLoop() {
       ],
     ),
     highlight: { active: ['budget:record', 'space:record', 'report:record'], compare: ['noise:risk'] },
-    explanation: 'The engineering contract matters as much as the acquisition. Predeclare the budget, define bounds, handle noisy trials, mark pending jobs so parallel workers do not duplicate each other, and report the full search history rather than the single winner.',
+    explanation: `The engineering contract matters as much as the acquisition. Predeclare the budget (we spent ${TRIALS.length} trials so far), define bounds (x in [${fmt(xs[0])}, ${fmt(xs[xs.length - 1])}]), handle noisy trials, mark pending jobs so parallel workers do not duplicate each other, and report the full search history (all ${TRIALS.length} trials) rather than the single winner.`,
   };
 
   yield {
     state: gpGraph('Complete case: expensive model tuning'),
     highlight: { active: ['trials', 'post', 'acq', 'next'], compare: ['kernel', 'chol'] },
-    explanation: 'A training run takes six hours. Random search is the baseline. Once a few trials exist, a GP surrogate models the score surface, proposes a learning rate and regularization value, waits for the real run, then updates the posterior. Hyperparameter Search shows the wider protocol; this module shows the surrogate data structure inside it.',
+    explanation: `A training run takes six hours. Random search is the baseline. Once ${TRIALS.length} trials exist (best y=${fmt(Math.max(...TRIALS.map(t => t.y)))} at x=${fmt(TRIALS.reduce((a, b) => a.y > b.y ? a : b).x)}), a GP surrogate models the score surface across ${xs.length} candidates, proposes a learning rate and regularization value, waits for the real run, then updates the posterior. Hyperparameter Search shows the wider protocol; this module shows the surrogate data structure inside it.`,
   };
 }
 
@@ -297,6 +297,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/gaussian-process-bayesian-optimization-primer.gif', alt: 'Animated walkthrough of the gaussian process bayesian optimization primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why Bayesian optimization exists',
       paragraphs: [

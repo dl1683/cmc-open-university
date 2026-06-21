@@ -71,30 +71,39 @@ function useDefGraph(title) {
 }
 
 function* phiAtJoins() {
+  const cfg = ssaGraph('Mutable x becomes versioned SSA values');
+  const cfgNodes = cfg.nodes;
+  const cfgEdges = cfg.edges;
+  const thenNode = cfgNodes.find(n => n.id === 'then');
+  const elseNode = cfgNodes.find(n => n.id === 'else');
+  const phiNode = cfgNodes.find(n => n.id === 'phi');
+  const phiPredecessors = cfgEdges.filter(e => e.to === 'phi' && e.from !== 'join');
   yield {
-    state: ssaGraph('Mutable x becomes versioned SSA values'),
+    state: cfg,
     highlight: { active: ['then', 'else'], compare: ['phi'] },
-    explanation: 'In source code, x is assigned in both branches. In SSA, each assignment gets a new name: x0 in then, x1 in else. The join needs a value that depends on which predecessor executed.',
+    explanation: `In source code, x is assigned in both branches. In SSA, each assignment gets a new name: ${thenNode.note} in then, ${elseNode.note} in else. The join needs a value that depends on which of the ${cfgNodes.length} blocks actually executed.`,
   };
   yield {
     state: ssaGraph('A phi node merges predecessor-specific values'),
     highlight: { active: ['then', 'else', 'phi', 'e-then-phi', 'e-else-phi'], found: ['ret'] },
-    explanation: 'The phi node says: if control arrived from then, use x0; if it arrived from else, use x1. It is not a runtime function call; it is an IR merge instruction tied to CFG predecessors.',
-    invariant: 'A phi chooses by incoming edge, not by recomputing the condition.',
+    explanation: `The phi node (${phiNode.note}) says: if control arrived from then, use ${thenNode.note}; if it arrived from else, use ${elseNode.note}. It merges ${phiPredecessors.length} predecessor values — it is not a runtime function call but an IR merge instruction tied to ${cfgEdges.length} CFG edges.`,
+    invariant: `A phi chooses among ${phiPredecessors.length} incoming edges, not by recomputing the condition.`,
   };
+  const matRows = [
+    { id: 'assign', label: 'definitions' },
+    { id: 'frontier', label: 'frontier' },
+    { id: 'rename', label: 'rename' },
+    { id: 'use', label: 'uses' },
+  ];
+  const matCols = [
+    { id: 'job', label: 'job' },
+    { id: 'structure', label: 'structure' },
+  ];
   yield {
     state: labelMatrix(
       'Where phis come from',
-      [
-        { id: 'assign', label: 'definitions' },
-        { id: 'frontier', label: 'frontier' },
-        { id: 'rename', label: 'rename' },
-        { id: 'use', label: 'uses' },
-      ],
-      [
-        { id: 'job', label: 'job' },
-        { id: 'structure', label: 'structure' },
-      ],
+      matRows,
+      matCols,
       [
         ['find assigned vars', 'CFG blocks'],
         ['find join sites', 'dom frontier'],
@@ -103,29 +112,36 @@ function* phiAtJoins() {
       ],
     ),
     highlight: { active: ['frontier:structure', 'rename:structure'], found: ['use:structure'] },
-    explanation: 'Classic SSA construction places phis at dominance frontiers, then renames variables with stacks while walking the dominator tree.',
+    explanation: `Classic SSA construction has ${matRows.length} phases across ${matCols.length} dimensions: it places phis at dominance frontiers, then renames variables with stacks while walking the dominator tree.`,
   };
 }
 
 function* renameAndOptimize() {
+  const udg = useDefGraph('SSA makes use-def chains direct');
+  const udgNodes = udg.nodes;
+  const udgEdges = udg.edges;
+  const phiNode = udgNodes.find(n => n.note === 'phi');
+  const chainNodes = udgNodes.filter(n => ['x2', 'y0', 'z0'].includes(n.id));
   yield {
-    state: useDefGraph('SSA makes use-def chains direct'),
+    state: udg,
     highlight: { active: ['x2', 'y0', 'z0', 'e-x2-y0', 'e-y0-z0'], found: ['ret'] },
-    explanation: 'Once every value has one definition, a use can point directly to its definition. This makes constant propagation, dead-code elimination, common subexpression elimination, and sparse dataflow much simpler.',
+    explanation: `Once every value has one definition, a use can point directly to its definition. Across ${udgNodes.length} SSA values linked by ${udgEdges.length} edges, constant propagation, dead-code elimination, CSE, and sparse dataflow all become simpler.`,
   };
+  const optRows = [
+    { id: 'const', label: 'constant prop' },
+    { id: 'dead', label: 'dead code' },
+    { id: 'cse', label: 'CSE' },
+    { id: 'alloc', label: 'reg alloc' },
+  ];
+  const optCols = [
+    { id: 'ssa', label: 'SSA help' },
+    { id: 'next', label: 'next structure' },
+  ];
   yield {
     state: labelMatrix(
       'Optimization wins',
-      [
-        { id: 'const', label: 'constant prop' },
-        { id: 'dead', label: 'dead code' },
-        { id: 'cse', label: 'CSE' },
-        { id: 'alloc', label: 'reg alloc' },
-      ],
-      [
-        { id: 'ssa', label: 'SSA help' },
-        { id: 'next', label: 'next structure' },
-      ],
+      optRows,
+      optCols,
       [
         ['one def per use', 'value graph'],
         ['unused def obvious', 'liveness'],
@@ -134,12 +150,13 @@ function* renameAndOptimize() {
       ],
     ),
     highlight: { active: ['const:ssa', 'dead:ssa', 'alloc:next'] },
-    explanation: 'SSA is not just a pretty naming convention. It changes the complexity of program analysis by making def-use relationships sparse and explicit.',
+    explanation: `SSA is not just a pretty naming convention. It enables ${optRows.length} major optimizations across ${optCols.length} structural dimensions by making def-use relationships sparse and explicit.`,
   };
+  const ssaNames = udgNodes.filter(n => n.id.startsWith('x'));
   yield {
     state: useDefGraph('Register allocation eventually leaves SSA'),
     highlight: { active: ['x0', 'x1', 'x2'], compare: ['y0', 'z0'], found: ['ret'] },
-    explanation: 'Machine code has finite registers and memory slots, not infinite SSA names. Linear Scan Register Allocation turns virtual SSA values into physical registers and spills.',
+    explanation: `Machine code has finite registers and memory slots, not infinite SSA names. The ${ssaNames.length} x-versions (${ssaNames.map(n => n.id).join(', ')}) must be mapped to physical registers — Linear Scan Register Allocation turns virtual SSA values into registers and spills.`,
   };
 }
 
@@ -152,6 +169,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/static-single-assignment-phi-nodes.gif', alt: 'Animated walkthrough of the static single assignment phi nodes visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

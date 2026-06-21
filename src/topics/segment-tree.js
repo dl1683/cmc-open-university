@@ -178,7 +178,8 @@ export const article = {
         'Highlighted nodes mark the recursion path. Found nodes are the canonical pieces the query collects. Visited nodes are ancestors the algorithm passed through without fully matching. Nodes the query skips entirely never appear highlighted at all; that skipped majority is where logarithmic cost comes from.',
         'In the lazy-propagation view, pushed nodes show a deferred tag being forced one level down because a later query needs honest child values. Remaining tagged nodes are intentionally stale: no operation has needed their descendants, so the tree saves the work.',
         {type: 'callout', text: 'A segment tree is fast because every range becomes a small exact cover of stored intervals instead of a fresh scan.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/segment-tree.gif', alt: 'Animated walkthrough of the segment tree visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

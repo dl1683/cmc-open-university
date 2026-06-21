@@ -28,186 +28,185 @@ function labelMatrix(title, rows, columns, labelsByRow) {
 }
 
 function* encodeTopology() {
+  const pipelineNodes = [
+    { id: 'trie', label: 'trie', x: 0.8, y: 4.0, note: 'nodes' },
+    { id: 'level', label: 'level order', x: 2.7, y: 4.0, note: 'BFS' },
+    { id: 'degree', label: 'degrees', x: 4.6, y: 4.0, note: 'unary' },
+    { id: 'bits', label: 'bits', x: 6.5, y: 4.0, note: '11010...' },
+    { id: 'rank', label: 'rank/select', x: 8.4, y: 4.0, note: 'navigate' },
+  ];
+  const pipelineEdges = [
+    { id: 'e-trie-level', from: 'trie', to: 'level' },
+    { id: 'e-level-degree', from: 'level', to: 'degree' },
+    { id: 'e-degree-bits', from: 'degree', to: 'bits' },
+    { id: 'e-bits-rank', from: 'bits', to: 'rank' },
+  ];
+  const rankNode = pipelineNodes.find(n => n.id === 'rank');
+  const bitsNode = pipelineNodes.find(n => n.id === 'bits');
+
   yield {
-    state: graphState({
-      nodes: [
-        { id: 'trie', label: 'trie', x: 0.8, y: 4.0, note: 'nodes' },
-        { id: 'level', label: 'level order', x: 2.7, y: 4.0, note: 'BFS' },
-        { id: 'degree', label: 'degrees', x: 4.6, y: 4.0, note: 'unary' },
-        { id: 'bits', label: 'bits', x: 6.5, y: 4.0, note: '11010...' },
-        { id: 'rank', label: 'rank/select', x: 8.4, y: 4.0, note: 'navigate' },
-      ],
-      edges: [
-        { id: 'e-trie-level', from: 'trie', to: 'level' },
-        { id: 'e-level-degree', from: 'level', to: 'degree' },
-        { id: 'e-degree-bits', from: 'degree', to: 'bits' },
-        { id: 'e-bits-rank', from: 'bits', to: 'rank' },
-      ],
-    }, { title: 'LOUDS turns tree shape into a navigable bitvector' }),
+    state: graphState({ nodes: pipelineNodes, edges: pipelineEdges }, { title: 'LOUDS turns tree shape into a navigable bitvector' }),
     highlight: { active: ['level', 'degree', 'bits'], found: ['rank'] },
-    explanation: 'LOUDS means level-order unary degree sequence. Visit nodes breadth-first; for each node, write one 1 bit per child, then a 0. Rank/select makes those bits behave like tree pointers.',
-    invariant: 'The topology is static bits plus small navigation directories, not object pointers.',
+    explanation: `${topic.title} means level-order unary degree sequence. Visit the ${pipelineNodes.length} pipeline stages breadth-first; for each node, write one 1 bit per child, then a 0. The "${rankNode.label}" stage (${rankNode.note}) makes those bits behave like tree pointers.`,
+    invariant: `The bitvector (${bitsNode.note}) is static bits plus small navigation directories, not object pointers.`,
   };
 
+  const degreeRows = [
+    { id: 'root', label: 'root' },
+    { id: 'a', label: 'node a' },
+    { id: 'b', label: 'node b' },
+    { id: 'c', label: 'node c' },
+  ];
+  const degreeCols = [
+    { id: 'children', label: 'children' },
+    { id: 'code', label: 'LOUDS code' },
+  ];
+  const degreeData = [
+    ['2', '110'],
+    ['1', '10'],
+    ['0', '0'],
+    ['2', '110'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Unary degree encoding',
-      [
-        { id: 'root', label: 'root' },
-        { id: 'a', label: 'node a' },
-        { id: 'b', label: 'node b' },
-        { id: 'c', label: 'node c' },
-      ],
-      [
-        { id: 'children', label: 'children' },
-        { id: 'code', label: 'LOUDS code' },
-      ],
-      [
-        ['2', '110'],
-        ['1', '10'],
-        ['0', '0'],
-        ['2', '110'],
-      ],
-    ),
+    state: labelMatrix('Unary degree encoding', degreeRows, degreeCols, degreeData),
     highlight: { active: ['root:code', 'a:code', 'c:code'], compare: ['b:code'] },
-    explanation: 'A node with two children contributes 110. A leaf contributes 0. Concatenating these codes in level order gives a bitstring from which child ranges can be recovered.',
+    explanation: `A node with ${degreeData[0][0]} children contributes ${degreeData[0][1]}. A leaf (${degreeRows[2].label}) contributes ${degreeData[2][1]}. Concatenating these ${degreeRows.length} codes in level order gives a bitstring from which child ranges can be recovered.`,
   };
 
+  const arrayRows = [
+    { id: 'louds', label: 'LOUDS bits' },
+    { id: 'labels', label: 'edge labels' },
+    { id: 'terminal', label: 'terminal bits' },
+    { id: 'values', label: 'values' },
+  ];
+  const arrayCols = [
+    { id: 'stores', label: 'stores' },
+    { id: 'queryUse', label: 'query use' },
+  ];
+  const arrayData = [
+    ['tree topology', 'parent/child'],
+    ['bytes or chars', 'match path'],
+    ['word ends?', 'membership'],
+    ['optional payload', 'map lookup'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Compact trie arrays',
-      [
-        { id: 'louds', label: 'LOUDS bits' },
-        { id: 'labels', label: 'edge labels' },
-        { id: 'terminal', label: 'terminal bits' },
-        { id: 'values', label: 'values' },
-      ],
-      [
-        { id: 'stores', label: 'stores' },
-        { id: 'queryUse', label: 'query use' },
-      ],
-      [
-        ['tree topology', 'parent/child'],
-        ['bytes or chars', 'match path'],
-        ['word ends?', 'membership'],
-        ['optional payload', 'map lookup'],
-      ],
-    ),
+    state: labelMatrix('Compact trie arrays', arrayRows, arrayCols, arrayData),
     highlight: { found: ['louds:queryUse', 'labels:queryUse'], active: ['terminal:stores'] },
-    explanation: 'A LOUDS trie usually stores topology separately from labels. The bitvector says where children are; the label array says which edge byte each child represents.',
+    explanation: `A ${topic.title} stores ${arrayRows.length} parallel arrays: the bitvector says where children are (${arrayData[0][0]}); the label array (${arrayRows[1].label}) says which edge byte each child represents.`,
   };
+
+  const pointerSeries = { id: 'pointer', label: 'pointer trie', points: [{ x: 5, y: 28 }, { x: 50, y: 72 }, { x: 100, y: 96 }] };
+  const loudsSeries = { id: 'louds', label: 'LOUDS trie', points: [{ x: 5, y: 14 }, { x: 50, y: 22 }, { x: 100, y: 30 }] };
 
   yield {
     state: plotState({
       axes: { x: { label: 'keys stored', min: 0, max: 100 }, y: { label: 'pointer overhead', min: 0, max: 100 } },
-      series: [
-        { id: 'pointer', label: 'pointer trie', points: [{ x: 5, y: 28 }, { x: 50, y: 72 }, { x: 100, y: 96 }] },
-        { id: 'louds', label: 'LOUDS trie', points: [{ x: 5, y: 14 }, { x: 50, y: 22 }, { x: 100, y: 30 }] },
-      ],
+      series: [pointerSeries, loudsSeries],
     }),
     highlight: { found: ['louds'], compare: ['pointer'] },
-    explanation: 'The chart is conceptual. LOUDS matters when pointer overhead dominates: dictionaries, autocomplete tables, static key maps, and range filters with millions or billions of nodes.',
+    explanation: `The chart compares a ${pointerSeries.label} (overhead ${pointerSeries.points[2].y}% at ${pointerSeries.points[2].x} keys) against a ${loudsSeries.label} (only ${loudsSeries.points[2].y}%). LOUDS matters when pointer overhead dominates: dictionaries, autocomplete tables, static key maps, and range filters.`,
   };
 }
 
 function* navigateLabels() {
+  const lookupRows = [
+    { id: 'root', label: 'root' },
+    { id: 'c', label: 'edge c' },
+    { id: 'a', label: 'edge a' },
+    { id: 't', label: 'edge t' },
+    { id: 'done', label: 'terminal' },
+  ];
+  const lookupCols = [
+    { id: 'childRange', label: 'child range' },
+    { id: 'labelSearch', label: 'label search' },
+  ];
+  const lookupData = [
+    ['rank/select range', 'find c'],
+    ['rank/select range', 'find a'],
+    ['rank/select range', 'find t'],
+    ['no children', 'stop'],
+    ['terminal bit', 'key exists'],
+  ];
+  const edgeSteps = lookupRows.filter(r => r.label.startsWith('edge'));
+
   yield {
-    state: labelMatrix(
-      'Lookup cat',
-      [
-        { id: 'root', label: 'root' },
-        { id: 'c', label: 'edge c' },
-        { id: 'a', label: 'edge a' },
-        { id: 't', label: 'edge t' },
-        { id: 'done', label: 'terminal' },
-      ],
-      [
-        { id: 'childRange', label: 'child range' },
-        { id: 'labelSearch', label: 'label search' },
-      ],
-      [
-        ['rank/select range', 'find c'],
-        ['rank/select range', 'find a'],
-        ['rank/select range', 'find t'],
-        ['no children', 'stop'],
-        ['terminal bit', 'key exists'],
-      ],
-    ),
+    state: labelMatrix('Lookup cat', lookupRows, lookupCols, lookupData),
     highlight: { active: ['root:childRange', 'c:labelSearch', 'a:labelSearch', 't:labelSearch'], found: ['done:labelSearch'] },
-    explanation: 'To follow a key, compute the current node child range from LOUDS bits, search labels inside that range, then move to the selected child node.',
-    invariant: 'Trie lookup is still prefix navigation; only the representation changed.',
+    explanation: `To follow a key through ${lookupRows.length} steps, compute the current node ${lookupCols[0].label} from LOUDS bits, search labels inside that range (${edgeSteps.length} edge transitions: ${edgeSteps.map(r => r.label).join(', ')}), then check "${lookupData[4][1]}" at the ${lookupRows[4].label} row.`,
+    invariant: `Trie lookup is still prefix navigation across ${edgeSteps.length} edges; only the representation changed from pointers to ${lookupData[0][0]}.`,
   };
 
+  const navRows = [
+    { id: 'firstChild', label: 'first child' },
+    { id: 'nextSibling', label: 'next sibling' },
+    { id: 'parent', label: 'parent' },
+    { id: 'degree', label: 'degree' },
+  ];
+  const navCols = [
+    { id: 'uses', label: 'uses' },
+    { id: 'cost', label: 'typical cost' },
+  ];
+  const navData = [
+    ['select/rank', 'constant-ish'],
+    ['next 1 in range', 'local'],
+    ['rank/select inverse', 'constant-ish'],
+    ['child run length', 'local'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Navigation operations',
-      [
-        { id: 'firstChild', label: 'first child' },
-        { id: 'nextSibling', label: 'next sibling' },
-        { id: 'parent', label: 'parent' },
-        { id: 'degree', label: 'degree' },
-      ],
-      [
-        { id: 'uses', label: 'uses' },
-        { id: 'cost', label: 'typical cost' },
-      ],
-      [
-        ['select/rank', 'constant-ish'],
-        ['next 1 in range', 'local'],
-        ['rank/select inverse', 'constant-ish'],
-        ['child run length', 'local'],
-      ],
-    ),
+    state: labelMatrix('Navigation operations', navRows, navCols, navData),
     highlight: { found: ['firstChild:uses', 'parent:uses'], compare: ['degree:cost'] },
-    explanation: 'Different LOUDS variants expose different formulas, but the pattern is stable: rank counts earlier structure, select jumps to the k-th structural marker.',
+    explanation: `${topic.title} exposes ${navRows.length} navigation operations (${navRows.map(r => r.label).join(', ')}). The pattern is stable: rank counts earlier structure, select jumps to the k-th structural marker, each at ${navData[0][1]} cost.`,
   };
 
+  const splitRows = [
+    { id: 'upper', label: 'upper trie' },
+    { id: 'lower', label: 'lower trie' },
+    { id: 'suffix', label: 'suffix bits' },
+    { id: 'payload', label: 'payloads' },
+  ];
+  const splitCols = [
+    { id: 'layout', label: 'layout' },
+    { id: 'reason', label: 'reason' },
+  ];
+  const splitData = [
+    ['fast bitmap', 'hot levels'],
+    ['LOUDS sparse', 'many nodes'],
+    ['optional', 'false positives'],
+    ['separate array', 'values'],
+  ];
+
   yield {
-    state: labelMatrix(
-      'Dense top, sparse bottom',
-      [
-        { id: 'upper', label: 'upper trie' },
-        { id: 'lower', label: 'lower trie' },
-        { id: 'suffix', label: 'suffix bits' },
-        { id: 'payload', label: 'payloads' },
-      ],
-      [
-        { id: 'layout', label: 'layout' },
-        { id: 'reason', label: 'reason' },
-      ],
-      [
-        ['fast bitmap', 'hot levels'],
-        ['LOUDS sparse', 'many nodes'],
-        ['optional', 'false positives'],
-        ['separate array', 'values'],
-      ],
-    ),
+    state: labelMatrix('Dense top, sparse bottom', splitRows, splitCols, splitData),
     highlight: { active: ['upper:reason', 'lower:reason'], found: ['suffix:layout'] },
-    explanation: 'Fast Succinct Trie designs often split the trie: upper levels get a faster layout because every lookup touches them; lower levels get a denser layout because they contain most nodes.',
+    explanation: `Fast Succinct Trie designs split the ${splitRows.length} layers: the ${splitRows[0].label} gets a ${splitData[0][0]} layout because every lookup touches ${splitData[0][1]}; the ${splitRows[1].label} gets ${splitData[1][0]} because it contains ${splitData[1][1]}.`,
   };
 
+  const fitRows = [
+    { id: 'staticDict', label: 'static dictionary' },
+    { id: 'autocomplete', label: 'autocomplete' },
+    { id: 'rangeFilter', label: 'range filter' },
+    { id: 'hotWrites', label: 'frequent writes' },
+  ];
+  const fitCols = [
+    { id: 'fit', label: 'fit' },
+    { id: 'reason', label: 'reason' },
+  ];
+  const fitData = [
+    ['strong', 'compact keys'],
+    ['strong', 'prefix path'],
+    ['strong', 'ordered trie'],
+    ['weak', 'static bits'],
+  ];
+  const strongFits = fitRows.filter((_, i) => fitData[i][0] === 'strong');
+  const weakFits = fitRows.filter((_, i) => fitData[i][0] === 'weak');
+
   yield {
-    state: labelMatrix(
-      'When LOUDS is a fit',
-      [
-        { id: 'staticDict', label: 'static dictionary' },
-        { id: 'autocomplete', label: 'autocomplete' },
-        { id: 'rangeFilter', label: 'range filter' },
-        { id: 'hotWrites', label: 'frequent writes' },
-      ],
-      [
-        { id: 'fit', label: 'fit' },
-        { id: 'reason', label: 'reason' },
-      ],
-      [
-        ['strong', 'compact keys'],
-        ['strong', 'prefix path'],
-        ['strong', 'ordered trie'],
-        ['weak', 'static bits'],
-      ],
-    ),
+    state: labelMatrix('When LOUDS is a fit', fitRows, fitCols, fitData),
     highlight: { found: ['staticDict:fit', 'autocomplete:fit', 'rangeFilter:fit'], compare: ['hotWrites:reason'] },
-    explanation: 'LOUDS is best for static or snapshot-built structures. If nodes are inserted and deleted constantly, pointer tries or dynamic trees are often simpler.',
+    explanation: `${topic.title} is a ${fitData[0][0]} fit for ${strongFits.length} use cases (${strongFits.map(r => r.label).join(', ')}) but ${fitData[3][0]} for ${weakFits[0].label} because the bitvector is ${fitData[3][1]}.`,
   };
 }
 
@@ -227,7 +226,8 @@ export const article = {
         {type: 'callout', text: 'LOUDS keeps trie semantics but replaces pointers with bit positions, counts, and jumps.'},
         'The "navigate labels" view traces a key lookup through the finished structure. Active highlights show the child-range computation via rank/select; found highlights show the label match that advances the path. The terminal-bit check at the end confirms whether the path is a stored key or only a prefix.',
         'At each frame, track three things: which node is being processed, what bits it contributes to the bitvector, and how rank/select recovers the same parent-child relationship that a pointer would have stored explicitly.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/louds-succinct-trie.gif', alt: 'Animated walkthrough of the louds succinct trie visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

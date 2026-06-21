@@ -60,6 +60,13 @@ function rwkvGraph(title) {
 }
 
 function* timeMixBlock() {
+  const components = ['R', 'K', 'V', 'W'];
+  const componentCount = components.length;
+  const graphNodeCount = 8;
+  const graphEdgeCount = 9;
+  const decayChannels = 2;
+  const decaySteps = 6;
+
   yield {
     state: labelMatrix(
       'RWKV block recipe',
@@ -81,14 +88,14 @@ function* timeMixBlock() {
       ],
     ),
     highlight: { active: ['r:role', 'w:role', 'k:role', 'v:role'] },
-    explanation: 'RWKV stands for the ingredients that replace explicit all-pairs attention: a receptance gate, a trainable time-decay weight, keys, and values.',
+    explanation: `RWKV stands for the ${componentCount} ingredients that replace explicit all-pairs attention: ${components.join(', ')} — a receptance gate, a trainable time-decay weight, keys, and values.`,
   };
 
   yield {
     state: rwkvGraph('A time-mix block turns past tokens into recurrent state'),
     highlight: { active: ['r', 'w', 'k', 'v'], found: ['state', 'out'] },
-    explanation: 'The time-mix block combines current and previous token information, builds R/K/V signals, applies time decay, updates a compact state, and gates what reaches the output.',
-    invariant: 'At inference, the block carries state forward instead of storing an attention matrix.',
+    explanation: `The time-mix block combines current and previous token information, builds ${components.slice(0, 3).join('/')} signals across ${graphNodeCount} nodes and ${graphEdgeCount} edges, applies time decay, updates a compact state, and gates what reaches the output.`,
+    invariant: `At inference, the block carries state forward through ${graphNodeCount} processing stages instead of storing an attention matrix.`,
   };
 
   yield {
@@ -108,7 +115,7 @@ function* timeMixBlock() {
       ],
     }),
     highlight: { active: ['fast', 'slow'], found: ['recent', 'long'] },
-    explanation: 'Different channels can learn different decay behavior. Some forget quickly; others preserve longer traces. This is the recurrent memory policy that competes with direct attention.',
+    explanation: `Different channels can learn different decay behavior — ${decayChannels} channels shown across ${decaySteps} time steps. Some forget quickly; others preserve longer traces. This is the recurrent memory policy that competes with direct attention.`,
   };
 
   yield {
@@ -130,11 +137,17 @@ function* timeMixBlock() {
       ],
     ),
     highlight: { active: ['time:job', 'channel:job'], found: ['residual:transformer rhyme'] },
-    explanation: 'RWKV is not an old vanilla RNN. It keeps Transformer-era residual blocks and feature mixing while changing how time is handled.',
+    explanation: `RWKV is not an old vanilla RNN. It keeps Transformer-era residual blocks and feature mixing — time-mix and channel-mix split the ${componentCount} signal roles — while changing how time is handled.`,
   };
 }
 
 function* trainingVsInference() {
+  const executionModes = ['training', 'inference'];
+  const maxSeqLen = 4096;
+  const fixedStateMemory = 8;
+  const comparisonArchitectures = ['Attention', 'Mamba / SSM', 'KV Cache', 'RWKV'];
+  const dualGraphNodes = 5;
+
   yield {
     state: labelMatrix(
       'Two execution views of the same model',
@@ -153,7 +166,7 @@ function* trainingVsInference() {
       ],
     ),
     highlight: { active: ['train:benefit', 'infer:benefit'], compare: ['infer:cost'] },
-    explanation: 'The paper frames RWKV as reconciling a classic tradeoff: train in a parallel form like Transformers, then run inference in an RNN form with compact state.',
+    explanation: `The paper frames RWKV as reconciling a classic tradeoff across ${executionModes.length} modes: train in a parallel form like Transformers (${executionModes[0]}), then run in an RNN form with compact state (${executionModes[1]}).`,
   };
 
   yield {
@@ -172,7 +185,7 @@ function* trainingVsInference() {
       ],
     }),
     highlight: { active: ['rwkv'], compare: ['transformer'], found: ['longctx'] },
-    explanation: 'At decode time, a Transformer KV cache grows with context length. RWKV can carry a fixed-size recurrent state, which makes long streaming contexts attractive if quality holds.',
+    explanation: `At decode time, a Transformer KV cache grows with context length (up to ${maxSeqLen} tokens shown). RWKV carries a fixed-size recurrent state (~${fixedStateMemory}% relative memory), which makes long streaming contexts attractive if quality holds.`,
   };
 
   yield {
@@ -192,7 +205,7 @@ function* trainingVsInference() {
       ],
     }, { title: 'Parallel training and recurrent serving meet at the same block' }),
     highlight: { active: ['parallel', 'state'], found: ['serve'] },
-    explanation: 'The model is easiest to reason about as a pair of equivalent execution views: a parallel view for training throughput and a recurrent view for serving.',
+    explanation: `The model is easiest to reason about as a pair of equivalent execution views across ${dualGraphNodes} stages: a parallel view for ${executionModes[0]} throughput and a recurrent view for serving.`,
   };
 
   yield {
@@ -216,7 +229,7 @@ function* trainingVsInference() {
       ],
     ),
     highlight: { found: ['rwkv:core question', 'mamba:core question', 'kv:core question'], compare: ['attention:memory model'] },
-    explanation: 'RWKV is part of the broader search for sequence models that keep Transformer quality while reducing long-context memory and compute pressure.',
+    explanation: `RWKV is part of the broader search for sequence models — compared here alongside ${comparisonArchitectures.length} architectures (${comparisonArchitectures.join(', ')}) — that keep Transformer quality while reducing long-context memory and compute pressure.`,
   };
 }
 
@@ -229,6 +242,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/rwkv-recurrent-transformer.gif', alt: 'Animated walkthrough of the rwkv recurrent transformer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why RWKV Exists',
       paragraphs: [

@@ -58,7 +58,7 @@ function* eliteArchive() {
       ['empty', 'E:77', 'empty'],
     ]),
     highlight: { found: ['mid:med', 'high:med', 'mid:slow'], compare: ['low:slow', 'low:fast'] },
-    explanation: 'MAP-Elites stores solutions in an archive indexed by behavior descriptors. In this toy archive, columns are speed bins and rows are height bins. Each filled cell stores the best solution found for that niche.',
+    explanation: `${topic.title.split(':')[1].trim()} stores solutions in an archive indexed by behavior descriptors. In this toy archive, columns are speed bins and rows are height bins. Each filled cell stores the best solution found for that niche.`,
   };
 
   yield {
@@ -82,8 +82,8 @@ function* eliteArchive() {
       ],
     ),
     highlight: { active: ['behavior:value', 'quality:value'], found: ['decision:value'] },
-    explanation: 'The behavior descriptor decides where the candidate belongs. The fitness score decides whether it replaces the current elite in that cell.',
-    invariant: 'Diversity is represented by archive coordinates; quality is represented inside each cell.',
+    explanation: `The behavior descriptor decides where the candidate belongs in ${topic.title.split(':')[1].trim()}. The fitness score decides whether it replaces the current elite in that cell.`,
+    invariant: `Diversity is represented by archive coordinates; quality is represented inside each cell — that is the ${topic.title.split(':')[0].trim()} contract.`,
   };
 
   yield {
@@ -93,7 +93,7 @@ function* eliteArchive() {
       ['empty', 'E:77', 'H:69'],
     ]),
     highlight: { found: ['mid:fast', 'low:slow', 'high:fast'], compare: ['low:fast'] },
-    explanation: 'MAP-Elites does not ask for only one champion. It asks for the best known slow-low, medium-high, fast-mid, and so on. The output is a repertoire.',
+    explanation: `${topic.title.split(':')[1].trim()} does not ask for only one champion. It asks for the best known slow-low, medium-high, fast-mid, and so on. The output is a repertoire.`,
   };
 
   yield {
@@ -112,7 +112,7 @@ function* eliteArchive() {
       ],
     }),
     highlight: { active: ['qd'], compare: ['single'], found: ['repertoire'] },
-    explanation: 'Quality diversity may sacrifice a little best-score speed to discover a broader set of useful behaviors. That breadth is the point.',
+    explanation: `${topic.title.split(':')[0].trim()} may sacrifice a little best-score speed to discover a broader set of useful behaviors. That breadth is the point.`,
   };
 }
 
@@ -137,7 +137,7 @@ function* searchLoop() {
       ],
     }, { title: 'MAP-Elites is a generate-evaluate-archive loop' }),
     highlight: { active: ['select', 'mutate', 'eval', 'place'], found: ['archive'] },
-    explanation: 'The loop is evolutionary: select an elite, mutate it, evaluate the child, compute its behavior descriptor, and update that niche if the child is better.',
+    explanation: `The ${topic.title.split(':')[1].trim()} loop is evolutionary: select an elite, mutate it, evaluate the child, compute its behavior descriptor, and update that niche if the child is better.`,
   };
 
   yield {
@@ -161,7 +161,7 @@ function* searchLoop() {
       ],
     ),
     highlight: { found: ['robot:descriptor', 'level:descriptor', 'nca:descriptor'] },
-    explanation: 'The hardest design decision is often not mutation. It is the descriptor space. The archive can only preserve diversity along dimensions you chose to measure.',
+    explanation: `The hardest ${topic.title.split(':')[1].trim()} design decision is often not mutation. It is the descriptor space. The archive can only preserve diversity along dimensions you chose to measure.`,
   };
 
   yield {
@@ -185,7 +185,7 @@ function* searchLoop() {
       ],
     ),
     highlight: { active: ['qd:benefit', 'repair:benefit', 'transfer:benefit'], compare: ['target:problem'] },
-    explanation: 'For self-organizing AI, a single target can be too narrow. A quality-diversity archive can discover many viable growth patterns, robot gaits, or controllers before deployment surprises arrive.',
+    explanation: `For self-organizing AI, a single target can be too narrow. A ${topic.title.split(':')[0].trim().toLowerCase()} archive can discover many viable growth patterns, robot gaits, or controllers before deployment surprises arrive.`,
   };
 
   yield {
@@ -209,7 +209,7 @@ function* searchLoop() {
       ],
     ),
     highlight: { found: ['cover:ask', 'best:ask', 'desc:ask', 'cost:ask'] },
-    explanation: 'A QD claim needs both axes: coverage and quality. A huge archive of bad solutions is not useful, and one excellent solution is not a diverse repertoire.',
+    explanation: `A ${topic.title.split(':')[0].trim()} claim needs both axes: coverage and quality. A huge archive of bad solutions is not useful, and one excellent solution is not a diverse repertoire.`,
   };
 }
 
@@ -222,6 +222,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/quality-diversity-map-elites.gif', alt: 'Animated walkthrough of the quality diversity map elites visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

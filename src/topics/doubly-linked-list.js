@@ -123,7 +123,8 @@ export const article = {
         'Watch the build phase first. Each new node arrives at the tail. Two arrows appear: a forward arrow from the old tail to the new node, and a backward arrow from the new node to the old tail. Those two pointer writes are the entire cost of an append.',
         'During removal, the target node lights up along with its two neighbors. The neighbors\' arrows redirect to point at each other, bypassing the target. The target disappears. No other node moves. That two-pointer rewire is what makes deletion O(1) when you already hold a reference to the node.',
         'During reverse traversal, the animation follows prev pointers from tail to head. Every node is reachable from either end. A singly linked list could not do this without a full reversal or an auxiliary stack.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/doubly-linked-list.gif', alt: 'Animated walkthrough of the doubly linked list visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

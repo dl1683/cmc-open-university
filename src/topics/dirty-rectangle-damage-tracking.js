@@ -53,27 +53,30 @@ function damageGraph(title) {
 }
 
 function* damageAccumulation() {
+  const damagePath = ['state', 'node', 'old', 'new'];
   yield {
     state: damageGraph('A visual change invalidates old and new bounds'),
-    highlight: { active: ['state', 'node', 'old', 'new', 'e-state-node', 'e-state-old', 'e-node-new'], found: ['region'] },
-    explanation: 'When a visual node moves, the old rectangle must be repainted to erase it, and the new rectangle must be painted to show it. Damage tracking records both regions before paint.',
-    invariant: 'Damage must cover every pixel whose final color could change.',
+    highlight: { active: [...damagePath, 'e-state-node', 'e-state-old', 'e-node-new'], found: ['region'] },
+    explanation: `When a visual node moves, the "${damagePath[2]}" rectangle must be repainted to erase it, and the "${damagePath[3]}" rectangle must be painted to show it. Damage tracking records both regions through ${damagePath.length} stages before paint.`,
+    invariant: `Damage across all ${damagePath.length} stages must cover every pixel whose final color could change.`,
   };
 
+  const damageTypes = [
+    { id: 'move', label: 'move card' },
+    { id: 'text', label: 'text edit' },
+    { id: 'opacity', label: 'opacity layer' },
+    { id: 'scroll', label: 'scroll' },
+  ];
+  const damageCols = [
+    { id: 'old', label: 'old area' },
+    { id: 'new', label: 'new area' },
+    { id: 'paint', label: 'paint need' },
+  ];
   yield {
     state: labelMatrix(
       'Damage records',
-      [
-        { id: 'move', label: 'move card' },
-        { id: 'text', label: 'text edit' },
-        { id: 'opacity', label: 'opacity layer' },
-        { id: 'scroll', label: 'scroll' },
-      ],
-      [
-        { id: 'old', label: 'old area' },
-        { id: 'new', label: 'new area' },
-        { id: 'paint', label: 'paint need' },
-      ],
+      damageTypes,
+      damageCols,
       [
         ['old rect', 'new rect', 'union'],
         ['line box', 'line box', 'line'],
@@ -82,24 +85,26 @@ function* damageAccumulation() {
       ],
     ),
     highlight: { active: ['move:old', 'move:new', 'move:paint'], found: ['scroll:paint'], compare: ['opacity:paint'] },
-    explanation: 'Different changes generate different damage. Moving content needs old plus new areas. Text edits often damage line boxes. Scrolling can reuse most pixels and paint only newly exposed strips.',
+    explanation: `${damageTypes.length} different change types (${damageTypes.map(d => d.label).join(', ')}) generate different damage across ${damageCols.length} columns. Moving content needs ${damageCols[0].label} plus ${damageCols[1].label}. Text edits often damage line boxes. Scrolling can reuse most pixels and paint only newly exposed strips.`,
   };
 
+  const clipPath = ['region', 'clip', 'paint'];
   yield {
     state: damageGraph('The damage region is clipped to viewport and layer boundaries'),
-    highlight: { active: ['region', 'clip', 'paint', 'e-region-clip', 'e-region-paint'], found: ['layers'], compare: ['old', 'new'] },
-    explanation: 'Damage rectangles are usually clipped by viewport, stacking context, scroll container, or composited layer. The goal is to reduce paint work without missing pixels.',
+    highlight: { active: [...clipPath, 'e-region-clip', 'e-region-paint'], found: ['layers'], compare: ['old', 'new'] },
+    explanation: `Damage rectangles flow through ${clipPath.length} stages ("${clipPath.join('" then "')}"), usually clipped by viewport, stacking context, scroll container, or composited layer. The goal is to reduce paint work without missing pixels.`,
   };
 
+  const pipelineRows = [
+    { id: 'layout', label: 'layout' },
+    { id: 'paint', label: 'paint' },
+    { id: 'raster', label: 'raster' },
+    { id: 'composite', label: 'composite' },
+  ];
   yield {
     state: labelMatrix(
       'Pipeline placement',
-      [
-        { id: 'layout', label: 'layout' },
-        { id: 'paint', label: 'paint' },
-        { id: 'raster', label: 'raster' },
-        { id: 'composite', label: 'composite' },
-      ],
+      pipelineRows,
       [
         { id: 'uses', label: 'uses damage?' },
         { id: 'lesson', label: 'lesson' },
@@ -112,33 +117,36 @@ function* damageAccumulation() {
       ],
     ),
     highlight: { active: ['paint:uses', 'raster:uses', 'composite:uses'], found: ['layout:lesson'] },
-    explanation: 'Damage tracking links layout, paint, raster, and compositing. It is a region data structure sitting between high-level UI changes and low-level pixel work.',
+    explanation: `Damage tracking links ${pipelineRows.length} pipeline stages (${pipelineRows.map(r => r.label).join(', ')}). It is a region data structure sitting between high-level UI changes and low-level pixel work.`,
   };
 
+  const caretNodes = ['node', 'new', 'region', 'paint'];
   yield {
     state: damageGraph('Complete case: a blinking caret damages a tiny strip'),
-    highlight: { active: ['node', 'new', 'region', 'paint'], compare: ['layers'], removed: ['old'] },
-    explanation: 'A text caret blink should not repaint the full document. The caret node toggles visibility, the damage is a narrow rectangle, and raster work stays local.',
+    highlight: { active: caretNodes, compare: ['layers'], removed: ['old'] },
+    explanation: `A text caret blink should not repaint the full document. The caret "${caretNodes[0]}" toggles visibility, the damage flows through ${caretNodes.length} stages, and raster work stays local.`,
   };
 }
 
 function* regionMergeTradeoff() {
+  const mergeNodes = ['old', 'new', 'region'];
   yield {
     state: damageGraph('Many small dirty rects can be merged into fewer regions'),
-    highlight: { active: ['old', 'new', 'region'], found: ['paint'], compare: ['clip'] },
-    explanation: 'Tracking every tiny rectangle can reduce pixel work but increase bookkeeping and clipping overhead. Merging rectangles lowers overhead but may repaint extra pixels.',
-    invariant: 'Merging may overpaint, but must not underpaint.',
+    highlight: { active: mergeNodes, found: ['paint'], compare: ['clip'] },
+    explanation: `Tracking every tiny rectangle across "${mergeNodes[0]}" and "${mergeNodes[1]}" into "${mergeNodes[2]}" can reduce pixel work but increase bookkeeping and clipping overhead. Merging rectangles lowers overhead but may repaint extra pixels.`,
+    invariant: `Merging ${mergeNodes.length} rect sources may overpaint, but must not underpaint.`,
   };
 
+  const mergeRows = [
+    { id: 'many', label: 'many rects' },
+    { id: 'union', label: 'one union' },
+    { id: 'tiles', label: 'dirty tiles' },
+    { id: 'layer', label: 'whole layer' },
+  ];
   yield {
     state: labelMatrix(
       'Merge choices',
-      [
-        { id: 'many', label: 'many rects' },
-        { id: 'union', label: 'one union' },
-        { id: 'tiles', label: 'dirty tiles' },
-        { id: 'layer', label: 'whole layer' },
-      ],
+      mergeRows,
       [
         { id: 'benefit', label: 'benefit' },
         { id: 'cost', label: 'cost' },
@@ -151,24 +159,26 @@ function* regionMergeTradeoff() {
       ],
     ),
     highlight: { active: ['many:benefit', 'tiles:benefit'], compare: ['union:cost', 'layer:cost'] },
-    explanation: 'The right region representation depends on the renderer. CPU paint may prefer exact rectangles. GPU tiled rasterizers often reason in dirty tiles.',
+    explanation: `The ${mergeRows.length} merge strategies (${mergeRows.map(r => r.label).join(', ')}) depend on the renderer. CPU paint may prefer exact rectangles. GPU tiled rasterizers often reason in "${mergeRows[2].label}".`,
   };
 
+  const containmentNodes = ['node', 'region', 'clip'];
   yield {
     state: damageGraph('Containment limits how far damage can spread'),
-    highlight: { active: ['node', 'region', 'clip'], found: ['paint'], compare: ['layers'] },
-    explanation: 'CSS containment, canvas layers, editor panes, and scene graph subtrees can bound invalidation. A small change inside a contained subtree should not force the whole application to be treated as dirty.',
+    highlight: { active: containmentNodes, found: ['paint'], compare: ['layers'] },
+    explanation: `CSS containment, canvas layers, editor panes, and scene graph subtrees can bound invalidation through ${containmentNodes.length} stages ("${containmentNodes.join('", "')}"). A small change inside a contained subtree should not force the whole application to be treated as dirty.`,
   };
 
+  const pitfallRows = [
+    { id: 'shadow', label: 'shadow' },
+    { id: 'blur', label: 'blur' },
+    { id: 'transform', label: 'transform' },
+    { id: 'cache', label: 'cache' },
+  ];
   yield {
     state: labelMatrix(
       'Pitfalls',
-      [
-        { id: 'shadow', label: 'shadow' },
-        { id: 'blur', label: 'blur' },
-        { id: 'transform', label: 'transform' },
-        { id: 'cache', label: 'cache' },
-      ],
+      pitfallRows,
       [
         { id: 'why', label: 'why hard' },
         { id: 'fix', label: 'fix' },
@@ -181,13 +191,14 @@ function* regionMergeTradeoff() {
       ],
     ),
     highlight: { active: ['shadow:fix', 'blur:fix', 'transform:fix'], found: ['cache:fix'] },
-    explanation: 'Paint effects can make the damaged pixel set larger than the object geometry. A correct implementation inflates damage by shadows, filters, antialiasing, and cached surface dependencies.',
+    explanation: `${pitfallRows.length} paint effects (${pitfallRows.map(r => r.label).join(', ')}) can make the damaged pixel set larger than the object geometry. A correct implementation inflates damage by shadows, filters, antialiasing, and cached surface dependencies.`,
   };
 
+  const editorNodes = ['region', 'clip', 'paint', 'layers'];
   yield {
     state: damageGraph('Complete case: document editor repaint budgeting'),
-    highlight: { active: ['region', 'clip', 'paint', 'layers'], compare: ['state'], found: ['node'] },
-    explanation: 'A document editor typing one character wants to repaint the line, cursor, selection overlay, and maybe page shadow, not every page. Region tracking is what turns a semantic edit into bounded rendering work.',
+    highlight: { active: editorNodes, compare: ['state'], found: ['node'] },
+    explanation: `A document editor typing one character wants to repaint the line, cursor, selection overlay, and maybe page shadow through ${editorNodes.length} stages, not every page. Region tracking is what turns a semantic edit into bounded rendering work.`,
   };
 }
 
@@ -200,6 +211,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/dirty-rectangle-damage-tracking.gif', alt: 'Animated walkthrough of the dirty rectangle damage tracking visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

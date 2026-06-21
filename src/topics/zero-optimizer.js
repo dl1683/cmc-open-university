@@ -56,6 +56,9 @@ function shardGraph(title) {
 }
 
 function* stageLadder() {
+  const numRanks = 3;
+  const stages = 3;
+  const memCategories = 4;
   yield {
     state: labelMatrix(
       'Data-parallel replication before ZeRO',
@@ -78,7 +81,7 @@ function* stageLadder() {
       ],
     ),
     highlight: { active: ['params:rank0', 'params:rank1', 'params:rank2', 'optim:rank0', 'optim:rank1', 'optim:rank2'] },
-    explanation: 'Read each column as one data-parallel rank. The repeated "full copy" cells are the redundancy ZeRO removes; Adam-style optimizer states can be several times larger than the visible model weights.',
+    explanation: `Read each column as one of ${numRanks} data-parallel ranks. The repeated "full copy" cells across all ${memCategories} memory categories are the redundancy ZeRO removes; Adam-style optimizer states can be several times larger than the visible model weights.`,
   };
 
   yield {
@@ -103,14 +106,14 @@ function* stageLadder() {
       ],
     ),
     highlight: { active: ['stage1:shards', 'stage2:shards', 'stage3:shards'], found: ['stage3:collective'] },
-    explanation: 'ZeRO climbs by removing redundancy. Stage 1 shards optimizer states. Stage 2 shards gradients too. Stage 3 shards parameters as well, gathering shards only around the computation that needs them.',
-    invariant: 'The model is logically replicated; the expensive training state is physically partitioned.',
+    explanation: `ZeRO climbs ${stages} stages by removing redundancy. Stage 1 shards optimizer states. Stage 2 shards gradients too. Stage 3 shards parameters as well, gathering shards across ${numRanks} ranks only around the computation that needs them.`,
+    invariant: `The model is logically replicated across all ${numRanks} ranks; the expensive training state is physically partitioned.`,
   };
 
   yield {
     state: shardGraph('ZeRO replaces full copies with owned shards'),
     highlight: { active: ['r0', 'r1', 'r2', 'collective'], found: ['adam', 'grads', 'params'] },
-    explanation: 'Each rank becomes responsible for a slice of the state. Collectives move just enough data at each phase so computation still sees the values it needs while long-lived memory stays sharded.',
+    explanation: `Each of the ${numRanks} ranks becomes responsible for a slice of the state. Collectives move just enough data at each phase so computation still sees the values it needs while long-lived memory stays sharded.`,
   };
 
   yield {
@@ -136,27 +139,29 @@ function* stageLadder() {
       ],
     ),
     highlight: { active: ['adam1:zero', 'adam2:zero', 'grads:zero'], found: ['fp16:zero'] },
-    explanation: 'The optimizer memory budget is wider than the visible model weights. ZeRO matters because it attacks the hidden copies: master weights, moments, gradients, and sometimes the parameters themselves.',
+    explanation: `The optimizer memory budget is wider than the visible model weights. ZeRO matters because across ${stages} stages it attacks the hidden copies: master weights, moments, gradients, and sometimes the parameters themselves.`,
   };
 }
 
 function* stepChoreography() {
+  const numRanks = 3;
+  const tradeoffs = 4;
   yield {
     state: shardGraph('Forward gathers parameter shards just in time'),
     highlight: { active: ['params', 'collective', 'e-params-collective'], found: ['r0', 'r1', 'r2'] },
-    explanation: 'Read the parameter node as sharded at rest, not permanently replicated. In ZeRO stage 3, ranks all-gather shards just before a layer runs, compute, then release full copies as soon as possible.',
+    explanation: `Read the parameter node as sharded at rest, not permanently replicated. In ZeRO stage 3, ${numRanks} ranks all-gather shards just before a layer runs, compute, then release full copies as soon as possible.`,
   };
 
   yield {
     state: shardGraph('Backward reduce-scatters gradients to owners'),
     highlight: { active: ['grads', 'collective', 'e-grads-collective'], found: ['r0', 'r1', 'r2'] },
-    explanation: 'During backward, gradients can be reduce-scattered instead of fully all-reduced everywhere. The owning rank receives the reduced shard it needs for the optimizer update.',
+    explanation: `During backward, gradients can be reduce-scattered instead of fully all-reduced across all ${numRanks} ranks. The owning rank receives the reduced shard it needs for the optimizer update.`,
   };
 
   yield {
     state: shardGraph('Optimizer step happens on owned shards'),
     highlight: { active: ['adam', 'r0', 'r1', 'r2'], compare: ['params'], found: ['collective'] },
-    explanation: 'Each rank updates only the parameter shard it owns using its local optimizer-state shard. The logical optimizer is global; the physical state is split across ranks.',
+    explanation: `Each rank updates only the parameter shard it owns using its local optimizer-state shard. The logical optimizer is global; the physical state is split across ${numRanks} ranks.`,
   };
 
   yield {
@@ -180,7 +185,7 @@ function* stepChoreography() {
       ],
     ),
     highlight: { found: ['buckets:helps', 'overlap:helps'], active: ['offload:cost', 'checkpoint:cost'] },
-    explanation: 'ZeRO is a memory system, not a single flag. Bucket sizes, overlap, offload, checkpointing, and topology decide whether the saved memory becomes useful throughput or just a slower job.',
+    explanation: `ZeRO is a memory system, not a single flag. The ${tradeoffs} operational tradeoffs — bucket sizes, overlap, offload, and checkpointing — decide whether the saved memory becomes useful throughput or just a slower job.`,
   };
 }
 
@@ -199,7 +204,8 @@ export const article = {
         "The stage ladder view shows a matrix where each column is a data-parallel rank and each row is a memory category. Active cells highlight the redundancy ZeRO removes at each stage. Found cells mark sharded state that now lives on only one rank. Read each stage transition as one more row moving from replicated to partitioned.",
         {type: "callout", text: "ZeRO saves memory by changing where training state rests, not by changing the data-parallel math."},
         "The step choreography view shows the communication graph: ranks on the left, memory categories in the center, collectives on the right. Active edges show which collective is running. Watch parameters get all-gathered before computation, gradients get reduce-scattered to owners after backward, and optimizer updates happen on local shards. The key question at each frame: does this rank hold a full copy or just its shard?",
-      ],
+      
+        {type: 'image', src: './assets/gifs/zero-optimizer.gif', alt: 'Animated walkthrough of the zero optimizer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

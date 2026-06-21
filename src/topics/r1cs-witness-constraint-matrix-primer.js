@@ -48,10 +48,16 @@ function r1csGraph(title) {
 }
 
 function* witnessRows() {
+  const witnessSize = 5; // [1, x, x2, x3, y]
+  const gateCount = 4; // g1, g2, g3, out
+  const expression = 'x^3 + x + 5';
+  const xValue = 3;
+  const yValue = 35;
+
   yield {
     state: r1csGraph('Program becomes field wires'),
     highlight: { active: ['expr', 'wires', 'e-expr-wires'], compare: ['abc', 'ok'] },
-    explanation: 'R1CS starts by assigning every intermediate value in a computation to a witness vector. The proof system will reason about field elements and constraints, not the original source program.',
+    explanation: `R1CS starts by assigning every intermediate value in a computation to a witness vector of ${witnessSize} elements. The proof system will reason about field elements and constraints, not the original source program.`,
   };
   yield {
     state: labelMatrix(
@@ -76,8 +82,8 @@ function* witnessRows() {
       ],
     ),
     highlight: { active: ['x:val', 'x2:val', 'x3:val'], found: ['y:val'], compare: ['x:vis'] },
-    explanation: 'For y = x^3 + x + 5, the witness contains one constant, the hidden x, derived wires x2 and x3, and the public output y.',
-    invariant: 'Derived wires must be constrained, not merely written down.',
+    explanation: `For y = ${expression} with x = ${xValue}, the witness contains ${witnessSize} slots: one constant, the hidden x, derived wires x2 and x3, and the public output y = ${yValue}.`,
+    invariant: `Derived wires in a ${witnessSize}-element witness must be constrained, not merely written down.`,
   };
   yield {
     state: labelMatrix(
@@ -101,16 +107,21 @@ function* witnessRows() {
       ],
     ),
     highlight: { active: ['g1:left', 'g1:right', 'g1:result', 'g2:result'], found: ['out:result'] },
-    explanation: 'Each row represents a rank-1 equation. Multiplication rows are direct. Linear additions are folded into one side and multiplied by the constant wire 1.',
+    explanation: `Each of the ${gateCount} rows represents a rank-1 equation. Multiplication rows are direct. Linear additions are folded into one side and multiplied by the constant wire 1.`,
   };
   yield {
     state: r1csGraph('Sparse A/B/C matrices select witness terms'),
     highlight: { active: ['wires', 'abc', 'dot', 'e-wires-abc', 'e-abc-dot'], found: ['mul'], compare: ['expr'] },
-    explanation: 'Implementations store A, B, and C as sparse matrices. Each row selects linear combinations from the same witness vector, then checks whether Arow(w) * Brow(w) equals Crow(w).',
+    explanation: `Implementations store A, B, and C as sparse matrices. Each of the ${gateCount} rows selects linear combinations from the same ${witnessSize}-element witness vector, then checks whether Arow(w) * Brow(w) equals Crow(w).`,
   };
 }
 
 function* constraintCheck() {
+  const rowCount = 4;
+  const xValue = 3;
+  const yValue = 35;
+  const badWitnessTypes = 4;
+
   yield {
     state: labelMatrix(
       'Row evaluation',
@@ -133,7 +144,7 @@ function* constraintCheck() {
       ],
     ),
     highlight: { found: ['g1:ok', 'g2:ok', 'g3:ok', 'out:ok'] },
-    explanation: 'With the correct witness, every row evaluates to true. The verifier eventually checks a compressed cryptographic version of these row relationships.',
+    explanation: `With x = ${xValue} and y = ${yValue}, all ${rowCount} rows evaluate to true. The verifier eventually checks a compressed cryptographic version of these row relationships.`,
   };
   yield {
     state: labelMatrix(
@@ -156,12 +167,12 @@ function* constraintCheck() {
       ],
     ),
     highlight: { removed: ['wrongx:result', 'fakex2:result', 'wrongy:result', 'omit:result'] },
-    explanation: 'R1CS only proves what the rows encode. A bad witness should fail, but a missing constraint is a circuit bug. The constraint system is the security boundary.',
+    explanation: `R1CS only proves what the ${rowCount} rows encode. The ${badWitnessTypes} bad-witness scenarios shown here should all fail, but a missing constraint is a circuit bug. The constraint system is the security boundary.`,
   };
   yield {
     state: r1csGraph('All rows share one witness assignment'),
     highlight: { active: ['wires', 'abc', 'dot', 'mul', 'ok', 'e-wires-abc', 'e-abc-dot', 'e-dot-mul', 'e-mul-ok'], compare: ['expr'] },
-    explanation: 'The assignment must satisfy every row at once. This shared-witness property prevents the prover from using one value for one gate and a different value for another gate.',
+    explanation: `The assignment must satisfy all ${rowCount} rows at once. This shared-witness property prevents the prover from using x = ${xValue} in one gate and a different value for x in another.`,
   };
   yield {
     state: labelMatrix(
@@ -184,7 +195,7 @@ function* constraintCheck() {
       ],
     ),
     highlight: { found: ['range:fix', 'copy:fix', 'zero:fix', 'public:fix'] },
-    explanation: 'The hard part is not only building rows. You must also constrain ranges, copied values, divisions, public inputs, and all assumptions that ordinary code would leave implicit.',
+    explanation: `The hard part is not only building ${rowCount} rows. You must also constrain ranges, copied values, divisions, public inputs like y = ${yValue}, and all assumptions that ordinary code would leave implicit.`,
   };
 }
 
@@ -228,7 +239,8 @@ export const article = {
           ].join('\n'),
         },
         'At each animation frame, ask: what relationship does this row enforce, and what could a cheating prover exploit if this row were missing?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/r1cs-witness-constraint-matrix-primer.gif', alt: 'Animated walkthrough of the r1cs witness constraint matrix primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

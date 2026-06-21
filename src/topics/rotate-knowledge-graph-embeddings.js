@@ -55,10 +55,18 @@ function kgGraph(title) {
 }
 
 function* relationalRotation() {
+  const headEntity = 'Paris';
+  const tailEntity = 'France';
+  const relation = 'located_in';
+  const trueDistance = '0.08';
+  const worstDistance = '1.75';
+  const entityCount = 7;
+  const edgeCount = 5;
+
   yield {
     state: kgGraph('Knowledge graphs are triples with missing edges'),
     highlight: { active: ['paris', 'france', 'e-paris-france'], compare: ['query'] },
-    explanation: 'A knowledge graph stores triples such as (Paris, located_in, France). Link prediction asks which missing triples are likely true. RotatE turns that symbolic question into geometry.',
+    explanation: `A knowledge graph stores triples such as (${headEntity}, ${relation}, ${tailEntity}). Link prediction asks which missing triples are likely true. RotatE turns that symbolic question into geometry over ${entityCount} entities and ${edgeCount} edges.`,
   };
 
   yield {
@@ -77,8 +85,8 @@ function* relationalRotation() {
       ],
     }),
     highlight: { active: ['head', 'rel'], found: ['tail'] },
-    explanation: 'RotatE represents each relation as a unit-modulus complex vector. Scoring a triple asks whether h multiplied by r lands near t. In plain language: can the relation rotate the head entity toward the tail entity?',
-    invariant: 'Valid triple: h * r is close to t in complex vector space.',
+    explanation: `RotatE represents each relation as a unit-modulus complex vector. Scoring a triple (${headEntity}, ${relation}, ${tailEntity}) asks whether h multiplied by r lands near t. In plain language: can the relation rotate the head entity toward the tail entity?`,
+    invariant: `Valid triple: h * r is close to t in complex vector space — distance ${trueDistance} for the true triple versus ${worstDistance} for a false one.`,
   };
 
   yield {
@@ -102,7 +110,7 @@ function* relationalRotation() {
       ],
     ),
     highlight: { found: ['true:score'], compare: ['bad:score', 'neg:score'] },
-    explanation: 'Training pulls known triples close and pushes sampled false triples away. The paper also introduces self-adversarial negative sampling so harder negatives receive more training attention.',
+    explanation: `Training pulls known triples close (${headEntity} -> ${tailEntity} scores distance ${trueDistance}) and pushes sampled false triples away (worst distance ${worstDistance}). The paper also introduces self-adversarial negative sampling so harder negatives receive more training attention.`,
   };
 
   yield {
@@ -125,11 +133,17 @@ function* relationalRotation() {
       ],
     }, { title: 'RotatE training loop' }),
     highlight: { active: ['score', 'neg'], found: ['predict'] },
-    explanation: 'The trained embeddings can rank candidate tails for a query like (Marie Curie, won, ?). The model is useful when graph structure has patterns that geometry can compress.',
+    explanation: `The trained embeddings can rank candidate tails for a query like (Curie, won, ?). The model learns from ${edgeCount} known edges and predicts missing links when graph structure has patterns that geometry can compress.`,
   };
 }
 
 function* patternReasoning() {
+  const patternCount = 4;
+  const r1Deg = 45;
+  const r2Deg = 90;
+  const composedDeg = r1Deg + r2Deg;
+  const auditChecks = 4;
+
   yield {
     state: labelMatrix(
       'Relation patterns as phase algebra',
@@ -151,7 +165,7 @@ function* patternReasoning() {
       ],
     ),
     highlight: { active: ['sym:rotation test', 'inv:rotation test', 'comp:rotation test'] },
-    explanation: 'RotatE is memorable because relation patterns become simple complex-number algebra. Inversion is conjugation, composition is multiplication, and antisymmetry is a phase that does not undo itself.',
+    explanation: `RotatE is memorable because all ${patternCount} relation patterns — symmetry, antisymmetry, inversion, composition — become simple complex-number algebra. Inversion is conjugation, composition is multiplication, and antisymmetry is a phase that does not undo itself.`,
   };
 
   yield {
@@ -165,14 +179,14 @@ function* patternReasoning() {
       ],
     }),
     highlight: { active: ['r1', 'r2', 'r3'], compare: ['inv'] },
-    explanation: 'Composing two relations adds their phase angles. Inverting a relation flips the sign of the phase. This is why complex rotations fit knowledge-graph reasoning better than a plain translation in some relation families.',
-    invariant: 'Complex multiplication turns relation composition into phase addition.',
+    explanation: `Composing two relations adds their phase angles: r1 at ${r1Deg} degrees plus r2 at ${r2Deg} degrees gives r1*r2 at ${composedDeg} degrees. Inverting r1 flips the sign to -${r1Deg} degrees. This is why complex rotations fit knowledge-graph reasoning better than a plain translation.`,
+    invariant: `Complex multiplication turns relation composition into phase addition — ${r1Deg} + ${r2Deg} = ${composedDeg} degrees.`,
   };
 
   yield {
     state: kgGraph('Pattern-aware reasoning over paths'),
     highlight: { active: ['paris', 'france', 'europe', 'e-paris-france', 'e-france-europe'], found: ['query'] },
-    explanation: 'If the graph learns city->country and country->region rotations, the composition can help infer city->region. The model is not doing symbolic proof; it is learning a geometric bias that makes common relational patterns cheap.',
+    explanation: `If the graph learns city->country and country->region rotations, their composition (phase addition) can help infer city->region. The model is not doing symbolic proof; it is learning a geometric bias that makes common relational patterns cheap across ${patternCount} pattern types.`,
   };
 
   yield {
@@ -196,7 +210,7 @@ function* patternReasoning() {
       ],
     ),
     highlight: { found: ['split:audit', 'negatives:audit', 'rules:audit', 'freshness:audit'] },
-    explanation: 'Knowledge-graph embeddings are useful but evaluation is fragile. Randomly hiding edges can leak entity neighborhoods, and easy negatives can inflate link-prediction scores. The benchmark protocol is part of the model.',
+    explanation: `Knowledge-graph embeddings are useful but evaluation is fragile — ${auditChecks} audit checks are essential. Randomly hiding edges can leak entity neighborhoods, and easy negatives can inflate link-prediction scores. The benchmark protocol is part of the model.`,
   };
 }
 
@@ -216,7 +230,8 @@ export const article = {
         {type: 'callout', text: 'RotatE works because relation composition becomes phase addition on the complex unit circle.'},
         'The "pattern reasoning" view shows how relation patterns -- symmetry, inversion, composition -- map to phase algebra on the unit circle. Active vectors are relation rotations. The compare vector shows the conjugate (inverse). Watch how multiplying two rotations composes their phases.',
         'In both views, the scoring matrix highlights the distance between h * r and t. Small distance means a plausible triple. Large distance means the rotation missed the tail. At each frame, ask: did the rotation land close, and does the phase algebra match the relation pattern?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/rotate-knowledge-graph-embeddings.gif', alt: 'Animated walkthrough of the rotate knowledge graph embeddings visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

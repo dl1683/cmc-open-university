@@ -190,7 +190,8 @@ export const article = {
         {type: 'callout', text: 'Influence is a counterfactual data question: remove one training point and measure how the trained model would move.'},
         'The ledger view shows each training example as a row, with one column: the change in the test email\'s spam probability when that example is removed and the model is retrained from scratch. Negative values mean the example was supporting the spam verdict; removing it lowers the score. Positive values mean the example was pushing against it.',
         'The second trace injects a mislabeled point and measures each example\'s effect on clean validation loss instead of a single test prediction. The example whose removal most improves held-out loss is the strongest candidate for a label error.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/influence-functions.gif', alt: 'Animated walkthrough of the influence functions visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

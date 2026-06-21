@@ -52,10 +52,15 @@ function worklistGraph(title) {
 }
 
 function* reachingDefinitions() {
+  const graphNodes = 7;
+  const graphEdges = 8;
+  const cfgBlocks = 4;     // rows in the reaching definitions matrix
+  const factColumns = 3;   // columns: in, gen, out
+  const definitions = 2;   // x0 and x1
   yield {
     state: worklistGraph('A worklist propagates facts through the CFG'),
     highlight: { active: ['cfg', 'facts', 'worklist', 'e-cfg-facts', 'e-cfg-worklist'], compare: ['fixpoint'] },
-    explanation: 'Data-flow analysis starts with a control-flow graph and a fact set for each block. The worklist holds blocks whose input facts changed and therefore need their output recomputed.',
+    explanation: `Data-flow analysis starts with a control-flow graph of ${graphNodes} nodes and a fact set for each block. The worklist holds blocks whose input facts changed and therefore need their output recomputed across ${graphEdges} edges.`,
   };
   yield {
     state: labelMatrix(
@@ -79,21 +84,26 @@ function* reachingDefinitions() {
       ],
     ),
     highlight: { active: ['then:gen', 'else:gen'], found: ['join:in'], compare: ['entry:out'] },
-    explanation: 'A forward analysis pushes definitions from predecessors to successors. At a join, facts from both branches meet, so the use of x can be reached by both x0 and x1.',
-    invariant: 'When a block output changes, every successor may need another visit.',
+    explanation: `A forward analysis pushes definitions from predecessors to successors across ${cfgBlocks} blocks and ${factColumns} fact columns. At a join, facts from both branches meet, so the use of x can be reached by both ${definitions} definitions (x0 and x1).`,
+    invariant: `When a block output changes, every successor among the ${graphEdges} edges may need another visit.`,
   };
   yield {
     state: worklistGraph('The fixpoint means no fact set changes anymore'),
     highlight: { active: ['transfer', 'join', 'fixpoint', 'e-transfer-join', 'e-join-fixpoint'], visited: ['loop', 'worklist'] },
-    explanation: 'The algorithm stops at a fixpoint: running every transfer function again would produce the same in/out facts. That stable answer becomes input to optimizers, linters, and security scanners.',
+    explanation: `The algorithm stops at a fixpoint: running every transfer function across all ${graphNodes} nodes again would produce the same in/out facts. That stable answer becomes input to optimizers, linters, and security scanners.`,
   };
 }
 
 function* livenessFixpoint() {
+  const graphNodes = 7;
+  const graphEdges = 8;
+  const livenessBlocks = 4;  // rows in backward liveness matrix
+  const livenessColumns = 3; // columns: use, def, live in
+  const analysisVariants = 6; // constant prop, reaching defs, nullness, liveness, taint, interval
   yield {
     state: worklistGraph('Liveness runs backward from uses to definitions'),
     highlight: { active: ['cfg', 'transfer', 'worklist'], compare: ['join'], found: ['loop'] },
-    explanation: 'Some analyses flow backward. Liveness asks which values may be used in the future, so facts travel from successors back to predecessors.',
+    explanation: `Some analyses flow backward across ${graphEdges} edges. Liveness asks which values may be used in the future, so facts travel from successors back to predecessors through the ${graphNodes}-node CFG.`,
   };
   yield {
     state: labelMatrix(
@@ -117,12 +127,12 @@ function* livenessFixpoint() {
       ],
     ),
     highlight: { active: ['ret:use', 'join:liveIn'], found: ['then:def', 'else:def'] },
-    explanation: 'A use makes a value live. A definition kills liveness for the old value on that path. This is the analysis that feeds Linear Scan Register Allocation.',
+    explanation: `A use makes a value live. A definition kills liveness for the old value on that path. The ${livenessBlocks} blocks each track ${livenessColumns} columns (use, def, live in) to feed Linear Scan Register Allocation.`,
   };
   yield {
     state: worklistGraph('Static analysis is a reusable engine'),
     highlight: { active: ['cfg', 'facts', 'transfer', 'join'], found: ['fixpoint'], compare: ['worklist'] },
-    explanation: 'Constant propagation, reaching definitions, nullness, liveness, taint tracking, and interval range analysis all reuse the same skeleton: facts, transfer functions, joins, and a worklist.',
+    explanation: `At least ${analysisVariants} major analyses — constant propagation, reaching definitions, nullness, liveness, taint tracking, and interval range analysis — all reuse the same skeleton: facts, transfer functions, joins, and a worklist over ${graphNodes} nodes.`,
   };
 }
 
@@ -135,6 +145,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/data-flow-worklist-analysis.gif', alt: 'Animated walkthrough of the data flow worklist analysis visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

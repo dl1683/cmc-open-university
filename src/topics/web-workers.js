@@ -30,29 +30,35 @@ function threads({ main = [], mainQ = [], worker = [], note = '', renderNote = '
 }
 
 function* offload() {
+  const csvSize = 50;
+  const parseTime = 800;
+  const frameMs = 16.7;
+  const missedFrames = Math.floor(parseTime / frameMs);
+  const ramLatency = 0.1;
+
   yield {
     state: threads({
-      main: [{ id: 'parse', label: 'parse(50MB CSV)', note: '800ms of CPU' }],
+      main: [{ id: 'parse', label: `parse(${csvSize}MB CSV)`, note: `${parseTime}ms of CPU` }],
       mainQ: [
         { id: 'click1', label: 'click handler', note: 'waiting' },
         { id: 'click2', label: 'click handler', note: 'waiting' },
       ],
       note: 'not hired yet',
-      renderNote: 'FROZEN — 48 frames missed',
+      renderNote: `FROZEN — ${missedFrames} frames missed`,
     }),
     highlight: { active: ['parse'], compare: ['click1', 'click2'], removed: ['render'] },
-    explanation: 'The Event Loop taught the iron rule: a task runs to COMPLETION — nothing interrupts it. Here is the rule\'s dark side: parsing a 50MB CSV takes 800ms of pure CPU, and for all 800ms the stack is occupied. Clicks pile up in the task queue. The 16.7ms render deadline passes 48 times with no paint. The page is frozen — not because anything is wrong, but because the event loop is working exactly as designed. No amount of async/await fixes this: promises slice up WAITING, not COMPUTING.',
+    explanation: `The Event Loop taught the iron rule: a task runs to COMPLETION — nothing interrupts it. Here is the rule's dark side: parsing a ${csvSize}MB CSV takes ${parseTime}ms of pure CPU, and for all ${parseTime}ms the stack is occupied. Clicks pile up in the task queue. The ${frameMs}ms render deadline passes ${missedFrames} times with no paint. The page is frozen — not because anything is wrong, but because the event loop is working exactly as designed. No amount of async/await fixes this: promises slice up WAITING, not COMPUTING.`,
   };
 
   yield {
     state: threads({
       main: [{ id: 'post', label: 'worker.postMessage(csv)', note: 'returns instantly' }],
-      worker: [{ id: 'parse', label: 'parse(50MB CSV)', note: '800ms — elsewhere' }],
+      worker: [{ id: 'parse', label: `parse(${csvSize}MB CSV)`, note: `${parseTime}ms — elsewhere` }],
       renderNote: 'smooth 60fps ✓',
     }),
     highlight: { active: ['parse'], found: ['render', 'post'] },
-    explanation: 'The escape hatch: new Worker("parse.js") starts a genuinely SEPARATE thread — its own call stack, its own event loop, its own memory heap. The main thread mails the data over with postMessage() and returns in microseconds; the 800ms of parsing now burns a different CPU core. Buttons click, animations run, the event loop never notices. The isolation is total: the worker cannot see the DOM, window, or any variable of the page — by design. Two threads sharing the DOM would mean locks, races, and every concurrency bug JavaScript was built to avoid (the same reasons Raft and Two-Phase Commit exist between machines).',
-    invariant: 'Worker and page share NOTHING: separate heaps, communicating only by message.',
+    explanation: `The escape hatch: new Worker("parse.js") starts a genuinely SEPARATE thread — its own call stack, its own event loop, its own memory heap. The main thread mails the data over with postMessage() and returns in ~${ramLatency}ms; the ${parseTime}ms of parsing now burns a different CPU core. Buttons click, animations run, the event loop never notices. The isolation is total: the worker cannot see the DOM, window, or any variable of the page — by design. Two threads sharing the DOM would mean locks, races, and every concurrency bug JavaScript was built to avoid (the same reasons Raft and Two-Phase Commit exist between machines).`,
+    invariant: `Worker and page share NOTHING: separate heaps, ${csvSize}MB of CSV crosses only by message, never by reference.`,
   };
 
   yield {
@@ -63,7 +69,7 @@ function* offload() {
       renderNote: 'still smooth ✓',
     }),
     highlight: { active: ['reply'], visited: ['onmsg'] },
-    explanation: 'The worker finishes and mails the parsed rows back. Note HOW the reply arrives: as an ordinary task in the main thread\'s task queue, taking its turn behind pending clicks and renders, obeying every rule of event-loop etiquette. The onmessage handler then updates the DOM — because only the main thread may paint. This is the clean division of labor: WORKERS COMPUTE, MAIN PAINTS. The same shape as a restaurant: the kitchen (worker) cooks, the waiter (main thread) is the only one who touches the tables.',
+    explanation: `The worker finishes and mails the parsed rows back. Note HOW the reply arrives: as an ordinary task in the main thread's task queue, taking its turn behind pending clicks and renders, obeying every rule of event-loop etiquette. The onmessage handler then updates the DOM — because only the main thread may paint. This is the clean division of labor: WORKERS COMPUTE, MAIN PAINTS. The ${parseTime}ms parse ran on a separate core while the main thread stayed free for the full ${missedFrames} frames it would have missed.`,
   };
 
   yield {
@@ -80,31 +86,37 @@ function* offload() {
       format: (v) => (v ? 'yes ✓' : 'NO — main only'),
     }),
     highlight: { removed: ['dom:ok'], found: ['wasm:ok'] },
-    explanation: 'The capability sheet: workers get the network, storage, and raw compute (they are where WebAssembly modules and ML inference like in-browser transformers usually run); they never get the page itself. So the architecture writes itself — keep the main thread as a thin UI layer, push parsing, compression, image processing, crypto, and model inference into workers. Figma, VS Code in the browser, and Google Sheets all live by this split. One caution before you hire a thread for everything: the mail service between them charges by weight — the other view prices it.',
+    explanation: `The capability sheet: workers get the network, storage, and raw compute (they are where WebAssembly modules and ML inference like in-browser transformers usually run); they never get the page itself. So the architecture writes itself — keep the main thread as a thin UI layer, push parsing, compression, image processing, crypto, and model inference into workers. Figma, VS Code in the browser, and Google Sheets all live by this split. One caution before you hire a thread for everything: the mail service between them charges by weight — even our ${csvSize}MB CSV costs postage the other view prices.`,
   };
 }
 
 function* tax() {
+  const cloneRate = 5;
+  const payloadMB = 50;
+  const cloneCost = cloneRate * payloadMB;
+  const kbCost = 0.005;
+  const tinyTaskMs = 2;
+
   yield {
     state: matrixState({
-      title: 'postMessage copies — the structured-clone bill (~5ms per MB)',
+      title: `postMessage copies — the structured-clone bill (~${cloneRate}ms per MB)`,
       rows: [
         { id: 'kb', label: '1 KB of JSON' },
         { id: 'mb', label: '1 MB of rows' },
-        { id: 'mb50', label: '50 MB of rows' },
+        { id: 'mb50', label: `${payloadMB} MB of rows` },
       ],
       columns: [{ id: 'clone', label: 'clone cost' }, { id: 'where', label: 'paid on which thread?' }],
-      values: [[0.005, 1], [5, 1], [250, 1]],
-      format: (v) => (v === 1 ? 'MAIN (blocking!)' : v < 1 ? '~0.005 ms' : `~${v} ms`),
+      values: [[kbCost, 1], [cloneRate, 1], [cloneCost, 1]],
+      format: (v) => (v === 1 ? 'MAIN (blocking!)' : v < 1 ? `~${kbCost} ms` : `~${v} ms`),
     }),
     highlight: { removed: ['mb50:clone', 'mb50:where'] },
-    explanation: 'The fine print: postMessage does not SHARE data — separate heaps, remember — it COPIES it, via the structured-clone algorithm (a deep copy that handles objects, arrays, maps, dates, cycles). Cloning costs roughly 5ms per MB, and the outbound copy is paid ON THE MAIN THREAD — the very thread you were protecting. Mail 50MB to the worker and you just froze the page for ~250ms to avoid freezing it for 800ms. A win, but an embarrassing one; mail results back and forth chattily and the postage exceeds the work.',
-    invariant: 'Structured clone cost scales with payload size and is paid by the sending thread.',
+    explanation: `The fine print: postMessage does not SHARE data — separate heaps, remember — it COPIES it, via the structured-clone algorithm (a deep copy that handles objects, arrays, maps, dates, cycles). Cloning costs roughly ${cloneRate}ms per MB, and the outbound copy is paid ON THE MAIN THREAD — the very thread you were protecting. Mail ${payloadMB}MB to the worker and you just froze the page for ~${cloneCost}ms to avoid freezing it for 800ms. A win, but an embarrassing one; mail results back and forth chattily and the postage exceeds the work.`,
+    invariant: `Structured clone at ~${cloneRate}ms/MB means a ${payloadMB}MB payload costs ~${cloneCost}ms — paid by the sending thread.`,
   };
 
   yield {
     state: matrixState({
-      title: 'Three ways to move 50 MB',
+      title: `Three ways to move ${payloadMB} MB`,
       rows: [
         { id: 'clone', label: 'structured clone' },
         { id: 'transfer', label: 'transfer ArrayBuffer' },
@@ -112,10 +124,10 @@ function* tax() {
       ],
       columns: [{ id: 'cost', label: 'cost' }, { id: 'catch', label: 'the catch' }],
       values: [[1, 2], [3, 4], [5, 6]],
-      format: (v) => ['', '~250 ms copy', 'none — just slow', '~0 ms', 'sender loses it (neutered)', '~0 ms, both see it', 'real shared memory: Atomics, locks, races'][v],
+      format: (v) => ['', `~${cloneCost} ms copy`, 'none — just slow', '~0 ms', 'sender loses it (neutered)', '~0 ms, both see it', 'real shared memory: Atomics, locks, races'][v],
     }),
     highlight: { found: ['transfer:cost'], compare: ['shared:catch'] },
-    explanation: 'The upgrades: TRANSFER an ArrayBuffer and ownership MOVES instead of copying — near-zero cost, but the sender\'s copy is neutered (length 0, unusable); perfect for pipelines where data flows one way: postMessage(buf, [buf]). SharedArrayBuffer goes further — one block of memory both threads genuinely see — but it reintroduces everything workers were designed to avoid: Atomics, locks, data races (and it requires special security headers, since Spectre). The ladder: clone for small things, transfer for big one-way things, shared memory only when you truly need both threads in the same bytes.',
+    explanation: `The upgrades: TRANSFER an ArrayBuffer and ownership MOVES instead of copying — near-zero cost, but the sender's copy is neutered (length 0, unusable); perfect for pipelines where data flows one way: postMessage(buf, [buf]). SharedArrayBuffer goes further — one block of memory both threads genuinely see — but it reintroduces everything workers were designed to avoid: Atomics, locks, data races (and it requires special security headers, since Spectre). The ladder: clone for small things, transfer for big one-way things like our ${payloadMB}MB buffer, shared memory only when you truly need both threads in the same bytes.`,
   };
 
   yield {
@@ -124,7 +136,7 @@ function* tax() {
       rows: [
         { id: 'big', label: 'CPU > 50ms, chunky data' },
         { id: 'dom', label: 'touches the DOM' },
-        { id: 'tiny', label: '2ms task, called often' },
+        { id: 'tiny', label: `${tinyTaskMs}ms task, called often` },
         { id: 'chat', label: 'needs replies every frame' },
       ],
       columns: [{ id: 'verdict', label: 'verdict' }],
@@ -132,7 +144,7 @@ function* tax() {
       format: (v) => ['main thread — postage > work', 'WORKER — clear win', 'borderline: transfer, batch messages'][v],
     }),
     highlight: { found: ['big:verdict'], removed: ['dom:verdict', 'tiny:verdict'] },
-    explanation: 'The decision table. Workers win when the computation dwarfs the postage: parsing, compressing, image filters, model inference. They lose on DOM work (cannot touch it), tiny frequent tasks (clone overhead swamps 2ms of work), and chatty per-frame conversations (unless you batch or transfer). The deeper pattern is one you have seen all over this site: moving work to another executor is never free — the messaging cost is the price of isolation, whether between browser threads, microservices behind a Message Queue, or replicas in Raft. Distribution is a trade, and the postage is the receipt.',
+    explanation: `The decision table. Workers win when the computation dwarfs the postage: parsing, compressing, image filters, model inference. They lose on DOM work (cannot touch it), tiny frequent tasks (clone overhead at ${cloneRate}ms/MB swamps a ${tinyTaskMs}ms job), and chatty per-frame conversations (unless you batch or transfer). The deeper pattern is one you have seen all over this site: moving work to another executor is never free — the messaging cost is the price of isolation, whether between browser threads, microservices behind a Message Queue, or replicas in Raft. Distribution is a trade, and the postage is the receipt.`,
   };
 }
 
@@ -151,7 +163,8 @@ export const article = {
         "The animation shows two execution contexts side by side: the main thread (which owns the DOM) and the worker thread (which owns private compute). Active (highlighted) items show where CPU time is being spent right now. Found (green) markers show states that are safe: the render slot is smooth, or a transfer completed without copying. Removed (red) markers show states that are broken: the render slot is frozen, or a clone cost is dangerously large.",
         {type: "callout", text: "A worker is useful only when isolation saves more interaction budget than the message boundary costs."},
         "In the offloading view, watch the render slot. When the parse runs on the main thread, render is red (frozen). When the parse moves to the worker, render turns green (smooth). That single color change is the proof: isolating compute onto a separate event loop protects the frame budget. In the postMessage tax view, the matrix rows show data sizes and their clone costs. Red cells mark costs large enough to defeat the purpose of offloading. The decision table at the end encodes the rule: workers win when computation dwarfs postage.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/web-workers.gif', alt: 'Animated walkthrough of the web workers visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why Web Workers exist`,

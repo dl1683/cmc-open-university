@@ -111,7 +111,8 @@ export const article = {
         'The key event is the cache hit: a node lights up, finds its answer already stored, and returns instantly without spawning children. The entire subtree that plain recursion would have built is gone. Every cache hit is a pruned exponential branch.',
         'The cache panel below the tree shows every stored result. Each key appears exactly once, the first time that subproblem is solved. Compare the final tree shape to what plain recursion produces (see the Recursion topic). The memoized tree is a thin spine; the naive tree is a bushy explosion.',
         {type: 'callout', text: 'Memoization changes recursion from one call tree per path into one computation per distinct subproblem key.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/memoization.gif', alt: 'Animated walkthrough of the memoization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

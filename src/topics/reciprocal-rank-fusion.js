@@ -59,15 +59,24 @@ function rrfGraph(title) {
 }
 
 function* scoreDocuments() {
+  const k = 60;
+  const retrieverNames = ['BM25', 'vector', 'graph'];
+  const numRetrievers = retrieverNames.length;
+
   yield {
     state: rrfGraph('RRF merges ranked lists without score normalization'),
     highlight: { active: ['bm25', 'vector', 'graph', 'rrf', 'e-bm25-rrf', 'e-vector-rrf', 'e-graph-rrf'], found: ['pool'], compare: ['rerank'] },
-    explanation: 'Read the arrows as separate first-stage retrievers voting on the same query. RRF sits at the join point: it ignores incompatible score scales and asks only where each candidate appeared in each ranked list.',
+    explanation: `Read the arrows as ${numRetrievers} separate first-stage retrievers (${retrieverNames.join(', ')}) voting on the same query. RRF sits at the join point: it ignores incompatible score scales and asks only where each candidate appeared in each ranked list.`,
   };
+
+  const rank1Contribution = (1 / (k + 1)).toFixed(4);
+  const rank2Contribution = (1 / (k + 2)).toFixed(4);
+  const rank3Contribution = (1 / (k + 3)).toFixed(4);
+  const rank4Contribution = (1 / (k + 4)).toFixed(4);
 
   yield {
     state: labelMatrix(
-      'RRF contribution with k = 60',
+      `RRF contribution with k = ${k}`,
       [
         { id: 'rank1', label: 'rank 1' },
         { id: 'rank2', label: 'rank 2' },
@@ -80,43 +89,48 @@ function* scoreDocuments() {
         { id: 'value', label: 'contribution' },
       ],
       [
-        ['1 / 61', '0.0164'],
-        ['1 / 62', '0.0161'],
-        ['1 / 63', '0.0159'],
-        ['1 / 64', '0.0156'],
+        [`1 / ${k + 1}`, rank1Contribution],
+        [`1 / ${k + 2}`, rank2Contribution],
+        [`1 / ${k + 3}`, rank3Contribution],
+        [`1 / ${k + 4}`, rank4Contribution],
         ['0', 'not found'],
       ],
     ),
     highlight: { active: ['rank1:value', 'rank2:value'], compare: ['missing:value'] },
-    explanation: 'The table shows the whole trick. Every visible rank contributes a small value, missing candidates contribute zero, and k keeps rank 1 from overwhelming everything below it.',
-    invariant: 'RRF score(document) = sum over lists of 1 / (k + rank_in_that_list).',
+    explanation: `The table shows the whole trick. Rank 1 contributes ${rank1Contribution}, rank 2 contributes ${rank2Contribution} — a smooth drop, not a cliff. Missing candidates contribute zero, and k = ${k} keeps the top rank from overwhelming everything below it.`,
+    invariant: `RRF score(document) = sum over ${numRetrievers} lists of 1 / (${k} + rank_in_that_list).`,
   };
+
+  const docNames = ['policy-17', 'refund guide', 'plan table', 'owner node'];
+  // Ranks per retriever: [BM25, vector, graph] — null means missing
+  const docRanks = [[1, 2, 4], [2, 1, 3], [3, 4, null], [null, null, 1]];
+  const fusedScores = docRanks.map(
+    (ranks) => ranks.reduce((sum, r) => sum + (r == null ? 0 : 1 / (k + r)), 0).toFixed(4),
+  );
+  const winnerIdx = fusedScores.indexOf(fusedScores.slice().sort().reverse()[0]);
+  const winnerName = docNames[winnerIdx];
 
   yield {
     state: labelMatrix(
       'Fused scores',
-      [
-        { id: 'policy', label: 'policy-17' },
-        { id: 'refund', label: 'refund guide' },
-        { id: 'plan', label: 'plan table' },
-        { id: 'owner', label: 'owner node' },
-      ],
+      docNames.map((name, i) => ({ id: ['policy', 'refund', 'plan', 'owner'][i], label: name })),
       [
         { id: 'bm25', label: 'BM25 rank' },
         { id: 'vector', label: 'vector rank' },
         { id: 'graph', label: 'graph rank' },
         { id: 'rrf', label: 'fused' },
       ],
-      [
-        ['1', '2', '4', '0.0481'],
-        ['2', '1', '3', '0.0484'],
-        ['3', '4', 'missing', '0.0315'],
-        ['missing', 'missing', '1', '0.0164'],
-      ],
+      docRanks.map((ranks, i) => [
+        ...ranks.map((r) => r == null ? 'missing' : String(r)),
+        fusedScores[i],
+      ]),
     ),
     highlight: { found: ['refund:rrf', 'policy:rrf'], compare: ['owner:rrf'], active: ['refund:bm25', 'refund:vector', 'refund:graph'] },
-    explanation: 'The refund guide wins because it appears near the top of all three lists. A document that wins one retriever but is invisible elsewhere can still enter the pool, but it does not dominate by raw-score scale.',
+    explanation: `The ${winnerName} wins with fused score ${fusedScores[winnerIdx]} because it appears near the top of all ${numRetrievers} lists. A document that wins one retriever but is invisible elsewhere can still enter the pool, but it does not dominate by raw-score scale.`,
   };
+
+  const protections = ['score scale', 'outlier score', 'broad agreement', 'missing evidence'];
+  const numProtections = protections.length;
 
   yield {
     state: labelMatrix(
@@ -139,11 +153,15 @@ function* scoreDocuments() {
       ],
     ),
     highlight: { active: ['score_scale:effect', 'outlier:effect', 'agreement:effect'], removed: ['recall:limit'] },
-    explanation: 'RRF is a fusion primitive, not a relevance oracle. It makes candidate merging robust, but the candidate lists still need enough recall for the downstream reranker and generator.',
+    explanation: `RRF addresses ${numProtections} concerns (${protections.join(', ')}), but it is a fusion primitive, not a relevance oracle. It makes candidate merging across ${numRetrievers} retrievers robust, but the candidate lists still need enough recall for the downstream reranker and generator.`,
   };
 }
 
 function* hybridSearchCase() {
+  const stageNames = ['query', 'lexical list', 'vector list', 'RRF list', 'reranker'];
+  const numStages = stageNames.length;
+  const defaultK = 60;
+
   yield {
     state: labelMatrix(
       'Hybrid RAG candidate stages',
@@ -167,15 +185,18 @@ function* hybridSearchCase() {
       ],
     ),
     highlight: { active: ['lex:output', 'vec:output', 'rrf:job'], found: ['rerank:output'] },
-    explanation: 'Follow the rows left to right: fast retrievers create lists, RRF makes one candidate pool, and the expensive reranker spends compute only after fusion has widened recall.',
+    explanation: `Follow the ${numStages} rows left to right: fast retrievers create lists, RRF (stage ${stageNames.indexOf('RRF list') + 1} of ${numStages}) makes one candidate pool, and the expensive reranker spends compute only after fusion has widened recall.`,
   };
+
+  const kChoices = ['small k', `k around ${defaultK}`, 'large k', 'rank window'];
+  const numKnobs = kChoices.length;
 
   yield {
     state: labelMatrix(
       'Choosing k and cutoffs',
       [
         { id: 'smallk', label: 'small k' },
-        { id: 'defaultk', label: 'k around 60' },
+        { id: 'defaultk', label: `k around ${defaultK}` },
         { id: 'largek', label: 'large k' },
         { id: 'cutoff', label: 'rank window' },
       ],
@@ -191,8 +212,11 @@ function* hybridSearchCase() {
       ],
     ),
     highlight: { active: ['defaultk:behavior'], compare: ['smallk:risk', 'largek:risk'], removed: ['cutoff:risk'] },
-    explanation: 'RRF has fewer knobs than weighted-score fusion, but it still has knobs. k controls rank discount; per-list cutoff controls which documents get any contribution.',
+    explanation: `RRF has ${numKnobs} tuning dimensions (${kChoices.join(', ')}), fewer than weighted-score fusion, but not zero. The standard baseline k = ${defaultK} gives smooth rank discount; per-list cutoff controls which documents get any contribution.`,
   };
+
+  const signalSources = ['BM25', 'vector ANN', 'graph edge', 'metadata filter'];
+  const numSignals = signalSources.length;
 
   yield {
     state: labelMatrix(
@@ -215,7 +239,7 @@ function* hybridSearchCase() {
       ],
     ),
     highlight: { found: ['policy:fusion value', 'paraphrase:fusion value', 'team:fusion value'], active: ['fresh:best signal'] },
-    explanation: 'RRF lets a support assistant keep exact policy IDs, semantic paraphrases, and relationship evidence in one candidate set before the Cross-Encoder Reranker spends real compute.',
+    explanation: `RRF merges ${numSignals} signal sources (${signalSources.join(', ')}) so a support assistant keeps exact policy IDs, semantic paraphrases, and relationship evidence in one candidate set before the reranker spends real compute.`,
   };
 }
 
@@ -228,6 +252,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/reciprocal-rank-fusion.gif', alt: 'Animated walkthrough of the reciprocal rank fusion visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

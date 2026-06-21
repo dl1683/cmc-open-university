@@ -50,22 +50,24 @@ function avroGraph(title, notes = {}) {
 }
 
 function* schemaGuidedBinary() {
+  const activeNodes = ['writerSchema', 'record', 'encoder', 'bytes'];
   yield {
     state: avroGraph('Avro binary bytes depend on the writer schema'),
-    highlight: { active: ['writerSchema', 'record', 'encoder', 'bytes'], compare: ['readerSchema'] },
-    explanation: 'Avro binary encoding does not include field names or per-value type tags. The writer schema tells the encoder which fields to write and in what order.',
+    highlight: { active: activeNodes, compare: ['readerSchema'] },
+    explanation: `Avro binary encoding does not include field names or per-value type tags. The writer schema tells the encoder which ${activeNodes.length} active components to walk and in what order.`,
     invariant: 'Without the writer schema, raw Avro binary bytes are not self-describing records.',
   };
 
+  const fieldRows = [
+    { id: 'id', label: 'id: long' },
+    { id: 'name', label: 'name: string' },
+    { id: 'vip', label: 'vip: boolean' },
+    { id: 'payload', label: 'payload' },
+  ];
   yield {
     state: labelMatrix(
       'Record schema and bytes',
-      [
-        { id: 'id', label: 'id: long' },
-        { id: 'name', label: 'name: string' },
-        { id: 'vip', label: 'vip: boolean' },
-        { id: 'payload', label: 'payload' },
-      ],
+      fieldRows,
       [
         { id: 'binary piece', label: 'binary piece' },
         { id: 'why compact', label: 'why compact' },
@@ -78,16 +80,17 @@ function* schemaGuidedBinary() {
       ],
     ),
     highlight: { active: ['id:binary piece', 'name:binary piece', 'payload:why compact'] },
-    explanation: 'The payload is compact because the field names and types live in the schema, not in every record. That is why a registry or container header matters.',
+    explanation: `The payload is compact because the ${fieldRows.length} field names and types live in the schema, not in every record. That is why a registry or container header matters.`,
   };
 
+  const formats = ['Avro', 'Protobuf', 'JSON'];
   yield {
     state: labelMatrix(
       'Avro versus Protobuf shape',
       [
-        { id: 'avro', label: 'Avro' },
-        { id: 'proto', label: 'Protobuf' },
-        { id: 'json', label: 'JSON' },
+        { id: 'avro', label: formats[0] },
+        { id: 'proto', label: formats[1] },
+        { id: 'json', label: formats[2] },
       ],
       [
         { id: 'payload carries', label: 'payload carries' },
@@ -100,24 +103,28 @@ function* schemaGuidedBinary() {
       ],
     ),
     highlight: { active: ['avro:payload carries', 'proto:payload carries'], compare: ['json:payload carries'] },
-    explanation: 'Avro is more schema-dependent than Protobuf at the raw byte level. Protobuf carries field numbers and wire types; Avro relies on the writer schema to know what each byte sequence means.',
+    explanation: `${formats[0]} is more schema-dependent than ${formats[1]} at the raw byte level. ${formats[1]} carries field numbers and wire types; ${formats[0]} relies on the writer schema to know what each byte sequence means.`,
   };
 
+  const registryNotes = { writerSchema: 'registered', bytes: 'magic+id+Avro', readerSchema: 'fetch by id', resolver: 'decode' };
   yield {
-    state: avroGraph('Schema Registry puts a schema id before the Avro payload', { writerSchema: 'registered', bytes: 'magic+id+Avro', readerSchema: 'fetch by id', resolver: 'decode' }),
+    state: avroGraph('Schema Registry puts a schema id before the Avro payload', registryNotes),
     highlight: { active: ['writerSchema', 'bytes', 'readerSchema', 'resolver'], found: ['object'] },
-    explanation: 'Confluent Avro serialization does not include the whole schema in each Kafka message. It writes a magic byte and schema id, then the normal Avro binary payload. Consumers fetch the schema by id.',
+    explanation: `Confluent Avro serialization does not include the whole schema in each Kafka message. It writes a ${registryNotes.bytes} envelope — a magic byte and schema id — then the normal Avro binary payload. Consumers ${registryNotes.readerSchema} from the registry.`,
   };
 }
 
 function* readerWriterResolution() {
+  const resolutionNotes = { writerSchema: 'v1', readerSchema: 'v2', resolver: 'match by name' };
   yield {
-    state: avroGraph('Reader and writer schemas can differ compatibly', { writerSchema: 'v1', readerSchema: 'v2', resolver: 'match by name' }),
+    state: avroGraph('Reader and writer schemas can differ compatibly', resolutionNotes),
     highlight: { active: ['writerSchema', 'readerSchema', 'resolver'], found: ['object'] },
-    explanation: 'Avro decoding uses both schemas. The writer schema explains the bytes; the reader schema says what shape the consumer wants. Resolution matches fields by name and applies defaults where allowed.',
+    explanation: `Avro decoding uses both schemas. The writer schema (${resolutionNotes.writerSchema}) explains the bytes; the reader schema (${resolutionNotes.readerSchema}) says what shape the consumer wants. Resolution uses a ${resolutionNotes.resolver} strategy and applies defaults where allowed.`,
     invariant: 'Compatibility is a schema-resolution rule, not byte guessing.',
   };
 
+  const defaultValue = 0;
+  const addedField = 'risk_score';
   yield {
     state: labelMatrix(
       'Adding a field with a default',
@@ -128,29 +135,32 @@ function* readerWriterResolution() {
         { id: 'result', label: 'decoded result' },
       ],
       [
-        { id: 'has risk', label: 'risk_score?' },
+        { id: 'has risk', label: `${addedField}?` },
         { id: 'outcome', label: 'outcome' },
       ],
       [
         ['no', 'bytes lack field'],
-        ['yes default=0', 'compatible'],
+        [`yes default=${defaultValue}`, 'compatible'],
         ['no bytes', 'resolver supplies default'],
-        ['risk_score=0', 'new reader works'],
+        [`${addedField}=${defaultValue}`, 'new reader works'],
       ],
     ),
     highlight: { active: ['reader:outcome', 'result:has risk'], compare: ['writer:has risk'] },
-    explanation: 'A new reader can read old data if the added field has a default. The default is not hidden in old bytes; it comes from the reader schema during resolution.',
+    explanation: `A new reader can read old data if the added field ${addedField} has a default. The default ${defaultValue} is not hidden in old bytes; it comes from the reader schema during resolution.`,
   };
 
+  const outcomeRows = [
+    { id: 'same', label: 'same field' },
+    { id: 'newDefault', label: 'new field + default' },
+    { id: 'newNoDefault', label: 'new field no default' },
+    { id: 'typeChange', label: 'bad type change' },
+  ];
+  const safeCount = 2;
+  const breakingCount = outcomeRows.length - safeCount;
   yield {
     state: labelMatrix(
       'Resolution outcomes',
-      [
-        { id: 'same', label: 'same field' },
-        { id: 'newDefault', label: 'new field + default' },
-        { id: 'newNoDefault', label: 'new field no default' },
-        { id: 'typeChange', label: 'bad type change' },
-      ],
+      outcomeRows,
       [
         { id: 'reader action', label: 'reader action' },
         { id: 'compatibility', label: 'compatibility' },
@@ -163,17 +173,18 @@ function* readerWriterResolution() {
       ],
     ),
     highlight: { active: ['newDefault:reader action'], compare: ['newNoDefault:compatibility', 'typeChange:compatibility'] },
-    explanation: 'Avro compatibility is not simply "field was added." It is whether the reader can construct its expected record from bytes written with the writer schema.',
+    explanation: `Avro compatibility is not simply "field was added." Of ${outcomeRows.length} resolution cases, ${safeCount} are safe and ${breakingCount} are breaking — it depends on whether the reader can construct its expected record from bytes written with the writer schema.`,
   };
 
+  const envelopeRows = [
+    { id: 'container', label: 'Avro file' },
+    { id: 'kafka', label: 'Kafka+registry' },
+    { id: 'single', label: 'single-object' },
+  ];
   yield {
     state: labelMatrix(
       'Container file versus Kafka message',
-      [
-        { id: 'container', label: 'Avro file' },
-        { id: 'kafka', label: 'Kafka+registry' },
-        { id: 'single', label: 'single-object' },
-      ],
+      envelopeRows,
       [
         { id: 'schema location', label: 'schema location' },
         { id: 'use case', label: 'use case' },
@@ -185,7 +196,7 @@ function* readerWriterResolution() {
       ],
     ),
     highlight: { active: ['container:schema location', 'kafka:schema location'], found: ['single:schema location'] },
-    explanation: 'Avro has several envelopes. The raw binary record is schema-guided; a file, registry header, or single-object marker tells readers which writer schema to use.',
+    explanation: `Avro has ${envelopeRows.length} envelope types. The raw binary record is schema-guided; a ${envelopeRows[0].label}, ${envelopeRows[1].label}, or ${envelopeRows[2].label} marker tells readers which writer schema to use.`,
   };
 }
 
@@ -198,6 +209,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/avro-binary-encoding-schema-resolution.gif', alt: 'Animated walkthrough of the avro binary encoding schema resolution visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

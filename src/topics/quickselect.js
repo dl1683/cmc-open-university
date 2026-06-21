@@ -150,7 +150,8 @@ export const article = {
         { type: 'callout', text: 'Quickselect is quicksort with discipline: partition both sides, then spend recursion only on the side that can still contain rank k.' },
         'After each partition, the pivot snaps into its final position (sorted marker). Then only one side lights up as the new active range. The other side goes dark and is never touched again. This is what separates quickselect from quicksort: quicksort recurses into both sides, quickselect discards the side that cannot contain the answer.',
         'Watch the active range shrink across rounds. On a good pivot it roughly halves. When only one cell remains, the found marker appears -- that cell holds the kth smallest element, with everything to its left smaller or equal and everything to its right larger or equal, even though the array was never fully sorted.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/quickselect.gif', alt: 'Animated walkthrough of the quickselect visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

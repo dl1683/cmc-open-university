@@ -148,7 +148,8 @@ export const article = {
       paragraphs: [
         `The build view shows the doubling rule. Each level is not a new array problem; it is a reuse of the row below. A length-4 minimum is made from two length-2 minima. A length-8 minimum is made from two length-4 minima.`,
         `The query view shows the two-window answer. The selected range is larger than one precomputed block, but two blocks of the largest fitting size cover it. The comparison table at the end separates sparse tables from prefix arrays, Fenwick trees, and segment trees by the algebra each one needs.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/sparse-table.gif', alt: 'Animated walkthrough of the sparse table visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why it works`,

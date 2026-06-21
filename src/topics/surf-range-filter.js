@@ -58,10 +58,13 @@ function surfGraph(title) {
 }
 
 function* succinctTrie() {
+  const encodingPieces = ['labels', 'has-child bits', 'LOUDS bits', 'suffix bits'];
+  const pipelineNodes = ['keys', 'fst', 'prefix', 'suffix', 'point', 'range', 'sstable'];
+
   yield {
     state: surfGraph('SuRF keeps trie navigation but compresses the representation'),
     highlight: { active: ['keys', 'fst', 'e-keys-fst'], compare: ['prefix', 'suffix'] },
-    explanation: 'SuRF, the Succinct Range Filter, starts from sorted keys and builds a Fast Succinct Trie. Shared prefixes stay navigable while the trie is encoded compactly.',
+    explanation: `SuRF, the Succinct Range Filter, starts from sorted keys and builds a Fast Succinct Trie. The pipeline has ${pipelineNodes.length} stages from keys through SSTable. Shared prefixes stay navigable while the trie is encoded compactly.`,
   };
 
   yield {
@@ -85,16 +88,17 @@ function* succinctTrie() {
       ],
     ),
     highlight: { active: ['labels:stores', 'louds:job'], found: ['suffix:job'] },
-    explanation: 'The fast succinct trie uses compact arrays and bitvectors instead of pointer-heavy nodes. Rank/select turns those bitvectors into navigation.',
-    invariant: 'A definite negative can stop before touching the source table.',
+    explanation: `The fast succinct trie uses ${encodingPieces.length} encoding pieces (${encodingPieces.join(', ')}) — compact arrays and bitvectors instead of pointer-heavy nodes. Rank/select turns those bitvectors into navigation.`,
+    invariant: `A definite negative can stop before touching the source table.`,
   };
 
   yield {
     state: surfGraph('Suffix bits tune precision without storing full keys'),
     highlight: { active: ['suffix', 'point', 'range', 'e-suffix-point'], found: ['fst'] },
-    explanation: 'SuRF can keep hash or real suffix bits after the truncated trie. More suffix bits reduce false positives but increase memory.',
+    explanation: `SuRF can keep hash or real suffix bits after the truncated trie. More suffix bits reduce false positives but increase memory. The ${encodingPieces.length}th piece — ${encodingPieces[3]} — is the tuning knob.`,
   };
 
+  const comparisonRows = ['point lookup', 'range lookup', 'key order', 'space knob'];
   yield {
     state: labelMatrix(
       'Bloom filter versus SuRF',
@@ -116,11 +120,13 @@ function* succinctTrie() {
       ],
     ),
     highlight: { active: ['range:bloom', 'range:surf'], found: ['order:surf'] },
-    explanation: 'The reason SuRF exists is range filtering. A Bloom filter can reject a single absent key, but it cannot say an entire key interval is empty.',
+    explanation: `This ${comparisonRows.length}-row comparison shows why SuRF exists: range filtering. A Bloom filter can reject a single absent key, but it cannot say an entire key interval is empty.`,
   };
 }
 
 function* rangePruning() {
+  const querySteps = ['seek lower bound', 'walk trie', 'no key in interval', 'maybe overlaps'];
+
   yield {
     state: labelMatrix(
       'Range query example',
@@ -142,15 +148,16 @@ function* rangePruning() {
       ],
     ),
     highlight: { active: ['empty:result', 'maybe:result'], found: ['walk:work'] },
-    explanation: 'For a range [a, b], the filter asks whether the trie contains any key that could fall inside the interval. A definite empty avoids a table scan.',
+    explanation: `For a range [a, b], the filter walks ${querySteps.length} steps: ${querySteps.join(' -> ')}. A definite empty avoids a table scan.`,
   };
 
   yield {
     state: surfGraph('Range filters protect ordered storage from empty scans'),
     highlight: { active: ['range', 'sstable', 'e-range-sstable'], found: ['prefix', 'suffix'] },
-    explanation: 'Ordered storage engines often answer range queries by seeking through sorted files. SuRF can skip files whose keys cannot overlap the requested interval.',
+    explanation: `Ordered storage engines often answer range queries by seeking through sorted files. SuRF can skip files whose keys cannot overlap the requested interval.`,
   };
 
+  const useCases = ['LSM levels', 'time-series shards', 'log search', 'prefix scans'];
   yield {
     state: labelMatrix(
       'Where range filtering pays',
@@ -172,9 +179,10 @@ function* rangePruning() {
       ],
     ),
     highlight: { found: ['lsm:benefit', 'prefix:benefit'], compare: ['time:problem'] },
-    explanation: 'The pattern is any ordered key space where empty ranges are common and source reads are expensive.',
+    explanation: `The pattern applies across ${useCases.length} domains (${useCases.join(', ')}): any ordered key space where empty ranges are common and source reads are expensive.`,
   };
 
+  const failureModes = ['false positive', 'few suffix bits', 'updates', 'wide ranges'];
   yield {
     state: labelMatrix(
       'Failure and tuning',
@@ -196,7 +204,7 @@ function* rangePruning() {
       ],
     ),
     highlight: { active: ['fp:symptom', 'suffix:response'], found: ['update:response'] },
-    explanation: 'SuRF has one-sided error like Bloom filters. False positives waste work; false negatives would be correctness bugs and are not allowed.',
+    explanation: `SuRF has one-sided error like Bloom filters. Watch for ${failureModes.length} failure modes: ${failureModes.join(', ')}. False positives waste work; false negatives would be correctness bugs and are not allowed.`,
   };
 }
 
@@ -224,7 +232,8 @@ export const article = {
           type: 'note',
           text: 'The SSTable node in the graph is always the source of truth. SuRF is a front gate that saves work only when it can reject. It never replaces the sorted file for positive answers.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/surf-range-filter.gif', alt: 'Animated walkthrough of the surf range filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

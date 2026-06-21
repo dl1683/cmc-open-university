@@ -149,7 +149,8 @@ export const article = {
           text: 'loss\n  |  \\                        ___--- val loss (overfitting)\n  |   \\    ___----------___--\n  |    \\  /\n  |     \\/  <-- the turn (best val epoch)\n  |      \\\n  |       \\___\n  |           \\____          train loss (always falling)\n  |                \\______\n  +-----------------------------------> epoch',
           label: 'Train vs validation loss: the curves diverge at the turn',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/early-stopping.gif', alt: 'Animated walkthrough of the early stopping visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

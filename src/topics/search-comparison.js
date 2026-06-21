@@ -185,7 +185,8 @@ export const article = {
         'The final frame switches to a space-cost chart showing extra memory each method requires. Speed and space are two axes of the same tradeoff — the animation shows both so you can weigh them together.',
         'The invariant line beneath each frame gives exact numbers at the current max n. Use these to verify what the curves imply: at n = 128, linear search does 128 comparisons while binary search does 7.',
         {type: 'callout', text: 'Search speed is purchased with structure: sorted order buys halving, balance buys dynamic order, and hashing buys direct addressing.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/search-comparison.gif', alt: 'Animated walkthrough of the search comparison visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

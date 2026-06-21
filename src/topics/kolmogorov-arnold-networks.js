@@ -73,6 +73,11 @@ function splinePlot(title, activeId = 'phi') {
 }
 
 function* edgeFunctionsVsNeurons() {
+  const inputNodes = 2;   // x1, x2
+  const hiddenNodes = 2;  // h1, h2
+  const edgeFunctions = 6; // 4 phi + 2 psi
+  const knotCount = 2;    // knots shown in the plot
+
   yield {
     state: labelMatrix(
       'MLP vs KAN: where nonlinearity lives',
@@ -91,20 +96,20 @@ function* edgeFunctionsVsNeurons() {
       ],
     ),
     highlight: { active: ['mlp:node', 'kan:edge'], compare: ['mlp:edge', 'kan:node'] },
-    explanation: 'Read the matrix as a relocation of nonlinearity. A standard MLP keeps edges simple, just scalar weights, then bends the signal at the node with a fixed activation. A KAN moves the bending onto the edges: each connection can learn its own one-dimensional curve, while the node mostly sums. That is the whole architectural bet.',
+    explanation: `Read the matrix as a relocation of nonlinearity. A standard MLP keeps edges simple, just scalar weights, then bends the signal at the node with a fixed activation. A KAN moves the bending onto the ${edgeFunctions} edges: each connection can learn its own one-dimensional curve, while the node mostly sums. That is the whole architectural bet.`,
   };
 
   yield {
     state: kanGraph('A KAN layer is a fully connected graph of edge functions'),
     highlight: { active: ['phi-11', 'phi-12', 'phi-21', 'phi-22'], found: ['h1', 'h2'] },
-    explanation: 'Follow one input across the highlighted edges. Instead of multiplying x1 by one learned number, each phi edge passes x1 through a learned function, often a spline. The sum nodes collect those transformed values. The graph still looks like a fully connected layer, but the learned object on every edge is now a curve.',
-    invariant: 'KAN parameters live inside edge functions rather than scalar edge weights.',
+    explanation: `Follow one input across the highlighted edges. Instead of multiplying x1 by one learned number, each of the ${edgeFunctions} phi/psi edges passes x1 through a learned function, often a spline. The ${hiddenNodes} sum nodes collect those transformed values. The graph still looks like a fully connected layer, but the learned object on every edge is now a curve.`,
+    invariant: `KAN parameters live inside ${edgeFunctions} edge functions rather than scalar edge weights.`,
   };
 
   yield {
     state: splinePlot('One scalar weight becomes one learnable curve'),
     highlight: { active: ['phi'], compare: ['linear'], found: ['knot1', 'knot2'] },
-    explanation: 'This plot is the most important contrast. The straight line is what a scalar weight can do: stretch, shrink, or flip. The spline can bend locally; the knots are handles that let different input ranges move differently. That extra shape is why KANs are interesting for smooth scientific functions and also why each edge is more expensive than a number.',
+    explanation: `This plot is the most important contrast. The straight line is what a scalar weight can do: stretch, shrink, or flip. The spline can bend locally; the ${knotCount} knots are handles that let different input ranges move differently. That extra shape is why KANs are interesting for smooth scientific functions and also why each edge is more expensive than a number.`,
   };
 
   yield {
@@ -128,11 +133,15 @@ function* edgeFunctionsVsNeurons() {
       ],
     ),
     highlight: { found: ['accuracy:benefit', 'interpret:benefit'], compare: ['compute:cost', 'scale:cost'] },
-    explanation: 'The scorecard is deliberately mixed. KANs can fit useful local shape and expose edge curves humans can inspect, but they pay with spline evaluation, pruning work, and less mature kernels. The right question is not whether KAN replaces MLPs; it is whether edge functions buy enough accuracy or insight on this workload.',
+    explanation: `The scorecard is deliberately mixed. KANs can fit useful local shape and expose ${edgeFunctions} edge curves humans can inspect, but they pay with spline evaluation, pruning work, and less mature kernels. The right question is not whether KAN replaces MLPs; it is whether ${inputNodes + hiddenNodes}-node edge functions buy enough accuracy or insight on this workload.`,
   };
 }
 
 function* trainingAndInterpretability() {
+  const basisCount = 4;   // basis functions in the coefficient table
+  const workflowSteps = 5; // dense, inspect, prune, symbolic, law
+  const checkItems = 4;    // task type, baseline, kernels, science
+
   yield {
     state: labelMatrix(
       'A spline edge is trained by moving coefficients',
@@ -155,7 +164,7 @@ function* trainingAndInterpretability() {
       ],
     ),
     highlight: { active: ['basis1:coefficient', 'basis3:coefficient'], found: ['basis3:effect'] },
-    explanation: 'Training is still backpropagation, but the parameters have moved. Each coefficient controls part of the edge curve, so an update can lower the left region, flatten a transition, or lift the tail. That is more expressive than one scalar weight, and it also gives you more ways to overfit or create hard-to-accelerate computation.',
+    explanation: `Training is still backpropagation, but the parameters have moved. Each of the ${basisCount} coefficients controls part of the edge curve, so an update can lower the left region, flatten a transition, or lift the tail. That is more expressive than one scalar weight, and it also gives you ${basisCount} ways to overfit or create hard-to-accelerate computation.`,
   };
 
   yield {
@@ -174,7 +183,7 @@ function* trainingAndInterpretability() {
       ],
     }),
     highlight: { active: ['kan'], compare: ['mlp'], found: ['caution'] },
-    explanation: 'Read this curve as a claim shape, not a universal ranking. A smaller KAN may beat a larger MLP on smooth fitting tasks because each edge carries more local shape. The fair comparison is same data, same tuning effort, same compute budget, and a tuned MLP baseline. Otherwise the curve is architecture marketing.',
+    explanation: `Read this curve as a claim shape, not a universal ranking. A smaller KAN may beat a larger MLP on smooth fitting tasks because each edge carries more local shape. The fair comparison is same data, same tuning effort, same compute budget, and a tuned MLP baseline. Otherwise the curve over ${basisCount} basis coefficients per edge is architecture marketing.`,
   };
 
   yield {
@@ -194,7 +203,7 @@ function* trainingAndInterpretability() {
       ],
     }, { title: 'Interpretability is an iterative workflow' }),
     highlight: { active: ['inspect', 'prune', 'symbolic'], found: ['law'] },
-    explanation: 'This graph is the interpretability workflow people often skip. A plotted edge curve is only a clue. You inspect, prune weak edges, fit symbolic candidates such as sin or x^2, and then test the proposed law on held-out data and domain knowledge. KANs make inspection easier; they do not make scientific truth automatic.',
+    explanation: `This ${workflowSteps}-step graph is the interpretability workflow people often skip. A plotted edge curve is only a clue. You inspect, prune weak edges, fit symbolic candidates such as sin or x^2, and then test the proposed law on held-out data and domain knowledge. KANs make inspection easier across all ${workflowSteps} stages; they do not make scientific truth automatic.`,
   };
 
   yield {
@@ -218,7 +227,7 @@ function* trainingAndInterpretability() {
       ],
     ),
     highlight: { found: ['task:question', 'baseline:question', 'kernels:question', 'science:question'] },
-    explanation: 'Use this checklist before believing a KAN result. Is the task low-dimensional or massive? Was the MLP tuned? Are the spline kernels fast enough? Does the symbolic formula survive new data? KANs are a serious idea, but the engineering question is where edge functions justify their cost.',
+    explanation: `Use this ${checkItems}-item checklist before believing a KAN result. Is the task low-dimensional or massive? Was the MLP tuned? Are the spline kernels fast enough? Does the symbolic formula survive new data? KANs are a serious idea, but across all ${checkItems} checks the engineering question is where edge functions justify their cost.`,
   };
 }
 
@@ -241,7 +250,8 @@ export const article = {
         },
         'Active highlights mark the current decision point -- the edge function being evaluated or the coefficient being updated. Found markers show quantities that are now determined: a sum node that has collected its inputs, or a symbolic form that survived pruning. Compare markers contrast the MLP baseline against the KAN approach so you can see exactly what moved.',
         'At each frame, ask: what changed, what is the learned object on this edge, and would a scalar weight have captured the same shape?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/kolmogorov-arnold-networks.gif', alt: 'Animated walkthrough of the kolmogorov arnold networks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

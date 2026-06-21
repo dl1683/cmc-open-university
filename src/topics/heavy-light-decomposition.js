@@ -63,17 +63,23 @@ function hldGraph(title) {
 }
 
 function* buildChains() {
+  const n = 9;
+  const heavyEdges = ['e-r-a', 'e-a-c', 'e-c-g', 'e-b-e'];
+  const lightEdges = ['e-r-b', 'e-a-d', 'e-b-f', 'e-c-h'];
+  const chainCount = 5; // [1-2-4-8], [3-6], [5], [7], [9]
+  const maxLightCrossings = Math.ceil(Math.log2(n));
+
   yield {
     state: hldGraph('Pick one heavy child per node by largest subtree'),
     highlight: { active: ['r', 'a', 'c', 'g', 'e-r-a', 'e-a-c', 'e-c-g'], compare: ['b', 'd', 'h'] },
-    explanation: 'Heavy-light decomposition roots a tree, computes subtree sizes, and marks the largest child edge from each node as heavy. All other child edges are light.',
-    invariant: 'A light edge always goes to a subtree at most half the size of its parent subtree.',
+    explanation: `Heavy-light decomposition roots a ${n}-node tree, computes subtree sizes, and marks ${heavyEdges.length} heavy child edges. The remaining ${lightEdges.length} child edges are light.`,
+    invariant: `A light edge always goes to a subtree at most half the size of its parent — so at most ${maxLightCrossings} light crossings on any root-to-leaf path.`,
   };
 
   yield {
     state: hldGraph('Heavy edges form disjoint chains'),
     highlight: { active: ['r', 'a', 'c', 'g', 'b', 'e', 'e-r-a', 'e-a-c', 'e-c-g', 'e-b-e'], found: ['array'] },
-    explanation: 'Following heavy edges creates chains. Each vertex belongs to exactly one chain, and every chain can be laid out contiguously in a base array.',
+    explanation: `Following ${heavyEdges.length} heavy edges creates ${chainCount} chains across ${n} vertices. Each vertex belongs to exactly one chain, and every chain can be laid out contiguously in a base array.`,
   };
 
   yield {
@@ -97,7 +103,7 @@ function* buildChains() {
       ],
     ),
     highlight: { found: ['chain1:arrayRange', 'chain2:arrayRange'], compare: ['singletons:nodes'] },
-    explanation: 'Once chains are contiguous, a Segment Tree or Fenwick Tree can answer range queries over each chain segment. Tree path queries become a small number of array range queries.',
+    explanation: `Once ${chainCount} chains are contiguous in the ${n}-position base array, a Segment Tree or Fenwick Tree can answer range queries over each chain segment. Tree path queries become at most ${maxLightCrossings} array range queries.`,
   };
 
   yield {
@@ -121,15 +127,20 @@ function* buildChains() {
       ],
     ),
     highlight: { active: ['light1:subtree', 'light2:subtree'], found: ['bound:meaning'] },
-    explanation: 'The proof is the data structure. Every time a path crosses a light edge, the remaining subtree size at least halves, so a path crosses only logarithmically many chains.',
+    explanation: `The proof is the data structure. With ${n} nodes, every time a path crosses one of the ${lightEdges.length} light edges, the remaining subtree size at least halves — so a path crosses at most O(log ${n}) = ${maxLightCrossings} chains.`,
   };
 }
 
 function* pathQuery() {
+  const pathFrom = 8;
+  const pathTo = 6;
+  const pathEdges = ['e-c-g', 'e-a-c', 'e-r-a', 'e-r-b', 'e-b-e'];
+  const pathChainIntervals = 2; // chain1 [0,3] and chain2 [4,5]
+
   yield {
-    state: hldGraph('Query path from node 8 to node 6'),
+    state: hldGraph(`Query path from node ${pathFrom} to node ${pathTo}`),
     highlight: { active: ['g', 'c', 'a', 'r', 'b', 'e', 'e-c-g', 'e-a-c', 'e-r-a', 'e-r-b', 'e-b-e'], found: ['seg'] },
-    explanation: 'To query a path, repeatedly compare chain heads. Move the deeper chain head upward, querying that chain interval in the base array, until both nodes are on the same chain.',
+    explanation: `To query the ${pathEdges.length}-edge path from node ${pathFrom} to node ${pathTo}, repeatedly compare chain heads. Move the deeper chain head upward, querying that chain interval in the base array, until both nodes share a chain.`,
   };
 
   yield {
@@ -153,14 +164,14 @@ function* pathQuery() {
       ],
     ),
     highlight: { active: ['part1:range', 'part2:range'], found: ['combine:result'] },
-    explanation: 'The query path is not stored as one contiguous array interval. HLD makes it a small list of contiguous intervals, each handled by the same range data structure.',
-    invariant: 'Each loop iteration crosses one light edge or finishes inside one chain.',
+    explanation: `The path from ${pathFrom} to ${pathTo} is not one contiguous array interval. HLD decomposes it into ${pathChainIntervals} contiguous intervals, each handled by the same range data structure.`,
+    invariant: `Each loop iteration crosses one light edge or finishes inside one of the ${pathChainIntervals} chain intervals.`,
   };
 
   yield {
     state: hldGraph('Point updates become array updates'),
     highlight: { active: ['array', 'seg', 'e-array-seg'], compare: ['d', 'f'] },
-    explanation: 'Updating a vertex or edge weight updates one base-array position. The segment tree recomputes aggregates, and all future path queries see the new value.',
+    explanation: `Updating a vertex or edge weight updates one base-array position out of ${pathEdges.length + 1} path nodes. The segment tree recomputes aggregates, and all future path queries see the new value.`,
   };
 
   yield {
@@ -184,7 +195,7 @@ function* pathQuery() {
       ],
     ),
     highlight: { found: ['hld:best', 'lct:best'], compare: ['sparse:best'] },
-    explanation: 'The complete case-study rule: use HLD when the tree topology is fixed but vertex or edge values change and path queries are frequent.',
+    explanation: `The complete case-study rule: use HLD when the tree topology is fixed but vertex or edge values change. With ${pathChainIntervals} chain intervals covering the ${pathFrom}-to-${pathTo} path, path queries stay efficient.`,
   };
 }
 
@@ -221,7 +232,8 @@ export const article = {
             'Chains: [1-2-4-8], [3-6], [5], [7], [9]',
           ].join('\n'),
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/heavy-light-decomposition.gif', alt: 'Animated walkthrough of the heavy light decomposition visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -76,7 +76,8 @@ export const article = {
         },
         'After each pass, a sorted marker appears at the right edge. That position is final and will never be touched again. The sorted boundary grows leftward, one slot per pass, until it swallows the whole array.',
         'Watch for the early-exit moment: if a full pass completes with zero swaps, every remaining position turns sorted at once. That is bubble sort finishing in O(n) on already-sorted input.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/bubble-sort.gif', alt: 'Animated walkthrough of the bubble sort visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

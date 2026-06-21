@@ -71,11 +71,16 @@ function concatFlow(title) {
 }
 
 function* wideTrieVector() {
+  const branchFactor = 32;
+  const bitsPerLevel = 5;
+  const vectorNodeCount = 5;
+  const vectorEdgeCount = 4;
+
   yield {
     state: vectorFlow('Persistent vectors are shallow wide tries'),
     highlight: { active: ['index', 'chunks', 'root'], found: ['leaf', 'value'] },
-    explanation: 'A persistent vector stores elements in wide tree nodes, commonly branching by 32. An index is split into fixed-size bit chunks that choose a child at each level until a leaf array holds the element.',
-    invariant: 'Updates copy only the nodes on the path to the touched leaf; old roots keep the old version alive.',
+    explanation: `A persistent vector stores elements in wide tree nodes, commonly branching by ${branchFactor}. An index is split into ${bitsPerLevel}-bit chunks that choose a child at each level until a leaf array holds the element.`,
+    invariant: `Updates copy only the ${vectorNodeCount - 2} internal/leaf nodes on the path to the touched leaf; old roots keep the old version alive.`,
   };
 
   yield {
@@ -99,7 +104,7 @@ function* wideTrieVector() {
       ],
     ),
     highlight: { active: ['root:uses', 'node:uses', 'leaf:uses'], found: ['slot:result'] },
-    explanation: 'Lookup is not a linked-list walk. It is a handful of array reads through a very wide tree. With branching factor 32, millions of elements need only a few levels.',
+    explanation: `Lookup is not a linked-list walk. It is a handful of array reads through a very wide tree. With branching factor ${branchFactor}, millions of elements need only a few levels.`,
   };
 
   yield {
@@ -123,7 +128,7 @@ function* wideTrieVector() {
       ],
     ),
     highlight: { found: ['shared:state'], active: ['newRoot:state', 'copied:state'], compare: ['oldRoot:state'] },
-    explanation: 'The persistent part is structural sharing. A single update returns a new vector root while reusing almost everything below it. That makes undo, snapshots, and concurrent readers cheap.',
+    explanation: `The persistent part is structural sharing. A single update returns a new vector root while reusing almost everything below it. That makes undo, snapshots, and concurrent readers cheap — only O(log${branchFactor} n) nodes are copied per edit.`,
   };
 
   yield {
@@ -147,16 +152,22 @@ function* wideTrieVector() {
       ],
     ),
     highlight: { found: ['pvec:best'], compare: ['array:trade', 'rope:trade'] },
-    explanation: 'Persistent vectors fill the gap between flat arrays and ropes: indexed sequence operations with immutable snapshots and much better random access than list-like structures.',
+    explanation: `Persistent vectors fill the gap between flat arrays and ropes: indexed sequence operations with immutable snapshots and much better random access than list-like structures, all with ${branchFactor}-way branching keeping the tree shallow.`,
   };
 }
 
 function* relaxedConcat() {
+  const concatNodeCount = 5;
+  const concatEdgeCount = 4;
+  const exampleChildSizes = [12, 19, 24, 9];
+  const exampleCumSizes = [12, 31, 55, 64];
+  const totalElements = exampleCumSizes[exampleCumSizes.length - 1];
+
   yield {
     state: concatFlow('RRB adds relaxed size tables for concat and split'),
     highlight: { active: ['left', 'right', 'relaxed'], found: ['result'] },
-    explanation: 'A plain persistent vector is excellent at lookup, append, and update, but concatenating two vectors can be expensive. RRB trees add relaxed nodes with size tables so concat and split can stay logarithmic.',
-    invariant: 'Relaxed nodes record cumulative sizes so index lookup can still route correctly.',
+    explanation: `A plain persistent vector is excellent at lookup, append, and update, but concatenating two vectors can be expensive. RRB trees add relaxed nodes (${concatNodeCount} stages shown) with size tables so concat and split can stay logarithmic.`,
+    invariant: `Relaxed nodes record cumulative sizes (e.g. [${exampleCumSizes.join(', ')}] for ${totalElements} elements) so index lookup can still route correctly.`,
   };
 
   yield {
@@ -180,7 +191,7 @@ function* relaxedConcat() {
       ],
     ),
     highlight: { active: ['c2:size', 'c2:route'], found: ['c2:route'] },
-    explanation: 'In a perfectly regular vector trie, child size can be inferred from depth. In a relaxed node, child sizes vary, so the size table tells lookup which child owns an index.',
+    explanation: `In a perfectly regular vector trie, child size can be inferred from depth. In a relaxed node, child sizes vary (e.g. ${exampleChildSizes.join(', ')}), so the cumulative size table [${exampleCumSizes.join(', ')}] tells lookup which child owns a given index.`,
   };
 
   yield {
@@ -204,7 +215,7 @@ function* relaxedConcat() {
       ],
     ),
     highlight: { found: ['concat:rrb'], compare: ['concat:plain'] },
-    explanation: 'RRB trees preserve the everyday strengths of persistent vectors while repairing the awkward operations: concatenation, split, and insert-at in the middle.',
+    explanation: `RRB trees preserve the everyday strengths of persistent vectors while repairing the awkward operations: concatenation, split, and insert-at in the middle — all in O(log n) instead of O(n).`,
   };
 
   yield {
@@ -228,7 +239,7 @@ function* relaxedConcat() {
       ],
     ),
     highlight: { found: ['clojure:role', 'scala:lesson'], active: ['immer:role', 'editor:role'] },
-    explanation: 'The case-study pattern is immutable state at scale: keep old versions for readers, undo, or snapshots while edits allocate only a narrow path of new nodes.',
+    explanation: `The case-study pattern is immutable state at scale: keep old versions for readers, undo, or snapshots while edits allocate only a narrow path of new nodes — ${concatEdgeCount} edges in the concat flow show the pipeline from input vectors to rebalanced result.`,
   };
 }
 
@@ -241,6 +252,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/rrb-tree-persistent-vector.gif', alt: 'Animated walkthrough of the rrb tree persistent vector visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

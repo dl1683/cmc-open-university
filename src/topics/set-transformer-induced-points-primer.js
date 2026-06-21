@@ -100,14 +100,14 @@ function* setSymmetry() {
       ],
     ),
     highlight: { active: ['mil:need', 'points:need', 'fewshot:need'], compare: ['mil:bad', 'points:bad'] },
-    explanation: 'A set model should not change its answer just because the rows were shuffled. Set Transformer starts from that constraint: model interactions among elements without pretending the input order is meaningful.',
+    explanation: `A set model should not change its answer just because the ${5} rows were shuffled. Set Transformer starts from that constraint: model interactions among elements (${['MIL', '3D', 'few', 'cluster', 'logs'].join(', ')}) without pretending the input order is meaningful. The active goals (${['mil:need', 'points:need', 'fewshot:need'].length} highlighted) matter; the traps (${['mil:bad', 'points:bad'].length} compared) are what happen when order leaks in.`,
   };
 
   yield {
     state: sabGraph('Self-attention block is permutation equivariant'),
     highlight: { active: ['sab', 'e-embed-sab', 'e-sab-ffn'], found: ['out'], compare: ['perm'] },
-    explanation: 'A Self-Attention Block applies multi-head attention to all elements and then a per-row feed-forward layer. If you shuffle the set, the output rows shuffle the same way, which is permutation equivariance.',
-    invariant: 'Same elements plus a different row order should produce the same set of output rows.',
+    explanation: `A Self-Attention Block applies multi-head attention to all elements and then a per-row feed-forward layer. The active path (${'sab'} -> ${'e-sab-ffn'}) highlights ${'SAB'} doing the mixing, while ${'out'} (${'set Y'}) is the found result and ${'perm'} (${'permute'}) is the comparison. If you shuffle the set, the output rows shuffle the same way, which is permutation equivariance.`,
+    invariant: `Same elements plus a different row order should produce the same set of ${'set Y'} output rows.`,
   };
 
   yield {
@@ -131,7 +131,7 @@ function* setSymmetry() {
       ],
     ),
     highlight: { active: ['orig:answer', 'swap:answer', 'sab:answer'], compare: ['bad:answer'] },
-    explanation: 'Equivariance means the representation follows the permutation. Invariance comes later when a pooling decoder turns the set of rows into a fixed answer.',
+    explanation: `Equivariance means the representation follows the permutation. Row ${'A,B,C'} produces ${'Y_A,Y_B,Y_C'}; row ${'C,A,B'} produces ${'Y_C,Y_A,Y_B'} — same set, reordered. The active cells (${['orig:answer', 'swap:answer', 'sab:answer'].length} highlighted) all say "${'same set'}" or "${'stable'}," while ${'RNN'} (${'bad:answer'}) shows "${'can drift'}." Invariance comes later when a pooling decoder turns the set of ${4} rows into a fixed answer.`,
   };
 
   yield {
@@ -156,7 +156,7 @@ function* setSymmetry() {
       ],
     }, { title: 'Pooling by multihead attention uses seed queries' }),
     highlight: { active: ['seed1', 'seed2', 'pma', 'slot1', 'slot2'], found: ['head'], compare: ['x'] },
-    explanation: 'Pooling by Multihead Attention gives the decoder one or more learned seed queries. Those seeds attend to the encoded set and produce fixed output slots, making the final prediction permutation invariant.',
+    explanation: `Pooling by Multihead Attention gives the decoder learned seed queries (${'seed 1'} and ${'seed 2'}, active with ${'PMA'} and output slots ${'slot 1'}/${'slot 2'}). Those ${2} seeds attend to the encoded ${'set Y'} (compared) and produce fixed output slots, feeding the ${'head'} (found) for the final prediction, making it permutation invariant.`,
   };
 
   yield {
@@ -180,7 +180,7 @@ function* setSymmetry() {
       ],
     ),
     highlight: { active: ['sab:role', 'pma:role'], found: ['isab:role'] },
-    explanation: 'The architecture is built from a few reusable structures. MAB is the attention primitive, SAB models all pairwise set interactions, ISAB approximates those interactions through inducing points, and PMA pools to fixed slots.',
+    explanation: `The architecture is built from ${4} reusable structures across ${'role'} and ${'shape'} columns. ${'MAB'} is the ${'attn block'} (${'X,Y -> X'}), ${'SAB'} is ${'self attn'} (${'N -> N'}), ${'ISAB'} ${'induce'}s (${'N -> N'} via inducing points, found), and ${'PMA'} ${'pool'}s (${'N -> k'}) to fixed slots. Active: ${['sab:role', 'pma:role'].length} cells; found: ${'isab:role'}.`,
   };
 
   yield {
@@ -206,7 +206,7 @@ function* setSymmetry() {
       ],
     ),
     highlight: { active: ['mil:output', 'cloud:output', 'cluster:output'], compare: ['few:set'] },
-    explanation: 'The paper evaluates the pattern on set-shaped tasks such as multiple-instance learning, point clouds, amortized clustering, and few-shot classification. The shared abstraction is a bag of elements plus an order-free answer.',
+    explanation: `The paper evaluates the pattern on ${5} set-shaped tasks: ${'MIL'} (${'instances'} -> ${'bag class'}), ${'3D cloud'} (${'points'} -> ${'object'}), ${'amort inf'} (${'samples'} -> ${'params'}), ${'few-shot'} (${'examples'} -> ${'class'}), and ${'cluster'} (${'members'} -> ${'centers'}). Active outputs: ${['mil:output', 'cloud:output', 'cluster:output'].length} highlighted; compared: ${'few:set'}. The shared abstraction is a bag of ${'set item'}s plus an order-free ${'output'}.`,
   };
 }
 
@@ -227,14 +227,14 @@ function* inducingPoints() {
       ],
     }),
     highlight: { active: ['isab', 'm'], compare: ['sab'] },
-    explanation: 'A full self-attention block compares every set element with every other element. ISAB introduces m learned inducing points, reducing the attention pattern from N by N to two N by m passes when m is much smaller than N.',
+    explanation: `A full self-attention block (${'SAB N^2'}, compared) compares every set element with every other element across ${'set size N'} up to ${100}. ${'ISAB Nm'} (active) introduces ${'m fixed'} learned inducing points at x=${62}, reducing the attention pattern from N by N to two N by m passes. At N=${100}, SAB costs ${100} while ISAB costs ${72} on the ${'attention cost'} axis.`,
   };
 
   yield {
     state: isabGraph('ISAB reads through inducing points'),
     highlight: { active: ['i', 'read', 'h', 'write'], found: ['y'], compare: ['x'] },
-    explanation: 'ISAB is a two-stage bottleneck. First, inducing points query the input set and form m summary states. Then the original set elements query those summary states, letting each row receive global information without a full N by N matrix.',
-    invariant: 'The inducing points are learned parameters, not input elements.',
+    explanation: `ISAB is a two-stage bottleneck with ${6} nodes. First, ${'I pts'} (${'m rows'}) query ${'set X'} (${'N rows'}) via ${'read X'} (${'I as Q'}, weight ${'K,V'}) and form ${'m state'} summary ${'H'}. Then ${'set X'} queries ${'H'} via ${'write X'} (${'X as Q'}, weight ${'K,V'}), producing ${'set Y'} (${'N rows'}, found). Each row receives global information without a full N by N matrix.`,
+    invariant: `The ${'I pts'} (${'m rows'}) are learned parameters, not ${'set X'} input elements.`,
   };
 
   yield {
@@ -257,7 +257,7 @@ function* inducingPoints() {
       ],
     ),
     highlight: { active: ['pass1:cost', 'pass2:cost', 'total:cost'], compare: ['total:keyval'] },
-    explanation: 'The shape accounting is the data structure. Pass one uses inducing points as queries over the set. Pass two uses set rows as queries over the induced states. The full N by N table never materializes.',
+    explanation: `The shape accounting is the data structure across ${3} rows and ${3} columns (${'Q'}, ${'K,V'}, ${'cost'}). ${'pass 1'}: Q=${'I'}, K,V=${'X'}, cost=${'mN'}. ${'pass 2'}: Q=${'X'}, K,V=${'H'}, cost=${'Nm'}. ${'total'}: ${'bottleneck'} cost=${'2Nm'}. Active: ${['pass1:cost', 'pass2:cost', 'total:cost'].length} cost cells highlighted; compared: ${'total:keyval'}. The full N by N table never materializes.`,
   };
 
   yield {
@@ -281,7 +281,7 @@ function* inducingPoints() {
       ],
     ),
     highlight: { active: ['mid:cost', 'adapt:cost'], compare: ['tiny:risk', 'large:risk'] },
-    explanation: 'The inducing count m is a real capacity knob. Too few inducing points underfit interactions; too many recover dense-attention costs. Treat m like a memory budget and tune it against set size and task error.',
+    explanation: `The inducing count m is a real capacity knob across ${4} regimes (${'tiny m'}, ${'medium m'}, ${'large m'}, ${'tuned m'}) with columns ${'cost'} and ${'risk'}. ${'tiny m'} is ${'cheap'} but risks ${'miss pairs'}; ${'large m'} is ${'costly'} and ${'near dense'}; ${'medium m'} is ${'balanced'} (${'task dep'}); ${'tuned m'} is ${'measured'} but risks ${'overfit'}. Active: ${['mid:cost', 'adapt:cost'].length} cost cells; compared: ${['tiny:risk', 'large:risk'].length} risk cells. Treat m like a memory budget and tune it against set size and task error.`,
   };
 
   yield {
@@ -304,7 +304,7 @@ function* inducingPoints() {
       ],
     }, { title: 'Inducing points are learned memory slots' }),
     highlight: { active: ['set', 'perc', 'budget'], compare: ['tape', 'rag'], found: ['gp'] },
-    explanation: 'Set Transformer borrowed the inducing-point intuition from sparse Gaussian processes. In modern transformer language, those inducing points are learned memory slots, closely related to Perceiver latents and tape tokens.',
+    explanation: `Set Transformer (${'Set Xfmr'}, active) borrowed the inducing-point intuition from ${'sparse GP'} (${'induce'}, found, linked by ${'idea'}). The graph shows ${6} nodes: ${'sparse GP'}, ${'Set Xfmr'}, ${'Perceiver'} (${'latents'}, active), ${'AdaTape'} (${'tokens'}, compared), ${'RAG'} (${'chunks'}, compared), and ${'budget'} (${'memory'}, active). In modern transformer language, those inducing points are learned memory slots feeding into ${'budget'} via ${'M slots'}, ${'tape k'}, and ${'top k'}.`,
   };
 
   yield {
@@ -330,7 +330,7 @@ function* inducingPoints() {
       ],
     ),
     highlight: { active: ['mask:must', 'perm:must', 'm:must'], found: ['stats:failure'] },
-    explanation: 'A clean implementation needs masks for padded set elements, permutation tests, explicit m budgeting, stable PMA seed semantics, and telemetry over set size, inducing count, cost, and tail latency.',
+    explanation: `A clean implementation needs ${5} checklist items across ${'must track'} and ${'failure'} columns: ${'set mask'} (${'valid rows'} / ${'pad leak'}), ${'perm tests'} (${'shuffle'} / ${'order bug'}), ${'m budget'} (${'capacity'} / ${'underfit'}), ${'PMA seeds'} (${'out slots'} / ${'mix slots'}), and ${'stats'} (${'N,m,cost'} / ${'p99 spike'}, found as failure). Active must-track: ${['mask:must', 'perm:must', 'm:must'].length} cells highlighted.`,
   };
 }
 
@@ -343,6 +343,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/set-transformer-induced-points-primer.gif', alt: 'Animated walkthrough of the set transformer induced points primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

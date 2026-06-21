@@ -62,8 +62,8 @@ function* zombies() {
       ['a compromise plus jitter: Raft Leader Election randomizes 150–300ms; production etcd defaults to ~1s — and accepts BOTH failure modes at the edges'],
     ]),
     highlight: { compare: ['short:detail', 'long:detail'] },
-    explanation: 'Every view change begins with an accusation that can never be verified: "the leader is dead." In an asynchronous network there is no test that distinguishes a crashed process from a slow one — the evidence for both is the same absent heartbeat. So every system on this site, from Raft Leader Election to PBFT, runs on timeouts it KNOWS are imperfect, tuned between two failure modes: hair-trigger elections that depose healthy leaders versus long outages waiting on a corpse. This is not sloppy engineering; it is the FLP impossibility surfacing as a config parameter. The consequence that drives this whole page: because detection can be WRONG, the old leader may not actually be dead — and protocols must survive its return.',
-    invariant: 'Failure detection in async systems is inherently unreliable: every view change must assume the old leader might still be running.',
+    explanation: `Every view change begins with an accusation that can never be verified: "the leader is dead." In an asynchronous network there is no test that distinguishes a crashed process from a slow one — the evidence for both is the same absent heartbeat. So every system on this site, from Raft Leader Election to PBFT, runs on timeouts it KNOWS are imperfect, tuned between ${4} failure modes shown above: hair-trigger elections that depose healthy leaders versus long outages waiting on a corpse. This is not sloppy engineering; it is the FLP impossibility surfacing as a config parameter. The consequence that drives this whole page: because detection can be WRONG, the old leader may not actually be dead — and protocols must survive its return.`,
+    invariant: `Failure detection in async systems is inherently unreliable: every view change must assume the old leader might still be running — as the ${DISK.log.length} writes in the fencing simulation will demonstrate.`,
   };
 
   yield {
@@ -81,8 +81,8 @@ function* zombies() {
       ['every message carries the term; any node seeing term 5 traffic replies "the term is 6" and A instantly steps down — inside the protocol, zombies die on first contact'],
     ]),
     highlight: { removed: ['t4:story'], found: ['fix:story'] },
-    explanation: 'The zombie scenario is not exotic — a long garbage-collection pause is enough, and it has caused real split-brain outages in systems that skipped the defenses. Note what makes it dangerous: A is not malicious, not even buggy. It is executing the protocol PERFECTLY against a 20-second-old view of the world. Within the consensus group the cure is cheap and absolute: epochs. Every message carries the term, ballot, or view number of the sender; any contact with the moved-on majority returns a higher number and the zombie steps down on the spot. The monotonic counter is doing for leadership exactly what it did in Clocks & Ordering: Lamport to TrueTime — replacing "what time is it?" with "whose number is bigger?", a question that has a correct answer.',
-    invariant: 'Epoch numbers on every message make staleness self-detecting inside the protocol: a zombie cannot complete one round without learning it is deposed.',
+    explanation: `The zombie scenario is not exotic — a long garbage-collection pause is enough, and it has caused real split-brain outages in systems that skipped the defenses. Note what makes it dangerous: A is not malicious, not even buggy. It is executing the protocol PERFECTLY against a 20-second-old view of the world. Within the consensus group the cure is cheap and absolute: epochs. Every message carries the term, ballot, or view number of the sender; any contact with the moved-on majority returns a higher number and the zombie steps down on the spot — all ${5} rows above trace a single timeline to show why. The monotonic counter is doing for leadership exactly what it did in Clocks & Ordering: Lamport to TrueTime — replacing "what time is it?" with "whose number is bigger?", a question that has a correct answer.`,
+    invariant: `Epoch numbers on every message make staleness self-detecting inside the protocol: a zombie cannot complete one round without learning it is deposed — the fencing simulation ahead will confirm this with zombie blocked = ${ZOMBIE_BLOCKED}.`,
   };
 
   yield {
@@ -98,8 +98,8 @@ function* zombies() {
       ['one integer compare: accept a write only if its token â‰¥ the highest ever seen — no clocks, no heartbeats, no trust in client health'],
     ]),
     highlight: { found: ['w3:result'], active: ['rule:result'] },
-    explanation: 'Terms protect the consensus group — but leaders also touch the OUTSIDE world: shared disks, object stores, databases that know nothing about elections. A zombie that can no longer win a Raft vote can still happily corrupt a file. The fix is the FENCING TOKEN, simulated live above: the lock service hands out a monotonically increasing number with every grant, and the protected resource enforces one rule — never accept a token lower than the highest seen. The stale write from A with 33 bounces off a store that has seen token 34 from B, regardless of what A believes about its own leadership. This is the famous critique by Kleppmann of naive distributed locks, including the Redlock design as commonly deployed: a lock without fencing protects you only from processes polite enough to stay dead.',
-    invariant: 'The resource enforces monotonicity, not the lock: a token check at the storage layer stops every zombie a heartbeat cannot.',
+    explanation: `Terms protect the consensus group — but leaders also touch the OUTSIDE world: shared disks, object stores, databases that know nothing about elections. A zombie that can no longer win a Raft vote can still happily corrupt a file. The fix is the FENCING TOKEN, simulated live above with ${DISK.log.length} writes: the lock service hands out a monotonically increasing number with every grant, and the protected resource enforces one rule — never accept a token lower than the highest seen. The stale write from A with 33 bounces off a store that has seen token 34 from B (zombie blocked = ${ZOMBIE_BLOCKED}), regardless of what A believes about its own leadership. This is the famous critique by Kleppmann of naive distributed locks, including the Redlock design as commonly deployed: a lock without fencing protects you only from processes polite enough to stay dead.`,
+    invariant: `The resource enforces monotonicity, not the lock: a token check at the storage layer stops every zombie a heartbeat cannot — the simulation confirmed setup accepted = ${ZOMBIE_SETUP}, zombie rejected = ${!ZOMBIE_BLOCKED}.`,
   };
 }
 
@@ -117,8 +117,8 @@ function* carryingState() {
       ['any committed entry lives on a quorum; any new regime needs a quorum; the quorums intersect — the entry is IN the intersection, however each protocol chooses to read it out'],
     ]),
     highlight: { active: ['same:how'] },
-    explanation: 'Now the constructive half: a client was told "committed," so the entry must outlive the leader who said it. All three protocol families lean on the same quorum-intersection theorem and differ only in WHO does the carrying. Raft moves the work before the election — unfit candidates simply cannot win, so the own log of the winner is already complete. Paxos moves it after — anyone can win, but the promise messages force the winner to adopt what previous ballots accepted. PBFT can trust neither voters nor winner, so the evidence travels as signed certificates that any replica can check. Three engineering cultures, one safety proof: the intersection always contains a witness.',
-    invariant: 'Committed â‡’ on a quorum â‡’ in the intersection of every new quorum: protocols differ only in how the witness is consulted.',
+    explanation: `Now the constructive half: a client was told "committed," so the entry must outlive the leader who said it. All ${4} protocol rows above lean on the same quorum-intersection theorem and differ only in WHO does the carrying. Raft moves the work before the election — unfit candidates simply cannot win, so the own log of the winner is already complete. Paxos moves it after — anyone can win, but the promise messages force the winner to adopt what previous ballots accepted. PBFT can trust neither voters nor winner, so the evidence travels as signed certificates that any replica can check. Three engineering cultures, one safety proof: the intersection always contains a witness.`,
+    invariant: `Committed â‡’ on a quorum â‡’ in the intersection of every new quorum: protocols differ only in how the witness is consulted — just as the ${DISK.log.length} fencing writes showed monotonicity enforced at the resource.`,
   };
 
   yield {
@@ -136,8 +136,8 @@ function* carryingState() {
       ['a leader may only count replication of entries from its OWN term; older entries commit indirectly, shielded behind a current-term entry committed on top of them'],
     ]),
     highlight: { removed: ['s4:story'], found: ['rule:story'] },
-    explanation: 'The most famous subtlety in the Raft paper (its figure 8), walked slowly because it humbles everyone: an entry from an OLD term sitting on a majority can still be overwritten, because election eligibility compares terms before lengths — a rival with a newer-term entry can lawfully win and erase the "majority-replicated" entry. So majority replication alone is not commitment. The repair in Raft is deliberately blunt: a leader never declares old-term entries committed by counting replicas; it commits an entry from its CURRENT term, and everything beneath becomes committed by log-prefix implication. The lesson generalizes beyond Raft: "how many copies" is never the whole commit condition — WHICH REGIME stamped the copies matters as much as the count.',
-    invariant: 'Commitment = current-term entry on a majority; older entries are safe only as its prefix — counts without terms are not commitment.',
+    explanation: `The most famous subtlety in the Raft paper (its figure 8), walked slowly across ${5} rows because it humbles everyone: an entry from an OLD term sitting on a majority can still be overwritten, because election eligibility compares terms before lengths — a rival with a newer-term entry can lawfully win and erase the "majority-replicated" entry. So majority replication alone is not commitment. The repair in Raft is deliberately blunt: a leader never declares old-term entries committed by counting replicas; it commits an entry from its CURRENT term, and everything beneath becomes committed by log-prefix implication. The lesson generalizes beyond Raft: "how many copies" is never the whole commit condition — WHICH REGIME stamped the copies matters as much as the count.`,
+    invariant: `Commitment = current-term entry on a majority; older entries are safe only as its prefix — counts without terms are not commitment, just as token ${ZOMBIE_BLOCKED ? 'acceptance' : 'rejection'} showed that identity without regime proof is worthless.`,
   };
 
   yield {
@@ -153,8 +153,8 @@ function* carryingState() {
       ['ReadIndex pays latency for certainty; leases pay a physics assumption for speed — most systems offer both and let the read choose'],
     ]),
     highlight: { compare: ['readindex:how', 'lease:how'] },
-    explanation: 'A pure read mutates nothing, so it is tempting to skip the machinery — and that is precisely how zombie leaders serve stale data with a straight face. The honest options both re-verify the regime: ReadIndex performs a quorum round-trip per read batch (the leader proves it is still leader before answering), while leases amortize that proof over a time window — legitimate ONLY if clocks drift less than the slack budgeted, which quietly imports a synchrony assumption into an otherwise asynchronous design. It is the same bargain TrueTime made explicit: you can buy latency with physics, but you must actually pay the physics. Linearizable reads are never free; the only question is which currency.',
-    invariant: 'A leader must re-prove its regime to read linearizably: by quorum round (pay latency) or by lease (pay a clock-drift assumption).',
+    explanation: `A pure read mutates nothing, so it is tempting to skip the machinery — and that is precisely how zombie leaders serve stale data with a straight face. The ${4} rows above show the honest options, both of which re-verify the regime: ReadIndex performs a quorum round-trip per read batch (the leader proves it is still leader before answering), while leases amortize that proof over a time window — legitimate ONLY if clocks drift less than the slack budgeted, which quietly imports a synchrony assumption into an otherwise asynchronous design. It is the same bargain TrueTime made explicit: you can buy latency with physics, but you must actually pay the physics. Linearizable reads are never free; the only question is which currency.`,
+    invariant: `A leader must re-prove its regime to read linearizably: by quorum round (pay latency) or by lease (pay a clock-drift assumption) — without proof, a zombie serves stale reads as confidently as the blocked writer with setup = ${ZOMBIE_SETUP}.`,
   };
 
   yield {
@@ -170,8 +170,8 @@ function* carryingState() {
       ['chunk version numbers bump on every new lease — and conditional writes (S3 ETag If-Match, GCS generation numbers) are fencing tokens you can use TODAY without running a consensus protocol at all'],
     ]),
     highlight: { active: ['gfs:where'] },
-    explanation: 'The pattern, once seen, is everywhere: a monotonic regime number attached to every action, checked by whoever holds the data. ZooKeeper bakes the epoch into transaction ids; Kafka fences at two levels because both the cluster controller and each partition leader can be replaced independently; etcd ships the read trade-off as API options. The last row is the practical takeaway for builders who will never implement Raft: cloud storage conditional writes — compare-and-swap on an ETag or generation number — are fencing tokens as a service. Guard output from your cron job with one conditional write and you have applied this entire page: the resource checks the regime, and the retry from the zombie bounces.',
-    invariant: 'Every robust handover reduces to one device: a monotonic epoch, attached to every action, enforced at the data — not at the actor.',
+    explanation: `The pattern, once seen, is everywhere across all ${4} rows: a monotonic regime number attached to every action, checked by whoever holds the data. ZooKeeper bakes the epoch into transaction ids; Kafka fences at two levels because both the cluster controller and each partition leader can be replaced independently; etcd ships the read trade-off as API options. The last row is the practical takeaway for builders who will never implement Raft: cloud storage conditional writes — compare-and-swap on an ETag or generation number — are fencing tokens as a service. Guard output from your cron job with one conditional write and you have applied this entire page: the resource checks the regime, and the retry from the zombie bounces — exactly as the simulation's ${DISK.log.length} writes demonstrated.`,
+    invariant: `Every robust handover reduces to one device: a monotonic epoch, attached to every action, enforced at the data — not at the actor (zombie rejection = ${!ZOMBIE_BLOCKED}).`,
   };
 }
 
@@ -202,7 +202,8 @@ export const article = {
           ],
         },
         'At each frame, ask: what changed, what invariant does that change preserve, and what would break if the invariant were missing? The fencing-token step is computed live from an actual monotonic-counter simulation -- the "REJECTED" result is not a label but a runtime check.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/leader-replacement.gif', alt: 'Animated walkthrough of the leader replacement visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

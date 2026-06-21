@@ -57,22 +57,25 @@ function auditGraph(title) {
 }
 
 function* shiftMatrix() {
+  const perturbRows = [
+    { id: 'harness', label: 'harness' },
+    { id: 'tools', label: 'tools' },
+    { id: 'edit', label: 'edit' },
+    { id: 'shell', label: 'shell' },
+    { id: 'lang', label: 'lang' },
+    { id: 'budget', label: 'budget' },
+  ];
+  const perturbCols = [
+    { id: 'shift', label: 'shift' },
+    { id: 'symptom', label: 'symptom' },
+    { id: 'gate', label: 'gate' },
+  ];
+
   yield {
     state: labelMatrix(
       'Portability perturbation matrix',
-      [
-        { id: 'harness', label: 'harness' },
-        { id: 'tools', label: 'tools' },
-        { id: 'edit', label: 'edit' },
-        { id: 'shell', label: 'shell' },
-        { id: 'lang', label: 'lang' },
-        { id: 'budget', label: 'budget' },
-      ],
-      [
-        { id: 'shift', label: 'shift' },
-        { id: 'symptom', label: 'symptom' },
-        { id: 'gate', label: 'gate' },
-      ],
+      perturbRows,
+      perturbCols,
       [
         ['runner', 'ritual', 'delta'],
         ['helper', 'panic', 'fallbk'],
@@ -83,112 +86,142 @@ function* shiftMatrix() {
       ],
     ),
     highlight: { active: ['harness:shift', 'tools:shift', 'edit:shift', 'budget:shift'], found: ['harness:gate', 'edit:gate', 'budget:gate'] },
-    explanation: 'A portability audit changes the agent environment while keeping the task family stable. If performance collapses after only the interface moves, the model may have learned harness rituals rather than transferable operations.',
-    invariant: 'Evaluate the model plus interface, then perturb the interface.',
+    explanation: `A portability audit changes the agent environment across ${perturbRows.length} dimensions and ${perturbCols.length} columns while keeping the task family stable. If performance collapses after only the interface moves, the model may have learned harness rituals rather than transferable operations.`,
+    invariant: `Evaluate the model plus interface across all ${perturbRows.length} perturbation rows, then perturb the interface.`,
   };
+
+  const baselineScore = 66;
+  const perturbedScores = [50, 54, 43, 58];
+  const lowestScore = Math.min(...perturbedScores);
+  const markerLabels = ['native', 'new harness', 'fewer tools', 'new scaffold', 'lower budget'];
 
   yield {
     state: plotState({
       axes: { x: { label: 'audit condition', min: 0, max: 5 }, y: { label: 'resolved tasks, illustrative percent', min: 0, max: 75 } },
       series: [
         { id: 'pass-rate', label: 'pass rate', points: [
-          { x: 0, y: 66 }, { x: 1, y: 50 }, { x: 2, y: 54 }, { x: 3, y: 43 }, { x: 4, y: 58 },
+          { x: 0, y: baselineScore }, { x: 1, y: perturbedScores[0] }, { x: 2, y: perturbedScores[1] }, { x: 3, y: perturbedScores[2] }, { x: 4, y: perturbedScores[3] },
         ] },
       ],
       markers: [
-        { id: 'base', x: 0, y: 66, label: 'native' },
-        { id: 'harness', x: 1, y: 50, label: 'new harness' },
-        { id: 'tools', x: 2, y: 54, label: 'fewer tools' },
-        { id: 'scaffold', x: 3, y: 43, label: 'new scaffold' },
-        { id: 'budget', x: 4, y: 58, label: 'lower budget' },
+        { id: 'base', x: 0, y: baselineScore, label: markerLabels[0] },
+        { id: 'harness', x: 1, y: perturbedScores[0], label: markerLabels[1] },
+        { id: 'tools', x: 2, y: perturbedScores[1], label: markerLabels[2] },
+        { id: 'scaffold', x: 3, y: perturbedScores[2], label: markerLabels[3] },
+        { id: 'budget', x: 4, y: perturbedScores[3], label: markerLabels[4] },
       ],
     }),
     highlight: { active: ['pass-rate'], found: ['harness', 'tools', 'scaffold'], compare: ['base'] },
-    explanation: 'The exact numbers are task-specific, but the shape is the lesson: a strong native score can hide sharp drops under harness, tool, scaffold, or budget shifts.',
+    explanation: `The baseline is ${baselineScore}% but drops to as low as ${lowestScore}% under perturbation across ${markerLabels.length} conditions. The shape is the lesson: a strong "${markerLabels[0]}" score can hide sharp drops under harness, tool, scaffold, or budget shifts.`,
   };
+
+  const failureRows = [
+    { id: 'plan', label: 'planning' },
+    { id: 'bind', label: 'binding' },
+    { id: 'sem', label: 'semantics' },
+    { id: 'oracle', label: 'oracle' },
+    { id: 'budget', label: 'budget' },
+  ];
+  const failureData = [
+    ['wrong file', 'better search'],
+    ['right intent bad tool', 'op graph'],
+    ['wrong behavior', 'more traces'],
+    ['tests mislead', 'oracle audit'],
+    ['runs out', 'budget policy'],
+  ];
 
   yield {
     state: labelMatrix(
       'Failure classification',
-      [
-        { id: 'plan', label: 'planning' },
-        { id: 'bind', label: 'binding' },
-        { id: 'sem', label: 'semantics' },
-        { id: 'oracle', label: 'oracle' },
-        { id: 'budget', label: 'budget' },
-      ],
+      failureRows,
       [
         { id: 'trace sign', label: 'trace sign' },
         { id: 'fix', label: 'fix' },
       ],
-      [
-        ['wrong file', 'better search'],
-        ['right intent bad tool', 'op graph'],
-        ['wrong behavior', 'more traces'],
-        ['tests mislead', 'oracle audit'],
-        ['runs out', 'budget policy'],
-      ],
+      failureData,
     ),
     highlight: { active: ['bind:trace sign', 'bind:fix'], compare: ['plan:fix', 'oracle:fix'] },
-    explanation: 'Trace diffs tell you what failed. A binding failure means the agent had the right intent but used the local tool wrong. That needs an operation graph or adapter fix, not more examples of the same high-level plan.',
+    explanation: `Trace diffs classify failures into ${failureRows.length} types. A "${failureRows[1].label}" failure (trace sign: "${failureData[1][0]}") means the agent had the right intent but used the local tool wrong. That needs an ${failureData[1][1]} fix, not more examples of the same high-level plan.`,
   };
 }
 
 function* auditLoop() {
+  const graph1 = auditGraph('Run the native harness, then perturb it');
+  const graphNodeCount = graph1.nodes.length;
+  const graphEdgeCount = graph1.edges.length;
+  const baselineNode = graph1.nodes.find(n => n.id === 'baseline');
+  const reportNode = graph1.nodes.find(n => n.id === 'report');
+
   yield {
-    state: auditGraph('Run the native harness, then perturb it'),
+    state: graph1,
     highlight: { active: ['baseline', 'perturb', 'rerun', 'e-baseline-perturb', 'e-perturb-rerun'], compare: ['report'] },
-    explanation: 'Start with the native score, then rerun the same task family under controlled shifts. The audit is comparative; a single pass rate cannot identify harness overfit.',
+    explanation: `Start with the "${baselineNode.label}" node (note: "${baselineNode.note}"), then rerun the same task family under controlled shifts across ${graphNodeCount} pipeline nodes and ${graphEdgeCount} edges. The audit is comparative; a single pass rate cannot identify harness overfit.`,
   };
+
+  const traceNode = graph1.nodes.find(n => n.id === 'trace');
+  const classifyNode = graph1.nodes.find(n => n.id === 'classify');
 
   yield {
     state: auditGraph('Trace diffs locate the portability break'),
     highlight: { active: ['rerun', 'trace', 'classify', 'e-rerun-trace', 'e-trace-classify'], found: ['fix'] },
-    explanation: 'Compare traces, not only final scores. The diff asks where the behavior diverged: search path, edit binding, shell output parsing, test choice, retry budget, or stop decision.',
+    explanation: `Compare traces at the "${traceNode.label}" node (note: "${traceNode.note}"), not only final scores. The diff asks where the behavior diverged: search path, edit binding, shell output parsing, test choice, retry budget, or stop decision, then feeds into "${classifyNode.label}".`,
   };
+
+  const fixNode = graph1.nodes.find(n => n.id === 'fix');
 
   yield {
     state: auditGraph('Fix the data or interface, then repeat'),
     highlight: { active: ['classify', 'fix', 'perturb', 'e-classify-fix', 'e-fix-perturb'], found: ['report'] },
-    explanation: 'The audit loop feeds back into training data, tool schemas, operation graphs, and eval slices. Portability is not a one-time claim; it is a regression suite.',
+    explanation: `The audit loop feeds "${fixNode.label}" (note: "${fixNode.note}") back into training data, tool schemas, operation graphs, and eval slices. Portability is not a one-time claim; it is a regression suite ending at the "${reportNode.label}" node.`,
   };
+
+  const reportRows = [
+    { id: 'native', label: 'native' },
+    { id: 'aci', label: 'new ACI' },
+    { id: 'tools', label: 'less tools' },
+    { id: 'lang', label: 'new lang' },
+    { id: 'budget', label: 'budget' },
+  ];
+  const reportData = [
+    ['high', 'native strength'],
+    ['medium', 'interface sensitive'],
+    ['medium', 'tool dependent'],
+    ['low', 'semantic gap'],
+    ['curve', 'cost aware'],
+  ];
 
   yield {
     state: labelMatrix(
       'Report slices',
-      [
-        { id: 'native', label: 'native' },
-        { id: 'aci', label: 'new ACI' },
-        { id: 'tools', label: 'less tools' },
-        { id: 'lang', label: 'new lang' },
-        { id: 'budget', label: 'budget' },
-      ],
+      reportRows,
       [
         { id: 'score', label: 'score' },
         { id: 'claim', label: 'claim allowed' },
       ],
-      [
-        ['high', 'native strength'],
-        ['medium', 'interface sensitive'],
-        ['medium', 'tool dependent'],
-        ['low', 'semantic gap'],
-        ['curve', 'cost aware'],
-      ],
+      reportData,
     ),
     highlight: { active: ['native:claim', 'aci:claim', 'tools:claim', 'lang:claim', 'budget:claim'] },
-    explanation: 'A serious report names the slice. Native strength, interface sensitivity, tool dependence, language transfer, and budget curves are different claims.',
+    explanation: `A serious report names all ${reportRows.length} slices. "${reportData[0][1]}", "${reportData[1][1]}", "${reportData[2][1]}", "${reportData[3][1]}", and "${reportData[4][1]}" are different claims, each with its own score level.`,
   };
 }
 
 export function* run(input) {
   const view = String(input.view);
-  if (view === 'shift matrix') yield* shiftMatrix();
-  else if (view === 'audit loop') yield* auditLoop();
-  else throw new InputError('Pick an agent portability view.');
+  const views = ['shift matrix', 'audit loop'];
+  if (view === views[0]) yield* shiftMatrix();
+  else if (view === views[1]) yield* auditLoop();
+  else throw new InputError(`Pick an agent portability view from ${views.length} options: ${views.join(', ')}.`);
 }
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/agent-harness-portability-audit.gif', alt: 'Animated walkthrough of the agent harness portability audit visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

@@ -72,9 +72,22 @@ function stripGraph(title) {
 }
 
 function* divideAndConquer() {
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const points = [
+    { name: 'A', x: 1, y: 2 }, { name: 'B', x: 2, y: 8 },
+    { name: 'C', x: 3, y: 5 }, { name: 'D', x: 5, y: 1 },
+    { name: 'E', x: 6, y: 7 }, { name: 'F', x: 7, y: 3 },
+    { name: 'G', x: 8, y: 6 }, { name: 'H', x: 9, y: 4 },
+  ];
+  const dist = (a, b) => r2(Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2));
+  const n = points.length;
+  const leftHalf = points.slice(0, 4);
+  const rightHalf = points.slice(4);
+  const midX = 4;
+
   yield {
     state: labelMatrix(
-      'Eight points sorted by x',
+      `${n} points sorted by x`,
       [
         { id: 'A', label: 'A (1,2)' },
         { id: 'B', label: 'B (2,8)' },
@@ -95,19 +108,23 @@ function* divideAndConquer() {
       ],
     ),
     highlight: { active: ['A:x', 'B:x', 'C:x', 'D:x', 'E:x', 'F:x', 'G:x', 'H:x'] },
-    explanation: 'Sort all n points by x-coordinate. This one-time O(n log n) sort is the foundation. The algorithm will recursively split this sorted array at the midpoint.',
+    explanation: `Sort all ${n} points by x-coordinate (x ranges from ${points[0].x} to ${points[n - 1].x}). This one-time O(${n} log ${n}) sort is the foundation. The algorithm will recursively split this sorted array at the midpoint. Brute force would check ${n * (n - 1) / 2} pairs.`,
   };
 
   yield {
     state: pointsGraph('Split at the median x-coordinate'),
     highlight: { active: ['div'], compare: ['p1', 'p2', 'p3', 'p4'], found: ['p5', 'p6', 'p7', 'p8'] },
-    explanation: 'Divide the point set at the median x-coordinate. Left half: A, B, C, D. Right half: E, F, G, H. Each half is solved recursively.',
-    invariant: 'Each recursive call returns the closest pair within its half.',
+    explanation: `Divide the ${n} points at the median x-coordinate (x = ${midX}). Left half: ${leftHalf.map(p => p.name).join(', ')} (${leftHalf.length} points). Right half: ${rightHalf.map(p => p.name).join(', ')} (${rightHalf.length} points). Each half is solved recursively.`,
+    invariant: `Each recursive call returns the closest pair within its half.`,
   };
 
+  const dAC = dist(points[0], points[2]);
+  const dAD = dist(points[0], points[3]);
+  const dBC = dist(points[1], points[2]);
+  const dCD = dist(points[2], points[3]);
   yield {
     state: labelMatrix(
-      'Left half: find closest pair among {A, B, C, D}',
+      `Left half: find closest pair among {${leftHalf.map(p => p.name).join(', ')}}`,
       [
         { id: 'AC', label: 'A-C' },
         { id: 'AD', label: 'A-D' },
@@ -119,19 +136,23 @@ function* divideAndConquer() {
         { id: 'status', label: 'status' },
       ],
       [
-        ['3.16', 'best left'],
-        ['4.12', ''],
-        ['3.16', 'tied'],
-        ['4.47', ''],
+        [`${dAC}`, 'best left'],
+        [`${dAD}`, ''],
+        [`${dBC}`, 'tied'],
+        [`${dCD}`, ''],
       ],
     ),
     highlight: { active: ['AC:dist'], found: ['AC:status'] },
-    explanation: 'Recursion on the left half finds that A(1,2) and C(3,5) are the closest left pair, with distance sqrt((3-1)^2 + (5-2)^2) = sqrt(13) = 3.16.',
+    explanation: `Recursion on the left half finds that ${points[0].name}(${points[0].x},${points[0].y}) and ${points[2].name}(${points[2].x},${points[2].y}) are the closest left pair, with distance sqrt((${points[2].x}-${points[0].x})^2 + (${points[2].y}-${points[0].y})^2) = sqrt(${(points[2].x - points[0].x) ** 2 + (points[2].y - points[0].y) ** 2}) = ${dAC}.`,
   };
 
+  const dGH = dist(points[6], points[7]);
+  const dEG = dist(points[4], points[6]);
+  const dFG = dist(points[5], points[6]);
+  const dFH = dist(points[5], points[7]);
   yield {
     state: labelMatrix(
-      'Right half: find closest pair among {E, F, G, H}',
+      `Right half: find closest pair among {${rightHalf.map(p => p.name).join(', ')}}`,
       [
         { id: 'GH', label: 'G-H' },
         { id: 'EG', label: 'E-G' },
@@ -143,25 +164,33 @@ function* divideAndConquer() {
         { id: 'status', label: 'status' },
       ],
       [
-        ['2.24', 'best right'],
-        ['2.24', 'tied'],
-        ['3.16', ''],
-        ['2.24', 'tied'],
+        [`${dGH}`, 'best right'],
+        [`${dEG}`, 'tied'],
+        [`${dFG}`, ''],
+        [`${dFH}`, 'tied'],
       ],
     ),
     highlight: { active: ['GH:dist'], found: ['GH:status'] },
-    explanation: 'Recursion on the right half finds that G(8,6) and H(9,4) are the closest right pair, with distance sqrt((9-8)^2 + (4-6)^2) = sqrt(5) = 2.24.',
+    explanation: `Recursion on the right half finds that ${points[6].name}(${points[6].x},${points[6].y}) and ${points[7].name}(${points[7].x},${points[7].y}) are the closest right pair, with distance sqrt((${points[7].x}-${points[6].x})^2 + (${points[7].y}-${points[6].y})^2) = sqrt(${(points[7].x - points[6].x) ** 2 + (points[7].y - points[6].y) ** 2}) = ${dGH}.`,
   };
 
+  const d = Math.min(dAC, dGH);
+  const stripWidth = r2(d * 2);
   yield {
-    state: pointsGraph('d = min(left, right) = 2.24. Now check the strip.'),
+    state: pointsGraph(`d = min(left, right) = ${d}. Now check the strip.`),
     highlight: { active: ['strip', 'div'], found: ['p7', 'p8'], compare: ['p1', 'p3'] },
-    explanation: 'Set d = min(3.16, 2.24) = 2.24. The closest overall pair might still cross the dividing line. Check only points within distance d of the midline: this is the strip of width 2d centered on x = 4.',
+    explanation: `Set d = min(${dAC}, ${dGH}) = ${d}. The closest overall pair might still cross the dividing line. Check only points within distance ${d} of the midline: this is the strip of width ${stripWidth} centered on x = ${midX}.`,
   };
 
+  const stripPoints = points.filter(p => Math.abs(p.x - midX) <= d);
+  const stripNames = stripPoints.map(p => p.name);
+  const dCD_strip = dist(points[2], points[3]);
+  const dDE = dist(points[3], points[4]);
+  const dCE = dist(points[2], points[4]);
+  const stripBest = Math.min(dCD_strip, dDE, dCE);
   yield {
     state: labelMatrix(
-      'Strip check: points within d=2.24 of midline x=4',
+      `Strip check: points within d=${d} of midline x=${midX}`,
       [
         { id: 'C2', label: 'C (3,5)' },
         { id: 'D2', label: 'D (5,1)' },
@@ -172,18 +201,18 @@ function* divideAndConquer() {
         { id: 'checks', label: 'pairs checked' },
       ],
       [
-        ['yes: |3-4|=1', 'C-D: 4.47'],
-        ['yes: |5-4|=1', 'D-E: 6.08'],
-        ['yes: |6-4|=2', 'C-E: 3.61'],
+        [`yes: |${points[2].x}-${midX}|=${Math.abs(points[2].x - midX)}`, `C-D: ${dCD_strip}`],
+        [`yes: |${points[3].x}-${midX}|=${Math.abs(points[3].x - midX)}`, `D-E: ${dDE}`],
+        [`yes: |${points[4].x}-${midX}|=${Math.abs(points[4].x - midX)}`, `C-E: ${dCE}`],
       ],
     ),
     highlight: { active: ['C2:in', 'D2:in', 'E2:in'], compare: ['C2:checks', 'D2:checks', 'E2:checks'] },
-    explanation: 'Only C, D, and E fall within the strip. Sort them by y, then compare each point to at most 7 successors in sorted-y order. None beat d = 2.24, so the overall answer remains G-H.',
+    explanation: `Only ${stripNames.join(', ')} fall within the strip (${stripNames.length} points). Sort them by y, then compare each point to at most 7 successors in sorted-y order. Best strip distance is ${stripBest}, which does not beat d = ${d}, so the overall answer remains ${points[6].name}-${points[7].name}.`,
   };
 
   yield {
     state: labelMatrix(
-      'Result: closest pair is G(8,6) and H(9,4)',
+      `Result: closest pair is ${points[6].name}(${points[6].x},${points[6].y}) and ${points[7].name}(${points[7].x},${points[7].y})`,
       [
         { id: 'best', label: 'G-H' },
         { id: 'leftb', label: 'A-C (left best)' },
@@ -194,27 +223,34 @@ function* divideAndConquer() {
         { id: 'source', label: 'source' },
       ],
       [
-        ['2.24', 'winner'],
-        ['3.16', 'left half'],
-        ['3.61', 'no improvement'],
+        [`${dGH}`, 'winner'],
+        [`${dAC}`, 'left half'],
+        [`${stripBest}`, 'no improvement'],
       ],
     ),
     highlight: { found: ['best:dist', 'best:source'] },
-    explanation: 'The closest pair is G(8,6) and H(9,4) at distance 2.24. The strip check found nothing closer, confirming the right-half result. Total work: O(n log n).',
+    explanation: `The closest pair is ${points[6].name}(${points[6].x},${points[6].y}) and ${points[7].name}(${points[7].x},${points[7].y}) at distance ${dGH}. The strip check found nothing closer (best strip: ${stripBest}), confirming the right-half result. Total work: O(${n} log ${n}) vs brute-force ${n * (n - 1) / 2} pairs.`,
   };
 }
 
 function* stripArgument() {
+  const maxPerSide = 4;
+  const maxInBox = maxPerSide * 2;
+  const maxComparisons = maxInBox - 1;
+  const tighterMax = 6;
+  const tighterComps = tighterMax - 1;
+  const stripPoints = 7;
+
   yield {
     state: stripGraph('The strip: a band of width 2d centered on the dividing line'),
     highlight: { active: ['divline', 'box'], compare: ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7'] },
-    explanation: 'After recursion, d is the smaller of the two half-results. Any cross-boundary pair closer than d must have both points within distance d of the midline. This strip is 2d wide.',
-    invariant: 'Only points inside the strip can form a closer cross-boundary pair.',
+    explanation: `After recursion, d is the smaller of the two half-results. Any cross-boundary pair closer than d must have both points within distance d of the midline. This strip is 2d wide. ${stripPoints} candidate points shown in this example.`,
+    invariant: `Only points inside the strip can form a closer cross-boundary pair. Each point checks at most ${maxComparisons} neighbors.`,
   };
 
   yield {
     state: labelMatrix(
-      'Why each point needs at most 7 comparisons',
+      `Why each point needs at most ${maxComparisons} comparisons`,
       [
         { id: 'rect', label: 'd x 2d rectangle' },
         { id: 'pack', label: 'packing argument' },
@@ -228,23 +264,23 @@ function* stripArgument() {
       [
         ['d high, 2d wide', 'centered on dividing line'],
         ['min distance = d', 'points d apart or more'],
-        ['at most 8 in box', '4 per side at corners'],
-        ['check 7 neighbors', 'strip is O(n)'],
+        [`at most ${maxInBox} in box`, `${maxPerSide} per side at corners`],
+        [`check ${maxComparisons} neighbors`, 'strip is O(n)'],
       ],
     ),
     highlight: { active: ['rect:fact', 'pack:fact'], found: ['count:consequence', 'result:consequence'] },
-    explanation: 'Consider a d-by-2d rectangle straddling the dividing line. Every point in this box is at least d apart from every other point on the same side. Pack circles of radius d/2 into a d-by-d square: at most 4 fit. Two such squares make at most 8 points. So each point compares against at most 7 others.',
+    explanation: `Consider a d-by-2d rectangle straddling the dividing line. Every point in this box is at least d apart from every other point on the same side. Pack circles of radius d/2 into a d-by-d square: at most ${maxPerSide} fit. Two such squares make at most ${maxInBox} points. So each point compares against at most ${maxComparisons} others.`,
   };
 
   yield {
-    state: stripGraph('Sort strip points by y, scan 7 neighbors'),
+    state: stripGraph(`Sort strip points by y, scan ${maxComparisons} neighbors`),
     highlight: { active: ['q1', 'q2', 'q3', 'q7'], found: ['limit'], compare: ['e-q1-q2', 'e-q2-q3', 'e-q3-q7'] },
-    explanation: 'Sort the strip points by y-coordinate. For each point, compare only to the next 7 points in y-order. If any pair beats d, update d. This scan is O(n) because the constant 7 does not grow with n.',
+    explanation: `Sort the strip points by y-coordinate. For each point, compare only to the next ${maxComparisons} points in y-order. If any pair beats d, update d. This scan is O(n) because the constant ${maxComparisons} does not grow with n.`,
   };
 
   yield {
     state: labelMatrix(
-      'Why 8 (not more) points fit in the d x 2d box',
+      `Why ${maxInBox} (not more) points fit in the d x 2d box`,
       [
         { id: 'left', label: 'left d x d' },
         { id: 'right', label: 'right d x d' },
@@ -256,16 +292,17 @@ function* stripArgument() {
         { id: 'reason', label: 'reason' },
       ],
       [
-        ['4', 'corners of d x d square'],
-        ['4', 'corners of d x d square'],
-        ['8', 'so check at most 7 others'],
-        ['6', 'hexagonal packing (Shamos-Hoey)'],
+        [`${maxPerSide}`, 'corners of d x d square'],
+        [`${maxPerSide}`, 'corners of d x d square'],
+        [`${maxInBox}`, `so check at most ${maxComparisons} others`],
+        [`${tighterMax}`, 'hexagonal packing (Shamos-Hoey)'],
       ],
     ),
     highlight: { active: ['left:max', 'right:max'], found: ['total:max', 'total:reason'], compare: ['tight:max'] },
-    explanation: 'The left d-by-d square holds at most 4 points (placed at corners, each pair is at least d apart). Same for the right square. Total: 8 points in the d-by-2d strip window. A tighter hexagonal-packing analysis by Shamos and Hoey gives 6, reducing comparisons to 5. The constant does not matter for O(n); what matters is that it is constant.',
+    explanation: `The left d-by-d square holds at most ${maxPerSide} points (placed at corners, each pair is at least d apart). Same for the right square. Total: ${maxInBox} points in the d-by-2d strip window. A tighter hexagonal-packing analysis by Shamos and Hoey gives ${tighterMax}, reducing comparisons to ${tighterComps}. The constant does not matter for O(n); what matters is that it is constant.`,
   };
 
+  const levels = 'log n';
   yield {
     state: labelMatrix(
       'Recurrence: T(n) = 2T(n/2) + O(n)',
@@ -282,12 +319,12 @@ function* stripArgument() {
       [
         ['O(1)', 'median is known'],
         ['2T(n/2)', 'two half-size problems'],
-        ['O(n)', 'constant comparisons per point'],
+        ['O(n)', `${maxComparisons} comparisons per point`],
         ['O(n log n)', 'Master Theorem case 2'],
       ],
     ),
     highlight: { active: ['divide:cost', 'recurse:cost', 'strip:cost'], found: ['total:cost', 'total:why'] },
-    explanation: 'Splitting is O(1) since points are pre-sorted. Each level does O(n) strip work across all subproblems. There are O(log n) levels. By the Master Theorem, T(n) = O(n log n). The initial sort is also O(n log n), so it does not change the overall bound.',
+    explanation: `Splitting is O(1) since points are pre-sorted. Each level does O(n) strip work (at most ${maxComparisons} comparisons per point) across all subproblems. There are O(${levels}) levels. By the Master Theorem, T(n) = O(n log n). The initial sort is also O(n log n), so it does not change the overall bound.`,
   };
 }
 
@@ -307,7 +344,8 @@ export const article = {
         {type: "callout", text: "Closest pair becomes fast when spatial order proves that almost every pair is too far away to matter."},
         "Active markers show the current decision: which half is being solved, which strip points are being compared. Found markers show the best pair discovered so far. Compare markers show candidates being measured against the current best.",
         "Watch the recursion shrink the problem, then watch the strip merge widen the search just enough to catch cross-boundary pairs without checking all of them.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/closest-pair-of-points.gif', alt: 'Animated walkthrough of the closest pair of points visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -80,49 +80,56 @@ function loopGraph(title) {
 }
 
 function* mutationAndCrossover() {
+  const popSize = 5;
+  const dims = 2;
   yield {
     state: populationTable('Start with a population, not one current point'),
     highlight: { active: ['target:x', 'target:y'], compare: ['base:x', 'p1:x', 'p2:x'] },
-    explanation: 'Differential Evolution keeps many candidate solutions. For each target candidate, it samples other population members to build a mutation direction from actual population geometry.',
+    explanation: `Differential Evolution keeps ${popSize} candidate solutions across ${dims} dimensions. For each target candidate, it samples other population members to build a mutation direction from actual population geometry.`,
   };
 
+  const popPoints = [
+    { x: 2.0, y: 4.5 }, { x: 6.0, y: 2.0 }, { x: 4.0, y: 6.0 }, { x: 1.0, y: 3.0 },
+  ];
+  const mutantPos = { x: 7.5, y: 3.5 };
+  const basePos = { x: 6.0, y: 2.0 };
   yield {
     state: plotState({
       axes: { x: { label: 'parameter 1', min: 0, max: 9 }, y: { label: 'parameter 2', min: 0, max: 7 } },
       series: [
-        { id: 'population', label: 'population', points: [
-          { x: 2.0, y: 4.5 }, { x: 6.0, y: 2.0 }, { x: 4.0, y: 6.0 }, { x: 1.0, y: 3.0 },
-        ] },
+        { id: 'population', label: 'population', points: popPoints },
       ],
       markers: [
-        { id: 'target', x: 2.0, y: 4.5, label: 'target' },
-        { id: 'base', x: 6.0, y: 2.0, label: 'a' },
-        { id: 'mutant', x: 7.5, y: 3.5, label: 'v' },
+        { id: 'target', x: popPoints[0].x, y: popPoints[0].y, label: 'target' },
+        { id: 'base', x: basePos.x, y: basePos.y, label: 'a' },
+        { id: 'mutant', x: mutantPos.x, y: mutantPos.y, label: 'v' },
       ],
       vectors: [
         { id: 'spread', from: { x: 1.0, y: 3.0 }, to: { x: 4.0, y: 6.0 }, label: 'b - c' },
-        { id: 'scaled', from: { x: 6.0, y: 2.0 }, to: { x: 7.5, y: 3.5 }, label: 'F(b-c)' },
+        { id: 'scaled', from: { x: basePos.x, y: basePos.y }, to: { x: mutantPos.x, y: mutantPos.y }, label: 'F(b-c)' },
       ],
     }),
     highlight: { active: ['spread', 'scaled'], found: ['mutant'], compare: ['target'] },
-    explanation: 'The signature move is v = a + F(b - c). The mutation step does not need a gradient; it borrows direction and scale from the current population spread.',
-    invariant: 'Population differences adapt the step size to the search cloud.',
+    explanation: `The signature move is v = a + F(b - c). From base (${basePos.x}, ${basePos.y}) the mutant lands at (${mutantPos.x}, ${mutantPos.y}). The mutation step does not need a gradient; it borrows direction and scale from the ${popPoints.length}-member population spread.`,
+    invariant: `Population differences across ${popPoints.length} candidates adapt the step size to the search cloud.`,
   };
 
+  const crossRows = [
+    { id: 'target', label: 'target x_i' },
+    { id: 'mutant', label: 'mutant v' },
+    { id: 'mask', label: 'crossover mask' },
+    { id: 'trial', label: 'trial u' },
+  ];
+  const crossCols = [
+    { id: 'x', label: 'x' },
+    { id: 'y', label: 'y' },
+    { id: 'note', label: 'source' },
+  ];
   yield {
     state: labelMatrix(
       'Crossover mixes target and mutant coordinates',
-      [
-        { id: 'target', label: 'target x_i' },
-        { id: 'mutant', label: 'mutant v' },
-        { id: 'mask', label: 'crossover mask' },
-        { id: 'trial', label: 'trial u' },
-      ],
-      [
-        { id: 'x', label: 'x' },
-        { id: 'y', label: 'y' },
-        { id: 'note', label: 'source' },
-      ],
+      crossRows,
+      crossCols,
       [
         ['2.0', '4.5', 'current candidate'],
         ['7.5', '3.5', 'mutated candidate'],
@@ -131,50 +138,55 @@ function* mutationAndCrossover() {
       ],
     ),
     highlight: { active: ['mask:x', 'trial:x'], compare: ['mask:y', 'trial:y'] },
-    explanation: 'Crossover prevents the mutant from replacing every coordinate blindly. A trial vector inherits some coordinates from the target and some from the mutant.',
+    explanation: `Crossover prevents the mutant from replacing every coordinate blindly. Across ${crossCols.length - 1} dimensions, the ${crossRows[crossRows.length - 1].label} vector inherits some coordinates from the ${crossRows[0].label} and some from the ${crossRows[1].label}.`,
   };
 
+  const selRows = [
+    { id: 'target', label: 'target x_i' },
+    { id: 'trial', label: 'trial u' },
+    { id: 'survivor', label: 'next population slot' },
+  ];
+  const targetLoss = 14.2;
+  const trialLoss = 8.1;
   yield {
     state: labelMatrix(
       'Greedy selection keeps whichever scores better',
-      [
-        { id: 'target', label: 'target x_i' },
-        { id: 'trial', label: 'trial u' },
-        { id: 'survivor', label: 'next population slot' },
-      ],
+      selRows,
       [
         { id: 'candidate', label: 'candidate' },
         { id: 'loss', label: 'loss' },
         { id: 'decision', label: 'decision' },
       ],
       [
-        ['(2.0, 4.5)', '14.2', 'replaced'],
-        ['(7.5, 4.5)', '8.1', 'wins'],
-        ['(7.5, 4.5)', '8.1', 'carry forward'],
+        ['(2.0, 4.5)', String(targetLoss), 'replaced'],
+        ['(7.5, 4.5)', String(trialLoss), 'wins'],
+        ['(7.5, 4.5)', String(trialLoss), 'carry forward'],
       ],
     ),
     highlight: { active: ['trial:loss', 'trial:decision'], found: ['survivor:candidate'] },
-    explanation: 'Selection is local and ruthless: if the trial is better than the target, it occupies that population slot. Otherwise the original target survives unchanged.',
+    explanation: `Selection is local and ruthless: the trial loss ${trialLoss} beats the target loss ${targetLoss}, so it occupies that population slot. Otherwise the original ${selRows[0].label} survives unchanged.`,
   };
 }
 
 function* blackBoxAttackLoop() {
+  const loopNodes = ['pop', 'mut', 'cross', 'score', 'keep'];
   yield {
     state: loopGraph('The optimizer only needs candidate scores'),
-    highlight: { active: ['pop', 'mut', 'cross', 'score'], found: ['keep'] },
-    explanation: 'Differential Evolution wraps any scoring function: simulate a design, run a model query, measure latency, evaluate a loss, or ask whether an adversarial edit fooled a classifier.',
+    highlight: { active: loopNodes.slice(0, 4), found: [loopNodes[4]] },
+    explanation: `Differential Evolution wraps any scoring function through a ${loopNodes.length}-node loop from "${loopNodes[0]}" to "${loopNodes[loopNodes.length - 1]}": simulate a design, run a model query, measure latency, evaluate a loss, or ask whether an adversarial edit fooled a classifier.`,
   };
 
+  const pixelDims = [
+    { id: 'x', label: 'x coordinate' },
+    { id: 'y', label: 'y coordinate' },
+    { id: 'r', label: 'red' },
+    { id: 'g', label: 'green' },
+    { id: 'b', label: 'blue' },
+  ];
   yield {
     state: labelMatrix(
       'One-pixel attack candidate as a DE vector',
-      [
-        { id: 'x', label: 'x coordinate' },
-        { id: 'y', label: 'y coordinate' },
-        { id: 'r', label: 'red' },
-        { id: 'g', label: 'green' },
-        { id: 'b', label: 'blue' },
-      ],
+      pixelDims,
       [
         { id: 'value', label: 'value' },
         { id: 'bounds', label: 'bounds' },
@@ -189,36 +201,41 @@ function* blackBoxAttackLoop() {
       ],
     ),
     highlight: { active: ['x:value', 'y:value', 'r:value', 'g:value', 'b:value'] },
-    explanation: 'The one-pixel attack uses exactly the DE shape: each candidate is a small vector, and the model confidence after applying that edit becomes the fitness score.',
+    explanation: `The one-pixel attack uses exactly the DE shape: each candidate is a ${pixelDims.length}-element vector (${pixelDims.map(d => d.label).join(', ')}), and the model confidence after applying that edit becomes the fitness score.`,
   };
 
+  const queryPoints = [
+    { x: 0, y: 0.04 }, { x: 10, y: 0.11 }, { x: 20, y: 0.22 }, { x: 30, y: 0.35 },
+    { x: 40, y: 0.52 }, { x: 50, y: 0.68 }, { x: 60, y: 0.79 }, { x: 70, y: 0.83 },
+  ];
+  const startProb = queryPoints[0].y;
+  const flipQuery = 50;
+  const flipProb = 0.68;
   yield {
     state: plotState({
       axes: { x: { label: 'model queries', min: 0, max: 80 }, y: { label: 'best target probability', min: 0, max: 1 } },
       series: [
-        { id: 'best', label: 'best candidate so far', points: [
-          { x: 0, y: 0.04 }, { x: 10, y: 0.11 }, { x: 20, y: 0.22 }, { x: 30, y: 0.35 },
-          { x: 40, y: 0.52 }, { x: 50, y: 0.68 }, { x: 60, y: 0.79 }, { x: 70, y: 0.83 },
-        ] },
+        { id: 'best', label: 'best candidate so far', points: queryPoints },
       ],
       markers: [
-        { id: 'start', x: 0, y: 0.04, label: 'original' },
-        { id: 'flip', x: 50, y: 0.68, label: 'class flips' },
+        { id: 'start', x: 0, y: startProb, label: 'original' },
+        { id: 'flip', x: flipQuery, y: flipProb, label: 'class flips' },
       ],
     }),
     highlight: { active: ['best'], found: ['flip'], compare: ['start'] },
-    explanation: 'The best-so-far curve is a useful mental model: the algorithm spends queries testing candidates and keeps edits that push the score toward the target.',
+    explanation: `The best-so-far curve across ${queryPoints.length} checkpoints is a useful mental model: starting from probability ${startProb}, the algorithm spends queries testing candidates until the class flips at query ${flipQuery} (probability ${flipProb}).`,
   };
 
+  const guideRows = [
+    { id: 'good', label: 'good fit' },
+    { id: 'bad', label: 'bad fit' },
+    { id: 'knobs', label: 'knobs' },
+    { id: 'audit', label: 'audit' },
+  ];
   yield {
     state: labelMatrix(
       'Use DE when the score is visible but gradients are not',
-      [
-        { id: 'good', label: 'good fit' },
-        { id: 'bad', label: 'bad fit' },
-        { id: 'knobs', label: 'knobs' },
-        { id: 'audit', label: 'audit' },
-      ],
+      guideRows,
       [
         { id: 'rule', label: 'rule' },
         { id: 'example', label: 'example' },
@@ -231,7 +248,7 @@ function* blackBoxAttackLoop() {
       ],
     ),
     highlight: { found: ['good:rule', 'knobs:example', 'audit:rule'], compare: ['bad:rule'] },
-    explanation: 'DE is a pragmatic search tool, not a universal optimizer. It shines when the evaluator is the only thing you can call and the candidate vector is not too huge.',
+    explanation: `DE is a pragmatic search tool covering ${guideRows.length} usage scenarios, not a universal optimizer. It shines when the evaluator is the only thing you can call and the candidate vector is not too huge.`,
   };
 }
 
@@ -244,6 +261,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/differential-evolution.gif', alt: 'Animated walkthrough of the differential evolution visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

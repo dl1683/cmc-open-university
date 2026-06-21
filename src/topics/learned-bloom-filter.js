@@ -58,14 +58,14 @@ function* modelPlusBackup() {
   yield {
     state: pipeline('A classifier stands before a backup filter'),
     highlight: { active: ['query', 'model', 'e-query-model'], compare: ['backup'] },
-    explanation: 'A learned Bloom filter uses a model as a pre-filter. The model scores whether a key looks like it belongs to the set. High-scoring keys are treated as maybe present.',
+    explanation: `A ${topic.title} uses a model as a pre-filter. The model scores whether a key looks like it belongs to the set. High-scoring keys are treated as maybe present.`,
   };
 
   yield {
     state: pipeline('The backup Bloom filter fixes model false negatives'),
     highlight: { active: ['model', 'backup', 'e-model-backup', 'e-backup-maybe'], found: ['maybe'] },
-    explanation: 'A plain model can reject real members, which would violate Bloom filter semantics. The fix is to store every real key that the model rejects in a backup Bloom filter.',
-    invariant: 'The backup filter is what restores the no-false-negative guarantee.',
+    explanation: `A plain model can reject real members, which would violate ${topic.category.toLowerCase()} semantics. The fix is to store every real key that the model rejects in a backup Bloom filter.`,
+    invariant: `The backup filter is what restores the no-false-negative guarantee for the ${topic.title}.`,
   };
 
   yield {
@@ -90,7 +90,7 @@ function* modelPlusBackup() {
       ],
     ),
     highlight: { active: ['hardpos:backup', 'easyneg:query'], compare: ['hardneg:query'] },
-    explanation: 'The learned model reduces the number of absent keys that reach the backup. But if it admits absent keys with high scores, those become false positives.',
+    explanation: `The learned model reduces the number of absent keys that reach the backup. But if it admits absent keys with high scores, those become false positives in the ${topic.title}.`,
   };
 
   yield {
@@ -115,7 +115,7 @@ function* modelPlusBackup() {
       ],
     ),
     highlight: { found: ['learned:front', 'learned:back'], active: ['sandwich:front', 'sandwich:middle', 'sandwich:back'] },
-    explanation: 'The basic learned Bloom filter is only the starting point. Sandwiching adds a small initial Bloom filter before the model; partitioned designs tune regions separately.',
+    explanation: `The basic ${topic.title} is only the starting point. Sandwiching adds a small initial Bloom filter before the model; partitioned designs tune ${topic.controls[0].options.length} concerns separately: threshold and backup sizing.`,
   };
 }
 
@@ -142,13 +142,13 @@ function* thresholdTuning() {
       ],
     ),
     highlight: { active: ['mid:modelpass', 'mid:backup', 'mid:fpr'], compare: ['low:fpr', 'high:backup'] },
-    explanation: 'The threshold controls where memory is spent. A low threshold trusts the model and shrinks the backup, but can admit many nonmembers. A high threshold rejects more real members, growing the backup.',
+    explanation: `The threshold controls where memory is spent in the ${topic.title}. A low threshold trusts the model and shrinks the backup, but can admit many nonmembers. A high threshold rejects more real members, growing the backup.`,
   };
 
   yield {
     state: pipeline('Negative queries should die early'),
     highlight: { active: ['query', 'model', 'backup', 'absent', 'e-model-backup', 'e-backup-absent'], compare: ['maybe'] },
-    explanation: 'The performance win comes when absent queries are cheap. If most nonmembers get low model scores and miss the backup, the system avoids the larger source-of-truth lookup.',
+    explanation: `The performance win comes when absent queries are cheap. If most nonmembers get low model scores and miss the backup, the ${topic.title} avoids the larger source-of-truth lookup.`,
   };
 
   yield {
@@ -172,7 +172,7 @@ function* thresholdTuning() {
       ],
     ),
     highlight: { found: ['backup:measure', 'negative:measure'], active: ['drift:why'] },
-    explanation: 'A learned Bloom filter must be evaluated on the query distribution it will actually see. A model that looks good on random negatives can fail on adversarial or shifted negatives.',
+    explanation: `A ${topic.title} must be evaluated on the query distribution it will actually see. A model that looks good on random negatives can fail on adversarial or shifted negatives.`,
   };
 
   yield {
@@ -196,7 +196,7 @@ function* thresholdTuning() {
       ],
     ),
     highlight: { found: ['structured:fit', 'stable:fit'], compare: ['random:fit', 'hostile:fit'] },
-    explanation: 'The model only helps when membership has learnable structure. If keys are already random fingerprints, a classic Bloom filter is usually simpler and harder to fool.',
+    explanation: `The model only helps when membership has learnable structure. If keys are already random fingerprints, a classic Bloom filter in ${topic.category} is usually simpler and harder to fool.`,
   };
 }
 
@@ -209,6 +209,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/learned-bloom-filter.gif', alt: 'Animated walkthrough of the learned bloom filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why This Exists',
       paragraphs: [

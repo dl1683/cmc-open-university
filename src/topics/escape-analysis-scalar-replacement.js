@@ -57,7 +57,7 @@ function* noEscapeObject() {
   yield {
     state: escapeGraph('Escape analysis asks whether an object can outlive its use'),
     highlight: { active: ['alloc', 'fields', 'inline', 'e-alloc-fields', 'e-alloc-inline'], compare: ['escape'] },
-    explanation: 'The optimizer builds a use graph for an allocation. If the object never leaks to unknown code, a global store, or a returned value, it may be removable.',
+    explanation: `The optimizer builds a use graph with ${8} nodes and ${8} edges for an allocation. If the object never leaks to unknown code, a global store, or a returned value, it may be removable.`,
   };
   yield {
     state: labelMatrix(
@@ -80,13 +80,13 @@ function* noEscapeObject() {
       ],
     ),
     highlight: { active: ['local:decision', 'local:action'], compare: ['return:action', 'store:action'], found: ['call:decision'] },
-    explanation: 'Scalar replacement decomposes an object into field values. Instead of allocating {x,y}, the optimizer keeps x and y as separate SSA values or registers.',
-    invariant: 'Allocation removal is legal only if every observable object identity effect is preserved.',
+    explanation: `Scalar replacement decomposes an object into field values. The ${4}-row decision matrix shows when each use pattern permits this — instead of allocating {x,y}, the optimizer keeps x and y as separate SSA values or registers.`,
+    invariant: `Allocation removal is legal only if every observable object identity effect is preserved across all ${4} use categories.`,
   };
   yield {
     state: escapeGraph('Scalar replacement removes allocation pressure'),
     highlight: { active: ['graph', 'scalar', 'code', 'e-graph-scalar', 'e-scalar-code'], compare: ['escape'] },
-    explanation: 'When the proof succeeds, the optimized code can compute with scalars directly, reducing allocation rate and garbage-collection pressure.',
+    explanation: `When the proof succeeds across ${8} graph nodes, the optimized code can compute with scalars directly, reducing allocation rate and garbage-collection pressure.`,
   };
 }
 
@@ -94,7 +94,7 @@ function* deoptRecovery() {
   yield {
     state: escapeGraph('JITs may need to recreate removed objects at deopt'),
     highlight: { active: ['code', 'deopt', 'e-code-deopt'], found: ['scalar'], compare: ['alloc'] },
-    explanation: 'If optimized code deoptimizes, the runtime may need to rematerialize an object that was scalar-replaced so lower-tier code sees a valid object state.',
+    explanation: `If optimized code deoptimizes, the runtime may need to rematerialize an object that was scalar-replaced. The path from code to deopt through ${8} pipeline nodes shows how lower-tier code must see a valid object state.`,
   };
   yield {
     state: labelMatrix(
@@ -117,12 +117,12 @@ function* deoptRecovery() {
       ],
     ),
     highlight: { active: ['x:restore', 'y:restore'], found: ['klass:source'], compare: ['id:restore'] },
-    explanation: 'The deopt metadata must know how to rebuild the logical object from the scalar values still live at the safepoint.',
+    explanation: `The deopt metadata maps ${4} fields back to their scalar sources, knowing how to rebuild the logical object from the scalar values still live at the safepoint.`,
   };
   yield {
     state: escapeGraph('Inlining often unlocks the proof'),
     highlight: { active: ['inline', 'graph', 'scalar', 'e-inline-graph', 'e-graph-scalar'], compare: ['escape'] },
-    explanation: 'A call can look like an escape until inlining reveals that the callee only reads fields. That is why escape analysis, inlining, and deoptimization metadata are tightly coupled in JITs.',
+    explanation: `A call can look like an escape until inlining reveals that the callee only reads fields. With ${8} edges in the connection graph, escape analysis, inlining, and deoptimization metadata are tightly coupled in JITs.`,
   };
 }
 
@@ -148,7 +148,8 @@ export const article = {
           type: 'note',
           text: 'Watch the edge between "graph" and "escape" carefully. That single edge is the legal boundary between a field bundle the compiler can dissolve and a real heap object it must preserve.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/escape-analysis-scalar-replacement.gif', alt: 'Animated walkthrough of the escape analysis scalar replacement visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

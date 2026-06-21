@@ -163,7 +163,8 @@ export const article = {
           text: 'A distributed lock is useful only after you decide whether overlap wastes money or corrupts data.',
         },
         'The second view compares recipes (ZooKeeper, etcd, Redis, Redlock) and then asks the question that decides engineering: is this an efficiency lock or a correctness lock? The final table shows designs that remove the lock entirely. The most important object across both views is the fencing token. A downstream resource that does not check tokens has no defense against a stale holder waking up and overwriting newer work.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/distributed-locks.gif', alt: 'Animated walkthrough of the distributed locks visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

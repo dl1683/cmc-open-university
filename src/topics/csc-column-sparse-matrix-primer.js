@@ -79,11 +79,16 @@ function solverGraph(title) {
 }
 
 function* columnLayout() {
+  const pipelineStages = 8; // nodes in cscGraph
+  const pipelineLinks = 8;  // edges in cscGraph
+  const ncols = 4;          // columns in the CSC slices matrix
+  const arrayCount = 3;     // colPtr, rowIdx, values
+
   yield {
     state: cscGraph('CSC compresses columns instead of rows'),
     highlight: { active: ['coo', 'sort', 'colptr', 'rowidx', 'vals', 'e-coo-sort', 'e-sort-colptr', 'e-sort-rowidx', 'e-rowidx-vals'], found: ['slice'] },
-    explanation: 'Compressed Sparse Column stores all nonzeros of each column contiguously. colPtr[j] and colPtr[j+1] bound the rowIdx and values entries for column j.',
-    invariant: 'CSC(A) is the row-compressed idea applied to columns.',
+    explanation: `Compressed Sparse Column stores all nonzeros of each column contiguously across ${arrayCount} arrays. colPtr[j] and colPtr[j+1] bound the rowIdx and values entries for column j, enabling O(1) column access in a ${pipelineStages}-stage pipeline.`,
+    invariant: `CSC(A) compresses ${ncols}+ columns using the same offset idea CSR applies to rows.`,
   };
   yield {
     state: labelMatrix(
@@ -106,12 +111,12 @@ function* columnLayout() {
       ],
     ),
     highlight: { active: ['c2:range', 'c2:rows'], compare: ['c1:rows'] },
-    explanation: 'Column 2 reads a contiguous slice of row indices and values. Empty columns have equal start and end offsets, just like empty rows in CSR.',
+    explanation: `Column 2 reads a contiguous slice of row indices and values from ${ncols} total columns. Empty columns have equal start and end offsets, just like empty rows in CSR.`,
   };
   yield {
     state: cscGraph('CSC is CSR of the transposed matrix'),
     highlight: { active: ['slice', 'csrT', 'e-slice-csrT'], compare: ['colptr'] },
-    explanation: 'A useful mental shortcut: CSC(A) stores the same pattern as CSR(A^T). Row algorithms on the transpose become column algorithms on the original.',
+    explanation: `A useful mental shortcut across the ${pipelineStages}-node graph: CSC(A) stores the same pattern as CSR(A^T). Row algorithms on the transpose become column algorithms on the original, connected by ${pipelineLinks} dependency edges.`,
   };
   yield {
     state: labelMatrix(
@@ -134,15 +139,20 @@ function* columnLayout() {
       ],
     ),
     highlight: { active: ['row:CSR', 'col:CSC', 'spmv:CSR', 'transpose:CSC'], compare: ['row:CSC'] },
-    explanation: 'Format choice follows access direction. CSR is natural for row scans. CSC is natural for column scans and transpose-style operations.',
+    explanation: `Format choice follows access direction across ${ncols} operation categories. CSR is natural for row scans; CSC is natural for column scans and transpose-style operations.`,
   };
 }
 
 function* solverTradeoff() {
+  const solverStages = 8; // nodes in solverGraph
+  const solverLinks = 9;  // edges in solverGraph
+  const ledgerRows = 4;   // rows in solver ledger matrix
+  const fitCategories = 4; // rows in "When CSC wins" matrix
+
   yield {
     state: solverGraph('Sparse direct solvers often want column structure'),
     highlight: { active: ['A', 'csc', 'perm', 'factor', 'e-A-csc', 'e-A-perm', 'e-csc-factor', 'e-perm-factor'], found: ['solve'] },
-    explanation: 'Sparse factorization and some solver routines use column-oriented structure to find pivots, build elimination trees, and control fill-in.',
+    explanation: `Sparse factorization across ${solverStages} solver stages uses column-oriented structure to find pivots, build elimination trees, and control fill-in through ${solverLinks} dependency links.`,
   };
   yield {
     state: labelMatrix(
@@ -165,12 +175,12 @@ function* solverTradeoff() {
       ],
     ),
     highlight: { active: ['symbolic:tracks', 'numeric:tracks', 'fill:tracks'], compare: ['rhs:why'] },
-    explanation: 'A solver has both symbolic and numeric work. The sparsity pattern may be reused across many right-hand sides even when values change.',
+    explanation: `A solver tracks ${ledgerRows} concerns (symbolic, numeric, fill, rhs). The sparsity pattern may be reused across many right-hand sides even when values change.`,
   };
   yield {
     state: solverGraph('Permutation reduces fill-in before factorization'),
     highlight: { active: ['perm', 'factor', 'update', 'audit', 'e-perm-factor', 'e-factor-update', 'e-update-audit'], compare: ['solve'] },
-    explanation: 'Sparse direct solvers care about fill-in: zeros that become nonzero during factorization. Reordering can reduce memory and time dramatically.',
+    explanation: `Sparse direct solvers care about fill-in: zeros that become nonzero during factorization. Reordering within the ${solverStages}-stage pipeline can reduce memory and time dramatically.`,
   };
   yield {
     state: labelMatrix(
@@ -193,7 +203,7 @@ function* solverTradeoff() {
       ],
     ),
     highlight: { active: ['colscan:fit', 'factor:fit', 'transpose:fit'], compare: ['rowapp:reason'] },
-    explanation: 'CSC is not better than CSR; it is better for different access patterns. Production sparse systems often keep one canonical layout and materialize another when the workload justifies it.',
+    explanation: `CSC is not better than CSR; it wins in ${fitCategories - 1} of ${fitCategories} access categories. Production sparse systems often keep one canonical layout and materialize another when the workload justifies it.`,
   };
 }
 
@@ -206,6 +216,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/csc-column-sparse-matrix-primer.gif', alt: 'Animated walkthrough of the csc column sparse matrix primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

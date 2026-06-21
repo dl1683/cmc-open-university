@@ -56,7 +56,7 @@ function* encodeVectors() {
       ],
     ),
     highlight: { active: ['x:sub1', 'x:sub2', 'x:sub3', 'x:sub4'], found: ['store:sub1', 'store:sub2'] },
-    explanation: 'Product Quantization splits a high-dimensional embedding into smaller subvectors. Each subspace has its own learned codebook, usually from K-Means Clustering. Instead of storing all float coordinates, the database stores one codebook index per subspace.',
+    explanation: `${topic.title.replace(' for Vector Search', '')} splits a high-dimensional embedding into smaller subvectors. Each subspace has its own learned codebook, usually from K-Means Clustering. Instead of storing all float coordinates, the database stores one codebook index per subspace.`,
   };
 
   yield {
@@ -81,8 +81,8 @@ function* encodeVectors() {
       ],
     ),
     highlight: { found: ['sub1:bytes', 'sub2:bytes', 'sub3:bytes', 'sub4:bytes'], compare: ['sub3:loss'] },
-    explanation: 'If each subspace uses 256 centroids, each subvector can be stored in one byte. A 768-dimensional float32 vector is 3,072 bytes. With 96 one-byte PQ codes, the compressed representation is 96 bytes plus shared codebooks. The cost is quantization error.',
-    invariant: 'PQ trades exact coordinates for compact codes and approximate distances.',
+    explanation: `If each subspace uses ${256} centroids, each subvector can be stored in one byte. A 768-dimensional float32 vector is ${768 * 4} bytes. With 96 one-byte PQ codes, the compressed representation is 96 bytes plus shared codebooks — a ${Math.round(768 * 4 / 96)}x compression. The cost is quantization error.`,
+    invariant: `${topic.title.split(' ')[0]} ${topic.title.split(' ')[1]} trades exact coordinates for compact codes and approximate distances.`,
   };
 
   yield {
@@ -108,7 +108,7 @@ function* encodeVectors() {
       ],
     ),
     highlight: { active: ['sub1:lookup', 'sub2:lookup', 'sub3:lookup', 'sub4:lookup'], found: ['sum:query_to_code'] },
-    explanation: 'At search time, keep the query exact. Precompute its distance to every centroid in every subspace, then score a compressed database vector by summing a few table lookups. This is why PQ is so useful in vector databases and FAISS-style indexes.',
+    explanation: `At search time, keep the query exact. Precompute its distance to every centroid in every subspace, then score a compressed database vector by summing a few table lookups. This is why ${topic.title} is so useful in vector databases and FAISS-style indexes.`,
   };
 }
 
@@ -135,7 +135,7 @@ function* ivfPlusPqSearch() {
       ],
     ),
     highlight: { found: ['list0:probe', 'list2:probe'], removed: ['list1:probe', 'list3:probe'] },
-    explanation: 'An inverted file index, or IVF, clusters vectors into coarse lists. Search probes the nearest coarse lists and ignores the rest. PQ then scores compressed vectors inside those lists. The system is two-stage: coarse recall first, compact scoring second.',
+    explanation: `An inverted file index, or IVF, clusters vectors into coarse lists. Search probes the nearest coarse lists and ignores the rest. ${topic.title.split(' ').slice(0, 2).join(' ')} then scores compressed vectors inside those lists. The system is two-stage: coarse recall first, compact scoring second.`,
   };
 
   yield {
@@ -159,7 +159,7 @@ function* ivfPlusPqSearch() {
       ],
     ),
     highlight: { active: ['nprobe:helps', 'm:helps'], compare: ['nprobe:costs', 'm:costs'] },
-    explanation: 'PQ is not one magic setting. It exposes a recall, memory, and latency frontier. That is the same mindset as HNSW (Vector Search at Scale), Quantization, and Threshold Optimization: choose knobs by measured workload, not by vibes.',
+    explanation: `${topic.title} is not one magic setting. It exposes a recall, memory, and latency frontier. That is the same mindset as HNSW (Vector Search at Scale), Quantization, and Threshold Optimization: choose knobs by measured workload, not by vibes.`,
   };
 
   yield {
@@ -184,7 +184,7 @@ function* ivfPlusPqSearch() {
       ],
     ),
     highlight: { found: ['ivfpq:memory', 'ivfpq:latency'], compare: ['flat:quality', 'rerank:quality'] },
-    explanation: 'A production vector stack often combines methods: IVF or HNSW for candidates, PQ for memory compression, and exact reranking on the top results. The useful lesson is composition, not allegiance to one index.',
+    explanation: `A production vector stack often combines methods: IVF or HNSW for candidates, ${topic.title.split(' ').slice(0, 2).join(' ')} for memory compression, and exact reranking on the top results. The useful lesson is composition, not allegiance to one index.`,
   };
 }
 
@@ -197,6 +197,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/product-quantization.gif', alt: 'Animated walkthrough of the product quantization visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'What it is',
       paragraphs: [

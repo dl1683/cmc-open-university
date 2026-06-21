@@ -109,7 +109,8 @@ export const article = {
         'The animation shows two database replicas, N1 and N2, each in a separate datacenter, connected by a replication link. Clients C1 and C2 each talk to their nearest node. Active edges show data flowing along that path. Found nodes hold confirmed state. When the replication edge disappears, the network has partitioned.',
         {type: 'callout', text: 'During a partition, the isolated replica cannot know whether silence means no write or a missing message, so it must either refuse or risk stale data.'},
         'The toggle at the top switches between CP and AP behavior during the partition. Under CP, a read from the isolated side is refused (compare highlight, no data returned). Under AP, the isolated node answers immediately with its local value (found highlight, possibly stale). Watch what happens to the value at N2 after N1 accepts a write during the partition, and compare the two runs.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/cap-theorem.gif', alt: 'Animated walkthrough of the cap theorem visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

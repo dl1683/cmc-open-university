@@ -79,27 +79,34 @@ function filledGraph(title) {
 }
 
 function* receiverReassembly() {
+  const hl1 = { active: ['seg0', 'seg2', 'seg3', 'e-0-rx', 'e-2-rx', 'e-3-rx'], removed: ['seg1'], compare: ['ack'] };
+  const arrivedSegs = hl1.active.filter(id => id.startsWith('seg')).length;
+  const lostSegs = hl1.removed.length;
   yield {
     state: packetGraph('Segments can arrive out of order'),
-    highlight: { active: ['seg0', 'seg2', 'seg3', 'e-0-rx', 'e-2-rx', 'e-3-rx'], removed: ['seg1'], compare: ['ack'] },
-    explanation: 'TCP presents a byte stream, but IP packets can be lost or reordered. Here bytes 0-999 arrive, 1000-1999 are missing, and later bytes arrive out of order. The receiver can buffer the later intervals but cannot deliver them to the application yet.',
+    highlight: hl1,
+    explanation: `TCP presents a byte stream, but IP packets can be lost or reordered. Here ${arrivedSegs} segments arrived while ${lostSegs} segment (${hl1.removed.join(', ')}) was lost. The receiver can buffer the ${arrivedSegs} later intervals but cannot deliver them to the application yet, because ${hl1.compare.length} cumulative ACK (${hl1.compare.join(', ')}) still awaits the missing data.`,
     invariant: 'The application receives contiguous stream bytes, not arbitrary out-of-order segments.',
   };
 
+  const rows2 = [
+    { id: 'r0', label: '0-999' },
+    { id: 'r1', label: '1000-1999' },
+    { id: 'r2', label: '2000-2999' },
+    { id: 'r3', label: '3000-3999' },
+  ];
+  const cols2 = [
+    { id: 'state', label: 'state' },
+    { id: 'deliver', label: 'deliver?' },
+    { id: 'ack', label: 'ACK effect' },
+  ];
+  const hl2 = { active: ['r1:state', 'r2:ack', 'r3:ack'], found: ['r0:deliver'] };
+  const sackCells = hl2.active.filter(c => c.endsWith(':ack')).length;
   yield {
     state: labelMatrix(
       'Receiver interval buffer',
-      [
-        { id: 'r0', label: '0-999' },
-        { id: 'r1', label: '1000-1999' },
-        { id: 'r2', label: '2000-2999' },
-        { id: 'r3', label: '3000-3999' },
-      ],
-      [
-        { id: 'state', label: 'state' },
-        { id: 'deliver', label: 'deliver?' },
-        { id: 'ack', label: 'ACK effect' },
-      ],
+      rows2,
+      cols2,
       [
         ['present', 'yes', 'ACK 1000'],
         ['missing', 'no', 'hold line'],
@@ -107,35 +114,44 @@ function* receiverReassembly() {
         ['present', 'no', 'SACK block'],
       ],
     ),
-    highlight: { active: ['r1:state', 'r2:ack', 'r3:ack'], found: ['r0:deliver'] },
-    explanation: 'The cumulative ACK names the first missing byte, so it stays at 1000. Selective acknowledgments describe later received blocks, letting the sender learn that bytes 2000-3999 do not need retransmission.',
+    highlight: hl2,
+    explanation: `The ${rows2.length} byte ranges span ${cols2.length} columns. The cumulative ACK names the first missing byte (${rows2[1].label}), so it stays at 1000. ${sackCells} SACK-effect cells are active, letting the sender learn that bytes ${rows2[2].label} and ${rows2[3].label} do not need retransmission. ${hl2.found.length} cell (${hl2.found.join(', ')}) confirms deliverable data.`,
   };
 
+  const hl3 = { active: ['rx', 'ack', 'sack', 'e-rx-ack', 'e-rx-sack'], found: ['rxt'] };
+  const activeNodes3 = hl3.active.filter(id => !id.startsWith('e-')).length;
+  const activeEdges3 = hl3.active.filter(id => id.startsWith('e-')).length;
   yield {
     state: packetGraph('SACK says what arrived beyond the gap'),
-    highlight: { active: ['rx', 'ack', 'sack', 'e-rx-ack', 'e-rx-sack'], found: ['rxt'] },
-    explanation: 'RFC 2018 SACK blocks report non-contiguous received data beyond the cumulative ACK. That turns the receiver buffer into useful sender feedback: the sender can focus on the hole instead of guessing from duplicate ACKs alone.',
+    highlight: hl3,
+    explanation: `RFC 2018 SACK blocks report non-contiguous received data beyond the cumulative ACK. ${activeNodes3} nodes and ${activeEdges3} edges are active in this step, showing the feedback path. That turns the receiver buffer into useful sender feedback: the sender can focus on the ${hl3.found.length} retransmission target (${hl3.found.join(', ')}) instead of guessing from duplicate ACKs alone.`,
   };
 
+  const hl4 = { active: ['sender', 'hole', 'rx', 'e-sender-hole', 'e-hole-rx'], found: ['stream', 'app', 'e-stream-app'] };
+  const repairNodes = hl4.active.filter(id => !id.startsWith('e-')).length;
+  const deliverNodes = hl4.found.filter(id => !id.startsWith('e-')).length;
   yield {
     state: filledGraph('Retransmitting the hole makes the stream contiguous'),
-    highlight: { active: ['sender', 'hole', 'rx', 'e-sender-hole', 'e-hole-rx'], found: ['stream', 'app', 'e-stream-app'] },
-    explanation: 'When bytes 1000-1999 arrive, the receiver merges intervals into one contiguous range, advances the cumulative ACK to 4000, and releases all newly contiguous data to the application.',
+    highlight: hl4,
+    explanation: `When bytes 1000-1999 arrive, the receiver merges intervals into one contiguous range. ${repairNodes} nodes participate in the repair path while ${deliverNodes} nodes (${hl4.found.filter(id => !id.startsWith('e-')).join(', ')}) represent the delivery outcome. The cumulative ACK advances to 4000, and all newly contiguous data is released to the application.`,
   };
 
+  const rows5 = [
+    { id: 'ring', label: 'receive ring' },
+    { id: 'intervals', label: 'interval set' },
+    { id: 'gaps', label: 'gap list' },
+    { id: 'sack', label: 'SACK blocks' },
+  ];
+  const cols5 = [
+    { id: 'stores', label: 'stores' },
+    { id: 'job', label: 'job' },
+  ];
+  const hl5 = { active: ['intervals:job', 'gaps:job'], found: ['sack:stores'] };
   yield {
     state: labelMatrix(
       'Data structures hiding inside TCP',
-      [
-        { id: 'ring', label: 'receive ring' },
-        { id: 'intervals', label: 'interval set' },
-        { id: 'gaps', label: 'gap list' },
-        { id: 'sack', label: 'SACK blocks' },
-      ],
-      [
-        { id: 'stores', label: 'stores' },
-        { id: 'job', label: 'job' },
-      ],
+      rows5,
+      cols5,
       [
         ['bytes', 'bounded buffering'],
         ['received ranges', 'merge neighbors'],
@@ -143,32 +159,38 @@ function* receiverReassembly() {
         ['edges of ranges', 'tell sender'],
       ],
     ),
-    highlight: { active: ['intervals:job', 'gaps:job'], found: ['sack:stores'] },
-    explanation: 'The concept is simple only after the right structures are named. The receiver has a byte buffer plus interval state; the sender has a scoreboard of what is cumulatively ACKed, selectively ACKed, missing, or already retransmitted.',
+    highlight: hl5,
+    explanation: `${rows5.length} data structures across ${cols5.length} properties reveal what hides inside TCP. ${hl5.active.length} job cells (${hl5.active.join(', ')}) are active, showing that the ${rows5[1].label} and ${rows5[2].label} do the core interval work. The receiver has a byte buffer plus interval state; the sender has a scoreboard of what is cumulatively ACKed, selectively ACKed, missing, or already retransmitted.`,
   };
 }
 
 function* senderScoreboard() {
+  const hl1 = { active: ['ack', 'sack', 'e-rx-ack', 'e-rx-sack'], found: ['rxt'], removed: ['seg1'] };
+  const feedbackNodes = hl1.active.filter(id => !id.startsWith('e-')).length;
+  const feedbackEdges = hl1.active.filter(id => id.startsWith('e-')).length;
   yield {
     state: packetGraph('The sender receives duplicate ACK plus SACK blocks'),
-    highlight: { active: ['ack', 'sack', 'e-rx-ack', 'e-rx-sack'], found: ['rxt'], removed: ['seg1'] },
-    explanation: 'A duplicate cumulative ACK says the stream is still missing byte 1000. The SACK block says later bytes arrived. Together they tell the sender that the likely repair target is 1000-1999, not the whole flight.',
+    highlight: hl1,
+    explanation: `A duplicate cumulative ACK says the stream is still missing byte 1000. ${feedbackNodes} feedback nodes and ${feedbackEdges} edges carry the signal. The SACK block says later bytes arrived. Together they tell the sender that the ${hl1.found.length} repair target (${hl1.found.join(', ')}) covers bytes 1000-1999, not the whole flight. ${hl1.removed.length} segment (${hl1.removed.join(', ')}) is confirmed lost.`,
   };
 
+  const rows2 = [
+    { id: 'r0', label: '0-999' },
+    { id: 'r1', label: '1000-1999' },
+    { id: 'r2', label: '2000-2999' },
+    { id: 'r3', label: '3000-3999' },
+    { id: 'r4', label: '4000-4999' },
+  ];
+  const cols2 = [
+    { id: 'mark', label: 'mark' },
+    { id: 'action', label: 'sender action' },
+  ];
+  const hl2 = { active: ['r1:mark', 'r1:action'], found: ['r2:action', 'r3:action'], compare: ['r4:mark'] };
   yield {
     state: labelMatrix(
       'Sender scoreboard after SACK feedback',
-      [
-        { id: 'r0', label: '0-999' },
-        { id: 'r1', label: '1000-1999' },
-        { id: 'r2', label: '2000-2999' },
-        { id: 'r3', label: '3000-3999' },
-        { id: 'r4', label: '4000-4999' },
-      ],
-      [
-        { id: 'mark', label: 'mark' },
-        { id: 'action', label: 'sender action' },
-      ],
+      rows2,
+      cols2,
       [
         ['cum ACKed', 'forget'],
         ['missing', 'retransmit'],
@@ -177,23 +199,26 @@ function* senderScoreboard() {
         ['in flight', 'count pipe'],
       ],
     ),
-    highlight: { active: ['r1:mark', 'r1:action'], found: ['r2:action', 'r3:action'], compare: ['r4:mark'] },
-    explanation: 'The scoreboard classifies ranges. That classification is what prevents waste: SACKed bytes are known to be at the receiver, while the missing range becomes the retransmission candidate.',
+    highlight: hl2,
+    explanation: `The scoreboard classifies ${rows2.length} byte ranges across ${cols2.length} columns. ${hl2.active.length} cells for ${rows2[1].label} are active as the retransmission candidate. ${hl2.found.length} found cells (${hl2.found.join(', ')}) confirm SACKed ranges that prevent waste, while ${hl2.compare.length} cell (${hl2.compare.join(', ')}) tracks the in-flight segment.`,
   };
 
+  const rows3 = [
+    { id: 'highAck', label: 'HighACK' },
+    { id: 'highData', label: 'HighData' },
+    { id: 'highRxt', label: 'HighRxt' },
+    { id: 'pipe', label: 'Pipe' },
+  ];
+  const cols3 = [
+    { id: 'meaning', label: 'meaning' },
+    { id: 'why', label: 'why it matters' },
+  ];
+  const hl3 = { active: ['highAck:meaning', 'pipe:why'], found: ['highRxt:why'] };
   yield {
     state: labelMatrix(
       'RFC 6675 style recovery variables',
-      [
-        { id: 'highAck', label: 'HighACK' },
-        { id: 'highData', label: 'HighData' },
-        { id: 'highRxt', label: 'HighRxt' },
-        { id: 'pipe', label: 'Pipe' },
-      ],
-      [
-        { id: 'meaning', label: 'meaning' },
-        { id: 'why', label: 'why it matters' },
-      ],
+      rows3,
+      cols3,
       [
         ['highest cum ACK', 'left edge of repair'],
         ['highest sent seq', 'right edge of flight'],
@@ -201,29 +226,35 @@ function* senderScoreboard() {
         ['estimated in flight', 'respect cwnd'],
       ],
     ),
-    highlight: { active: ['highAck:meaning', 'pipe:why'], found: ['highRxt:why'] },
-    explanation: 'Loss recovery is still congestion control. The sender repairs holes while estimating how much data remains in flight, so SACK does not become permission to blast unlimited retransmissions.',
+    highlight: hl3,
+    explanation: `RFC 6675 defines ${rows3.length} recovery variables across ${cols3.length} columns. ${hl3.active.length} active cells track ${rows3[0].label} and ${rows3[3].label}, while ${hl3.found.length} found cell (${hl3.found.join(', ')}) highlights ${rows3[2].label}. Loss recovery is still congestion control: the sender repairs holes while estimating how much data remains in flight, so SACK does not become permission to blast unlimited retransmissions.`,
   };
 
+  const hl4 = { active: ['sender', 'hole', 'e-sender-hole'], found: ['stream', 'app'], compare: ['rx'] };
+  const activeNodes4 = hl4.active.filter(id => !id.startsWith('e-')).length;
+  const activeEdges4 = hl4.active.filter(id => id.startsWith('e-')).length;
   yield {
     state: filledGraph('Scoreboard repair retransmits the hole'),
-    highlight: { active: ['sender', 'hole', 'e-sender-hole'], found: ['stream', 'app'], compare: ['rx'] },
-    explanation: 'Once the sender chooses 1000-1999 for retransmission, the receiver can coalesce the buffered intervals. A small amount of interval bookkeeping saves a full round trip of blind recovery on multiple losses.',
+    highlight: hl4,
+    explanation: `Once the sender chooses 1000-1999 for retransmission, ${activeNodes4} nodes and ${activeEdges4} edge drive the repair. The ${hl4.found.length} outcome nodes (${hl4.found.join(', ')}) show the receiver coalescing buffered intervals. ${hl4.compare.length} node (${hl4.compare.join(', ')}) mediates the merge. A small amount of interval bookkeeping saves a full round trip of blind recovery on multiple losses.`,
   };
 
+  const rows5 = [
+    { id: 'single', label: 'one loss' },
+    { id: 'multi', label: 'multiple losses' },
+    { id: 'reorder', label: 'reordering' },
+    { id: 'tail', label: 'tail loss' },
+  ];
+  const cols5 = [
+    { id: 'cum_only', label: 'cum ACK only' },
+    { id: 'with_sack', label: 'with SACK' },
+  ];
+  const hl5 = { active: ['multi:cum_only', 'multi:with_sack'], found: ['reorder:with_sack'] };
   yield {
     state: labelMatrix(
       'Why cumulative ACK alone is weaker',
-      [
-        { id: 'single', label: 'one loss' },
-        { id: 'multi', label: 'multiple losses' },
-        { id: 'reorder', label: 'reordering' },
-        { id: 'tail', label: 'tail loss' },
-      ],
-      [
-        { id: 'cum_only', label: 'cum ACK only' },
-        { id: 'with_sack', label: 'with SACK' },
-      ],
+      rows5,
+      cols5,
       [
         ['duplicate ACK hints', 'hole is explicit'],
         ['one per RTT risk', 'several holes visible'],
@@ -231,8 +262,8 @@ function* senderScoreboard() {
         ['may need timeout', 'still hard, but more info'],
       ],
     ),
-    highlight: { active: ['multi:cum_only', 'multi:with_sack'], found: ['reorder:with_sack'] },
-    explanation: 'SACK is not magic and does not remove timeouts, congestion windows, or retransmission policy. It improves the sender information model: the receiver can name non-contiguous bytes it already has.',
+    highlight: hl5,
+    explanation: `${rows5.length} loss scenarios are compared across ${cols5.length} approaches. ${hl5.active.length} cells highlight the ${rows5[1].label} row, where SACK shines brightest. ${hl5.found.length} found cell (${hl5.found.join(', ')}) shows that ${rows5[2].label} is also better handled. SACK is not magic and does not remove timeouts, congestion windows, or retransmission policy -- it improves the sender information model so the receiver can name non-contiguous bytes it already has.`,
   };
 }
 
@@ -264,7 +295,8 @@ export const article = {
           type: 'note',
           text: 'The animation uses 1000-byte segments for readability. Real TCP segments are typically 1460 bytes (Ethernet MSS) and sequence numbers are 32-bit byte offsets, not packet counts.',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/tcp-reassembly-sack-scoreboard.gif', alt: 'Animated walkthrough of the tcp reassembly sack scoreboard visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

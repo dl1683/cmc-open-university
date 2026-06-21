@@ -52,6 +52,14 @@ function costPlot(markers = []) {
 }
 
 function* termBreakdown() {
+  const d = 4096;
+  const denseCoeff = 24;
+  const attnCoeff = 4;
+  const crossover = 6 * d;
+  const qkvTerms = 3;         // Q, K, V each 2 n d^2
+  const mlpWidth = 4;         // MLP is 4d wide
+  const optimizations = ['FlashAttention', 'GQA', 'windowing', 'MoE', 'quantization'];
+
   yield {
     state: labelMatrix(
       'Decoder layer forward-pass terms',
@@ -76,8 +84,8 @@ function* termBreakdown() {
       ],
     ),
     highlight: { active: ['qkv:term', 'out:term', 'mlp:term'], compare: ['scores:term', 'mix:term'] },
-    explanation: 'The useful split is dense work versus pairwise work. Projections and the MLP scale with n d^2. Attention scores and value mixing scale with n^2 d.',
-    invariant: 'A rough decoder-layer estimate is 24 n d^2 + 4 n^2 d.',
+    explanation: `The useful split is dense work versus pairwise work. ${qkvTerms} projections and the ${mlpWidth}d MLP scale with n d^2 (coefficient ${denseCoeff}). Attention scores and value mixing scale with n^2 d (coefficient ${attnCoeff}).`,
+    invariant: `A rough decoder-layer estimate is ${denseCoeff} n d^2 + ${attnCoeff} n^2 d.`,
   };
 
   yield {
@@ -103,7 +111,7 @@ function* termBreakdown() {
       ],
     ),
     highlight: { active: ['flash:main', 'window:effect'], found: ['gqa:effect', 'moe:effect', 'quant:effect'] },
-    explanation: 'Different tricks attack different terms. A clean cost model prevents category errors: FlashAttention improves attention IO, while grouped-query attention mainly reduces KV cache traffic during decode.',
+    explanation: `${optimizations.length} different tricks attack different terms. A clean cost model prevents category errors: ${optimizations[0]} improves attention IO, while grouped-query attention mainly reduces KV cache traffic during decode.`,
   };
 
   yield {
@@ -127,18 +135,23 @@ function* termBreakdown() {
       ],
     ),
     highlight: { active: ['prefill:dominant', 'decode:dominant'], compare: ['train:dominant', 'long:dominant'] },
-    explanation: 'The same transformer block changes character by phase. A formula for prompt FLOPs is not enough to explain decode latency, because cached decode is often limited by bytes moved.',
+    explanation: `The same transformer block changes character by phase. A formula based on ${denseCoeff} n d^2 + ${attnCoeff} n^2 d is not enough to explain decode latency, because cached decode is often limited by bytes moved.`,
   };
 }
 
 function* contextCrossover() {
+  const d = 4096;
+  const crossover = 6 * d;
+  const denseCoeff = 24;
+  const attnCoeff = 4;
+
   yield {
     state: costPlot([
       { id: 'short', x: 4096, y: 1.7, label: '4k prompt' },
       { id: 'cross', x: 24576, y: 9.9, label: 'n = 6d' },
     ]),
     highlight: { active: ['dense'], compare: ['attention'], found: ['short', 'cross'] },
-    explanation: 'With d fixed at 4096, dense terms dominate typical short contexts. The attention curve catches up near n = 6d because n^2 d eventually beats n d^2.',
+    explanation: `With d fixed at ${d}, dense terms dominate typical short contexts. The attention curve catches up near n = ${crossover.toLocaleString()} (6d) because n^2 d eventually beats n d^2.`,
   };
 
   yield {
@@ -148,7 +161,7 @@ function* contextCrossover() {
       { id: 'book', x: 65536, y: 70.4, label: 'book context' },
     ]),
     highlight: { active: ['attention'], compare: ['dense'], found: ['agent', 'book'] },
-    explanation: 'Long context makes attention visible in the bill. Past a threshold, adding tokens is not just more input; it creates many more token pairs.',
+    explanation: `Long context makes the ${attnCoeff} n^2 d attention term visible in the bill. Past the crossover at n = ${crossover.toLocaleString()}, adding tokens is not just more input; it creates many more token pairs.`,
   };
 
   yield {
@@ -172,7 +185,7 @@ function* contextCrossover() {
       ],
     ),
     highlight: { found: ['short:first lever', 'rag:first lever', 'agent:first lever', 'corpus:first lever'] },
-    explanation: 'The formula becomes an architecture map. Short prompts want throughput. Repeated prompts want reuse. Very long prompts need a context policy, not only a faster kernel.',
+    explanation: `The ${denseCoeff} n d^2 + ${attnCoeff} n^2 d formula becomes an architecture map. Short prompts want throughput. Repeated prompts want reuse. Very long prompts (past ${crossover.toLocaleString()} tokens) need a context policy, not only a faster kernel.`,
   };
 }
 
@@ -193,7 +206,8 @@ export const article = {
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
         {type: "callout", text: "A FLOPs model is useful only when it names the tensor shape. Dense terms grow with tokens times width squared; attention terms grow with token pairs times width."},
-      ],
+      
+        {type: 'image', src: './assets/gifs/transformer-layer-flops-cost-model.gif', alt: 'Animated walkthrough of the transformer layer flops cost model visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why this exists`,

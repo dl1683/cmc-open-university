@@ -197,7 +197,8 @@ export const article = {
           text: 'Z (instrument)  --->  S (treatment)  --->  W (outcome)\n                          ^                       ^\n                          |                       |\n                          +---  A (confounder) ---+\n                               (UNOBSERVED)\n\nZ = near college,  S = years of schooling,  W = wage\nA = ability (never in the dataset)\n\nValid instrument: Z -> S -> W exists,  Z -> W directly does NOT exist,\nZ is independent of A.',
           label: 'The IV causal DAG',
         },
-      ],
+      
+        {type: 'image', src: './assets/gifs/instrumental-variables.gif', alt: 'Animated walkthrough of the instrumental variables visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

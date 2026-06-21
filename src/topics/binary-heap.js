@@ -110,7 +110,8 @@ export const article = {
         "During insertion, the new value appears at the next open leaf (the end of the array). If it is larger than its parent, the highlighted pair swaps and the value bubbles upward along one path. During extract-max, the root is removed and the last leaf takes its place. It then sifts downward, always swapping with the larger child, until the heap rule holds again.",
         {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Binary_Heap_with_Array_Implementation.JPG/500px-Binary_Heap_with_Array_Implementation.JPG", alt: "Binary heap shown as a tree beside its array representation.", caption: "The tree view and array view are the same heap layout. (Source: Wikimedia Commons)"},
         "Found markers on the root mean the maximum is at index 0, readable in O(1). At any frame, check: is every parent greater than or equal to both children? If yes, the heap invariant holds.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/binary-heap.gif', alt: 'Animated walkthrough of the binary heap visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

@@ -46,19 +46,24 @@ function varintGraph(title, notes = {}) {
 }
 
 function* base128Varint() {
+  const bitsPerByte = 7;
   yield {
     state: varintGraph('A varint spends one byte for small values and more only when needed'),
     highlight: { active: ['value', 'groups', 'bytes'], found: ['decode'] },
-    explanation: 'A base-128 varint stores seven payload bits per byte. The high bit says whether another byte follows. Small numbers use one byte; larger numbers spill into more groups.',
-    invariant: 'Each byte contributes seven value bits; bit 7 is the continuation flag.',
+    explanation: `A base-128 varint stores ${bitsPerByte} payload bits per byte. The high bit says whether another byte follows. Small numbers use one byte; larger numbers spill into more groups.`,
+    invariant: `Each byte contributes ${bitsPerByte} value bits; bit ${bitsPerByte} is the continuation flag.`,
   };
 
+  const exampleValue = 300;
+  const lowGroup = exampleValue % 128;
+  const highGroup = exampleValue >> 7;
+  const firstByte = lowGroup | 0x80;
   yield {
     state: labelMatrix(
-      'Encoding 300',
+      `Encoding ${exampleValue}`,
       [
-        { id: 'step1', label: '300 mod 128' },
-        { id: 'step2', label: '300 >> 7' },
+        { id: 'step1', label: `${exampleValue} mod 128` },
+        { id: 'step2', label: `${exampleValue} >> 7` },
         { id: 'byte0', label: 'byte 0' },
         { id: 'byte1', label: 'byte 1' },
       ],
@@ -67,48 +72,57 @@ function* base128Varint() {
         { id: 'byte', label: 'byte' },
       ],
       [
-        ['44', '0x2c payload'],
-        ['2', '0x02 payload'],
-        ['more follows', '0xac'],
-        ['last byte', '0x02'],
+        [`${lowGroup}`, '0x2c payload'],
+        [`${highGroup}`, '0x02 payload'],
+        ['more follows', `0x${firstByte.toString(16)}`],
+        ['last byte', `0x0${highGroup}`],
       ],
     ),
     highlight: { active: ['byte0:byte', 'byte1:byte'], found: ['step1:value', 'step2:value'] },
-    explanation: '300 becomes payload groups 44 and 2. The first byte gets the continuation bit set: 0x2c | 0x80 = 0xac. The last byte is 0x02.',
+    explanation: `${exampleValue} becomes payload groups ${lowGroup} and ${highGroup}. The first byte gets the continuation bit set: 0x${lowGroup.toString(16)} | 0x80 = 0x${firstByte.toString(16)}. The last byte is 0x0${highGroup}.`,
   };
 
+  const ranges = [
+    { id: 'b1', max: 127, bytes: 1 },
+    { id: 'b2', max: 16383, bytes: 2 },
+    { id: 'b3', max: 2097151, bytes: 3 },
+    { id: 'b10', max: 'uint64 max', bytes: 10 },
+  ];
   yield {
     state: labelMatrix(
       'Byte count by value range',
       [
-        { id: 'b1', label: '0..127' },
-        { id: 'b2', label: '128..16383' },
-        { id: 'b3', label: '16384..2097151' },
-        { id: 'b10', label: 'uint64 max' },
+        { id: 'b1', label: `0..${ranges[0].max}` },
+        { id: 'b2', label: `128..${ranges[1].max}` },
+        { id: 'b3', label: `16384..${ranges[2].max}` },
+        { id: 'b10', label: `${ranges[3].max}` },
       ],
       [
         { id: 'bytes', label: 'bytes' },
         { id: 'example', label: 'example fit' },
       ],
       [
-        ['1', 'field ids, booleans'],
-        ['2', 'small lengths'],
-        ['3', 'row counts'],
-        ['10', 'worst case'],
+        [`${ranges[0].bytes}`, 'field ids, booleans'],
+        [`${ranges[1].bytes}`, 'small lengths'],
+        [`${ranges[2].bytes}`, 'row counts'],
+        [`${ranges[3].bytes}`, 'worst case'],
       ],
     ),
     highlight: { active: ['b1:bytes', 'b2:bytes'], compare: ['b10:bytes'] },
-    explanation: 'Varints are a distribution bet. If most values are small, the average byte count drops. If values are uniform 64-bit hashes, the format gives little benefit and may cost decode work.',
+    explanation: `Varints are a distribution bet. Values up to ${ranges[0].max} cost just ${ranges[0].bytes} byte; worst-case uint64 costs ${ranges[3].bytes}. If most values are small, the average byte count drops. If values are uniform 64-bit hashes, the format gives little benefit.`,
   };
 
+  const shiftSteps = [0, 7, 14];
   yield {
     state: varintGraph('Decoding is a loop of payload bits and shifting', { value: 'bytes', groups: 'low 7', cont: 'if high bit', bytes: 'accumulate', decode: 'integer' }),
     highlight: { active: ['bytes', 'decode', 'e-bytes-decode'], compare: ['cont'] },
-    explanation: 'The decoder masks off the high bit, shifts the payload by 0, 7, 14, and so on, then stops when it sees a byte without the continuation bit.',
+    explanation: `The decoder masks off the high bit, shifts the payload by ${shiftSteps.join(', ')}, and so on, then stops when it sees a byte without the continuation bit.`,
   };
 }
 
 function* zigzagSignedIntegers() {
+  const zigzagNeg1 = 1;
+  const zigzagNeg2 = 3;
   yield {
     state: labelMatrix(
       'Why signed varints need ZigZag',
@@ -125,49 +139,51 @@ function* zigzagSignedIntegers() {
       [
         ['huge uint', 'many bytes'],
         ['huge uint', 'many bytes'],
-        ['1', 'one byte'],
-        ['3', 'one byte'],
+        [`${zigzagNeg1}`, 'one byte'],
+        [`${zigzagNeg2}`, 'one byte'],
       ],
     ),
     highlight: { active: ['zig1:unsigned value', 'zig2:unsigned value'], compare: ['plain1:varint cost'] },
-    explanation: 'A raw two-complement negative integer looks huge when treated as unsigned, so it varint-encodes badly. ZigZag maps small signed magnitudes to small unsigned values.',
+    explanation: `A raw two-complement negative integer looks huge when treated as unsigned, so it varint-encodes badly. ZigZag maps -1 to ${zigzagNeg1} and -2 to ${zigzagNeg2}, keeping small signed magnitudes as small unsigned values.`,
     invariant: 'ZigZag interleaves signs: 0, -1, 1, -2, 2, ... become 0, 1, 2, 3, 4, ...',
   };
 
+  const zigzagPairs = [[-2, 3], [-1, 1], [0, 0], [1, 2], [2, 4]];
   yield {
     state: labelMatrix(
       'ZigZag mapping',
       [
-        { id: 'n2', label: '-2' },
-        { id: 'n1', label: '-1' },
-        { id: 'z0', label: '0' },
-        { id: 'p1', label: '1' },
-        { id: 'p2', label: '2' },
+        { id: 'n2', label: `${zigzagPairs[0][0]}` },
+        { id: 'n1', label: `${zigzagPairs[1][0]}` },
+        { id: 'z0', label: `${zigzagPairs[2][0]}` },
+        { id: 'p1', label: `${zigzagPairs[3][0]}` },
+        { id: 'p2', label: `${zigzagPairs[4][0]}` },
       ],
       [
         { id: 'encoded', label: 'encoded unsigned' },
         { id: 'varint bytes', label: 'varint bytes' },
       ],
       [
-        ['3', '03'],
-        ['1', '01'],
-        ['0', '00'],
-        ['2', '02'],
-        ['4', '04'],
+        [`${zigzagPairs[0][1]}`, '03'],
+        [`${zigzagPairs[1][1]}`, '01'],
+        [`${zigzagPairs[2][1]}`, '00'],
+        [`${zigzagPairs[3][1]}`, '02'],
+        [`${zigzagPairs[4][1]}`, '04'],
       ],
     ),
     highlight: { active: ['n1:encoded', 'p1:encoded'], found: ['z0:varint bytes'] },
-    explanation: 'The mapping keeps small negative and positive numbers near zero. Protocol Buffers sint32/sint64 and Avro int/long use this idea because many counters, deltas, and measurements cluster near zero.',
+    explanation: `The mapping keeps small negative and positive numbers near zero — ${zigzagPairs.length} pairs are shown. Protocol Buffers sint32/sint64 and Avro int/long use this idea because many counters, deltas, and measurements cluster near zero.`,
   };
 
+  const usedIn = ['Protobuf', 'Avro', 'indexes', 'binary logs'];
   yield {
     state: labelMatrix(
       'Where the primitive appears',
       [
-        { id: 'protobuf', label: 'Protobuf' },
-        { id: 'avro', label: 'Avro' },
-        { id: 'indexes', label: 'indexes' },
-        { id: 'logs', label: 'binary logs' },
+        { id: 'protobuf', label: usedIn[0] },
+        { id: 'avro', label: usedIn[1] },
+        { id: 'indexes', label: usedIn[2] },
+        { id: 'logs', label: usedIn[3] },
       ],
       [
         { id: 'use', label: 'use' },
@@ -181,13 +197,15 @@ function* zigzagSignedIntegers() {
       ],
     ),
     highlight: { active: ['protobuf:use', 'avro:use'], found: ['indexes:reason'] },
-    explanation: 'Varints are not a compression format by themselves. They are a byte-level primitive that many higher-level formats combine with schemas, length prefixes, tags, and block codecs.',
+    explanation: `Varints are not a compression format by themselves. They are a byte-level primitive used across ${usedIn.length} domains — ${usedIn[0]}, ${usedIn[1]}, ${usedIn[2]}, and ${usedIn[3]} — combined with schemas, length prefixes, tags, and block codecs.`,
   };
 
+  const signedExample = -2;
+  const zigzagEncoded = (signedExample << 1) ^ (signedExample >> 31);
   yield {
-    state: varintGraph('ZigZag feeds varint; varint writes bytes', { value: '-2', groups: 'ZigZag=3', cont: 'fits', bytes: '03', decode: '-2' }),
+    state: varintGraph('ZigZag feeds varint; varint writes bytes', { value: `${signedExample}`, groups: `ZigZag=${zigzagEncoded}`, cont: 'fits', bytes: `0${zigzagEncoded}`, decode: `${signedExample}` }),
     highlight: { active: ['value', 'groups', 'bytes', 'decode'], found: ['cont'] },
-    explanation: 'The signed path is two-stage: map signed to unsigned with ZigZag, then varint-encode the unsigned integer. Decoding reverses those steps.',
+    explanation: `The signed path is two-stage: map ${signedExample} to unsigned ${zigzagEncoded} with ZigZag, then varint-encode the unsigned integer. Decoding reverses those steps.`,
   };
 }
 
@@ -212,7 +230,8 @@ export const article = {
           label: 'Two encoding paths: unsigned values go straight to varint; signed values pass through ZigZag first',
         },
         'At each frame, ask: how many bytes does this value actually cost, and would a fixed-width encoding waste or save space here?',
-      ],
+      
+        {type: 'image', src: './assets/gifs/base128-varint-zigzag-encoding.gif', alt: 'Animated walkthrough of the base128 varint zigzag encoding visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

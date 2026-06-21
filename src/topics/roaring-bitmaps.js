@@ -30,7 +30,7 @@ function* containers() {
       format: (v) => String(v),
     }),
     highlight: {},
-    explanation: 'Roaring bitmaps store sets of non-negative integers. Start with sorted values, then split each integer into high 16 bits and low 16 bits. The high bits choose a chunk; the low bits are stored inside that chunk.',
+    explanation: `Roaring bitmaps store sets of non-negative integers. Start with ${VALUES.length} sorted values, then split each integer into high 16 bits and low 16 bits. The high bits choose a chunk; the low bits are stored inside that chunk — for example ${VALUES[0]} has high ${Math.floor(VALUES[0] / 65536)} and low ${VALUES[0] % 65536}.`,
   };
 
   yield {
@@ -59,8 +59,8 @@ function* containers() {
       ][v],
     }),
     highlight: { active: ['c0:container', 'c1:container', 'c2:container'] },
-    explanation: 'Each 16-bit chunk chooses its own representation. Sparse chunks use sorted arrays. Dense chunks use fixed 65,536-bit bitmaps. Long consecutive ranges use run containers. This local choice is why Roaring is fast and compact across messy real data.',
-    invariant: 'One high-key directory plus one container per occupied chunk.',
+    explanation: `Each 16-bit chunk chooses its own representation. The ${VALUES.length} values fall into ${new Set(VALUES.map(v => Math.floor(v / 65536))).size} chunks. Sparse chunks use sorted arrays. Dense chunks use fixed ${(65536).toLocaleString()}-bit bitmaps. Long consecutive ranges use run containers. This local choice is why Roaring is fast and compact across messy real data.`,
+    invariant: `One high-key directory plus one container per each of the ${new Set(VALUES.map(v => Math.floor(v / 65536))).size} occupied chunks.`,
   };
 
   yield {
@@ -89,7 +89,7 @@ function* containers() {
       ][v],
     }),
     highlight: { found: ['array:best', 'bitmap:operation', 'run:cost'] },
-    explanation: 'The data structure is adaptive. It does not force a single representation on all chunks. A log shard, user-id cohort, or column index can have sparse, dense, and run-like regions at the same time.',
+    explanation: `The data structure is adaptive. With ${VALUES.length} values spanning ${new Set(VALUES.map(v => Math.floor(v / 65536))).size} chunks, it does not force a single representation on all of them. A log shard, user-id cohort, or column index can have sparse, dense, and run-like regions at the same time.`,
   };
 
   yield {
@@ -118,7 +118,7 @@ function* containers() {
       ][v],
     }),
     highlight: { active: ['roar:space', 'roar:and', 'roar:range'] },
-    explanation: 'Roaring is a compromise that often beats both extremes. It avoids allocating a giant bit for every possible user id, but it still uses CPU word-level operations where density justifies it.',
+    explanation: `Roaring is a compromise that often beats both extremes. A plain bitset for our max value ${VALUES[VALUES.length - 1]} would need ${Math.ceil(VALUES[VALUES.length - 1] / 8).toLocaleString()} bytes, but Roaring stores only the ${new Set(VALUES.map(v => Math.floor(v / 65536))).size} occupied chunks while still using CPU word-level operations where density justifies it.`,
   };
 }
 
@@ -158,7 +158,7 @@ function* intersection() {
       ][v],
     }),
     highlight: { active: ['a0:action', 'b0:action', 'a1:action', 'b1:action', 'a2:action', 'b2:action'] },
-    explanation: 'Set intersection is chunk-aligned. Match high keys, then dispatch to the container pair: array-array merge, bitmap-bitmap word AND, run-run interval intersection, or mixed variants. The fast path is local and branchable.',
+    explanation: `Set intersection is chunk-aligned across ${new Set(VALUES.map(v => Math.floor(v / 65536))).size} chunks. Match high keys, then dispatch to the container pair: array-array merge, bitmap-bitmap word AND (over ${Math.ceil(65536 / 64)} 64-bit words), run-run interval intersection, or mixed variants. The fast path is local and branchable.`,
   };
 
   yield {
@@ -190,8 +190,8 @@ function* intersection() {
       ][v],
     }),
     highlight: { found: ['c0:local', 'c1:local', 'c2:local'] },
-    explanation: 'The result is another Roaring bitmap. Each output chunk again picks the cheapest representation. This closure property matters: analytics engines can chain filters without decoding everything back into plain arrays.',
-    invariant: 'AND, OR, XOR, and AND-NOT return compressed bitmaps again.',
+    explanation: `The result is another Roaring bitmap with up to ${new Set(VALUES.map(v => Math.floor(v / 65536))).size} output chunks, each again picking the cheapest representation. This closure property matters: analytics engines can chain filters without decoding everything back into plain arrays of ${VALUES.length} or more integers.`,
+    invariant: `AND, OR, XOR, and AND-NOT all return compressed bitmaps — each output chunk independently selects among ${['array', 'bitmap', 'run'].length} container types.`,
   };
 
   yield {
@@ -223,7 +223,7 @@ function* intersection() {
       ][v],
     }),
     highlight: { active: ['db:why', 'analytics:why', 'search:why'] },
-    explanation: 'Roaring bitmaps are common in analytical databases, search indexes, feature stores, and experiment platforms because many questions are set algebra: who matches filter A, filter B, and not filter C?',
+    explanation: `Roaring bitmaps are common in analytical databases, search indexes, feature stores, and experiment platforms. With ${VALUES.length} sample ids spanning chunks ${[...new Set(VALUES.map(v => Math.floor(v / 65536)))].join(', ')}, any question reduces to set algebra: who matches filter A, filter B, and not filter C?`,
   };
 }
 
@@ -244,7 +244,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
+      
+        {type: 'image', src: './assets/gifs/roaring-bitmaps.gif', alt: 'Animated walkthrough of the roaring bitmaps visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

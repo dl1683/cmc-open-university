@@ -105,7 +105,8 @@ export const article = {
         {type: 'callout', text: 'Fisher-Yates is fair because each step chooses exactly one slot from the still-unfixed prefix.'},
         'After a swap, both positions flash as swap markers. The locked suffix (green/sorted highlights) grows leftward by one element each round. Once an element enters the locked suffix, it never moves again.',
         'Watch the locked zone grow: after k rounds, the rightmost k positions hold their final values. The shrinking unshuffled prefix is where all remaining randomness lives.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/fisher-yates-shuffle.gif', alt: 'Animated walkthrough of the fisher yates shuffle visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

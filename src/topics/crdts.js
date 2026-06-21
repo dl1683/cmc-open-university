@@ -197,7 +197,8 @@ export const article = {
           text: 'CRDTs move conflict resolution into the data type so replicas can merge by law instead of by coordination.',
         },
         'The sets-and-laws view contrasts three CRDT families by what they sacrifice. The LWW-register converges by discarding a concurrent value. The OR-set converges by tagging adds and removing only observed tags. The laws table maps each algebraic property to the network failure it absorbs. Read each row as a contract: if this law holds, that class of failure is harmless.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/crdts.gif', alt: 'Animated walkthrough of the crdts visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

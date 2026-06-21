@@ -95,7 +95,8 @@ export const article = {
         'Watch for overlap. When two keys share a bit position, the second insertion finds that bit already at 1. The filter cannot tell which key set it. When a query finds all three bits set by other keys\' combined footprints, you are watching a false positive happen.',
         'The safe inference: if any of the three queried bits is 0, the key was never inserted. Insertion would have set all three. One zero is proof of absence.',
         {type: 'callout', text: 'A Bloom filter saves memory by storing only hash footprints, making every zero bit a proof of absence and every all-one query only a maybe.'},
-      ],
+      
+        {type: 'image', src: './assets/gifs/bloom-filter.gif', alt: 'Animated walkthrough of the bloom filter visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

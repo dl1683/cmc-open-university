@@ -54,24 +54,28 @@ function deoptGraph(title) {
 }
 
 function* deoptMetadata() {
+  const graphNodes = ['opt', 'guard', 'safe', 'map', 'materialize', 'baseline', 'gc', 'resume'];
+  const activeGuardPath = ['opt', 'guard', 'safe', 'map', 'e-opt-guard', 'e-guard-safe', 'e-guard-map'];
   yield {
     state: deoptGraph('Optimized code needs enough metadata to go backwards'),
-    highlight: { active: ['opt', 'guard', 'safe', 'map', 'e-opt-guard', 'e-guard-safe', 'e-guard-map'], compare: ['resume'] },
-    explanation: 'Optimized code can assume a stable shape or type only if a failing guard can reconstruct a correct lower-tier state.',
+    highlight: { active: activeGuardPath, compare: ['resume'] },
+    explanation: `Optimized code across ${graphNodes.length} stages can assume a stable shape or type only if a failing guard at node "${graphNodes[1]}" can reconstruct a correct lower-tier state at "${graphNodes[graphNodes.length - 1]}".`,
   };
+  const mapRows = [
+    { id: 'pc', label: 'machine PC' },
+    { id: 'x', label: 'value x' },
+    { id: 'obj', label: 'object ref' },
+    { id: 'env', label: 'environment' },
+  ];
+  const mapCols = [
+    { id: 'location', label: 'location' },
+    { id: 'needed', label: 'needed for' },
+  ];
   yield {
     state: labelMatrix(
       'Stack map record',
-      [
-        { id: 'pc', label: 'machine PC' },
-        { id: 'x', label: 'value x' },
-        { id: 'obj', label: 'object ref' },
-        { id: 'env', label: 'environment' },
-      ],
-      [
-        { id: 'location', label: 'location' },
-        { id: 'needed', label: 'needed for' },
-      ],
+      mapRows,
+      mapCols,
       [
         ['safepoint id', 'resume site'],
         ['register R1', 'interpreter slot'],
@@ -80,35 +84,39 @@ function* deoptMetadata() {
       ],
     ),
     highlight: { active: ['x:location', 'obj:location', 'env:location'], found: ['pc:needed'] },
-    explanation: 'A stack map records where the runtime-required live values are at a machine-code address. It does not need every compiler value, only the values needed to resume or scan.',
-    invariant: 'If the map is wrong, deoptimization is wrong even when the optimized computation was correct.',
+    explanation: `A stack map with ${mapRows.length} entries across ${mapCols.length} columns records where the runtime-required live values are at a machine-code address. It does not need every compiler value, only the values needed to resume or scan.`,
+    invariant: `If any of the ${mapRows.length} map entries (${mapRows.map(r => r.label).join(', ')}) are wrong, deoptimization is wrong even when the optimized computation was correct.`,
   };
+  const materializePath = ['map', 'materialize', 'baseline', 'e-map-materialize', 'e-materialize-baseline'];
   yield {
     state: deoptGraph('Materialization rebuilds a lower-tier frame'),
-    highlight: { active: ['map', 'materialize', 'baseline', 'e-map-materialize', 'e-materialize-baseline'], compare: ['opt'] },
-    explanation: 'The runtime reads live values from registers, stack slots, and constants, then materializes the interpreter or baseline frame expected at the resume point.',
+    highlight: { active: materializePath, compare: ['opt'] },
+    explanation: `The runtime reads live values from registers, stack slots, and constants, then materializes the interpreter or baseline frame expected at the resume point — following ${materializePath.length} edges from "${materializePath[0]}" to "${materializePath[2]}".`,
   };
 }
 
 function* safepointResume() {
+  const gcPath = ['safe', 'map', 'gc', 'e-map-materialize', 'e-materialize-gc'];
   yield {
     state: deoptGraph('Safepoints also serve precise garbage collection'),
-    highlight: { active: ['safe', 'map', 'gc', 'e-map-materialize', 'e-materialize-gc'], compare: ['baseline'] },
-    explanation: 'A safepoint is a place where the runtime can understand machine state. GC needs to know which words are object references; deoptimization needs to know how to rebuild values.',
+    highlight: { active: gcPath, compare: ['baseline'] },
+    explanation: `A safepoint is a place where the runtime can understand machine state. GC traverses ${gcPath.length} nodes from "${gcPath[0]}" to "${gcPath[2]}" to know which words are object references; deoptimization needs to know how to rebuild values.`,
   };
+  const failureRows = [
+    { id: 'map', label: 'stale map' },
+    { id: 'value', label: 'missing value' },
+    { id: 'pc', label: 'wrong PC' },
+    { id: 'root', label: 'lost root' },
+  ];
+  const failureCols = [
+    { id: 'symptom', label: 'symptom' },
+    { id: 'guardrail', label: 'guardrail' },
+  ];
   yield {
     state: labelMatrix(
       'Failure cases',
-      [
-        { id: 'map', label: 'stale map' },
-        { id: 'value', label: 'missing value' },
-        { id: 'pc', label: 'wrong PC' },
-        { id: 'root', label: 'lost root' },
-      ],
-      [
-        { id: 'symptom', label: 'symptom' },
-        { id: 'guardrail', label: 'guardrail' },
-      ],
+      failureRows,
+      failureCols,
       [
         ['wrong resume', 'version check'],
         ['bad frame', 'liveness audit'],
@@ -117,12 +125,13 @@ function* safepointResume() {
       ],
     ),
     highlight: { active: ['value:guardrail', 'pc:guardrail', 'root:guardrail'], compare: ['map:symptom'] },
-    explanation: 'Deoptimization metadata is correctness-critical. Engines need verifiers, debug tracing, and carefully versioned assumptions.',
+    explanation: `Deoptimization metadata is correctness-critical across all ${failureRows.length} failure modes (${failureRows.map(r => r.label).join(', ')}). Engines need ${failureCols.length} dimensions of defense: ${failureCols.map(c => c.label).join(' and ')}.`,
   };
+  const tieringNodes = ['guard', 'safe', 'map', 'materialize', 'resume'];
   yield {
     state: deoptGraph('Tiering works because escape metadata exists'),
-    highlight: { active: ['guard', 'safe', 'map', 'materialize', 'resume'], found: ['baseline'], compare: ['opt'] },
-    explanation: 'JIT Tiering & Hotness Counters can promote aggressively only because deoptimization gives optimized code a precise exit path.',
+    highlight: { active: tieringNodes, found: ['baseline'], compare: ['opt'] },
+    explanation: `JIT Tiering & Hotness Counters can promote aggressively only because deoptimization gives optimized code a precise exit path through ${tieringNodes.length} stages from "${tieringNodes[0]}" to "${tieringNodes[tieringNodes.length - 1]}".`,
   };
 }
 
@@ -135,6 +144,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/deoptimization-stack-maps-safepoints.gif', alt: 'Animated walkthrough of the deoptimization stack maps safepoints visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

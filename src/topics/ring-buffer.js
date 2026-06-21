@@ -64,33 +64,51 @@ function buffer(title, slotLabels, head, tail, count) {
 }
 
 function* headTailWrap() {
-  yield {
-    state: buffer('Empty ring: head and tail start together', ['', '', '', '', '', '', '', ''], 0, 0, 0),
-    highlight: { active: ['role:s0'], found: ['state:s0', 'state:s1', 'state:s2', 'state:s3'] },
-    explanation: 'A ring buffer is a fixed array plus head, tail, and usually a count or full flag. Head and tail can be equal when empty, so metadata must say what that equality means.',
-  };
+  const capacity = slots.length;
 
-  yield {
-    state: buffer('Enqueue writes at tail, then advances tail', ['A', 'B', 'C', '', '', '', '', ''], 0, 3, 3),
-    highlight: { active: ['value:s0', 'value:s1', 'value:s2'], found: ['role:s3'] },
-    explanation: 'Enqueue stores at tail and moves tail = (tail + 1) mod capacity. Nothing shifts. The oldest item stays at head, and the next free slot is tail.',
-    invariant: 'All movement is index movement; the array contents stay in place.',
-  };
+  {
+    const head = 0, tail = 0, count = 0;
+    yield {
+      state: buffer('Empty ring: head and tail start together', ['', '', '', '', '', '', '', ''], head, tail, count),
+      highlight: { active: ['role:s0'], found: ['state:s0', 'state:s1', 'state:s2', 'state:s3'] },
+      explanation: `A ring buffer is a fixed array of ${capacity} slots plus head, tail, and usually a count or full flag. Head=${head} and tail=${tail} are equal when empty, so metadata must say what that equality means.`,
+    };
+  }
 
-  yield {
-    state: buffer('Dequeue reads at head, then advances head', ['A', 'B', 'C', '', '', '', '', ''], 2, 3, 1),
-    highlight: { removed: ['value:s0', 'value:s1'], active: ['role:s2'], found: ['role:s3'] },
-    explanation: 'Dequeue reads from head and moves head forward. The old bytes may still sit in memory, but they are outside the logical queue. The indices define the data, not clearing cells.',
-  };
+  {
+    const head = 0, tail = 3, count = 3;
+    yield {
+      state: buffer('Enqueue writes at tail, then advances tail', ['A', 'B', 'C', '', '', '', '', ''], head, tail, count),
+      highlight: { active: ['value:s0', 'value:s1', 'value:s2'], found: ['role:s3'] },
+      explanation: `Enqueue stores at tail=${tail} and moves tail = (${tail} + 1) mod ${capacity}. Nothing shifts. The oldest item stays at head=${head}, and the next free slot is tail. ${count} items are now live.`,
+      invariant: `All movement is index movement; the ${capacity}-slot array contents stay in place.`,
+    };
+  }
 
-  yield {
-    state: buffer('Wraparound reuses the front of the array', ['G', 'H', 'C', 'D', 'E', 'F', '', ''], 2, 2, 6),
-    highlight: { active: ['value:s3', 'value:s4', 'value:s5', 'value:s0', 'value:s1'], found: ['role:s2'] },
-    explanation: 'When tail reaches the physical end, it wraps to slot 0. Logical order can cross the array boundary; the queue is C, D, E, F, G, H even though the bytes sit in two chunks.',
-  };
+  {
+    const head = 2, tail = 3, count = 1;
+    yield {
+      state: buffer('Dequeue reads at head, then advances head', ['A', 'B', 'C', '', '', '', '', ''], head, tail, count),
+      highlight: { removed: ['value:s0', 'value:s1'], active: ['role:s2'], found: ['role:s3'] },
+      explanation: `Dequeue reads from head=${head} and moves head forward. Only ${count} item remains between head=${head} and tail=${tail}. The old bytes may still sit in memory, but they are outside the logical queue.`,
+    };
+  }
+
+  {
+    const head = 2, tail = 2, count = 6;
+    const freeSlots = capacity - count;
+    yield {
+      state: buffer('Wraparound reuses the front of the array', ['G', 'H', 'C', 'D', 'E', 'F', '', ''], head, tail, count),
+      highlight: { active: ['value:s3', 'value:s4', 'value:s5', 'value:s0', 'value:s1'], found: ['role:s2'] },
+      explanation: `When tail reaches slot ${capacity - 1}, it wraps to slot 0. ${count} of ${capacity} slots are occupied (${freeSlots} free). Logical order crosses the array boundary; the queue is C, D, E, F, G, H even though the bytes sit in two chunks.`,
+    };
+  }
 }
 
 function* streamingPolicy() {
+  const capacity = slots.length;
+  const policyCount = 4;
+
   yield {
     state: labelMatrix(
       'Full-buffer policies',
@@ -112,62 +130,72 @@ function* streamingPolicy() {
       ],
     ),
     highlight: { active: ['reject:behavior', 'overwrite:behavior'], found: ['block:use'] },
-    explanation: 'A full ring buffer forces a policy decision. You can reject, overwrite, block, or grow, but each choice means something different for data loss, latency, and memory.',
+    explanation: `When all ${capacity} slots are occupied, a full ring buffer forces a policy decision. ${policyCount} options exist: reject, overwrite, block, or grow, but each choice means something different for data loss, latency, and memory.`,
   };
 
-  yield {
-    state: labelMatrix(
-      'Copy versus claim API',
-      [
-        { id: 'copyput', label: 'put copy' },
-        { id: 'claimput', label: 'put claim' },
-        { id: 'copyget', label: 'get copy' },
-        { id: 'claimget', label: 'get claim' },
-      ],
-      [
-        { id: 'cost', label: 'cost' },
-        { id: 'caveat', label: 'caveat' },
-      ],
-      [
-        ['simple memcpy', 'may copy twice'],
-        ['producer writes in place', 'region may stop at wrap boundary'],
-        ['simple memcpy out', 'consumer copies data'],
-        ['consumer reads in place', 'must finish consumed count'],
-      ],
-    ),
-    highlight: { found: ['claimput:cost', 'claimget:cost'], compare: ['claimput:caveat'] },
-    explanation: 'Zero-copy claim APIs let a producer or consumer use the internal array directly. Near the physical end, one logical write may need two claims because no single contiguous slice crosses the wrap.',
-  };
+  {
+    const apiStyles = 2;
+    const directions = 2;
+    yield {
+      state: labelMatrix(
+        'Copy versus claim API',
+        [
+          { id: 'copyput', label: 'put copy' },
+          { id: 'claimput', label: 'put claim' },
+          { id: 'copyget', label: 'get copy' },
+          { id: 'claimget', label: 'get claim' },
+        ],
+        [
+          { id: 'cost', label: 'cost' },
+          { id: 'caveat', label: 'caveat' },
+        ],
+        [
+          ['simple memcpy', 'may copy twice'],
+          ['producer writes in place', 'region may stop at wrap boundary'],
+          ['simple memcpy out', 'consumer copies data'],
+          ['consumer reads in place', 'must finish consumed count'],
+        ],
+      ),
+      highlight: { found: ['claimput:cost', 'claimget:cost'], compare: ['claimput:caveat'] },
+      explanation: `Zero-copy claim APIs let a producer or consumer use the ${capacity}-slot internal array directly. ${apiStyles} styles (copy vs claim) times ${directions} directions (put vs get) gives ${apiStyles * directions} combinations. Near the physical end, one logical write may need two claims because no contiguous slice crosses the wrap.`,
+    };
+  }
 
-  yield {
-    state: labelMatrix(
-      'Concurrency shape',
-      [
-        { id: 'spsc', label: 'single producer/consumer' },
-        { id: 'mpmc', label: 'multi producer/consumer' },
-        { id: 'isr', label: 'interrupt producer' },
-        { id: 'dma', label: 'DMA producer' },
-      ],
-      [
-        { id: 'index', label: 'index ownership' },
-        { id: 'guard', label: 'guardrail' },
-      ],
-      [
-        ['producer writes tail, consumer writes head', 'memory barriers'],
-        ['shared index writes', 'lock or atomic protocol'],
-        ['producer can preempt consumer', 'short critical sections'],
-        ['device writes bytes', 'publish only after data visible'],
-      ],
-    ),
-    highlight: { active: ['spsc:index', 'spsc:guard'], compare: ['mpmc:guard'] },
-    explanation: 'The easy concurrency case is one producer and one consumer because they mostly update different indices. Multiple producers or consumers share index writes, so they need locks or a careful atomic protocol.',
-  };
+  {
+    const concurrencyShapes = 4;
+    yield {
+      state: labelMatrix(
+        'Concurrency shape',
+        [
+          { id: 'spsc', label: 'single producer/consumer' },
+          { id: 'mpmc', label: 'multi producer/consumer' },
+          { id: 'isr', label: 'interrupt producer' },
+          { id: 'dma', label: 'DMA producer' },
+        ],
+        [
+          { id: 'index', label: 'index ownership' },
+          { id: 'guard', label: 'guardrail' },
+        ],
+        [
+          ['producer writes tail, consumer writes head', 'memory barriers'],
+          ['shared index writes', 'lock or atomic protocol'],
+          ['producer can preempt consumer', 'short critical sections'],
+          ['device writes bytes', 'publish only after data visible'],
+        ],
+      ),
+      highlight: { active: ['spsc:index', 'spsc:guard'], compare: ['mpmc:guard'] },
+      explanation: `${concurrencyShapes} concurrency shapes are shown. The easy case is SPSC: one producer and one consumer update different indices, needing only memory barriers. Multiple producers or consumers share index writes, so they need locks or a careful atomic protocol.`,
+    };
+  }
 
-  yield {
-    state: buffer('Final frame: bounded memory, moving indices', ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], 3, 3, 8),
-    highlight: { active: ['role:s3'], found: ['value:s0', 'value:s7'] },
-    explanation: 'A ring buffer is best understood as bounded memory plus moving ownership. The bytes do not march; head and tail redefine which bytes are live.',
-  };
+  {
+    const head = 3, tail = 3, count = capacity;
+    yield {
+      state: buffer('Final frame: bounded memory, moving indices', ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'], head, tail, count),
+      highlight: { active: ['role:s3'], found: ['value:s0', 'value:s7'] },
+      explanation: `A ring buffer is best understood as ${capacity} slots of bounded memory plus moving ownership. Here head=${head} and tail=${tail} with ${count} items live: the buffer is completely full. The bytes do not march; head and tail redefine which bytes are live.`,
+    };
+  }
 }
 
 export function* run(input) {
@@ -186,7 +214,8 @@ export const article = {
         {type: 'callout', text: 'A ring buffer makes queue motion cheap by moving ownership indexes instead of moving stored bytes.'},
         'Watch for the wraparound frame. When tail reaches the physical end of the array, it jumps back to slot 0. The logical queue order is still head-to-tail, even though the physical bytes now sit in two separate chunks. That single frame is the entire trick.',
         'Active markers highlight the slot being read or written right now. Found markers show slots that hold live data. Stale slots still contain old values in memory, but they are outside the live range and logically dead. The state row makes this distinction explicit.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/ring-buffer.gif', alt: 'Animated walkthrough of the ring buffer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

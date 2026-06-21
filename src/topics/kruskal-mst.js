@@ -126,7 +126,8 @@ export const article = {
         },
         'Watch the component count. It starts at V (every node alone) and drops by one each time an edge is accepted. After V minus 1 acceptances, one connected tree remains. Rejections matter too: each one proves that a cheaper route already exists between those endpoints through previously accepted edges.',
         'In clustering mode, the algorithm stops early at three components. The remaining groups are single-linkage clusters: cheap edges glued nearby nodes together, and the expensive edges that would have merged the clusters were never accepted.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/kruskal-mst.gif', alt: 'Animated walkthrough of the kruskal mst visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

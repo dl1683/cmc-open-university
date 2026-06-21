@@ -91,7 +91,8 @@ export const article = {
         {type: 'callout', text: 'Prim is safe because every accepted edge is the cheapest bridge across the current tree boundary.'},
         'Green nodes and edges are already in the growing tree. Highlighted edges are the current frontier: every edge with one endpoint inside the tree and one outside. The active edge is the cheapest frontier edge being accepted. When a new node joins, its edges to outside nodes enter the frontier, and any edge now fully internal silently drops out.',
         'Watch the frontier shrink and shift as the tree expands. Each acceptance is justified by the cut property: the cheapest edge crossing the inside/outside boundary belongs to some MST. The final tree has V minus 1 edges and the same minimum total cost regardless of which start node you pick.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/prims-mst.gif', alt: 'Animated walkthrough of the prims mst visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

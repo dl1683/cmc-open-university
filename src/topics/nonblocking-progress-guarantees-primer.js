@@ -54,6 +54,10 @@ function progressGraph(title, t2Note = 'running') {
 }
 
 function* progressLadder() {
+  const levels = 4;
+  const dimensions = 2;
+  const activePromises = ['lockfree:promise', 'waitfree:promise'];
+  const risksHighlighted = ['blocking:risk', 'obfree:risk'];
   yield {
     state: labelMatrix(
       'Progress ladder',
@@ -74,29 +78,39 @@ function* progressLadder() {
         ['all', 'cost'],
       ],
     ),
-    highlight: { active: ['lockfree:promise', 'waitfree:promise'], compare: ['blocking:risk', 'obfree:risk'] },
-    explanation: 'Progress terms describe what happens under pauses and contention. They are liveness guarantees, not performance guarantees. Wait-free is stronger than lock-free; lock-free is stronger than obstruction-free.',
-    invariant: 'Safety says the answer is correct. Progress says some answer eventually happens.',
+    highlight: { active: activePromises, compare: risksHighlighted },
+    explanation: `Progress terms describe what happens under pauses and contention across ${levels} guarantee levels and ${dimensions} dimensions (promise vs risk). They are liveness guarantees, not performance guarantees. ${activePromises.length} levels (LF and WF) are highlighted because their promises are strongest.`,
+    invariant: `Safety says the answer is correct. Progress says some answer eventually happens — ${levels} rungs from blocking to wait-free.`,
   };
 
+  const activeBlocking = ['t1', 'lock', 'e-t1-lock'];
+  const removedBlocking = ['t2', 'done'];
   yield {
     state: progressGraph('A paused lock owner can block every waiter'),
-    highlight: { active: ['t1', 'lock', 'e-t1-lock'], removed: ['t2', 'done'] },
-    explanation: 'Blocking code can be perfectly safe and still fail progress when a thread pauses while holding the lock. Other threads may be unable to complete even though CPUs are available.',
+    highlight: { active: activeBlocking, removed: removedBlocking },
+    explanation: `Blocking code can be perfectly safe and still fail progress when a thread pauses while holding the lock. Here ${activeBlocking.length} elements (T1, lock, edge) are active while ${removedBlocking.length} elements (T2, done) are removed — T2 cannot complete.`,
   };
 
+  const activeLF = ['t2', 'cas', 'object', 'done', 'e-t2-cas', 'e-cas-object', 'e-object-done'];
+  const stalledThreads = ['t1'];
   yield {
     state: progressGraph('Lock-free code lets some thread finish'),
-    highlight: { active: ['t2', 'cas', 'object', 'done', 'e-t2-cas', 'e-cas-object', 'e-object-done'], compare: ['t1'] },
-    explanation: 'Lock-free means system-wide progress. If one thread stalls, another can still complete operations. A specific unlucky thread may starve under contention.',
+    highlight: { active: activeLF, compare: stalledThreads },
+    explanation: `Lock-free means system-wide progress. ${activeLF.length} elements form T2's active path through CAS to done, while ${stalledThreads.length} thread (T1) is stalled. A specific unlucky thread may starve under contention.`,
   };
 
+  const t2Note = 'bounded';
+  const foundNodes = ['t2', 'done'];
+  const comparedNodes = ['cas'];
   yield {
-    state: progressGraph('Wait-free code bounds each operation', 'bounded'),
-    highlight: { found: ['t2', 'done'], compare: ['cas'] },
-    explanation: 'Wait-free is stronger: every operation completes in a finite number of its own steps, regardless of other thread speeds. That often requires helping, per-thread slots, or bounded algorithms.',
+    state: progressGraph('Wait-free code bounds each operation', t2Note),
+    highlight: { found: foundNodes, compare: comparedNodes },
+    explanation: `Wait-free is stronger: every operation completes in a finite number of its own steps (T2 is marked "${t2Note}"), regardless of other thread speeds. ${foundNodes.length} nodes reached done state while ${comparedNodes.length} node (CAS) shows the retry mechanism is no longer unbounded.`,
   };
 
+  const misconceptions = 4;
+  const activeExamples = ['fastLock:truth', 'slowLF:truth'];
+  const keyLesson = 'rt:lesson';
   yield {
     state: labelMatrix(
       'Do not read the words as speed claims',
@@ -117,25 +131,34 @@ function* progressLadder() {
         ['needs bounds', 'use WF'],
       ],
     ),
-    highlight: { active: ['fastLock:truth', 'slowLF:truth'], found: ['rt:lesson'] },
-    explanation: 'A mutex can be faster than a lock-free structure when contention is low. The progress guarantee matters when pauses, failures, priority inversion, or hard latency bounds dominate.',
+    highlight: { active: activeExamples, found: [keyLesson] },
+    explanation: `A mutex can be faster than a lock-free structure when contention is low. ${misconceptions} rows debunk speed myths — ${activeExamples.length} truths are highlighted, and the key takeaway is ${keyLesson.split(':')[0]} (real-time): the progress guarantee matters when pauses, failures, priority inversion, or hard latency bounds dominate.`,
   };
 }
 
 function* contentionCase() {
+  const seriesCount = 3;
+  const maxContenders = 32;
+  const maxLatency = 100;
+  const lockAt32 = 95;
+  const lfAt32 = 78;
+  const wfAt32 = 42;
   yield {
     state: plotState({
-      axes: { x: { label: 'contenders', min: 1, max: 32 }, y: { label: 'tail latency', min: 0, max: 100 } },
+      axes: { x: { label: 'contenders', min: 1, max: maxContenders }, y: { label: 'tail latency', min: 0, max: maxLatency } },
       series: [
-        { id: 'lock', label: 'lock', points: [{ x: 1, y: 5 }, { x: 4, y: 15 }, { x: 8, y: 35 }, { x: 16, y: 70 }, { x: 32, y: 95 }] },
-        { id: 'lf', label: 'LF', points: [{ x: 1, y: 8 }, { x: 4, y: 18 }, { x: 8, y: 26 }, { x: 16, y: 44 }, { x: 32, y: 78 }] },
-        { id: 'wf', label: 'WF', points: [{ x: 1, y: 12 }, { x: 4, y: 18 }, { x: 8, y: 24 }, { x: 16, y: 31 }, { x: 32, y: 42 }] },
+        { id: 'lock', label: 'lock', points: [{ x: 1, y: 5 }, { x: 4, y: 15 }, { x: 8, y: 35 }, { x: 16, y: 70 }, { x: 32, y: lockAt32 }] },
+        { id: 'lf', label: 'LF', points: [{ x: 1, y: 8 }, { x: 4, y: 18 }, { x: 8, y: 26 }, { x: 16, y: 44 }, { x: 32, y: lfAt32 }] },
+        { id: 'wf', label: 'WF', points: [{ x: 1, y: 12 }, { x: 4, y: 18 }, { x: 8, y: 24 }, { x: 16, y: 31 }, { x: 32, y: wfAt32 }] },
       ],
     }),
     highlight: { active: ['lock', 'lf', 'wf'] },
-    explanation: 'This stylized curve shows why the words are not enough. Lock-free often improves system progress, but tail latency can still rise under contention. Wait-free targets bounded per-operation latency at extra implementation cost.',
+    explanation: `This stylized curve compares ${seriesCount} strategies across 1 to ${maxContenders} contenders. At ${maxContenders} threads, lock tail latency reaches ${lockAt32}, LF reaches ${lfAt32}, and WF stays at ${wfAt32} — showing why wait-free targets bounded per-operation latency at extra implementation cost.`,
   };
 
+  const casSteps = 4;
+  const globalProgressStep = 'cas:progress';
+  const retryStep = 'retry:progress';
   yield {
     state: labelMatrix(
       'CAS counter case',
@@ -156,10 +179,15 @@ function* contentionCase() {
         ['losers loop', 'not per-thread'],
       ],
     ),
-    highlight: { found: ['cas:progress'], compare: ['retry:progress'] },
-    explanation: 'A CAS increment loop is lock-free: each successful CAS completes one operation. But one unlucky thread can keep losing and retrying, so the loop is not wait-free by itself.',
+    highlight: { found: [globalProgressStep], compare: [retryStep] },
+    explanation: `A CAS increment loop has ${casSteps} steps: read, calc, CAS, retry. It is lock-free because ${globalProgressStep.split(':')[0]} makes global progress each round. But ${retryStep.split(':')[0]} shows losers loop indefinitely, so the loop is not wait-free by itself.`,
   };
 
+  const threadSlots = 2;
+  const helperNodes = ['helper', 'apply'];
+  const ackNodes = ['ack1', 'ack2'];
+  const totalGraphNodes = 6;
+  const totalGraphEdges = 5;
   yield {
     state: graphState({
       nodes: [
@@ -178,10 +206,13 @@ function* contentionCase() {
         { id: 'e-apply-ack2', from: 'apply', to: 'ack2' },
       ],
     }, { title: 'Wait-free designs often use helping' }),
-    highlight: { active: ['helper', 'apply'], found: ['ack1', 'ack2'] },
-    explanation: 'Many wait-free constructions publish each thread operation in a slot. Threads help finish pending operations, so a slow owner does not prevent its operation from completing.',
+    highlight: { active: helperNodes, found: ackNodes },
+    explanation: `This ${totalGraphNodes}-node, ${totalGraphEdges}-edge graph shows how ${threadSlots} thread slots feed into ${helperNodes.length} helper stages (${helperNodes.join(' and ')}), producing ${ackNodes.length} acknowledgments. Threads help finish pending operations, so a slow owner does not prevent its operation from completing.`,
   };
 
+  const workloadCount = 4;
+  const activeWorkloads = ['rt:fit', 'metrics:fit'];
+  const simpleCase = 'batch:fit';
   yield {
     state: labelMatrix(
       'Choosing the guarantee',
@@ -202,10 +233,13 @@ function* contentionCase() {
         ['simplicity', 'lock often ok'],
       ],
     ),
-    highlight: { active: ['rt:fit', 'metrics:fit'], compare: ['batch:fit'] },
-    explanation: 'The right guarantee is workload-specific. Real-time audio needs per-thread bounds. Telemetry wants throughput. Batch systems may prefer a simple lock if it is easier to prove and fast enough.',
+    highlight: { active: activeWorkloads, compare: [simpleCase] },
+    explanation: `The right guarantee is workload-specific across ${workloadCount} scenarios. ${activeWorkloads.length} workloads (${activeWorkloads.map(w => w.split(':')[0]).join(', ')}) benefit from nonblocking fits, while ${simpleCase.split(':')[0]} may prefer a simple lock if it is easier to prove and fast enough.`,
   };
 
+  const safetyConcerns = 4;
+  const provenTopics = ['linear:topic', 'aba:topic', 'reclaim:topic'];
+  const pendingTopic = 'order:topic';
   yield {
     state: labelMatrix(
       'Safety still required',
@@ -226,8 +260,8 @@ function* contentionCase() {
         ['seen when?', 'memory model'],
       ],
     ),
-    highlight: { found: ['linear:topic', 'aba:topic', 'reclaim:topic'], compare: ['order:topic'] },
-    explanation: 'Progress is only half the proof. A nonblocking object also needs linearizable behavior, ABA defense, safe reclamation, and correct memory ordering.',
+    highlight: { found: provenTopics, compare: [pendingTopic] },
+    explanation: `Progress is only half the proof. A nonblocking object needs ${safetyConcerns} safety properties: ${provenTopics.length} are well-established (${provenTopics.map(t => t.split(':')[0]).join(', ')}), while ${pendingTopic.split(':')[0]} (memory model) is often the subtlest to get right.`,
   };
 }
 
@@ -240,6 +274,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/nonblocking-progress-guarantees-primer.gif', alt: 'Animated walkthrough of the nonblocking progress guarantees primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [

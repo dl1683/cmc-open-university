@@ -57,11 +57,21 @@ function ropeGraph(title) {
 }
 
 function* concatTree() {
+  const text = 'hello world';
+  const totalLen = text.length;
+  const leftLen = 6;
+  const rightLen = totalLen - leftLen;
+  const leafCount = 3;
+  const lookupIndex = 8;
+  const lookupChar = text[lookupIndex];
+  const adjustedIndex = lookupIndex - leftLen;
+  const ops = ['index', 'concat', 'split', 'flatten'];
+
   yield {
     state: ropeGraph('A rope stores text as a weighted concatenation tree'),
     highlight: { active: ['root', 'left', 'right'], found: ['hello', 'space', 'world'], compare: ['insert'] },
-    explanation: 'A rope represents a string as a tree. Internal nodes store weights or lengths; leaves store small flat string chunks. The full text is the left-to-right leaf concatenation.',
-    invariant: 'In-order leaf order equals the string order.',
+    explanation: `A rope represents "${text}" (length ${totalLen}) as a tree with ${leafCount} leaves. Internal nodes store weights or lengths; leaves store small flat string chunks. The full text is the left-to-right leaf concatenation.`,
+    invariant: `In-order leaf order equals the string order — the ${leafCount} leaves read left to right produce "${text}".`,
   };
 
   yield {
@@ -85,13 +95,13 @@ function* concatTree() {
       ],
     ),
     highlight: { found: ['answer:result'], active: ['root:result', 'right:result'] },
-    explanation: 'Weights guide indexing. Instead of scanning the whole string, descend by comparing the target index to left-subtree lengths.',
+    explanation: `Weights guide indexing. To find index ${lookupIndex} in "${text}", compare with left weight ${leftLen}: ${lookupIndex} >= ${leftLen}, so go right with adjusted index ${adjustedIndex}. The character is '${lookupChar}'.`,
   };
 
   yield {
     state: ropeGraph('Concatenation creates a new parent instead of copying bytes'),
     highlight: { active: ['root', 'left', 'right', 'e-root-left', 'e-root-right'], found: ['insert'], compare: ['hello'] },
-    explanation: 'Concatenating two large strings can create one new internal node pointing at existing subtrees. Balanced ropes can share structure and avoid copying the full content.',
+    explanation: `Concatenating two large strings creates one new internal node pointing at existing subtrees. Instead of copying all ${totalLen} characters, the rope reuses the left (${leftLen} chars) and right (${rightLen} chars) subtrees.`,
   };
 
   yield {
@@ -115,11 +125,19 @@ function* concatTree() {
       ],
     ),
     highlight: { active: ['index:usualCost', 'concat:usualCost', 'split:usualCost'], compare: ['flatten:risk'] },
-    explanation: 'Ropes improve edits and composition, not every operation. Flattening or scanning still touches the full text.',
+    explanation: `Ropes improve ${ops.length - 1} of ${ops.length} core operations. Index, concat, and split run in O(log n), but flattening still touches all ${totalLen} characters.`,
   };
 }
 
 function* splitInsert() {
+  const insertPos = 6;
+  const insertText = ' brave';
+  const original = 'hello world';
+  const result = original.slice(0, insertPos) + insertText + original.slice(insertPos);
+  const bufferTypes = ['flat string/array', 'gap buffer', 'piece table', 'rope'];
+  const docSize = '200 MB';
+  const docSteps = ['load', 'slice', 'insert', 'save'];
+
   yield {
     state: labelMatrix(
       'Insert " brave" at position 6',
@@ -141,14 +159,14 @@ function* splitInsert() {
       ],
     ),
     highlight: { active: ['split:text', 'insert:text'], found: ['join:text'] },
-    explanation: 'Insertion is split plus concat. Split the rope at the insertion point, create a leaf for inserted text, and concatenate left + inserted + right.',
+    explanation: `Insertion is split plus concat. Split "${original}" at position ${insertPos}, create a leaf for "${insertText}", and concatenate left + inserted + right to get "${result}".`,
   };
 
   yield {
     state: ropeGraph('Balance keeps repeated edits from forming a chain'),
     highlight: { active: ['root', 'rebalance', 'e-root-rebalance'], compare: ['hello', 'insert'] },
-    explanation: 'If every append simply creates a new parent, the rope can degenerate into a tall chain. Production ropes rebalance or use chunk-size rules to preserve logarithmic depth.',
-    invariant: 'Rope performance depends on maintaining bounded depth and reasonable leaf sizes.',
+    explanation: `If every append simply creates a new parent, the rope can degenerate into a tall chain. After inserting "${insertText}" at position ${insertPos}, the tree must rebalance to preserve logarithmic depth.`,
+    invariant: `Rope performance depends on maintaining bounded depth — inserting ${insertText.length}-char chunks must not degrade index time from O(log n) to O(n).`,
   };
 
   yield {
@@ -172,7 +190,7 @@ function* splitInsert() {
       ],
     ),
     highlight: { found: ['rope:best', 'piece:best'], compare: ['array:weakness'] },
-    explanation: 'Ropes are one answer to the text editor problem, but not the only one. Piece tables are often better when preserving original and inserted buffers matters.',
+    explanation: `Ropes are one of ${bufferTypes.length} common text-buffer strategies. Piece tables are often better when preserving original and inserted buffers matters; gap buffers excel at local cursor edits.`,
   };
 
   yield {
@@ -196,7 +214,7 @@ function* splitInsert() {
       ],
     ),
     highlight: { found: ['load:lesson', 'insert:lesson'], compare: ['save:lesson'] },
-    explanation: 'The rope case study is editing or assembling very large text where copying the whole string on every operation is unacceptable.',
+    explanation: `The rope case study is editing a ${docSize} document through ${docSteps.length} stages — copying the whole string on every operation is unacceptable at that scale.`,
   };
 }
 
@@ -243,7 +261,8 @@ export const article = {
       paragraphs: [
         `The concat-tree view shows the reason a rope is not just a string builder. Concatenation can create a parent node that points at existing left and right texts. The final text order is still the in-order leaf order, but the operation avoids copying both children into a new flat array immediately.`,
         `The split-insert view shows the editor pattern. To insert at position i, find the leaf containing i, split that leaf if needed, attach the inserted chunk, and join the pieces back into a balanced tree. The untouched left and right subtrees do not move. They are only reconnected through new internal nodes and rebalanced when the shape gets unhealthy.`,
-      ],
+      
+        {type: 'image', src: './assets/gifs/text-rope-data-structure.gif', alt: 'Animated walkthrough of the text rope data structure visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `How it works`,

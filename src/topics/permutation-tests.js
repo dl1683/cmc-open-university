@@ -170,6 +170,13 @@ export function* run(input) {
 const legacyArticle = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/permutation-tests.gif', alt: 'Animated walkthrough of the permutation tests visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: `Why this exists`,
       paragraphs: [
         `Permutation tests exist for the moment when a formula feels more fragile than the question. With five days in each group, skewed values, or an unusual metric, normality and equal-variance assumptions may be hard to defend. A permutation test builds the p-value by taking the null hypothesis literally.`,

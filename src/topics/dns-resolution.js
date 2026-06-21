@@ -103,7 +103,8 @@ export const article = {
         {type: 'callout', text: 'DNS scales by separating who may answer from who can cache, so global naming becomes delegated authority plus timed reuse.'},
         'Active (highlighted) nodes and edges show the current query hop. Visited markers mean a server has already answered and referred the resolver downward. Found markers mean the final IP address has been returned and cached.',
         'Toggle between cold and warm cache to see the difference. A cold run walks root, TLD, and authoritative servers in sequence. A warm run returns from the resolver cache in one hop. Watch how many round trips each path costs, and notice that the resolver does the walking so the browser does not have to.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/dns-resolution.gif', alt: 'Animated walkthrough of the dns resolution visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: `Why this exists`,

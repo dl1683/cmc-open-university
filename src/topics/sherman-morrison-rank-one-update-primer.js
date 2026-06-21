@@ -82,8 +82,8 @@ function* inverseUpdate() {
       ],
     ),
     highlight: { active: ['change:meaning', 'guard:meaning', 'new:cost'] },
-    explanation: 'Sherman-Morrison answers a narrow but powerful question: if you already know A inverse, and A changes by one outer product u vT, can you update the inverse without doing a fresh O(n^3) inversion? Yes, if the denominator 1 + vT A^-1 u is not zero.',
-    invariant: '(A + u vT)^-1 = A^-1 - (A^-1 u vT A^-1) / (1 + vT A^-1 u).',
+    explanation: `Sherman-Morrison answers a narrow but powerful question: if you already know A inverse, and A changes by one outer product ${'u vT'}, can you update the inverse without doing a fresh ${'O(n^3)'} inversion? Yes, if the denominator ${'1+vT A^-1 u'} is not zero. The matrix "${'The identity in four pieces'}" breaks this into ${4} rows and ${2} columns: the ${3} highlighted cells (${'change:meaning'}, ${'guard:meaning'}, ${'new:cost'}) mark the pieces that make the ${'O(n^2)'} update possible.`,
+    invariant: `${'(A + u vT)^-1'} = ${'A^-1'} - (${'A^-1 u vT A^-1'}) / (${'1 + vT A^-1 u'}).`,
   };
 
   yield {
@@ -106,7 +106,7 @@ function* inverseUpdate() {
       ],
     ),
     highlight: { active: ['u1:c1', 'u2:c2', 'u3:c3'], compare: ['u2:c1', 'u3:c2'] },
-    explanation: 'An outer product makes every row a scaled copy of the same vector v. That means the change has only one direction of new information. Sherman-Morrison exploits exactly that: do not recompute a full inverse when the update only bends the matrix in one direction.',
+    explanation: `An outer product makes every row a scaled copy of the same vector v. This ${'3'}-by-${'3'} matrix "${'Why u vT is rank one'}" shows ${3} rows and ${3} columns of products. The ${3} diagonal cells (${['u1:c1', 'u2:c2', 'u3:c3'].join(', ')}) are highlighted active, while ${2} off-diagonal cells (${['u2:c1', 'u3:c2'].join(', ')}) compare — all rows share the same direction, so the update only bends the matrix in one direction.`,
   };
 
   yield {
@@ -132,7 +132,7 @@ function* inverseUpdate() {
       ],
     ),
     highlight: { active: ['left:part1', 'right:part1', 'denom:part1', 'final:part2'] },
-    explanation: 'Example: A = [[3,1],[1,2]], u = [1,2], v = [2,1]. The old inverse is known. The formula builds one correction from A^-1 u, vT A^-1, and the scalar denominator. The result matches the direct inverse of A + u vT = [[5,2],[5,4]], but it reuses the old inverse.',
+    explanation: `Example: A = [[3,1],[1,2]], u = [1,2], v = [2,1]. The "${'Worked 2 by 2 update'}" matrix has ${5} rows and ${2} columns. The ${4} active cells (${['left:part1', 'right:part1', 'denom:part1', 'final:part2'].join(', ')}) trace the formula: ${'A^-1 u'} gives ${'[0,1]'}, ${'vT A^-1'} gives ${'[.6,.2]'}, the denominator is ${'1+1'} = ${'2'}, and the final inverse in ${'final:part2'} is ${'[-.5,.5]'}.`,
   };
 
   yield {
@@ -147,7 +147,7 @@ function* inverseUpdate() {
       ],
     }),
     highlight: { active: ['update', 'gap'], compare: ['fresh'] },
-    explanation: 'The reason this identity matters is the exponent. A fresh dense inverse is cubic. A rank-one inverse correction is quadratic once the old inverse is already available. For streaming or repeated small edits, that difference is the whole system design.',
+    explanation: `The reason this identity matters is the exponent. The plot spans matrix dimension n from ${0} to ${1000} on the x-axis and relative work from ${0} to ${1000} on the y-axis. The ${'fresh'} series (compared) shows cubic growth while the ${'update'} series (active) stays quadratic. At n=${1000}, fresh costs ${1000} vs update cost ${1}. The marker "${'O(n^2)'}" at (${1000}, ${1}) marks the ${2} active items (${'update'}, ${'gap'}) against ${1} compared (${'fresh'}).`,
   };
 
   yield {
@@ -171,7 +171,7 @@ function* inverseUpdate() {
       ],
     ),
     highlight: { active: ['healthy:action'], compare: ['small:action'], removed: ['zero:action'] },
-    explanation: 'The formula is algebraically exact, but numerics still matter. A tiny denominator creates a huge correction. Long streams can accumulate roundoff. Serious systems monitor the denominator and condition number, then periodically rebuild the inverse with a stable factorization such as Cholesky or QR.',
+    explanation: `The "${'Denominator guard'}" matrix has ${4} rows (${'healthy'}, ${'small'}, ${'zero'}, ${'drift'}) and ${2} columns (${'denom'}, ${'action'}). When the denominator is ${'far from 0'} the action is ${'update'} (active: ${'healthy:action'}). When ${'near 0'} the action is ${'warn'} (compared: ${'small:action'}). When ${'= 0'} the action is ${'singular'} (removed: ${'zero:action'}). Long streams risk ${'roundoff'}, calling for ${'refactor'} via Cholesky or QR.`,
   };
 
   yield {
@@ -197,7 +197,7 @@ function* inverseUpdate() {
       ],
     ),
     highlight: { active: ['rls:update', 'bandit:update'], compare: ['kalman:update', 'gp:update'] },
-    explanation: 'The same low-rank inverse trick appears anywhere evidence arrives incrementally: recursive least squares, LinUCB, Kalman-style covariance updates, Gaussian process updates, and sensitivity analysis for systems with small matrix changes.',
+    explanation: `The "${'Where it shows up'}" matrix lists ${5} rows (${'RLS'}, ${'LinUCB'}, ${'Kalman'}, ${'GP'}, ${'sensitivity'}) across ${2} columns (${'matrix'}, ${'update'}). The ${2} active cells (${['rls:update', 'bandit:update'].join(', ')}) mark streaming use cases where the update is ${'new row'} or ${'x xT'}. The ${2} compared cells (${['kalman:update', 'gp:update'].join(', ')}) mark ${'obs'} and ${'new point'} updates. All five share the same low-rank inverse trick.`,
   };
 }
 
@@ -205,8 +205,8 @@ function* onlineLeastSquares() {
   yield {
     state: streamGraph('Streaming ridge state'),
     highlight: { active: ['row', 'outer', 'A', 'P', 'b', 'theta', 'score'], compare: ['guard', 'refit'] },
-    explanation: 'Online least squares keeps A = lambda I + sum x xT, b = sum r x, and P = A inverse. Each new row adds one outer product to A and one reward-weighted vector to b. Sherman-Morrison updates P in place so theta = P b stays cheap.',
-    invariant: 'A new training row is a rank-one change to the normal matrix.',
+    explanation: `Online least squares keeps A = lambda I + sum x xT, b = sum r x, and P = A inverse. The "${'Streaming ridge state'}" graph has ${9} nodes. The ${7} active nodes (${['row', 'outer', 'A', 'P', 'b', 'theta', 'score'].join(', ')}) form the hot path from "${'new obs'}" through "${'rank 1'}" to "${'predict'}". The ${2} compared nodes (${['guard', 'refit'].join(', ')}) handle "${'denom'}" checks and "${'fallback'}" rebuilds. Sherman-Morrison updates ${'P'} in place so theta = P b stays cheap.`,
+    invariant: `A new training row is a ${'rank-one'} change to the ${'normal'} matrix.`,
   };
 
   yield {
@@ -232,7 +232,7 @@ function* onlineLeastSquares() {
       ],
     ),
     highlight: { active: ['gain:formula', 'inv:formula', 'coef:formula'] },
-    explanation: 'Recursive least squares is Sherman-Morrison wearing regression clothing. The gain vector says how strongly the new row should change the inverse state. Directions already well covered get small updates; genuinely new directions reshape P more.',
+    explanation: `Recursive least squares is Sherman-Morrison wearing regression clothing. The "${'Recursive least-squares update'}" matrix has ${5} rows (${'observe'}, ${'gain'}, ${'P update'}, ${'b update'}, ${'theta'}) and ${2} columns (${'formula'}, ${'role'}). The ${3} active cells (${['gain:formula', 'inv:formula', 'coef:formula'].join(', ')}) trace the update: the gain is ${'P x / denom'} (role: ${'trust'}), the inverse shrinks via ${'P - gain xT P'}, and theta = ${'P b'} gives ${'weights'}.`,
   };
 
   yield {
@@ -258,7 +258,7 @@ function* onlineLeastSquares() {
       ],
     ),
     highlight: { active: ['P:what', 'mean:what', 'bonus:what'], compare: ['A:why'] },
-    explanation: 'LinUCB Personalized News Case Study uses exactly this state per action. Updating P_a with a rank-one correction keeps both the mean estimate and the confidence bonus available without solving a fresh linear system for every request.',
+    explanation: `LinUCB Personalized News Case Study uses exactly this state per action. The "${'LinUCB connection'}" matrix has ${5} rows (${'A_a'}, ${'P_a'}, ${'b_a'}, ${'mean'}, ${'bonus'}) and ${2} columns (${'what'}, ${'why'}). The ${3} active cells (${['P:what', 'mean:what', 'bonus:what'].join(', ')}) show P_a = ${'A^-1'} for ${'fast score'}, mean = ${'xT P b'} to ${'exploit'}, and bonus = ${'sqrt xT P x'} to ${'explore'}. The compared cell ${'A:why'} stores ${'evidence'}.`,
   };
 
   yield {
@@ -274,7 +274,7 @@ function* onlineLeastSquares() {
       ],
     }),
     highlight: { active: ['sm'], compare: ['solve', 'refit', 'audit'] },
-    explanation: 'A practical system usually mixes fast updates with periodic refactors. Use Sherman-Morrison for the hot path, then rebuild from a stable factorization on a schedule or when numerical guards look bad. That gives speed without trusting an infinite chain of floating-point corrections.',
+    explanation: `A practical system mixes fast updates with periodic refactors. The plot spans ${'stream rows processed'} from ${0} to ${100000} on x and ${'cost per row'} from ${0} to ${100} on y. The ${3} series are ${'fresh solve'} (flat at ${80}), ${'SM update'} (flat at ${5}), and ${'refactor'} (dipping then rising). The ${1} active series (${'sm'}) stays cheap; the ${3} compared items (${['solve', 'refit', 'audit'].join(', ')}) show the baseline and the marker "${'audit'}" at (${100000}, ${20}) flags periodic rebuilds.`,
   };
 
   yield {
@@ -300,13 +300,13 @@ function* onlineLeastSquares() {
       ],
     ),
     highlight: { active: ['ill:move', 'audit:move'], compare: ['many:move', 'sparse:move'] },
-    explanation: 'The identity is not a blanket instruction to maintain explicit inverses forever. Sparse matrices may lose sparsity. Large rank-k changes belong to Woodbury or a refactor. Batched hardware can make a direct solve cheaper. Always check residuals and conditioning.',
+    explanation: `The "${'When not to use it blindly'}" matrix has ${5} rows (${'ill-cond'}, ${'many ranks'}, ${'sparse A'}, ${'GPU batch'}, ${'audits'}) and ${2} columns (${'risk'}, ${'move'}). The ${2} active cells (${['ill:move', 'audit:move'].join(', ')}) recommend ${'factorize'} for ill-conditioning and ${'residual'} checks for audits. The ${2} compared cells (${['many:move', 'sparse:move'].join(', ')}) suggest ${'Woodbury'} for rank-k and ${'sparse sol'} for sparse A. Always check residuals and conditioning.`,
   };
 
   yield {
     state: streamGraph('Case study: online regression service'),
     highlight: { active: ['row', 'P', 'theta', 'score', 'guard', 'refit'], found: ['refit'] },
-    explanation: 'A pricing or calibration service can keep a ridge model fresh as examples stream in. The hot path updates the inverse in O(n^2), predictions use the current theta, and a background job periodically reconstructs A and P from replayable logs to catch drift.',
+    explanation: `A pricing or calibration service keeps a ridge model fresh. The "${'Case study: online regression service'}" graph highlights ${6} active nodes (${['row', 'P', 'theta', 'score', 'guard', 'refit'].join(', ')}): "${'new obs'}" feeds into "${'inverse'}" updated in O(n^2), "${'P b'}" gives "${'predict'}", while "${'denom'}" gates "${'fallback'}". The found node ${'refit'} marks the periodic reconstruction from replayable logs to catch drift.`,
   };
 }
 
@@ -333,7 +333,8 @@ export const article = {
           text: 'Watch the denominator cell in every frame. When the denominator is healthy, the update proceeds. When it is near zero, the correction explodes. When it is exactly zero, the updated matrix is singular and no inverse exists. The animation makes this guardrail visible as a color shift from green through yellow to red.',
         },
         'At each frame, ask: what changed in the inverse state, why that change is legal given the old inverse, and what the denominator value tells you about numerical safety.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/sherman-morrison-rank-one-update-primer.gif', alt: 'Animated walkthrough of the sherman morrison rank one update primer visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

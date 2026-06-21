@@ -280,6 +280,13 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/conservative-count-min-sketch.gif', alt: 'Animated walkthrough of the conservative count min sketch visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         'Count-Min Sketch is useful because it gives fixed-memory frequency estimates, but its one-sided error can become too pessimistic. A few hot collisions can keep inflating rows that are already too high. Conservative Count-Min exists to reduce that positive-stream bias while keeping the same query shape.',

@@ -53,23 +53,27 @@ function pointsGraph(title) {
 }
 
 function* stackScan() {
+  const points = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const hullVertices = ['a', 'b', 'd', 'f', 'g', 'h'];
+  const interiorPoints = points.filter(p => !hullVertices.includes(p));
   yield {
     state: pointsGraph('Sort by x, then scan from left to right'),
     highlight: { active: ['a', 'b', 'c', 'd', 'e', 'f'], compare: ['g', 'h'] },
-    explanation: 'Andrew monotone chain starts by sorting points lexicographically: x first, y as tie-breaker. The sort creates a left-to-right order where local turn tests are enough; the sort costs O(n log n), and each later stack pass is linear.',
-    invariant: 'After sorting, the hull can be built by local turn tests on a stack.',
+    explanation: `Andrew monotone chain sorts ${points.length} points lexicographically: x first, y as tie-breaker. The sort costs O(n log n), and each later stack pass is linear over the ${points.length} points.`,
+    invariant: `After sorting ${points.length} points, the hull can be built by local turn tests on a stack.`,
   };
 
+  const stackSteps = [
+    { id: 'pushA', label: 'push A' },
+    { id: 'pushB', label: 'push B' },
+    { id: 'testC', label: 'test C' },
+    { id: 'popC', label: 'pop inside' },
+    { id: 'pushD', label: 'push D' },
+  ];
   yield {
     state: labelMatrix(
       'Lower hull stack scan',
-      [
-        { id: 'pushA', label: 'push A' },
-        { id: 'pushB', label: 'push B' },
-        { id: 'testC', label: 'test C' },
-        { id: 'popC', label: 'pop inside' },
-        { id: 'pushD', label: 'push D' },
-      ],
+      stackSteps,
       [
         { id: 'stack', label: 'stack' },
         { id: 'turn', label: 'turn test' },
@@ -83,30 +87,31 @@ function* stackScan() {
       ],
     ),
     highlight: { active: ['testC:turn', 'popC:stack'], found: ['pushD:turn'] },
-    explanation: 'For each new point, the stack tests the last two kept points plus the candidate. If they make a clockwise or collinear turn under the chosen policy, the middle point is popped because the candidate has exposed it as inside the lower fence.',
+    explanation: `The lower hull scan takes ${stackSteps.length} steps here. For each new point, the stack tests the last two kept points plus the candidate. Clockwise or collinear turns cause a pop because the candidate exposes the middle point as inside the fence.`,
   };
 
   yield {
     state: pointsGraph('The lower chain keeps only the bottom fence'),
     highlight: { active: ['a', 'b', 'd', 'f', 'e-a-b', 'e-b-d', 'e-d-f'], removed: ['c', 'e'], compare: ['g', 'h'] },
-    explanation: 'Interior points disappear because a later edge bypasses them. The monotonic x order means a popped point will never become useful for the lower chain again.',
+    explanation: `Interior points ${interiorPoints.map(p => p.toUpperCase()).join(' and ')} disappear because later edges bypass them. The monotonic x order means a popped point will never become useful for the lower chain again.`,
   };
 
   yield {
     state: pointsGraph('Run the same scan backward for the upper chain'),
     highlight: { active: ['f', 'g', 'h', 'a', 'e-f-g', 'e-g-h', 'e-h-a'], removed: ['c', 'e'], found: ['b', 'd'] },
-    explanation: 'The upper chain is the same stack rule in reverse sorted order. Concatenate lower and upper chains, omitting duplicate endpoints, and the convex hull is complete.',
+    explanation: `The upper chain is the same stack rule in reverse sorted order. Concatenate lower and upper chains, omitting duplicate endpoints, and the ${hullVertices.length}-vertex convex hull is complete.`,
   };
 
+  const turnCases = [
+    { id: 'cross', label: 'cross product' },
+    { id: 'left', label: 'left turn' },
+    { id: 'right', label: 'right turn' },
+    { id: 'col', label: 'collinear' },
+  ];
   yield {
     state: labelMatrix(
       'Turn predicate',
-      [
-        { id: 'cross', label: 'cross product' },
-        { id: 'left', label: 'left turn' },
-        { id: 'right', label: 'right turn' },
-        { id: 'col', label: 'collinear' },
-      ],
+      turnCases,
       [
         { id: 'test', label: 'test' },
         { id: 'action', label: 'action' },
@@ -119,26 +124,30 @@ function* stackScan() {
       ],
     ),
     highlight: { active: ['cross:test', 'right:action'], found: ['left:action'], compare: ['col:action'] },
-    explanation: 'The algorithm is mostly a data-structure loop around one geometric primitive: orientation. Robust production geometry spends real effort making that predicate reliable under floating-point or integer overflow.',
+    explanation: `The algorithm is mostly a data-structure loop around ${turnCases.length} orientation cases (${turnCases.map(c => c.label).join(', ')}). Robust production geometry spends real effort making that predicate reliable under floating-point or integer overflow.`,
   };
 }
 
 function* geometryUses() {
+  const hullVertices = ['a', 'b', 'd', 'f', 'g', 'h'];
+  const interiorPts = ['c', 'e'];
+  const totalPoints = hullVertices.length + interiorPts.length;
   yield {
     state: pointsGraph('Convex hull is the smallest fence around a point set'),
     highlight: { found: ['a', 'b', 'd', 'f', 'g', 'h', 'e-a-b', 'e-b-d', 'e-d-f', 'e-f-g', 'e-g-h', 'e-h-a'], removed: ['c', 'e'] },
-    explanation: 'The hull throws away interior detail and keeps the extreme boundary. That boundary is useful as a cheap approximation before more expensive geometry work, but it can overstate concave shapes.',
+    explanation: `The hull keeps ${hullVertices.length} extreme vertices out of ${totalPoints} points and discards ${interiorPts.length} interior points. That boundary is useful as a cheap approximation before more expensive geometry work.`,
   };
 
+  const domains = [
+    { id: 'collision', label: 'collision' },
+    { id: 'gis', label: 'GIS' },
+    { id: 'vision', label: 'vision' },
+    { id: 'mesh', label: 'meshing' },
+  ];
   yield {
     state: labelMatrix(
       'Where hulls appear',
-      [
-        { id: 'collision', label: 'collision' },
-        { id: 'gis', label: 'GIS' },
-        { id: 'vision', label: 'vision' },
-        { id: 'mesh', label: 'meshing' },
-      ],
+      domains,
       [
         { id: 'use', label: 'use' },
         { id: 'lesson', label: 'lesson' },
@@ -151,18 +160,19 @@ function* geometryUses() {
       ],
     ),
     highlight: { active: ['collision:use', 'gis:use'], found: ['mesh:lesson'] },
-    explanation: 'Convex hulls often serve as a first-pass summary. They simplify a cloud of points into a boundary, then downstream algorithms decide whether the approximation is enough.',
+    explanation: `Convex hulls appear in ${domains.length} domains (${domains.map(d => d.label).join(', ')}). They simplify a cloud of points into a boundary, then downstream algorithms decide whether the approximation is enough.`,
   };
 
+  const algorithms = [
+    { id: 'gift', label: 'gift wrap' },
+    { id: 'graham', label: 'Graham scan' },
+    { id: 'andrew', label: 'monotone chain' },
+    { id: 'chan', label: 'Chan' },
+  ];
   yield {
     state: labelMatrix(
       'Algorithm comparisons',
-      [
-        { id: 'gift', label: 'gift wrap' },
-        { id: 'graham', label: 'Graham scan' },
-        { id: 'andrew', label: 'monotone chain' },
-        { id: 'chan', label: 'Chan' },
-      ],
+      algorithms,
       [
         { id: 'time', label: 'time' },
         { id: 'fit', label: 'fit' },
@@ -175,13 +185,13 @@ function* geometryUses() {
       ],
     ),
     highlight: { active: ['andrew:time', 'andrew:fit'], compare: ['gift:time'], found: ['chan:time'] },
-    explanation: 'Monotone chain is popular because the implementation is short, deterministic, and easy to pair with ordinary sorting. Output-sensitive algorithms can beat it when the hull has few vertices.',
+    explanation: `${algorithms.length} hull algorithms compared (${algorithms.map(a => a.label).join(', ')}). Monotone chain is popular because the implementation is short, deterministic, and easy to pair with ordinary sorting. Output-sensitive algorithms beat it when h << ${totalPoints}.`,
   };
 
   yield {
     state: pointsGraph('Complete case: precompute a safe navigation boundary'),
     highlight: { found: ['a', 'b', 'd', 'f', 'g', 'h'], compare: ['c', 'e'] },
-    explanation: 'A game tool can take obstacle vertices, compute hulls as coarse blockers, and use the hull edges for visibility, collision broad phase, or navigation preprocessing before exact polygon checks.',
+    explanation: `A game tool can take ${totalPoints} obstacle vertices, compute a ${hullVertices.length}-vertex hull as a coarse blocker, and use the hull edges for visibility, collision broad phase, or navigation preprocessing.`,
   };
 }
 
@@ -200,7 +210,8 @@ export const article = {
         'Each dot is a 2D point. Edges connect consecutive hull vertices to form the boundary polygon. In the stack-scan view, the algorithm processes points left to right. When a point is pushed, it becomes a candidate hull vertex. When a point is popped, the cross-product turn test has proved it bends inward -- a straighter edge bypasses it.',
         {type: 'callout', text: 'Monotone chain turns the global hull boundary into two local stack scans after sorting points by x.'},
         'Active points sit on the stack right now. Removed points were popped because a later candidate exposed them as interior. The matrix view shows the stack contents and the turn-test verdict at each step. In the geometry-uses view, the finished hull is the outer polygon; interior points are marked removed.',
-      ],
+      
+        {type: 'image', src: './assets/gifs/convex-hull-monotone-chain.gif', alt: 'Animated walkthrough of the convex hull monotone chain visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},],
     },
     {
       heading: 'Why this exists',

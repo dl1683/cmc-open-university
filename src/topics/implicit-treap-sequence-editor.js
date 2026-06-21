@@ -82,11 +82,23 @@ function treapGraph(title, inserted = false, extraNotes = {}) {
 }
 
 function* rankKeys() {
+  const seqLabels = BASE_NODES.map(n => n.label).sort().join(' ');
+  const rootNode = BASE_NODES[0];
+  const rootLabel = rootNode.label;
+  const rootPriority = rootNode.note.match(/p(\d+)/)[1];
+  const nodeCount = BASE_NODES.length;
+  const edgeCount = BASE_EDGES.length;
+  const targetIdx = 4;
+  const targetNode = BASE_NODES.find(n => n.label === 'E');
+  const targetLabel = targetNode.label;
+  const leftChildLabel = BASE_NODES[1].label;
+  const leftSubSize = 3;
+
   yield {
     state: treapGraph('In-order order is the sequence'),
     highlight: { active: ['d'], found: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] },
-    explanation: 'An implicit treap does not store array indexes as keys. The in-order walk is the sequence A B C D E F G, and subtree sizes tell each node its current position.',
-    invariant: 'BST key order is replaced by sequence rank; heap priority still balances the tree.',
+    explanation: `An implicit treap does not store array indexes as keys. The in-order walk is the sequence ${seqLabels}, and subtree sizes tell each of the ${nodeCount} nodes its current position.`,
+    invariant: `BST key order is replaced by sequence rank across ${nodeCount} nodes; heap priority (root ${rootLabel} has ${rootPriority}) still balances the tree.`,
   };
 
   yield {
@@ -107,13 +119,13 @@ function* rankKeys() {
       ],
     ),
     highlight: { active: ['atD:test', 'atF:test'], found: ['goL:next'], compare: ['goR:next'] },
-    explanation: 'To select by position, compare the target index with left subtree size. Equal means current node; smaller goes left; larger subtracts left size plus one and goes right.',
+    explanation: `To select position ${targetIdx}, compare the target index with left subtree size (${leftSubSize} under ${rootLabel}). Equal means current node; smaller goes left; larger subtracts left size plus one and goes right, landing on ${targetLabel}.`,
   };
 
   yield {
     state: treapGraph('The select path reaches E'),
     highlight: { active: ['d', 'f', 'e', 'e-d-f', 'e-f-e'], found: ['e'], compare: ['b'] },
-    explanation: 'The lookup path is logarithmic in expectation because random priorities keep the treap balanced. Positions stay correct after edits because every node maintains size = 1 + left size + right size.',
+    explanation: `The lookup path from ${rootLabel} through F to ${targetLabel} is logarithmic in expectation because random priorities keep the ${nodeCount}-node treap balanced. Positions stay correct after edits because every node maintains size = 1 + left size + right size.`,
   };
 
   yield {
@@ -134,7 +146,7 @@ function* rankKeys() {
       ],
     ),
     highlight: { active: ['insert:recipe', 'move:recipe', 'reverse:recipe'], found: ['delete:cost'] },
-    explanation: 'Split and merge become sequence surgery. Insert, delete, move, and reverse are short recipes over position-based splits.',
+    explanation: `Split and merge become sequence surgery on the ${nodeCount}-node treap connected by ${edgeCount} edges. Insert, delete, move, and reverse are short recipes over position-based splits.`,
   };
 
   yield {
@@ -155,15 +167,28 @@ function* rankKeys() {
       ],
     ),
     highlight: { found: ['itreap:best'], compare: ['rope:best', 'piece:best'], active: ['finger:trade'] },
-    explanation: 'Implicit treaps are a compact, randomized alternative for editable sequences. Ropes and piece tables are often better for raw text chunks; implicit treaps are excellent for generic items and range operations.',
+    explanation: `Implicit treaps are a compact, randomized alternative for editable sequences of ${nodeCount} or more items. Ropes and piece tables are often better for raw text chunks; implicit treaps are excellent for generic items and range operations.`,
   };
 }
 
 function* splitInsert() {
+  const splitPos = 3;
+  const beforeLabels = BASE_NODES.map(n => n.label).sort().slice(0, splitPos).join(' ');
+  const afterLabels = BASE_NODES.map(n => n.label).sort().slice(splitPos).join(' ');
+  const insertNode = INSERT_NODES.find(n => n.id === 'x');
+  const insertLabel = insertNode.label;
+  const insertPriority = insertNode.note.match(/p(\d+)/)[1];
+  const rootLabel = BASE_NODES[0].label;
+  const leftChildLabel = BASE_NODES[1].label;
+  const cLabel = BASE_NODES.find(n => n.id === 'c').label;
+  const postInsertSeq = INSERT_NODES.map(n => n.label).sort().join(' ');
+  const postInsertCount = INSERT_NODES.length;
+  const fLabel = INSERT_NODES.find(n => n.id === 'f').label;
+
   yield {
     state: treapGraph('Split at position 3'),
     highlight: { active: ['d', 'b', 'c'], found: ['a', 'b', 'c'], compare: ['d', 'e', 'f', 'g'] },
-    explanation: 'To insert at position 3, first split the sequence into left A B C and right D E F G. The split walks by left subtree sizes, not by explicit keys.',
+    explanation: `To insert at position ${splitPos}, first split the ${BASE_NODES.length}-node sequence into left ${beforeLabels} and right ${afterLabels}. The split walks by left subtree sizes, not by explicit keys.`,
   };
 
   yield {
@@ -184,7 +209,7 @@ function* splitInsert() {
       ],
     ),
     highlight: { active: ['d:choice', 'b:choice', 'c:effect'], found: ['done:effect'] },
-    explanation: 'Every recursive step returns two valid treaps. After rewiring one child pointer, update subtree sizes on the way back out.',
+    explanation: `Every recursive step through ${rootLabel}, ${leftChildLabel}, ${cLabel} returns two valid treaps. After rewiring one child pointer, update subtree sizes on the way back out.`,
   };
 
   yield {
@@ -205,13 +230,13 @@ function* splitInsert() {
       ],
     ),
     highlight: { active: ['left:holds', 'new:holds', 'right:holds'], found: ['merge:next'] },
-    explanation: 'The inserted item is just a one-node treap with a random priority. Merge preserves in-order sequence order and heap priority.',
+    explanation: `The inserted item ${insertLabel} is just a one-node treap with random priority ${insertPriority}. Merge preserves in-order sequence order and heap priority across all ${postInsertCount} nodes.`,
   };
 
   yield {
     state: treapGraph('After merge: A B C X D E F G', true),
     highlight: { found: ['x'], active: ['d', 'x', 'b', 'e-d-x', 'e-x-b'], compare: ['f'] },
-    explanation: 'X lands between C and D in in-order order. Its high priority makes it the root of the left side under D, but the sequence order remains A B C X D E F G.',
+    explanation: `${insertLabel} lands between ${cLabel} and ${rootLabel} in in-order order. Its priority ${insertPriority} makes it the root of the left side under ${rootLabel}, but the sequence order remains ${beforeLabels} ${insertLabel} ${afterLabels} (${postInsertCount} nodes, ${INSERT_EDGES.length} edges).`,
   };
 
   yield {
@@ -232,11 +257,21 @@ function* splitInsert() {
       ],
     ),
     highlight: { active: ['paste:steps', 'move:steps'], found: ['undo:note'], compare: ['cut:note'] },
-    explanation: 'The same primitive operations can power an editor, playlist, timeline, or card board. Persistence is optional: path-copying can keep old versions when undo or snapshots matter.',
+    explanation: `The same split/merge primitives used on the ${postInsertCount}-node treap can power an editor, playlist, timeline, or card board. Persistence is optional: path-copying can keep old versions when undo or snapshots matter.`,
   };
 }
 
 function* playlistCaseStudy() {
+  const playlistTracks = ['intro', 'verse', 'hook', 'solo', 'outro', 'ad'];
+  const trackCount = playlistTracks.length;
+  const moveStart = 1;
+  const moveEnd = 3;
+  const moveDest = 4;
+  const movedItems = playlistTracks.slice(moveStart, moveEnd).join(', ');
+  const reverseSubtreeRoot = BASE_NODES[0].label;
+  const reverseLeftChild = BASE_NODES[1].label;
+  const baseNodeCount = BASE_NODES.length;
+
   yield {
     state: labelMatrix(
       'Playlist positions',
@@ -259,7 +294,7 @@ function* playlistCaseStudy() {
       ],
     ),
     highlight: { active: ['b:op', 'c:op'], removed: ['f:op'], found: ['a:track'] },
-    explanation: 'A playlist or video timeline is an editable sequence. Users insert, delete, and move ranges by position while the UI needs fast access by index.',
+    explanation: `A playlist of ${trackCount} tracks (${playlistTracks.join(', ')}) is an editable sequence. Users insert, delete, and move ranges by position while the UI needs fast access by index.`,
   };
 
   yield {
@@ -280,13 +315,13 @@ function* playlistCaseStudy() {
       ],
     ),
     highlight: { active: ['s1:piece', 's2:piece', 's3:piece'], found: ['join:result'] },
-    explanation: 'Range move is split, split, split, then merge in the new order. The treap never shifts a whole array tail one slot at a time.',
+    explanation: `Range move of ${movedItems} (positions [${moveStart},${moveEnd})) after index ${moveDest} is split, split, split, then merge in the new order. The treap never shifts a whole array tail one slot at a time.`,
   };
 
   yield {
     state: treapGraph('Lazy reverse marks a subtree instead of swapping every item'),
     highlight: { active: ['b', 'a', 'c'], found: ['d'], compare: ['f', 'g'] },
-    explanation: 'A reverse flag can sit on a subtree. When traversal or another split descends into it, the flag swaps children and propagates downward. That makes range reverse logarithmic plus touched boundaries.',
+    explanation: `A reverse flag can sit on a subtree rooted at ${reverseSubtreeRoot} (with ${reverseLeftChild}'s ${BASE_NODES[1].note.match(/sz(\d+)/)[1]}-node subtree below). When traversal or another split descends into it, the flag swaps children and propagates downward. That makes range reverse logarithmic plus touched boundaries.`,
   };
 
   yield {
@@ -307,7 +342,7 @@ function* playlistCaseStudy() {
       ],
     ),
     highlight: { found: ['insert:cost', 'move:cost'], active: ['access:reason'], compare: ['render:reason'] },
-    explanation: 'The data structure helps edits, but rendering k visible rows still has to visit those k rows. Pair the treap with virtualization for large UI lists.',
+    explanation: `For a ${baseNodeCount}-node treap, access, insert, and move are O(log ${baseNodeCount}). Rendering k visible rows still visits those k rows. Pair the treap with virtualization for large UI lists.`,
   };
 
   yield {
@@ -328,7 +363,7 @@ function* playlistCaseStudy() {
       ],
     ),
     highlight: { active: ['rng:rule', 'size:rule', 'lazy:rule'], found: ['text:risk'] },
-    explanation: 'The implementation is small but sharp-edged: priorities must balance, sizes must update after every pointer change, and lazy tags must be pushed before decisions that depend on child order.',
+    explanation: `The implementation across ${baseNodeCount} nodes and ${BASE_EDGES.length} edges is small but sharp-edged: priorities must balance, sizes must update after every pointer change, and lazy tags must be pushed before decisions that depend on child order.`,
   };
 }
 
@@ -342,6 +377,13 @@ export function* run(input) {
 
 export const article = {
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Follow the visualization step by step. Each frame shows one operation with the current state highlighted. Use the slider or play button to control playback.',
+        {type: 'image', src: './assets/gifs/implicit-treap-sequence-editor.gif', alt: 'Animated walkthrough of the implicit treap sequence editor visualization', caption: 'Animation preview: the full visualization plays through each step at reading pace.'},
+      ],
+    },
     {
       heading: 'Problem',
       paragraphs: [
