@@ -177,6 +177,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Gradient Boosting. Each tree fits the previous ensemble's mistakes — gradient descent in function space, and the king of tabular data..",
+        {type: "callout", text: "Gradient boosting turns residuals into the next training set, so every weak learner has one repair job."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -187,6 +188,7 @@ export const article = {
       paragraphs: [
         `Gradient boosting exists because many real prediction problems are too irregular for one simple model but too structured to ignore. Tabular data often contains thresholds, interactions, missing values, and feature effects that change across ranges. A linear model may miss those shapes. A single decision tree can find them, but it tends to overfit unless it is heavily constrained. The goal is to build a strong predictor from many small, controlled corrections rather than trust one large tree to discover everything at once.`,
         `The central move is sequence. Random forests train many trees independently and average them. Gradient boosting trains trees in order. Each new tree studies what the current ensemble still gets wrong. If the current model underprices large houses, the next tree is asked to correct that error. If the next round exposes a smaller pattern among mid-size houses, another tree corrects that. The final model is an additive function: a base prediction plus many learned corrections.`,
+        {type: `image`, src: `https://scikit-learn.org/stable/_images/sphx_glr_plot_adaboost_regression_001.png`, alt: `AdaBoost regression example with weak learners correcting prior errors`, caption: `The staged-regression picture shows the same ensemble repair idea: later weak learners focus on what the current predictor still misses. Source: scikit-learn examples, https://scikit-learn.org/stable/auto_examples/ensemble/plot_adaboost_regression.html`},
       ],
     },
     {
@@ -221,6 +223,7 @@ export const article = {
       heading: `How it works (2)`,
       paragraphs: [
         `The first visual proves that boosting begins from an error, not from a finished idea of the target function. The mean line is bad in a useful way: the gaps between data points and the line are organized. The residual plot turns those gaps into a dataset. Once the errors are visible as targets, the purpose of the next tree becomes concrete. It is not another independent opinion. It is a correction with a job.`,
+        {type: `image`, src: `https://scikit-learn.org/stable/_images/sphx_glr_plot_gradient_boosting_regression_001.png`, alt: `Gradient boosting regression example with prediction curves over training iterations`, caption: `scikit-learn shows gradient boosting as staged function improvement: each round moves the predictor toward the target surface. Source: https://scikit-learn.org/stable/auto_examples/ensemble/plot_gradient_boosting_regression.html`},
         `The learning-rate view proves the main regularization tradeoff. A full-size correction can reduce training error quickly on a clean toy problem. On noisy data, that same greed can memorize label noise. Shrinkage multiplies each tree by a value such as 0.1 or 0.03, forcing the ensemble to move in smaller steps. Smaller steps usually need more trees, but they give validation error more chances to reveal when the model has started chasing noise. Early stopping is therefore not an accessory. It is part of the algorithm's practical control system.`,
       ],
     },
@@ -237,6 +240,7 @@ export const article = {
       paragraphs: [
         `Gradient boosting is a default baseline for tabular machine learning. It is used in fraud detection, credit risk, churn prediction, pricing, demand forecasting, ad ranking, insurance, medical risk scoring, and many Kaggle-style competitions. It handles mixed numeric and categorical features after encoding, nonlinear thresholds, missing values, and feature interactions. XGBoost, LightGBM, and CatBoost are production forms of the same idea with careful engineering around split search, missing values, categorical handling, regularization, and distributed training.`,
         `The failure modes are direct consequences of the algorithm's strength. Because every round attacks the remaining error, leakage is rewarded aggressively. A feature that accidentally contains the answer will look like the perfect correction. Noisy labels can be chased round after round unless validation and early stopping are honest. Time-series problems fail if rows are randomly split and future information leaks into training. Categorical encodings can leak target statistics if they are computed outside the validation fold. Boosting also gives feature importance numbers that can be misleading when features are correlated or when leakage is present.`,
+        {type: `image`, src: `https://scikit-learn.org/stable/_images/sphx_glr_plot_forest_importances_001.png`, alt: `Feature importance chart from a tree ensemble`, caption: `Feature-importance bars are useful diagnostics, but correlated features and leakage can make them overconfident. Source: scikit-learn examples, https://scikit-learn.org/stable/auto_examples/ensemble/plot_forest_importances.html`},
         `For classification, the raw score is not the final product. A fraud team, lender, or medical workflow usually needs a calibrated probability and a threshold chosen against real costs. Boosting can produce excellent rankings while still being miscalibrated. Calibration curves, threshold analysis, and post-deployment drift checks turn the model from a leaderboard score into a decision system.`,
       ],
     },

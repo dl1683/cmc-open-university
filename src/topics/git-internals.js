@@ -94,12 +94,14 @@ export const article = {
       paragraphs: [
         'Git internals matter because Git is not just a folder history tool. It is a content-addressed object database with references, indexes, trees, commits, packs, and merge algorithms layered on top. Understanding those pieces makes everyday commands less mysterious.',
         'The practical payoff is confidence. When a branch moves, a commit disappears from the log, a merge conflicts, or a rebase rewrites history, the underlying object model explains what changed and what probably still exists in the database.',
+        {type: 'callout', text: 'Git is easier to reason about when commits, trees, blobs, and refs are treated as immutable objects plus movable names.'},
       ],
     },
     {
       heading: 'The obvious model',
       paragraphs: [
         'The obvious mental model is that Git stores file-by-file diffs. That is partly how people experience history, but it is not the core storage model. A commit points to a tree snapshot, not merely to a patch.',
+        {type: 'image', src: 'https://git-scm.com/book/en/v2/images/data-model-1.png', alt: 'Git commit object pointing to a tree and blob objects', caption: 'Pro Git, Git Internals: Git Objects, visualizes commits as pointers to tree snapshots rather than as patch files. Source: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects'},
         'Another tempting model is that a branch contains commits. More precisely, a branch is a reference to one commit. The commit graph contains parent links. Moving the reference changes what the branch name points at; it does not rewrite every object by itself.',
       ],
     },
@@ -108,6 +110,7 @@ export const article = {
       paragraphs: [
         'Git stores objects by content hash. Blob objects hold file contents. Tree objects map names to blobs and subtrees. Commit objects point to a root tree, parent commits, author metadata, committer metadata, and a message. Tags can point to objects with a stable name.',
         'This creates a Merkle DAG. A commit hash commits to its tree. The tree commits to file names, modes, and child object hashes. Parent links commit to history. Change one file and the affected blob, trees, and commit get new identities, while unchanged blobs are reused.',
+        {type: 'image', src: 'https://git-scm.com/book/en/v2/images/data-model-3.png', alt: 'Git object graph with multiple commits sharing unchanged objects', caption: 'Pro Git, Git Internals: Git Objects, shows how later commits reuse unchanged blobs and trees while new content receives new object identities. Source: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects'},
       ],
     },
     {
@@ -116,6 +119,7 @@ export const article = {
         'The working tree is the files you edit. The index is the staging area: a proposed next tree. The object database stores blobs, trees, commits, and tags. A commit writes a tree from the index, creates a commit object, and moves the current branch reference to that new commit.',
         'Branches are refs, usually files under refs/heads or packed references. HEAD normally points to a branch ref, and the branch ref points to a commit. Detached HEAD means HEAD points directly to a commit instead of a branch name.',
         'Git can store objects loose or packed. Loose objects are individual compressed files addressed by hash. Packfiles store many objects together with delta compression. The logical object model stays the same even when storage is optimized.',
+        {type: 'image', src: 'https://git-scm.com/book/en/v2/images/data-model-2.png', alt: 'Git tree object naming blobs for files in a directory snapshot', caption: 'Pro Git, Git Internals: Git Objects, makes the tree object concrete: names and modes point to blob identities inside a snapshot. Source: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects'},
       ],
     },
     {

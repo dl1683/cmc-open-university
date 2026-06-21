@@ -139,6 +139,7 @@ export const article = {
       paragraphs: [
         'Real codebases are rarely all static or all dynamic. A typed module imports an untyped library, a JavaScript service consumes JSON from another team, a Python package has partial hints, or a migration leaves old and new modules side by side.',
         'Gradual typing is the discipline for that mixed world. It lets typed and untyped regions coexist, but it must answer a concrete question at every crossing: what evidence lets this value be treated as this type?',
+        {type: 'callout', text: 'A gradual type boundary is honest only when it records what was checked, what remains unknown, and who owns a failed contract.'},
       ],
     },
     {
@@ -159,6 +160,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'Treat the boundary as executable structure, not as a comment. A value crossing from dynamic to typed code can be checked by a runtime contract, wrapped by a proxy, parsed by an adapter, accepted as Any, or received as unknown and narrowed before use.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'A typed boundary is an edge with policy: values can cross only with the amount of evidence the destination side requires. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg'},
         'Any and unknown are different policies. Any says "stop checking this value and trust the programmer." unknown says "there is a value here, but prove its shape before using it." Guards and narrowing are the mechanism that turns runtime evidence back into static facts.',
       ],
     },
@@ -173,6 +175,7 @@ export const article = {
       heading: 'Worked example',
       paragraphs: [
         'Suppose a typed TypeScript module reads provider JSON for a user profile. If the response is typed as Any, code can immediately call user.email.toLowerCase(), even when email is missing. The crash happens later and far from the boundary.',
+        {type: 'image', src: 'https://www.json.org/img/json160.gif', alt: 'JSON logo', caption: 'JSON inputs are the everyday boundary case: a parser can confirm syntax, but the application still needs shape evidence. Source: JSON.org, https://www.json.org/json-en.html'},
         'If the response is received as unknown, the module must parse or guard it first. After a predicate proves that email is a string, the checker can allow string methods in the dominated branch. The runtime check and static narrowing now point to the same fact.',
       ],
     },
@@ -187,6 +190,7 @@ export const article = {
       heading: 'Runtime and static behavior',
       paragraphs: [
         'Gradual systems differ. Typed Racket-style systems can enforce contracts at typed/untyped boundaries. TypeScript and Python type hints mostly add static analysis and leave runtime behavior unchanged unless the program uses explicit parsers, guards, assertions, or validation libraries.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/Typescript.svg/250px-Typescript.svg.png', alt: 'TypeScript logo', caption: 'TypeScript represents the static-analysis side of gradual typing: it tracks evidence at compile time but needs explicit guards for runtime data. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Typescript.svg'},
         'Flow-sensitive narrowing is scoped by control flow. A typeof check, discriminant check, predicate function, or parser result can refine a value only along paths where the check is known to hold. Once control merges with paths where the predicate may be false, the checker must weaken the fact.',
       ],
     },

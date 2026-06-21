@@ -174,6 +174,8 @@ export const article = {
       paragraphs: [
         'Four node states tell the story. Unvisited nodes are gray — BFS has not reached them. Queued nodes glow orange — they are in the frontier, waiting their turn. The single bright node is the current node being processed: BFS is scanning its neighbors right now. Dark nodes are finished — dequeued and fully expanded.',
         'Highlighted edges show discovery. When BFS enqueues a neighbor, the connecting edge lights up to mark the parent link that will later reconstruct the shortest path. The queue contents appear in each step. Watch the queue shrink at the front and grow at the back — that first-in, first-out discipline is the entire reason BFS finds shortest paths.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Animated_BFS.gif', alt: 'Animated breadth-first search expanding from a source node in rings', caption: 'The canonical BFS animation shows the ring expansion directly: gray nodes wait, queued nodes form the frontier, and black nodes are finished. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Animated_BFS.gif'},
+        {type: 'callout', text: 'BFS gets shortest unweighted paths because the queue finishes every closer ring before any farther ring can run.'},
         'The hop count beside each node is set at the moment of enqueue, not dequeue. That is the moment BFS proves the shortest distance to that node. Once set, no later discovery can improve it.',
       ],
     },
@@ -181,6 +183,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Edward Moore described breadth-first search in 1959 to solve maze routing: given a grid, find a path from entrance to exit using the fewest steps. C. Y. Lee adapted it in 1961 for printed-circuit-board routing, where wires must reach pins through the shortest Manhattan-distance path. Both problems need the same guarantee: explore every position at distance d before touching any position at distance d + 1.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/GermanyBFS.svg/250px-GermanyBFS.svg.png', alt: 'Breadth-first tree from a German city graph starting at Frankfurt', caption: 'A BFS tree records first-discovery parent links, so the tree itself is evidence of shortest hop paths from the source. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:GermanyBFS.svg'},
         'Graphs are messier than trees. A node can be reachable by many paths, cycles can loop forever, and two routes to the same place can differ in length. BFS tames that mess with one structural rule: use a queue so closer nodes always leave before farther nodes. The result is the shortest path by edge count in any unweighted graph.',
       ],
     },
@@ -188,6 +191,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Depth-first search is the natural first attempt. Pick a direction, keep going until you hit a dead end or the target, then backtrack. DFS is simple, uses little memory (just the recursion stack), and will find a path if one exists.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'Cycles and cross-links are what make the seen set mandatory; without it, traversal can revisit the same directed structure forever. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg'},
       ],
     }
   ],

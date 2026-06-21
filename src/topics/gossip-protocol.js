@@ -112,6 +112,7 @@ export const article = {
       paragraphs: [
         'Green ("found") nodes already know the rumor. Orange ("active") nodes just learned it this round. Gray ("swap") nodes are offline. Edges show the messages sent in the current round.',
         'Each frame is one gossip round. Watch the informed set grow: round 1 has 1 sender reaching 2 peers; round 2 has 3 senders reaching up to 6 new peers. The doubling pattern is the protocol\'s core mechanism.',
+        {type: 'callout', text: 'Gossip trades exact delivery paths for repeated random exposure, so no single sender, edge, or schedule becomes load bearing.'},
         'Redundant messages (hitting an already-informed node) are visible as edges into green nodes. They look wasteful, but they are the reason the protocol tolerates failures: every path is disposable because another path exists.',
         'Switch to the "3 nodes offline" view and watch gossip route around the dead nodes without any failure-handling code. No edge was ever essential.',
       ],
@@ -143,12 +144,14 @@ export const article = {
       paragraphs: [
         'Replace one planned path with many random, redundant, disposable paths. Each round, every informed node picks k peers at random and sends the rumor. Most of those messages are redundant. That redundancy is the point.',
         'The invariant is not exactly-once delivery. It is repeated probabilistic exposure. No single message matters. No single path matters. The protocol works because the expected number of fresh contacts per round exceeds 1 until saturation, so the informed population grows exponentially despite wasted messages, lost packets, and dead nodes.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows connecting nodes', caption: 'A directed graph makes the disposable-path idea visible: gossip correctness comes from many possible contacts rather than one fixed route. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg'},
       ],
     },
     {
       heading: 'The epidemic dissemination model',
       paragraphs: [
         'Gossip protocols borrow directly from mathematical epidemiology. The SIR (Susceptible-Infected-Removed) model from Demers et al. (1987) maps cleanly: uninformed nodes are susceptible, informed nodes actively spreading are infected, and nodes that stop spreading (after enough rounds or enough redundant contacts) are removed.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg/250px-Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg.png', alt: 'SIR epidemic state diagram with susceptible infected and removed states', caption: 'The SIR state machine is the epidemiology analogue behind rumor spreading: susceptible nodes become active spreaders, then leave the active set. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Diagram_of_SIR_epidemic_model_states_and_transition_rates.svg'},
         'Let I(t) be the fraction of informed nodes at round t. With fanout k (each informed node contacts k random peers), the growth follows approximately dI/dt = k * I * (1 - I). This is the logistic equation. Early on, I is small and growth is exponential: each round roughly multiplies informed nodes by k. Near saturation, most contacts hit already-informed nodes, so growth slows.',
         'The crossover from exponential growth to diminishing returns happens around I = 0.5. The first half of the cluster learns fast; the last few nodes take disproportionately long. This tail behavior is why production systems add anti-entropy sweeps on top of rumor spreading.',
       ],
@@ -174,6 +177,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'Convergence follows from the epidemic growth equation. With fanout k = 2, the expected number of newly informed nodes per round is approximately 2 * I(t) * (1 - I(t)) * n. When I(t) is small, growth is exponential with base ~k. After O(log n) rounds, I(t) approaches 1 with high probability.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/SIR_trajectory.png/500px-SIR_trajectory.png', alt: 'SIR trajectory curves showing susceptible infected and removed populations over time', caption: 'The SIR trajectory shows the same shape gossip systems exhibit: fast middle growth and a slow tail near saturation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:SIR_trajectory.png'},
         'Concretely: with n = 1,024 nodes and fanout 2, log_2(1024) = 10 rounds suffice for near-complete coverage. With n = 1,000,000, about 20 rounds. Doubling the cluster adds one round. This is the O(log n) convergence guarantee.',
         'Fault tolerance is structural, not engineered. Suppose 10% of nodes are dead. Each gossip contact has a 10% chance of hitting a dead node, but the remaining 90% of contacts still succeed. The informed population still grows exponentially, just with effective fanout k * 0.9 instead of k. Convergence takes slightly more rounds but the protocol never notices the failures. No rerouting, no tree repair, no failure detection prerequisite.',
         'The probabilistic guarantee is not absolute. There is a nonzero probability that some node is never contacted. With fanout 2, the probability that a specific node is missed after c * log(n) rounds decreases as 1/n^c. Choosing c = 3 (three times the minimum rounds) makes the miss probability negligible for practical cluster sizes.',

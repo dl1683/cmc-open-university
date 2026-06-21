@@ -155,12 +155,14 @@ export const article = {
         'Each circle is a vertex. Lines between circles are edges. The note under each vertex shows its assigned color (red, blue, green, ...) once the algorithm has processed it.',
         'Active highlight marks the vertex currently being colored. Compare highlights show its neighbors and the edges being checked for color conflicts. Visited highlights mark vertices that already have a color. Found highlights appear when a vertex receives its final color assignment.',
         'The algorithm processes vertices in the chosen order. For each vertex, it checks which colors its already-colored neighbors use, then picks the smallest color index not in that blocked set. Watch how high-degree vertices processed early force later neighbors into new colors, and how low-degree vertices often reuse an existing color.',
+        {type: 'callout', text: 'Graph coloring turns conflict into adjacency: once conflicts are edges, a color is any reusable resource that no neighbor can share.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'Many real problems reduce to one constraint: things that conflict cannot share a resource. Exams with overlapping students cannot run in the same time slot. CPU values that are live at the same time cannot share a register. Radio transmitters within range of each other cannot use the same frequency. Adjacent countries on a map should not share a color.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Four_Colour_Map_Example.svg/250px-Four_Colour_Map_Example.svg.png', alt: 'Example map colored with four colors so adjacent regions differ', caption: 'Map coloring is the original conflict-to-adjacency picture: neighboring regions are constraints, colors are reusable labels. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Four_Colour_Map_Example.svg'},
         'All of these are the same abstract problem. Build a graph where nodes are the things and edges connect conflicting pairs. Assign labels (colors) so no edge has the same label on both ends. Minimize the number of labels. That is graph coloring.',
         'The chromatic number chi(G) is the smallest k such that G has a valid k-coloring. Finding it exactly is NP-hard for general graphs, but greedy heuristics work well enough for most practical instances.',
       ],
@@ -183,6 +185,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Process vertices one at a time. When you reach a vertex, its neighbors that are already colored define a set of forbidden colors. Pick the smallest color not in that set. This greedy strategy never creates a conflict because it only looks at colors already committed. It runs in O(V + E) time.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Petersen_graph_3-coloring.svg/250px-Petersen_graph_3-coloring.svg.png', alt: 'Three-coloring of the Petersen graph vertices', caption: 'The Petersen graph coloring makes the local rule concrete: every edge connects two different colors, even when the graph is highly constrained. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Petersen_graph_3-coloring.svg'},
         'The key tradeoff: greedy is fast but not optimal. The number of colors it uses depends on the vertex ordering. A bad order can force extra colors. A good order — like sorting by degree descending (Welsh-Powell) — tends to use fewer colors because high-degree vertices get colored first, when more colors are still available.',
       ],
     },
@@ -200,6 +203,7 @@ export const article = {
       paragraphs: [
         'Greedy never assigns a conflicting color because it checks all colored neighbors before choosing. The only question is how many colors it needs. The answer: at most Delta + 1, where Delta is the maximum degree of any vertex. Proof: when greedy reaches any vertex v, v has at most Delta neighbors, so at most Delta colors are blocked. Color Delta + 1 is always available.',
         'Brooks\' theorem (1941) tightens this: for any connected graph that is not a complete graph and not an odd cycle, chi(G) <= Delta. Complete graphs need exactly Delta + 1 colors (every vertex is adjacent to every other). Odd cycles need 3 colors. Everything else can do at least one better than the greedy worst case.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Four_Colour_Planar_Graph.svg/250px-Four_Colour_Planar_Graph.svg.png', alt: 'Planar map and corresponding four-colored graph', caption: 'The Four Color Theorem converts a planar map into a planar graph, then colors vertices so adjacent regions differ. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Four_Colour_Planar_Graph.svg'},
         'For planar graphs, the Four Color Theorem (Appel and Haken 1976) guarantees chi(G) <= 4. This was the first major theorem proved with computer assistance — the proof checked 1,936 reducible configurations by machine. A simpler proof by Robertson, Sanders, Seymour, and Thomas (1997) reduced the configurations to 633.',
       ],
     },

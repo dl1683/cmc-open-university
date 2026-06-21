@@ -219,6 +219,7 @@ export const article = {
       paragraphs: [
         `Batch size is one of the first knobs people touch when a training run gets expensive. A larger batch can keep more accelerators busy, reduce the number of all-reduce rounds per example, and make a job finish sooner in wall-clock time. It can also waste tokens, images, or environment steps if each optimizer update no longer learns much more than a smaller update would have learned. Gradient noise scale exists to separate those two stories.`,
         `A minibatch gradient is an estimate of the full-batch gradient. Part of it is signal: the direction the whole dataset would push the parameters. Part of it is sampling noise: the wobble caused by looking at only some examples. The gradient noise scale compares the variance of that estimate with the squared size of the signal. McCandlish et al. used it to predict the largest useful batch size across supervised learning, reinforcement learning, and generative-model training: https://arxiv.org/abs/1812.06162.`,
+        {type: `callout`, text: `The critical batch is the point where extra examples mostly clean up an update direction the optimizer already knew.`},
       ],
     },
     {
@@ -233,12 +234,14 @@ export const article = {
       paragraphs: [
         `The useful question is not "how large can the batch be?" The useful question is "how much noise is still large enough to justify averaging more examples before taking an update?" When sampling noise is large compared with the true gradient signal, increasing the batch can improve the update. When noise is already small compared with the signal, more averaging mostly buys a prettier estimate of the same direction.`,
         `That creates a knee. Below the knee, batch growth often improves wall-clock speed without burning too much data efficiency. Near the knee, the batch is large enough to expose parallelism but small enough to preserve many useful optimizer steps. Far beyond the knee, the run may still scale in examples per second, but each step consumes more data for little additional learning.`,
+        {type: `image`, src: `https://ar5iv.labs.arxiv.org/html/1812.06162/assets/figures/Misc/basic-scaling.png`, alt: `Large batch scaling plot from McCandlish et al. showing a useful batch-size knee`, caption: `McCandlish et al. visualize the batch-size knee where time scaling and example efficiency start to diverge. Source: ar5iv rendering of arXiv:1812.06162, https://ar5iv.labs.arxiv.org/html/1812.06162`},
       ],
     },
     {
       heading: 'How the mechanism works',
       paragraphs: [
         `In practice, a trainer estimates gradient statistics from measurements at different batch sizes. A small batch gives a noisy estimate. A larger batch reduces noise. By comparing gradient norms and variance, the training system can estimate how much of the update is stable signal and how much is sampling scatter. The critical batch is roughly the scale where extra examples stop reducing the error that matters.`,
+        {type: `image`, src: `https://ar5iv.labs.arxiv.org/html/1812.06162/assets/figures/Misc/optimal-step-illustration.png`, alt: `Optimal step illustration for noisy gradient estimates and batch size`, caption: `The optimal-step illustration separates direction quality from raw hardware use: extra examples matter only while they materially improve the update. Source: ar5iv rendering of arXiv:1812.06162, https://ar5iv.labs.arxiv.org/html/1812.06162`},
         `The estimate is not a universal constant. It depends on the model, dataset, optimizer, loss value, and training stage. McCandlish et al. reported that noise scale tends to increase as loss falls, which means the useful batch can grow during a run. That is why batch-size schedules can make sense. Early training may be efficient with smaller batches. Later training may benefit from larger batches because the signal is weaker and averaging noise is more valuable.`,
       ],
     },
@@ -246,6 +249,7 @@ export const article = {
       heading: 'What the visual is proving',
       paragraphs: [
         `The noise-meter view proves that batch size controls an estimator, not just a hardware load. The mean node is the useful push. The variance node is the sampling scatter. The GNS node exists because the ratio between those quantities is what decides whether another example in the batch is informative or mostly redundant.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/f/f3/Stogra.png`, alt: `Stochastic gradient descent path with noisy updates`, caption: `Stochastic-gradient paths make the core tradeoff visible: smaller batches inject noise, while larger batches average it away. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Stogra.png`},
         `The scaling-decision view proves that two honest scoreboards can disagree. Time speedup can keep rising because devices stay busy. Data efficiency can fall because each update costs more examples. The critical batch marker is the bend where those curves stop telling the same story. The source map adds the historical lesson: large batches can work with warmup, small-batch noise can help generalization, and batch growth can cool training in a way that resembles learning-rate decay.`,
       ],
     },

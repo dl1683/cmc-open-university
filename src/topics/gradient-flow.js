@@ -141,6 +141,7 @@ export const article = {
       paragraphs: [
         'The first view plots gradient magnitude reaching each layer of a 10-layer network during backpropagation. The curve falling toward zero is the vanishing gradient: each layer multiplies the signal by a factor below 1, and the product collapses exponentially. The skip connection (residual) curve in the second view shows the fix: an identity path that floors the gradient at 1 regardless of depth.',
         'Active items mark the current layer being traced. Found markers flag the residual bypass that keeps the signal alive. The comparison between sigmoid chains and residual chains is the central visual claim: skip connections turn an exponentially dying signal into a stable one. Watch the gap between curves widen as depth increases.',
+        {type: 'callout', text: 'Depth trains only when the backward signal has a path whose product does not collapse or explode.'},
       ],
     },
     {
@@ -154,6 +155,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Stack more layers. Each layer learns one more level of abstraction. VGG proved that many small 3x3 filters outperform fewer large filters at the same receptive field. So build VGG-56, VGG-100, VGG-200. Every layer is differentiable. Backpropagation can compute the gradient. Gradient descent should find good weights.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/88/Logistic-curve.svg', alt: 'Logistic sigmoid curve flattening near zero and one', caption: 'The sigmoid curve shows why saturation starves gradients: at the flat tails, small input changes barely move the output. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Logistic-curve.svg'},
         'This works up to about 20 layers. Past that threshold, the learning signal reaching early layers is too weak to be useful. The chain rule multiplies one local derivative per layer, and with sigmoid or tanh activations, each derivative is at most 0.25. Over 50 layers: 0.25 to the 49th power is roughly 0.000000000000000000000000000003. The early layers, the ones responsible for learning edges and textures, are frozen. Adding layers does not add capability; it adds dead weight.',
       ],
     },
@@ -169,12 +171,14 @@ export const article = {
       paragraphs: [
         'Rewrite the layer as F(x) + x instead of H(x). The network no longer learns the full mapping H(x). It learns the residual F(x) = H(x) - x: the difference between the desired output and the input. If the optimal mapping is close to identity, the residual F is close to zero. Learning a near-zero function is easy: zero-initialized weights already produce it. The optimization landscape tilts toward identity by construction.',
         'The plus sign is the entire invention. It creates a skip connection (also called a shortcut or identity mapping) that carries the input past the layer unchanged. The learned branch F(x) only needs to capture what should change. Differentiate y = F(x) + x and the gradient is dF/dx + I. That identity matrix I means the gradient always has a direct path with magnitude 1. No matter how deep the network, no matter how poorly F is currently parameterized, the gradient reaches every layer through the skip path.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/ba/ResBlock.png', alt: 'Residual block diagram with a shortcut path added to a learned branch', caption: 'A residual block gives gradients a shortcut around the learned branch, turning depth into optional refinements rather than one fragile chain. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:ResBlock.png'},
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
         'A basic residual block has two paths. The main path passes the input through conv, batch normalization, ReLU, conv, batch normalization. The skip path carries the input unchanged. The two paths are added element-wise, then a final ReLU is applied. This is the building block of ResNet-34: stacks of these two-layer residual blocks.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Rectifier_and_softplus_functions.svg', alt: 'Rectifier and softplus activation functions plotted together', caption: 'ReLU-like activations avoid the fully saturated tails of sigmoid units on the positive side, which helps gradient flow in deep nets. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Rectifier_and_softplus_functions.svg'},
         'For deeper networks (ResNet-50, ResNet-101, ResNet-152), the bottleneck block is more efficient. It uses three convolutions: 1x1 to reduce channels (say 256 to 64), 3x3 to process at the reduced dimension, 1x1 to expand back (64 to 256). The 3x3 convolution operates on 64 channels instead of 256, cutting computation by roughly 4x. Batch normalization follows each convolution. The skip connection still adds the original 256-channel input to the output.',
         'When the spatial dimensions or channel count change between blocks (a stride-2 convolution for downsampling), the skip connection uses a 1x1 convolution with matching stride to project the input to the correct shape. This projection shortcut is the only case where the skip path has learned parameters.',
         'Pre-activation ResNet (He et al. 2016, "Identity Mappings in Deep Residual Networks") reorders the block: BN, ReLU, conv, BN, ReLU, conv. The skip connection becomes a pure identity y = x + F(BN(ReLU(x))). This cleans up the gradient path further and trains successfully at 1001 layers on CIFAR-10.',
@@ -227,4 +231,3 @@ export const article = {
     },
   ],
 };
-

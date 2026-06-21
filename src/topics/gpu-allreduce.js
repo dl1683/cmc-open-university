@@ -199,6 +199,7 @@ export const article = {
       paragraphs: [
         'GPU all-reduce exists because replicated training has a simple correctness rule: every model replica must apply the same update. In synchronous data parallel training, each GPU sees a different slice of the batch and computes a local gradient. Those gradients are not interchangeable guesses; they are pieces of the gradient for the larger global batch. All-reduce combines them and leaves the combined result on every rank, so the optimizer step keeps the replicas identical.',
         'The key word is collective. All ranks participate in the same operation, with compatible count, datatype, reduction operator, and call order. NVIDIA NCCL documents AllReduce as reducing values across devices and storing the result in every rank receive buffer. That definition is small, but it is the hinge for data parallelism, ZeRO, tensor parallelism, and many distributed debugging failures.',
+        {type: 'callout', text: 'All-reduce is a placement contract: every rank contributes to one reduction and every rank receives the same reduced tensor.'},
       ],
     },
     {
@@ -212,6 +213,7 @@ export const article = {
       heading: 'Core Insight',
       paragraphs: [
         'The core insight is to split the tensor into chunks and spread both reduction and distribution across the participants. A ring all-reduce does this in two phases. Reduce-scatter circulates chunks around a ring, and each rank adds its local contribution as a chunk passes. When that phase finishes, every rank owns one fully reduced shard. All-gather then circulates those reduced shards until every rank has the full reduced tensor.',
+        {type: 'image', src: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allreduce.png', alt: 'NCCL all-reduce collective diagram showing data reduced and available on every rank', caption: 'NVIDIA NCCL documentation shows the AllReduce placement contract: every participant receives the reduced result. Source: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html'},
         'The two-phase view matters because the named collectives are data-placement contracts. All-reduce means every rank ends with the full reduced tensor. Reduce-scatter means the tensor has been reduced and sharded. All-gather means shards have been concatenated back everywhere. All-to-all means each rank sends a different shard to each peer. Once the output placement is clear, distributed training systems look less magical and more like layout transformations.',
       ],
     },
@@ -219,6 +221,7 @@ export const article = {
       heading: 'How The Algorithm Works',
       paragraphs: [
         'In a ring with k ranks, the tensor is divided into k chunks. During reduce-scatter, each rank repeatedly sends one chunk to its neighbor and receives another chunk from the previous neighbor. On receive, it adds its local contribution for that chunk. After k - 1 steps, each chunk has visited all contributors, and each rank holds one reduced chunk. During all-gather, the reduced chunks circulate for another k - 1 steps, so every rank collects every reduced chunk.',
+        {type: 'image', src: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/reducescatter.png', alt: 'NCCL reduce-scatter collective diagram showing reduced shards distributed across ranks', caption: 'NVIDIA NCCL documentation shows ReduceScatter as reduction plus sharding, which is the first half of the ring all-reduce mental model. Source: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html'},
         'This is not the only all-reduce algorithm. Tree and hierarchical algorithms can be better for different message sizes and network topologies. NCCL chooses algorithms and protocols based on devices, links, ranks, and message sizes. The animation uses a ring because it exposes the conservation law: no central node owns the whole problem, and every link can carry useful traffic while reduction progresses.',
       ],
     },
@@ -226,6 +229,7 @@ export const article = {
       heading: 'What The Visual Proves',
       paragraphs: [
         'The ring view proves why all-reduce is not a parameter server in disguise. The arrows carry chunks around the group, and the center bucket is one logical tensor rather than one physical coordinator. The reduce-scatter step shows where the sum is formed. The all-gather step shows where replication is restored.',
+        {type: 'image', src: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/_images/allgather.png', alt: 'NCCL all-gather collective diagram showing shards collected on every rank', caption: 'NVIDIA NCCL documentation shows AllGather restoring full replication after shards have been produced. Source: https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html'},
         'The training-step table proves the correctness role. Before synchronization, every rank has a gradient for its own mini-batch. After synchronization, every rank has the same averaged gradient. That is why the optimizer row can show the same weights on every rank. If the all-reduce row is skipped, reordered, or applied to different shapes, the table no longer represents one shared model.',
       ],
     },
