@@ -245,6 +245,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Buddy Allocator Free Lists. A memory allocator layout: keep one free list per power-of-two block size, split larger blocks on demand, and coalesce exact buddies on free..",
+        {
+          type: "callout",
+          text: "The allocator wins because every power-of-two block has exactly one legal merge partner.",
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -268,6 +272,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Split memory as a binary tree of power-of-two blocks. At any order, a block has exactly one same-size buddy: the sibling created by the same split. With aligned addresses, the buddy address is found by flipping the bit for that block size.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:S8vJL0_OSCwqUQhx4nKMNjNR8HZSKMrPL4lV0NW1U3CKNjZS8HaK5XIEc51hXCcw1yXa0AyJ6wrjuoC5btEWSDx3KM9NQVdPIbUiMblEIak0JaVSQU9XwR2kRk8hOT8xJ7U4ORUk5AQA',
+          alt: 'Buddy allocation tree where split blocks form exact sibling buddies and coalesce upward.',
+          caption: 'The binary split tree makes the merge candidate local: only the sibling block at the same order can coalesce. Source: https://mermaid.ink/svg/pako:S8vJL0_OSCwqUQhx4nKMNjNR8HZSKMrPL4lV0NW1U3CKNjZS8HaK5XIEc51hXCcw1yXa0AyJ6wrjuoC5btEWSDx3KM9NQVdPIbUiMblEIak0JaVSQU9XwR2kRk8hOT8xJ7U4ORUk5AQA',
+        },
         'That one fact turns coalescing from a heap search into a local test. If the exact buddy is free, merge the two children back into their parent. If it is not free, no other block at that order is allowed to merge with this one.',
       ],
     },
@@ -282,6 +292,12 @@ export const article = {
       heading: 'How it works (2)',
       paragraphs: [
         'Allocation rounds the request up to an order such as 4 KB, 8 KB, 16 KB, or 32 KB. If that order has a free block, return it. If not, climb to the next larger nonempty order, remove one block, split it into equal halves, place the unused half on the smaller-order free list, and repeat until the target order exists.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:PY69CsMgFIV3n-K-QAcjZCwkQ5c4mWYSh_zcUInV1FwppfTdSyzp-p2Pc87swnO89ZFAKqY0F9DUEPGRcCMDp9MZOq1C8hNQAF5CUxvWZS55-c4A5ogIzm4EeF_p9WGSlz9FFPraLwii2L3BhXExTIoip61uV2cJrD-qYUjTZHEzrM1GpSvnwtgTQvB40ItWSCn6nf1f5X3zBQ',
+          alt: 'Allocation request rounded to a 16 KB order, satisfied by splitting a 32 KB block into buddies.',
+          caption: 'Allocation climbs to a larger free list only when the target order is empty, then splits until one block can serve the request. Source: https://mermaid.ink/svg/pako:PY69CsMgFIV3n-K-QAcjZCwkQ5c4mWYSh_zcUInV1FwppfTdSyzp-p2Pc87swnO89ZFAKqY0F9DUEPGRcCMDp9MZOq1C8hNQAF5CUxvWZS55-c4A5ogIzm4EeF_p9WGSlz9FFPraLwii2L3BhXExTIoip61uV2cJrD-qYUjTZHEzrM1GpSvnwtgTQvB40ItWSCn6nf1f5X3zBQ',
+        },
         'Freeing reverses the tree. Compute the buddy for the freed block at its current order. If that buddy is free, remove the buddy from its free list, merge the pair into the next order, and try again. The merge stops when the buddy is allocated, missing, or the region has reached the maximum order.',
         'A practical allocator also needs metadata. It must know each block order, whether a block is free or allocated, which free list owns it, and where the managed region begins. Kernel implementations often combine per-order free lists with page descriptors and zone policy because not all pages are interchangeable.',
       ],

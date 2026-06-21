@@ -260,6 +260,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each node is a general. Edges are messages. A highlighted node is the current speaker; a red node is the traitor. Messages carry values (A for attack, R for retreat). When a traitor sends different values along different edges, the animation shows both, so you can see the equivocation that honest nodes cannot detect from their local view.',
+        {
+          type: 'callout',
+          text: 'Byzantine fault tolerance is quorum math for systems where a faulty participant can create different realities for different peers.',
+        },
         'The first view (the generals and 3f+1) walks through impossibility at N = 3, then consensus at N = 4 with one traitor, then the quorum arithmetic that generalizes the result. The second view (PBFT and the real world) shows the production protocol and deployment map. Watch for the relay round: it is the step where private contradictions become shared evidence.',
       ],
     },
@@ -267,6 +271,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'In 1982, Leslie Lamport, Robert Shostak, and Marshall Pease at SRI International published "The Byzantine Generals Problem." The question: how can distributed nodes reach agreement when some nodes are not just silent or crashed, but actively lying? A crashed node withholds information. A Byzantine node fabricates it -- sending different values to different peers while still participating in the protocol.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:RcyxCsIwFEbhPU_xv4BDHR0EW0dxUeoQMlzTWxpME7m5tfTtxVJwOnCGr4959gOJ4l6bk31kiR2qA1QoaBb4PI6UOhaH3e6I1l4qFOYCUiX_wjtOBcIqTArhSIsz9cbs_0wMPCknSro5pl3b2BuNDP6EjpNnZ5p1n-01Q6bI8JRQSEPpFzyzDph_dHFf',
+          alt: 'Two Byzantine fault worlds produce the same evidence for an honest lieutenant.',
+          caption: 'The N = 3 impossibility comes from observational ambiguity: two different traitor placements can create the same local evidence. Source: https://mermaid.ink/svg/pako:RcyxCsIwFEbhPU_xv4BDHR0EW0dxUeoQMlzTWxpME7m5tfTtxVJwOnCGr4959gOJ4l6bk31kiR2qA1QoaBb4PI6UOhaH3e6I1l4qFOYCUiX_wjtOBcIqTArhSIsz9cbs_0wMPCknSro5pl3b2BuNDP6EjpNnZ5p1n-01Q6bI8JRQSEPpFzyzDph_dHFf',
+        },
         'The problem matters wherever participants cannot trust each other. Blockchain validators are strangers with money at stake. Flight computers share a fuselage but not a circuit board -- a cosmic-ray bit flip turns one into a liar. Any replicated system exposed to compromise, bugs, or adversarial operators faces the same question: can the honest majority still agree?',
       ],
     },
@@ -275,8 +285,13 @@ export const article = {
       paragraphs: [
         'Majority vote. Each node broadcasts its value, every node counts the votes, and everyone picks whichever value appeared most often. This works perfectly against crash faults: a crashed node simply contributes fewer votes, and the honest majority wins.',
         'The approach feels complete. With 3 generals and 1 traitor, 2 honest nodes still form a majority. What could go wrong?',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:VcqxCoMwFEbhPU_x78VBR4eCpYNDIcSOwSGEiIH0Xsm91tcvFTp0OnD4lsJHXENVPCbjWu92rvsLQ49uubQzmuYK6-071RK2Ht9nXPdjtz9m7NnRD4qSgiiYElamJIojKyWR2Ywnevp7ilkykyAGIlbIVrLOHw',
+          alt: 'Two Byzantine quorums of size 2f plus 1 overlap in f plus 1 nodes, leaving at least one honest witness.',
+          caption: 'The 3f+1 rule forces any two 2f+1 quorums to share at least one honest witness. Source: https://mermaid.ink/svg/pako:VcqxCoMwFEbhPU_x78VBR4eCpYNDIcSOwSGEiIH0Xsm91tcvFTp0OnD4lsJHXENVPCbjWu92rvsLQ49uubQzmuYK6-071RK2Ht9nXPdjtz9m7NnRD4qSgiiYElamJIojKyWR2Ywnevp7ilkykyAGIlbIVrLOHw',
+        },
       ],
     }
   ],
 };
-

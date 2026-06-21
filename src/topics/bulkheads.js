@@ -153,6 +153,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "One pool, shared doom" shows a service with a single thread pool serving three dependencies. When the recommendations dependency starts hanging, watch the held-thread count climb until payments and search -- both healthy -- starve. Active highlights mark the resource under pressure. Removed highlights mark the collateral damage.',
+        {
+          type: 'callout',
+          text: 'A bulkhead turns failure scope from an outage surprise into a resource boundary chosen before the incident.',
+        },
         '"Compartments, sized by math" shows the same 200 threads divided into per-dependency pools. When recommendations sickens, its compartment fills and fails fast. Found highlights on the payments and search rows prove they keep full capacity. The matrix view traces the numbers second by second so you can verify the math yourself.',
         'At each frame, check three things: which compartment is saturating, whether the boundary held, and what the user-visible effect would be. If the boundary held, the outage shape matches the dependency shape. If it did not, the pool design is the bug.',
       ],
@@ -166,6 +170,12 @@ export const article = {
           attribution: 'Michael T. Nygard, Release It! (2007, 2nd ed. 2018)',
         },
         'The name comes from shipbuilding. A hull is divided into watertight compartments so one breach floods one chamber, not the whole vessel. In software, the compartments are thread pools, semaphores, connection pools, memory limits, or tenant cells. The invariant is the same: one failure consumes only the resources assigned to it.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:dcxBCsIwEEDRfU4xF0iP4MKKK8HauAtZTNMpDUxnJImW3l6wG0Hcfh5_Yl3jjLnCpTdHfxWCwrrCSA-SkSRuAaw9QOt7irosJCPWpFLgocowPZmDaT_k5M-YGDLFAhOWGkznO9wWkrrr_XTzriZmwBcmxoEpGOcdYY7zl7r_qhZsAxFFtMKgOesKjYXuT3dv',
+          alt: 'A saturated recommendations pool cannot borrow from payments or search pools.',
+          caption: 'Per-dependency pools make saturation local: the sick compartment fills, while neighboring pools remain usable. Source: https://mermaid.ink/svg/pako:dcxBCsIwEEDRfU4xF0iP4MKKK8HauAtZTNMpDUxnJImW3l6wG0Hcfh5_Yl3jjLnCpTdHfxWCwrrCSA-SkSRuAaw9QOt7irosJCPWpFLgocowPZmDaT_k5M-YGDLFAhOWGkznO9wWkrrr_XTzriZmwBcmxoEpGOcdYY7zl7r_qhZsAxFFtMKgOesKjYXuT3dv',
+        },
         'Healthy work dies when it shares a resource pool with sick work. A recommendations service hanging for 30 seconds holds threads that payments needs. Payments is fast, its dependency is healthy, but it cannot get a worker because recommendations is holding all of them. A survivable feature outage becomes a total site outage. Bulkheads exist to make "what failed" match "what users lost."',
       ],
     },
@@ -275,6 +285,12 @@ export const article = {
         'Bulkheads win whenever one class of work is less important, less reliable, or more bursty than the work beside it. Recommendations beside checkout, analytics beside login, batch jobs beside interactive queries, tenant workloads sharing a database, plugins inside a host service, and external API calls beside core product logic are all natural fits.',
         'The idea scales upward through every layer of the stack. Database connection pools isolate per-service clients. Kubernetes memory and CPU limits isolate containers. Rate limits isolate tenants. Cell-based architecture isolates entire user populations so one cell can degrade without taking the whole product down. The resource unit changes from thread to connection to container to region, but the invariant stays the same: a bounded compartment with a configured blast radius.',
         'Bulkheads pair naturally with circuit breakers. The bulkhead is structural containment: it caps damage before any detector fires. The breaker is adaptive recovery: it notices failures, opens the circuit, and probes for health. Together, a compartment fills, calls fail fast, the breaker opens, the dependency gets quiet, and a probe carefully reintroduces traffic.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:HckxDsMgDADAnVf4A_lCpQbSqUPVFTG4yBQkB1LsCOX3lVjvErcRM3aF59vcvW37gV13qgqpMEuAZbnB6i0yCyQsDAlFg1lnWG9Lj2dRaAdVCcZOdt61UUU74Q5fUoHfWUiDcbM3_-rtQ6AdUyoxmG3yw1tuQjAyVciErPkKfw',
+          alt: 'Sequence from filled compartment to fail-fast calls, open circuit, quiet downstream, probe traffic, and recovery.',
+          caption: 'Bulkheads cap the damage first; breakers then reduce load and probe the dependency back into service. Source: https://mermaid.ink/svg/pako:HckxDsMgDADAnVf4A_lCpQbSqUPVFTG4yBQkB1LsCOX3lVjvErcRM3aF59vcvW37gV13qgqpMEuAZbnB6i0yCyQsDAlFg1lnWG9Lj2dRaAdVCcZOdt61UUU74Q5fUoHfWUiDcbM3_-rtQ6AdUyoxmG3yw1tuQjAyVciErPkKfw',
+        },
       ],
     },
     {
@@ -311,4 +327,3 @@ export const article = {
     },
   ],
 };
-

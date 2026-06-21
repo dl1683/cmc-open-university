@@ -109,6 +109,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has three phases. Phase 1 distributes elements into buckets: each value is mapped to a bucket index by dividing the value range evenly across n buckets. Watch each element land in its bucket and note how the bucket index depends on the element\'s position within the range.',
+        {
+          type: 'callout',
+          text: 'Bucket sort is fast only when the bucket map turns global ordering into many tiny local sorts.',
+        },
         'Phase 2 sorts each non-trivial bucket using insertion sort. Highlighted elements show which bucket is being sorted. Most buckets contain only one or two elements when input is uniform, so these sorts finish instantly.',
         'Phase 3 concatenates all buckets left to right. Because each bucket covers a higher sub-range than the previous one, the concatenation is already in sorted order. The final sorted highlight confirms every position is correct.',
         'The key visual: if elements spread evenly across buckets, each bucket stays tiny and the per-bucket sorts are trivially cheap. If elements cluster into a few buckets, those buckets grow and insertion sort gets expensive. The distribution quality drives the total cost.',
@@ -119,6 +123,12 @@ export const article = {
       paragraphs: [
         'Comparison-based sorting cannot beat O(n log n). The proof is information-theoretic: n elements have n! orderings, each comparison is a binary question, so any comparison tree needs at least log2(n!) levels. For a million elements, that is about 20 million comparisons, no matter how clever the algorithm.',
         'Bucket sort escapes this floor when the input distribution is known. If values are spread uniformly over a range, distributing them into n equal-width buckets puts roughly one element per bucket on average. Sorting a one-element bucket costs nothing. Concatenating n buckets costs O(n). The total expected work is O(n) -- linear.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:NcxNCsIwEEDhfU4xFyioBxBM2oqgm3YZZjGN4w-GpMSJ0tsLqVk9-Bbv5uPXPSgJnAd1sKcwZ4EP-cxvhKbZg7YXmmFaIFG4Mypd1Fid3YsFNlXaKtsqXZUdKlOkt2NMAj468n5B1a6qun_70qM1MTgSDiQMzwDTuonpygl_',
+          alt: 'Flow from input values to range buckets, local sorting, and concatenation.',
+          caption: 'Bucket sort replaces one global comparison problem with range buckets, local sorts, and ordered concatenation. Source: https://mermaid.ink/svg/pako:NcxNCsIwEEDhfU4xFyioBxBM2oqgm3YZZjGN4w-GpMSJ0tsLqVk9-Bbv5uPXPSgJnAd1sKcwZ4EP-cxvhKbZg7YXmmFaIFG4Mypd1Fid3YsFNlXaKtsqXZUdKlOkt2NMAj468n5B1a6qun_70qM1MTgSDiQMzwDTuonpygl_',
+        },
         'The tradeoff: this speed depends on the input distribution. Uniform or near-uniform data gets O(n). Skewed data can degrade to O(n^2). Bucket sort trades generality for speed on the inputs where it fits.',
       ],
     },
@@ -178,6 +188,12 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'Skewed distributions destroy the guarantee. If 90% of values fall into 10% of the range -- exponential distributions, Zipf distributions, data with outliers -- a few buckets get most of the elements. Insertion sort on a bucket of size m costs O(m^2), and the total degrades from O(n) to O(n^2) in the worst case.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:TcxBCsIwEADAe16xH-gXBKP1pIhYT0sOMdliSM2W7YbY3wvFg-eBGSdu4eVFYbBmj4-SRpY3pDJXddB1O7B48WUFTWWFZw2ZdHHGbnTAcyrkBegzU1CK0FiyM0e8Z2oU_5ser4UgCLdI8Rc50292wlv1UbymABMHP8HCou4L',
+          alt: 'Contrast between uniform input producing many tiny buckets and skewed input producing one crowded bucket.',
+          caption: 'Uniform data keeps bucket-local work small; skew concentrates work into one expensive local sort. Source: https://mermaid.ink/svg/pako:TcxBCsIwEADAe16xH-gXBKP1pIhYT0sOMdliSM2W7YbY3wvFg-eBGSdu4eVFYbBmj4-SRpY3pDJXddB1O7B48WUFTWWFZw2ZdHHGbnTAcyrkBegzU1CK0FiyM0e8Z2oU_5ser4UgCLdI8Rc50292wlv1UbymABMHP8HCou4L',
+        },
         'Unknown range. Bucket sort needs to know the minimum and maximum values (or the range) to compute bucket boundaries. If the range is unknown, a preliminary scan is needed, adding a pass over the data.',
         'Integer keys with a small range. Counting sort is simpler and faster: it places elements directly by value without any per-bucket sorting. Bucket sort is the right tool when keys are continuous (floats) or the range is too large for a count array.',
         'Memory cost is O(n + k). The bucket lists and their contents use space proportional to the input size. Heap sort achieves O(n log n) in O(1) auxiliary space. In memory-constrained settings, the comparison sort wins.',

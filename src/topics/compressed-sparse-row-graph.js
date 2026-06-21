@@ -245,6 +245,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "The build view shows CSR construction: edges are sorted by source vertex, rowPtr records where each vertex's neighbors begin in the flat colIdx array, and the final sentinel closes the last row.",
+        {
+          type: "callout",
+          text: "CSR makes each neighbor list a slice of one flat array, so graph traversal becomes pointer arithmetic plus a sequential scan.",
+        },
         "Active highlights mark the current row being built or scanned. Found highlights mark the colIdx slice that belongs to that row. Compare highlights show empty rows or tradeoff alternatives.",
         "In the scan view, follow the pointer arithmetic: vertex u reads rowPtr[u] and rowPtr[u+1] to find its contiguous neighbor slice. The key inference: if start equals end, the vertex has no outgoing edges -- same rule, no special case.",
       ],
@@ -268,6 +272,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `CSR removes the per-vertex container and keeps one flat neighbor array. The rowPtr array is the index into that flat storage. For vertex u, rowPtr[u] is the start position and rowPtr[u + 1] is the end position. The neighbors are the half-open slice colIdx[start..end).`,
+        {
+          type: `image`,
+          src: `https://mermaid.ink/svg/pako:PY3LCsIwEEX3-YrZSwv-gNDUVtyIC3fDLNpmkgqlU_Kg-vdiJG7P4Z5rF9mnefARHlo12BnHAZyXtLGB8Q1Bkp-YoKpOoNHLfo8exNrAMZBqMm9xkuVqXmCXIcLKTzeP4gMpnfUZQ_we_MaYqIgOeTV_fDgSqTaLvgTzsK55NaT6rC54K30QC4k-`,
+          alt: `CSR rowPtr offsets select a contiguous slice inside the flat colIdx neighbor array.`,
+          caption: `CSR stores edge destinations once in colIdx and uses rowPtr offsets to recover each vertex slice. Source: https://mermaid.ink/svg/pako:PY3LCsIwEEX3-YrZSwv-gNDUVtyIC3fDLNpmkgqlU_Kg-vdiJG7P4Z5rF9mnefARHlo12BnHAZyXtLGB8Q1Bkp-YoKpOoNHLfo8exNrAMZBqMm9xkuVqXmCXIcLKTzeP4gMpnfUZQ_we_MaYqIgOeTV_fDgSqTaLvgTzsK55NaT6rC54K30QC4k-`,
+        },
         `The final entry in rowPtr is a sentinel equal to the number of stored edges. That one extra value removes a special case for the last vertex. Every row, including an empty row, can be described by the same start and end rule. If start equals end, the vertex has no outgoing neighbors.`,
       ],
     },
@@ -282,6 +292,12 @@ export const article = {
       heading: 'How scanning works',
       paragraphs: [
         `A neighbor scan is pointer arithmetic. Read start = rowPtr[u] and end = rowPtr[u + 1]. Loop k from start up to, but not including, end. Each colIdx[k] is one outgoing neighbor. A full traversal reads O(V) row offsets and O(E) neighbor entries.`,
+        {
+          type: `image`,
+          src: `https://mermaid.ink/svg/pako:HclNCoMwEAbQfU7xXcArFPyFQgtFoZuQRZhMsRAZiTPa4xeyfe-T5aI1FsVjdq2f5YIFNM0NnZ85JhS5Xlpw5C9xcF2t3i9aOG4gyff0C66vPPiJlVacTCoFZ8zGR3BDzdG3RLZZjspIotiLJCMNbqw_-WV_viGmuyks_AE`,
+          alt: `Sparse matrix-vector multiply scans one CSR row, fetches vector values, and accumulates the output.`,
+          caption: `CSR makes SpMV a row-slice scan: stream neighbor columns, fetch vector entries, and accumulate one output row. Source: https://mermaid.ink/svg/pako:HclNCoMwEAbQfU7xXcArFPyFQgtFoZuQRZhMsRAZiTPa4xeyfe-T5aI1FsVjdq2f5YIFNM0NnZ85JhS5Xlpw5C9xcF2t3i9aOG4gyff0C66vPPiJlVacTCoFZ8zGR3BDzdG3RLZZjspIotiLJCMNbqw_-WV_viGmuyks_AE`,
+        },
         `This is why CSR is so common in sparse linear algebra. Sparse matrix-vector multiplication is just row scanning with arithmetic attached. BFS, PageRank, connected components, triangle counting, and recommendation graph walks reuse the same shape: choose a row, stream a contiguous neighbor slice, and move on.`,
       ],
     },
@@ -295,4 +311,3 @@ export const article = {
     }
   ],
 };
-

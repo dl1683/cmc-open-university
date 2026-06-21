@@ -140,6 +140,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A tree-walking interpreter is a good first implementation because it keeps language semantics close to the parser. The runtime recursively evaluates AST nodes: visit this binary expression, evaluate the left child, evaluate the right child, apply the operator, and return. That is clear, but it pays for source-tree shape on every execution.',
+        {
+          type: 'callout',
+          text: 'A stack VM makes execution explicit by replacing recursive syntax walking with a compact instruction stream and a visible value stack.',
+        },
         'A bytecode stack VM exists as a middle layer between tree walking and native code generation. The compiler lowers the AST into compact instructions. The runtime executes those instructions with an instruction pointer, value stack, constant pool, dispatch loop, and call frames. The language stops being a recursive walk over syntax and becomes a small machine with explicit state.',
         'This is why bytecode appears in teaching languages, scripting runtimes, portable sandboxes, database expression engines, and early tiers of larger VMs. It is much easier to build than a native compiler, but it gives the implementation more control than evaluating the AST directly.',
       ],
@@ -158,6 +162,12 @@ export const article = {
         'A stack VM makes temporary values implicit. Each opcode has a stack effect: how many values it pops, what it computes, and how many values it pushes. CONST pushes a constant. ADD pops two values and pushes their sum. RETURN pops a result and returns it to the caller.',
         'Because the stack carries intermediate values, instructions can be tiny. The bytecode for 1 + 2 * 3 can be CONST 1, CONST 2, CONST 3, MUL, ADD. The compiler emits the expression in evaluation order, and the stack shape records the temporary results.',
         'The VM state is small but powerful: instruction pointer for control, bytecode chunk for instructions, constant pool for literals, value stack for operands and temporaries, and call frames for function calls. Once you can name those pieces, most interpreter behavior becomes inspectable.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:NY1BCsIwEEX3OcVcoFcQ2jQVwVUVN0MWIUZSGmZCMkG8vRDr6sH7D_4r8dtHVwSuqxpxvN0tDMMJJpw-Ejw_A_jYaLdq6l7jhaqU5mVjgswbSSj_cUbNVMWRQGZOVumuDc5bzU58hMScrVrw4VILUMX5_fdnlOlcDp5xDbUlAaYj-wI',
+          alt: 'Stack virtual machine state: AST compiles to bytecode, instruction pointer enters dispatch loop, and the value stack carries results.',
+          caption: 'The bytecode VM is a small state machine: bytecode and constants feed dispatch, while the value stack carries intermediate results. Source: https://mermaid.ink/svg/pako:NY1BCsIwEEX3OcVcoFcQ2jQVwVUVN0MWIUZSGmZCMkG8vRDr6sH7D_4r8dtHVwSuqxpxvN0tDMMJJpw-Ejw_A_jYaLdq6l7jhaqU5mVjgswbSSj_cUbNVMWRQGZOVumuDc5bzU58hMScrVrw4VILUMX5_fdnlOlcDp5xDbUlAaYj-wI',
+        },
       ],
     },
     {
@@ -181,6 +191,12 @@ export const article = {
       paragraphs: [
         'A function call needs more state than an arithmetic opcode. The VM must remember which function is running, where to resume the caller, where this call\'s locals begin on the value stack, and how many arguments and temporary slots belong to the callee.',
         'A call frame stores that state. When a function is called, the VM pushes a new frame with a return instruction pointer and a base slot. The callee reads locals relative to that base slot. When it returns, the VM removes the frame, restores the caller instruction pointer, and leaves the return value where the caller expects it.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:TY5NCsIwEEb3OcVcoFcQklp_Vkp1N2QxhKmCkwQyib2-NCK4fe_j8S2S1_CkUuHujMWRRLjAUiiyh2HYgcOZaysJzldvbEcjOlIGlVx_aI-2PFrkVNWb6Zvh_8wBL2sCyYFkW3R2xBtFhjdJY9BK4eWN6-aEM2uLDKH_8R8',
+          alt: 'Caller and callee frames sharing one value stack with return instruction pointer, base slot, arguments, and locals.',
+          caption: 'Call frames let each invocation keep return state and local slots while sharing one physical value stack. Source: https://mermaid.ink/svg/pako:TY5NCsIwEEb3OcVcoFcQklp_Vkp1N2QxhKmCkwQyib2-NCK4fe_j8S2S1_CkUuHujMWRRLjAUiiyh2HYgcOZaysJzldvbEcjOlIGlVx_aI-2PFrkVNWb6Zvh_8wBL2sCyYFkW3R2xBtFhjdJY9BK4eWN6-aEM2uLDKH_8R8',
+        },
         'This makes recursion possible. Each recursive call has its own frame and local window, but all calls share one physical value stack. The stack grows and shrinks with call depth rather than copying all state at each call.',
       ],
     },

@@ -233,6 +233,10 @@ export const article = {
       heading: 'Why BLT exists',
       paragraphs: [
         'Byte Latent Transformer, or BLT, is a tokenizer-free language-model architecture from Byte Latent Transformer: Patches Scale Better Than Tokens. It starts from raw UTF-8 bytes instead of a fixed subword vocabulary. That removes a large design dependency from the model stack. There is no out-of-vocabulary token. Messy Unicode, rare identifiers, code, spelling variation, and multilingual text are all represented as bytes.',
+        {
+          type: 'callout',
+          text: 'BLT keeps byte universality but spends global transformer compute on dynamic patches instead of every byte.',
+        },
         'The obvious problem is length. A byte sequence is much longer than a BPE token sequence. Running a full transformer step at every byte position would make training and generation expensive. BLT keeps byte universality but groups bytes into dynamically sized patches. The expensive global transformer works over patch states rather than individual bytes, while local modules preserve byte-level detail.',
       ],
     },
@@ -247,6 +251,12 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is dynamic granularity. Not every byte deserves the same amount of global computation. Predictable spans can be packed into larger patches. High-entropy spans need shorter patches and more local resolution. BLT estimates next-byte uncertainty and uses that signal to decide patch boundaries. Compute follows information density rather than a fixed tokenizer vocabulary.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:bcyxCsIwEADQPV9xP9BfEIy2ONRJtyNDDGdSOHLhciX490LBzfUN780yUolq8PTujKsMoGoq7QO9xRpgmk7gcZWaoUVLJTh_2AUXGqSQWV6RoRu1HtwVb1suf4oZH0XUfsd84IJ3UQKWFBmUuvBum9TwBQ',
+          alt: 'Low entropy byte spans become long patches, while high entropy spans become short patches.',
+          caption: 'Dynamic granularity spends global steps where uncertainty is high and compresses predictable spans into longer patches. Source: https://mermaid.ink/svg/pako:bcyxCsIwEADQPV9xP9BfEIy2ONRJtyNDDGdSOHLhciX490LBzfUN780yUolq8PTujKsMoGoq7QO9xRpgmk7gcZWaoUVLJTh_2AUXGqSQWV6RoRu1HtwVb1suf4oZH0XUfsd84IJ3UQKWFBmUuvBum9TwBQ',
+        },
         'This changes the basic unit of modeling. The model still sees bytes, but the global transformer reasons over learned latent patch representations. Local encoders and decoders handle the byte details inside a patch. The global model spends its capacity on fewer, richer units. The invariant is that the raw byte sequence remains recoverable and modelable, while expensive global attention is paid per patch rather than per byte.',
       ],
     },
@@ -254,6 +264,12 @@ export const article = {
       heading: 'Mechanism and data structures',
       paragraphs: [
         'A BLT implementation needs a byte stream, an entropy or patching policy, local byte encoders, patch state buffers, a global latent transformer, local byte decoders, and metadata that maps byte positions to patch positions. The patching policy is the data-structure hinge. It decides which bytes become one latent unit and which spans should be split more finely.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:LY5BCoMwEADvecV-wHtPhWqiF6FQ7CnksMYVCzErcaXk96Uh1xkGZg389RsmgfGlHvY99c0N5ix0OmiaO7TWREl8ZNh5oeBUW3BndY64fzwcKH6j06muCG1H9hiAoueFklO6YGOHwDMGkITxXDntf2eK62uyUE36ggf7vOS4pN78AA',
+          alt: 'Byte Latent Transformer pipeline from UTF-8 bytes through entropy patching, local encoders, global transformer, and local decoder.',
+          caption: 'The architecture separates byte-level detail at the edges from expensive global reasoning over latent patch states. Source: https://mermaid.ink/svg/pako:LY5BCoMwEADvecV-wHtPhWqiF6FQ7CnksMYVCzErcaXk96Uh1xkGZg389RsmgfGlHvY99c0N5ix0OmiaO7TWREl8ZNh5oeBUW3BndY64fzwcKH6j06muCG1H9hiAoueFklO6YGOHwDMGkITxXDntf2eK62uyUE36ggf7vOS4pN78AA',
+        },
         'The global transformer is expensive because attention cost grows with the number of global units. The local modules are cheaper and closer to the raw bytes. This separation resembles other bottleneck architectures: detailed input lives at the edge, and a smaller latent sequence carries the information that deserves global reasoning. The design avoids a fixed vocabulary, but it introduces new state that tokenized systems do not have: patch boundaries, local decode state, byte-to-patch maps, and entropy-model behavior.',
       ],
     },

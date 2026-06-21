@@ -231,6 +231,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "split conformal" view walks through the full procedure: data split, calibration scoring, quantile selection, and set construction. Active cells mark the current step. Found cells mark guarantees that hold under the stated assumptions. The residual plot shows sorted calibration scores with a horizontal threshold line -- that line becomes the width of every future interval.',
+        {
+          type: 'callout',
+          text: 'Conformal prediction turns held-out model errors into future prediction sets with a finite-sample coverage promise.',
+        },
         'The "coverage calibration" view shows what happens when you change the target coverage level. The frontier plot traces the tradeoff: higher coverage means wider intervals or larger label sets. Active series mark the curve; compare markers show specific operating points.',
         'At each frame, ask: what data produced this threshold, why is this quantile the right one, and what assumption must hold for the guarantee to transfer to new data.',
       ],
@@ -276,6 +280,12 @@ export const article = {
       paragraphs: [
         'Split conformal prediction has four steps. Train the base model on a training split. Compute non-conformity scores on a held-out calibration split. Choose a quantile of those scores. At prediction time, use that quantile to build the set.',
         {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:TcxNCsIwEIbhfU4xF-gVBPvnRoqIu5BFTKftQJppJ6PF24sVxO3zfnxD5C1MXhTOV3O0N_GUKI2Ql0jqoCgOUNqWFGbuMTpT2cpHuotX4vS_qm3HKXAaWGbSF-TAgtmZeq-NrfiJ4keE9eGTUkRYJ6_OlHtvbYcbLII9hc-zM83uJ3v5GWRUZ9qvvwE',
+          alt: 'Split conformal pipeline from training split and calibration split to nonconformity scores, quantile, and prediction set.',
+          caption: 'The guarantee boundary is the calibration split: held-out errors define qhat, and qhat wraps new predictions into sets. Source: https://mermaid.ink/svg/pako:TcxNCsIwEIbhfU4xF-gVBPvnRoqIu5BFTKftQJppJ6PF24sVxO3zfnxD5C1MXhTOV3O0N_GUKI2Ql0jqoCgOUNqWFGbuMTpT2cpHuotX4vS_qm3HKXAaWGbSF-TAgtmZeq-NrfiJ4keE9eGTUkRYJ6_OlHtvbYcbLII9hc-zM83uJ3v5GWRUZ9qvvwE',
+        },
+        {
           type: 'diagram',
           text: 'Data --> [Training Set] --> fit model\n     --> [Calibration Set] --> compute scores s_i = |y_i - y_hat_i|\n                             --> sort scores\n                             --> pick q_hat = quantile(scores, (1-alpha)(1 + 1/n))\n\nNew x --> y_hat = model(x) --> prediction interval = [y_hat - q_hat, y_hat + q_hat]',
           label: 'Split conformal regression pipeline',
@@ -294,6 +304,12 @@ export const article = {
       paragraphs: [
         'The guarantee rests on one assumption: exchangeability. The calibration examples and the future test example must be reorderable draws from the same process. Under exchangeability, the rank of the new example\'s non-conformity score among the n calibration scores is uniformly distributed over {1, 2, ..., n+1}. Choosing q_hat as the ceil((n+1)(1-alpha))/n quantile ensures that the new score falls below q_hat with probability at least 1 - alpha. This is a finite-sample result -- it holds for any n, any model, any data distribution.',
         'The guarantee is marginal: averaged over future draws from the exchangeable process, the set contains the truth at rate 1 - alpha. It does not promise conditional coverage (coverage within every subgroup), and it does not promise small sets. A terrible model wrapped in conformal prediction returns enormous intervals. The method makes uncertainty visible; it does not create accuracy.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:NY1BDoIwEADvvGI_wBdMpAg-gMRD08MWF9hYW9lu8fsGiOeZzEwhfccFRWFoqqsdUGZSGNNGgjNB-Tio6ws09s7zQgJrwagcyFXNAYx98JMEOCrJhiFDEngnIQjoKWRXmcNrrfk3N87s98LNtpxV2BflFCEvPOm566zBwF7wBIq73h2ot31BwahE4IXwld0P',
+          alt: 'Higher target coverage selects a larger quantile and wider sets, while distribution shift makes calibration stale.',
+          caption: 'Coverage is bought with larger sets, and the exchangeability assumption breaks when deployment data shifts away from calibration data. Source: https://mermaid.ink/svg/pako:NY1BDoIwEADvvGI_wBdMpAg-gMRD08MWF9hYW9lu8fsGiOeZzEwhfccFRWFoqqsdUGZSGNNGgjNB-Tio6ws09s7zQgJrwagcyFXNAYx98JMEOCrJhiFDEngnIQjoKWRXmcNrrfk3N87s98LNtpxV2BflFCEvPOm566zBwF7wBIq73h2ot31BwahE4IXwld0P',
+        },
         {
           type: 'note',
           text: 'Exchangeability is weaker than i.i.d. -- it allows dependence in the joint distribution as long as order does not matter. But it still rules out distribution shift, concept drift, and adversarial ordering. If tomorrow\'s data comes from a different process than the calibration set, the coverage guarantee breaks.',
@@ -352,4 +368,3 @@ export const article = {
     },
   ],
 };
-

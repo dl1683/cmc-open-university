@@ -283,6 +283,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Count-Min Sketch is useful because it gives fixed-memory frequency estimates, but its one-sided error can become too pessimistic. A few hot collisions can keep inflating rows that are already too high. Conservative Count-Min exists to reduce that positive-stream bias while keeping the same query shape.',
+        {
+          type: 'callout',
+          text: 'Conservative update lowers Count-Min bias by refusing to raise counters that are already above the current minimum witness.',
+        },
       ],
     },
     {
@@ -314,6 +318,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'For a positive update to x, read counters h_1(x), h_2(x), ..., h_d(x). Let m be their minimum. For a unit update, increment only counters equal to m. For a larger increment, lift eligible counters toward m plus the increment. Query is unchanged: return the minimum touched counter.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:Lc1NCsIwEMXxfU7xLtArCPZDFOqm25BFTEcabGYgmbb09mJw_Xv833uVIyw-K8bJXO2wEys-dDo0zQWtvfuyILIKZmQ5ijNtlc5O5GeobGGhGUE2VsrFma5yb5-RY9oSqGhMXsmZvspgHxwypd-P8HoiRf6Xhzq42VEOypCdcs3iFX1xXw',
+          alt: 'Conservative Count-Min update probes hash rows, reads the minimum estimate, and increments only minimum rows.',
+          caption: 'Conservative update changes only the write rule: read all touched counters, find the minimum, and lift only the minimum witnesses. Source: https://mermaid.ink/svg/pako:Lc1NCsIwEMXxfU7xLtArCPZDFOqm25BFTEcabGYgmbb09mJw_Xv833uVIyw-K8bJXO2wEys-dDo0zQWtvfuyILIKZmQ5ijNtlc5O5GeobGGhGUE2VsrFma5yb5-RY9oSqGhMXsmZvspgHxwypd-P8HoiRf6Xhzq42VEOypCdcs3iFX1xXw',
+        },
         'This is still a Count-Min family structure: multiple hash rows, one counter per row, and a minimum query. The only changed step is the write rule. Standard Count-Min writes all touched counters. Conservative update writes only the counters that are still plausible witnesses for the current count.',
       ],
     },
@@ -370,6 +380,12 @@ export const article = {
       heading: 'Operational case study',
       paragraphs: [
         'Consider a CDN cache that admits objects only if their estimated frequency beats the resident object. Standard Count-Min may inflate scan objects when one-time URLs collide with genuinely hot URLs. Those scan objects can then enter the cache, consume memory, and lower hit rate.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:TcsxDoIwFAbgnVO8C8ARNFDEQV1wbDo07W9oAi22DwwR724gDs5fvkcfXqbTkenaZqVs8ZyQmBJH6EFRnh-okiL4hDhrdjNI3O4qq3YRsolb8GYhJHaDZqhM7Fa_Szs4Jg5ktOlw_GT1BuuCtNJJthh7bUARyVl4Vj_2YaVGXoDxj85ShL53yQVPPrgERXlBEXYysFTkVH0B',
+          alt: 'Request stream feeds a conservative Count-Min sketch whose estimate controls cache admission decisions.',
+          caption: 'For cache admission, lower collision bias matters because a false hot estimate can evict a useful resident object. Source: https://mermaid.ink/svg/pako:TcsxDoIwFAbgnVO8C8ARNFDEQV1wbDo07W9oAi22DwwR724gDs5fvkcfXqbTkenaZqVs8ZyQmBJH6EFRnh-okiL4hDhrdjNI3O4qq3YRsolb8GYhJHaDZqhM7Fa_Szs4Jg5ktOlw_GT1BuuCtNJJthh7bUARyVl4Vj_2YaVGXoDxj85ShL53yQVPPrgERXlBEXYysFTkVH0B',
+        },
         'Conservative update changes the pressure on that decision. Hot objects still raise their minimum witnesses, but rows already inflated by other traffic do not keep rising just because a colliding key appeared. The admission policy sees fewer accidental hot keys, so cache churn drops.',
         'The team should still replay traffic before shipping. Measure hit rate, false admissions, resident churn, and p99 lookup cost under the same hash seeds and cache size. A sketch update rule is only useful if it improves the system decision it feeds.',
       ],

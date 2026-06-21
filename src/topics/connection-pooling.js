@@ -202,6 +202,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The pool lifecycle view traces one connection from creation through checkout, use, and return. Watch the idle and active counts change as the application borrows and returns connections. The health-check matrix shows the four maintenance policies that keep the idle set honest.',
+        {
+          type: 'callout',
+          text: 'A connection pool is both a latency cache and a concurrency limit for a scarce downstream resource.',
+        },
         'The checkout-under-load view shows what happens when demand exceeds pool capacity. The wait queue fills, Little\'s Law sizes the gap, checkout timeouts convert silent hangs into fast errors, and connection leaks show the slow death of a pool that never gets its connections back.',
         'Active markers are the current operation. Found markers are connections in a healthy state. Removed markers are connections or callers in trouble. At each frame, track how many connections are idle, active, and waiting, and ask whether the pool invariant still holds.',
       ],
@@ -242,6 +246,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'On checkout, the pool checks for an idle connection. If one exists, it moves from idle to active and is returned to the caller. If no idle connection exists and the pool has not reached max size, a new connection is opened and returned. If the pool is at max size, the caller enters a wait queue with a configurable timeout.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:TY1NCsIwEIX3OcVcoFdQ7J8IipBtyKKkIw3WGU0nlWK8uzS6cPV4P3zvMvLTDV0QOGq1M9WA7spRLBTFBsrXoR8RHBOhE8-0fatybdKCU4LKnHhG8OtGGDonfkb7WxBDRz0E5luC2pzvSH8gq6r80BgdCR4Rw2JV_Y1Uk7U1GiUGsqrNfm80TiiZul7aDw',
+          alt: 'Connection pool checkout lifecycle from idle connection selection or opening a connection through query execution and return to idle.',
+          caption: 'Checkout moves a connection from idle to active; return resets it and makes it available for reuse. Source: https://mermaid.ink/svg/pako:TY1NCsIwEIX3OcVcoFdQ7J8IipBtyKKkIw3WGU0nlWK8uzS6cPV4P3zvMvLTDV0QOGq1M9WA7spRLBTFBsrXoR8RHBOhE8-0fatybdKCU4LKnHhG8OtGGDonfkb7WxBDRz0E5luC2pzvSH8gq6r80BgdCR4Rw2JV_Y1Uk7U1GiUGsqrNfm80TiiZul7aDw',
+        },
         'On return, the pool validates the connection. If it is healthy, it moves from active to idle and becomes available. If it is broken or left in a dirty transaction state, it is closed and the pool size decreases. If waiters are queued, a returned connection may be handed directly to the first waiter instead of entering the idle set.',
         'Background maintenance runs on a timer. Idle connections older than a threshold are closed to free server resources. Connections older than a max lifetime are closed regardless of health, which handles DNS changes, credential rotation, and server-side memory leaks. Some pools also run periodic health checks on idle connections to detect silent TCP deaths before checkout.',
         'Min-idle settings keep a warm baseline. The pool opens connections proactively to maintain a floor, so cold-start latency does not spike after quiet periods. The tradeoff is wasted server slots during low traffic versus instant availability when traffic returns.',
@@ -285,6 +295,12 @@ export const article = {
       paragraphs: [
         'A Django API server handles 300 requests per second. Each request runs 2-3 queries averaging 4ms each, holding a connection for about 12ms total. By Little\'s Law, steady-state concurrency is 300 * 0.012 = 3.6 connections. A pool of 10 handles this easily with 6 idle connections as buffer.',
         'At 3:00 AM, a batch job starts running analytics queries that take 2 seconds each at 20 per second. Steady-state demand jumps to 20 * 2 = 40 connections. The pool maxes out at 10, and 30 callers enter the wait queue. Checkout timeout is set to 5 seconds. The first callers wait and eventually get connections as fast queries finish, but the batch job dominates hold time. API requests start timing out.',
+        {
+          type: 'image',
+          src: 'https://mermaid.ink/svg/pako:LcxLDsIgFIXhOas4G-gOfKQPqwto4oAwIHBNidCrFNTGuncjcXj-LzkXz08z6pgwNKKWdYzuoT2iTqRQVTs08sTeIrlASjQltbLlyeQYaTILLAU9WSXaYt27KxubLW7MHkG_9h_R_XBdaF5xkL2eE8xI5so5qb9NvKKXZ-0S7pkyKdGXw6McXCDOCRwxj2ThWVv1BQ',
+          alt: 'Little Law sizing path from arrival rate and hold time to concurrency demand, pool capacity, wait queue, and timeout.',
+          caption: 'Pool exhaustion is Little Law in motion: arrival rate times hold time becomes concurrency demand, and excess demand becomes waiting. Source: https://mermaid.ink/svg/pako:LcxLDsIgFIXhOas4G-gOfKQPqwto4oAwIHBNidCrFNTGuncjcXj-LzkXz08z6pgwNKKWdYzuoT2iTqRQVTs08sTeIrlASjQltbLlyeQYaTILLAU9WSXaYt27KxubLW7MHkG_9h_R_XBdaF5xkL2eE8xI5so5qb9NvKKXZ-0S7pkyKdGXw6McXCDOCRwxj2ThWVv1BQ',
+        },
         'The fix is not to increase pool size. Increasing to 40 would push 40 long queries onto the database simultaneously, exhausting PostgreSQL\'s CPU. Instead, the batch job gets its own pool of 5 connections with a separate PgBouncer instance, rate-limited to 5 concurrent queries. The API pool of 10 stays healthy, and the batch job runs at a sustainable pace. Pool separation is the bulkhead: one workload cannot drown the other.',
       ],
     },
