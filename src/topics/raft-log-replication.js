@@ -68,7 +68,7 @@ export function* run(input) {
   yield {
     state: snapshot('SET y=7 — with S3 unreachable'),
     highlight: { found: [cell(0, 1), cell(1, 1)], swap: [cell(2, 1)] },
-    explanation: 'Next command, but S3 has gone quiet (network hiccup). No matter: S1 + S2 are already a majority, so slot 2 commits without S3. Stragglers never stall the cluster — that is the availability half of the design (and the CP half of the CAP Theorem when a majority can\'t form).',
+    explanation: 'Next command, but S3 has gone quiet (network hiccup). No matter: S1 + S2 are already a majority, so slot 2 commits without S3. Stragglers never stall the cluster — that is the availability half of the design (and the CP half of the CAP Theorem when a majority cannot form).',
   };
 
   if (!crashy) {
@@ -84,7 +84,7 @@ export function* run(input) {
     yield {
       state: snapshot('Steady state'),
       highlight: { found: SERVERS.map((_, i) => cell(i, 2)) },
-      explanation: 'And so it runs: append at the leader, fan out, commit at majority, apply in order. Three machines, one log, one state machine — a database that survives any single failure with zero data loss. This loop, plus the election from Raft Leader Election, is the complete Raft protocol running inside etcd (Kubernetes\'s brain), Consul, and CockroachDB.',
+      explanation: 'And so it runs: append at the leader, fan out, commit at majority, apply in order. Three machines, one log, one state machine — a database that survives any single failure with zero data loss. This loop, plus the election from Raft Leader Election, is the complete Raft protocol running inside etcd, the Kubernetes metadata path, Consul, and CockroachDB.',
     };
     return;
   }
@@ -101,7 +101,7 @@ export function* run(input) {
   yield {
     state: snapshot('S2 elected leader of term 3'),
     highlight: { active: [cell(1, 2)], swap: [cell(0, 2)] },
-    explanation: 'S2 wins the term-3 election (it holds every COMMITTED entry — slots 1–2 — which is all the rules require) and accepts a new command into its slot 3, stamped t3. Note the cluster now contains two different slot-3 entries: S2\'s t3 entry, and the dead S1\'s t2 entry.',
+    explanation: 'S2 wins the term-3 election (it holds every COMMITTED entry — slots 1–2 — which is all the rules require) and accepts a new command into its slot 3, stamped t3. Note the cluster now contains two different slot-3 entries: the t3 entry from S2 and the t2 entry from dead S1.',
   };
 
   logs[0][2] = 3;
@@ -111,14 +111,14 @@ export function* run(input) {
   yield {
     state: snapshot('S1 rejoins as follower — conflict resolved'),
     highlight: { found: [cell(0, 2), cell(1, 2), cell(2, 2)] },
-    explanation: 'S1 reboots as a follower and receives AppendEntries from leader S2. The consistency check finds the conflict at slot 3: S1\'s old t2 entry does not match the leader\'s t3 entry — so it is DELETED and overwritten. The client whose z=1 was never confirmed simply retries. Uncommitted work can vanish; that is exactly WHY Raft refuses to confirm anything before majority.',
-    invariant: 'The leader\'s log is the truth: followers delete conflicting suffixes and adopt the leader\'s entries.',
+    explanation: 'S1 reboots as a follower and receives AppendEntries from leader S2. The consistency check finds the conflict at slot 3: the old t2 entry on S1 does not match the t3 entry from the leader — so it is DELETED and overwritten. The client whose z=1 was never confirmed simply retries. Uncommitted work can vanish; that is exactly WHY Raft refuses to confirm anything before majority.',
+    invariant: 'The leader log is the truth: followers delete conflicting suffixes and adopt leader entries.',
   };
 
   yield {
     state: snapshot('All logs identical again'),
     highlight: {},
-    explanation: 'The two-tier promise, in one story: COMMITTED entries (majority-held) survived the leader\'s death untouched; the UNCOMMITTED entry evaporated without ever being acknowledged. No client was lied to. That asymmetry — cheap to append, expensive to promise — is the entire art of replicated logs, and you have now seen both halves of Raft.',
+    explanation: 'The two-tier promise, in one story: COMMITTED entries (majority-held) survived leader failure untouched; the UNCOMMITTED entry evaporated without ever being acknowledged. No client was lied to. That asymmetry — cheap to append, expensive to promise — is the entire art of replicated logs, and you have now seen both halves of Raft.',
   };
 }
 
@@ -128,6 +128,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `Leader election chooses who may accept writes, but it does not by itself protect the writes. If the leader appends a client command locally and crashes before anyone else stores it, the command can disappear. A replicated system must decide when a command is durable enough to tell the client "done."`,
+        {type: 'callout', text: 'Raft does not promise a write when the leader sees it; it promises a write when a future majority cannot avoid it.'},
         `Raft log replication solves that problem by turning client commands into an ordered log copied across a majority of servers. The log is the input to a deterministic state machine. If every server applies the same committed log entries in the same order, they end in the same state.`,
       ],
     },
@@ -135,6 +136,7 @@ export const article = {
       heading: `Context`,
       paragraphs: [
         `Raft is a consensus protocol for replicated state machines. One server is leader for a term. Followers accept log entries from that leader. Elections use majorities, and replication commits entries with majorities. The repeated majority intersection is the safety backbone of the protocol.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt: 'Rows of servers in a data center', caption: 'Replicated logs turn several ordinary servers into one fault-tolerant state machine. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0.'},
         `The topic builds on Raft Leader Election and Write-Ahead Logs. Election explains who gets authority. The log explains what gets copied. Replication explains when copied commands become permanent enough to apply and acknowledge.`,
       ],
     },
@@ -157,6 +159,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `A client sends a command to the leader. The leader appends the command to its local log, sends AppendEntries RPCs to followers, and tracks each follower's matchIndex. When an entry from the leader's current term is stored on a majority, the leader advances commitIndex and applies committed entries to the state machine in order.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching animation across a network', caption: 'AppendEntries messages are ordinary network packets, so the protocol must tolerate delay, loss, and reordering while preserving log order. Source: Wikimedia Commons, Oddbodz, public domain.'},
         `If a follower rejects AppendEntries because the previous index and term do not match, the leader decreases that follower's nextIndex and tries an earlier prefix. Once the leader finds a shared prefix, the follower deletes its conflicting suffix and copies the leader's entries forward.`,
       ],
     },
@@ -245,15 +248,15 @@ export const article = {
       heading: 'Try this now',
       paragraphs: [
         'S1 (leader, term 2) appends slot 3 locally and crashes before sending AppendEntries. S2 wins election for term 3. A new client sends a different command. S2 appends it as slot 3 (term 3) and replicates to S3. Two copies = majority, committed.',
-        'S1 reboots as a follower. S2 sends AppendEntries with prevIndex=2, prevTerm=2. S1 matches at slot 2. S2 then sends slot 3 (term 3). S1\'s old slot 3 (term 2) conflicts: different term at the same index. S1 deletes the old entry, accepts the leader\'s version. The client whose command was in S1\'s old slot 3 was never told "success," so no promise was broken.',
-        'Trace the invariant: committed entries survived (slots 1-2), uncommitted entries vanished (S1\'s old slot 3). The majority overlap between the commit quorum and the election quorum guarantees this.',
+        'S1 reboots as a follower. S2 sends AppendEntries with prevIndex=2, prevTerm=2. S1 matches at slot 2. S2 then sends slot 3 (term 3). The old slot 3 on S1 (term 2) conflicts: different term at the same index. S1 deletes the old entry and accepts the leader version. The client whose command was in the old slot 3 on S1 was never told "success," so no promise was broken.',
+        'Trace the invariant: committed entries survived (slots 1-2), uncommitted entries vanished (the old slot 3 on S1). The majority overlap between the commit quorum and the election quorum guarantees this.',
       ],
     },
 
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Ongaro & Ousterhout 2014, "In Search of an Understandable Consensus Algorithm" (the Raft paper, sections 5.3-5.4 cover replication). Raft Leader Election explains who gets authority to replicate. Write-Ahead Log explains the persistence model underlying each server\'s log.',
+        'Ongaro & Ousterhout 2014, "In Search of an Understandable Consensus Algorithm" (the Raft paper, sections 5.3-5.4 cover replication). Raft Leader Election explains who gets authority to replicate. Write-Ahead Log explains the persistence model underlying each server log.',
         'Study next: CAP Theorem (why minority partitions must refuse writes), Two-Phase Commit (cross-shard transactions above Raft), Log Compaction and Raft Snapshots (managing unbounded log growth), LSM Trees (the storage engine that often sits beneath the replicated log).',
       ],
     },

@@ -234,6 +234,7 @@ export const article = {
       heading: 'Why it exists',
       paragraphs: [
         'Data augmentation exists because most vision models should ignore many changes in the input. A dog is still a dog after small shifts in color, crop, contrast, translation, or rotation. A model that only sees the exact training image can learn accidental details: the background, the camera, the lighting, the border, or a particular pose. Augmentation forces the learner to see many valid versions of the same example, so the easiest solution is to learn the class signal instead of memorizing one picture.',
+        {type: 'callout', text: 'RandAugment turns augmentation policy search into two regularization controls: how many transforms to apply and how strong they should be.'},
         'RandAugment exists because augmentation policy design became its own expensive optimization problem. Hand-built policies work, but they depend on expert taste and dataset habits. Earlier automated methods searched over operation choices, probabilities, magnitudes, and operation order. That can find strong policies, but the search can be expensive, hard to reproduce, and tied to a small proxy task. RandAugment asks a sharper question: if a fixed catalog of reasonable transforms already contains the useful ingredients, how much policy search do we actually need?',
       ],
     },
@@ -270,6 +271,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'RandAugment works for the same reason other regularizers work: it makes the memorizing solution less attractive. If the image changes shape, color, crop, and local occlusion across epochs, the model cannot rely as easily on one brittle cue. It must find features that survive the allowed transformations. That is the same broad idea behind dropout, weight decay, mixup, and contrastive learning, but applied to the input distribution.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Augmentation changes what reaches the network during training, forcing hidden layers to prefer features that survive safe input variation. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         'The method also works because randomness composes. A small catalog can create many possible training views when operations are sampled repeatedly. The exact sequence is less important than the distribution of views. Validation then checks whether those views preserve the task. When the validation curve improves, the model is learning useful invariance. When it falls, the transform distribution has crossed from regularization into label corruption or underfitting.',
       ],
     },
@@ -291,6 +293,7 @@ export const article = {
       heading: 'Failure modes and limits',
       paragraphs: [
         'The most common failure is treating augmentation as image improvement. RandAugment is not trying to make prettier images. It is trying to create training examples that preserve the label while removing shortcuts. If the chosen transforms change the answer, the pipeline is injecting label noise. If they are too weak, the model still overfits. If they are too expensive, the GPU waits for the input loader.',
+        {type: 'image', src: 'https://docs.pytorch.org/tutorials/_images/fgsm_panda_image.png', alt: 'Panda image, perturbation, and adversarial result from an FGSM example', caption: 'Perturbation examples make the label-safety boundary concrete: input changes can teach robustness only while the task label remains valid. Source: PyTorch documentation.'},
         'Another limit is that RandAugment searches over strength, not over the truth of the catalog. The method assumes the catalog is sensible. It will not discover that vertical flips are invalid for chest X-rays or that rotation breaks text labels unless validation or sample audit exposes the problem. It also does not solve data leakage. Augmentation must be applied within the training protocol, and validation data must stay independent.',
       ],
     },

@@ -119,7 +119,8 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Random Forest. Three different decision trees classify the same animal — then vote. Ensembles beat soloists..",
+        "Read the animation as the execution trace for Random Forest. Three different decision trees classify the same animal, then vote. Ensembles beat solo trees.",
+        { type: "callout", text: "A random forest reduces variance only when its trees make partly different mistakes; voting cannot fix identical blind spots." },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -129,6 +130,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `A random forest is an ensemble of decision trees. Each tree learns a sequence of if-then splits over the input features and ends at a leaf prediction. A single tree is easy to inspect, but it is unstable. Change a few training rows, or allow a slightly different first split, and the whole downstream tree can change. A random forest turns that instability into a strength by training many trees on different views of the data and combining their predictions.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree diagram with branches and leaf decisions', caption: 'A forest is built from many decision trees like this one, then aggregates their leaf predictions instead of trusting one path. Source: Wikimedia Commons, CC BY-SA 4.0.'},
         `For classification, the forest usually predicts by majority vote. For regression, it averages numeric outputs. The word "random" refers to two sources of variation: each tree trains on a bootstrap sample of rows, and each split considers only a random subset of features. The word "forest" matters too. The model is not one carefully pruned explanation tree. It is a crowd of partly independent trees whose errors can cancel when they are not all wrong in the same way.`,
       ],
     },
@@ -224,4 +226,3 @@ export const article = {
     },
 ],
 };
-

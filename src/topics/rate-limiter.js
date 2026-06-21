@@ -29,7 +29,7 @@ export function* run(input) {
   let accepted = 0;
   let rejected = 0;
   const snapshot = () => sequenceState('stack', bucket, { });
-  const mint = () => { bucket.unshift({ id: `t${minted++}`, value: '*Â' }); };
+  const mint = () => { bucket.unshift({ id: `t${minted++}`, value: '*' }); };
 
   for (let i = 0; i < CAPACITY; i += 1) mint();
   yield {
@@ -63,7 +63,7 @@ export function* run(input) {
         yield {
           state: snapshot(),
           highlight: { removed: [spent.id] },
-          explanation: `Request arrives ->€™ spend a token ->€™ [OK] allowed (${bucket.length - 1} token${bucket.length - 1 === 1 ? '' : 's'} left).${n > 1 ? ` (${r + 1} of ${n} this tick â€” bursts are fine while tokens last.)` : ''}`,
+          explanation: `Request arrives -> spend a token -> [OK] allowed (${bucket.length - 1} token${bucket.length - 1 === 1 ? '' : 's'} left).${n > 1 ? ` (${r + 1} of ${n} this tick â€” bursts are fine while tokens last.)` : ''}`,
         };
         bucket.shift();
       } else {
@@ -71,7 +71,7 @@ export function* run(input) {
         yield {
           state: snapshot(),
           highlight: {},
-          explanation: `Request arrives ->€™ bucket EMPTY ->€™ [X] HTTP 429 "Too Many Requests". The client should back off and retry later â€” well-behaved SDKs do this automatically with exponential backoff.`,
+          explanation: `Request arrives -> bucket EMPTY -> [X] HTTP 429 "Too Many Requests". The client should back off and retry later â€” well-behaved SDKs do this automatically with exponential backoff.`,
         };
       }
     }
@@ -90,6 +90,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         `The stack is the token bucket. Each circle is one token â€” permission to handle one request. The bucket starts full (capacity = ${CAPACITY}). Watch three frames: refill (a new token appears at the top, highlighted active), consume (a token vanishes when a request is allowed), and reject (the bucket is empty and a request is turned away). If the bucket is already full when a refill is due, the new token is discarded â€” capacity is the ceiling.`,
+        {type: 'callout', text: 'A token bucket enforces an average by spending saved permission, not by slicing traffic into fragile calendar windows.'},
         `The input list sets how many requests arrive each tick. Try "1, 0, 4, 0, 1, 3, 0, 1" to see a quiet period build up tokens, a burst drain them, a rejection when the burst exceeds saved permission, and a slow recovery. The final tally shows accepted versus rejected across all ticks â€” the long-run average, not rigid per-tick enforcement.`,
       ],
     },
@@ -129,6 +130,7 @@ export const article = {
         `Sliding window log: store the timestamp of every request. On arrival, discard timestamps older than T seconds, count the rest. No boundary to exploit, exact enforcement. But O(n) per check and one stored timestamp per request. At 10,000 req/sec, that is 10,000 entries per key per second.`,
         `Sliding window counter: keep two fixed-window counts and interpolate. If the current window is 40% elapsed, estimated count = current_count + prev_count * 0.6. O(1) space, O(1) time, no sharp boundary. Cloudflare uses this. Not exact, but within a small margin for well-behaved traffic.`,
         `Leaky bucket: requests enter a FIFO queue drained at a fixed rate. Guarantees perfectly smooth output â€” good for network traffic shaping â€” but introduces queuing delay. A bursty client with spare backend capacity still waits behind its own queue. Bad for interactive APIs where users expect fast responses while tokens last.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'FIFO queue diagram showing enqueue at the rear and dequeue at the front', caption: 'Leaky bucket behaves like a queue with a fixed drain rate, while token bucket admits immediately while saved tokens remain. Source: Wikimedia Commons, Data Queue.svg, public domain.'},
         `Token bucket (Turner, 1986): a bucket holds up to B tokens. Tokens refill at rate R per second. Each request costs one or more tokens. If the bucket is empty, reject. Allows bursts up to B while enforcing average rate R. The key optimization is lazy refill: on each request, compute tokens += R * (now - last_check), cap at B, subtract cost. No background timer. O(1) per check. O(1) per key. This is the dominant algorithm in production API gateways.`,
         `A production token bucket stores two fields per key: current_tokens (a float) and last_refill_time (a timestamp). On each request: elapsed = now - last_refill_time; tokens = min(capacity, current_tokens + elapsed * refill_rate); if tokens >= cost, subtract cost and allow; otherwise reject. Update both fields atomically. No background process drips tokens â€” lazy refill gives the same result when the key is touched.`,
         `Rejection must be informative. The server returns HTTP 429 Too Many Requests with a Retry-After header (seconds until at least one token is available). Well-designed APIs also return X-RateLimit-Limit (quota), X-RateLimit-Remaining (tokens left), and X-RateLimit-Reset (when the bucket refills to capacity). Clients that respect Retry-After with exponential backoff and jitter avoid retry storms.`,
@@ -158,6 +160,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         `API gateways are the primary consumer. Kong's rate-limiting plugin stores counters in Redis or PostgreSQL and supports fixed-window, sliding-window, and Redis-cluster modes. Envoy's local rate limiter is a token bucket per route or per connection; its global rate limiter delegates to a gRPC service backed by Redis. nginx uses leaky bucket (limit_req) for request smoothing and token bucket (limit_conn) for concurrent connections. AWS API Gateway enforces token-bucket limits at 10,000 req/sec default per account per region, with burst up to 5,000.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching animation across a network', caption: 'Rate limiters sit at network boundaries, admitting or rejecting request traffic before backend resources are consumed. Source: Wikimedia Commons, Oddbodz, public domain.'},
         `Cloud provider throttling is everywhere. AWS throttles EC2 API calls per account, S3 per prefix (5,500 GET/sec), and DynamoDB per table. GCP uses per-project quotas. Azure uses per-subscription limits. Hitting these returns 429 or 503 with Retry-After and is the leading cause of mysterious deploy failures in CI/CD pipelines.`,
         `LLM inference APIs rate-limit on two axes: requests per minute and tokens per minute. A single large generation can consume thousands of token-budget units. The limiter must track both dimensions and reject on whichever is exhausted first. This dual-axis pattern is becoming standard for any API where request cost varies by orders of magnitude.`,
         `Other uses: login endpoints (prevent credential-stuffing by limiting attempts per IP), webhook delivery (protect downstream services from retry storms), background job queues (control release rate toward a fragile dependency), and network traffic shaping (the original use case â€” Turner's 1986 token bucket was designed for ATM cell scheduling on shared links).`,
@@ -197,4 +200,3 @@ export const article = {
     },
   ],
 };
-

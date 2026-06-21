@@ -221,6 +221,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The 2D reporting view shows the structure that makes range trees work: a balanced BST keyed by x, with an associated y-list hanging off the root. The root node (x=5) is the split node where the two boundary searches diverge. Left and right children represent the search paths toward the lower and upper x bounds. When a path turns away from a boundary, the sibling subtree is entirely inside the query range and becomes canonical. The y-list node represents the second-dimension catalog attached to each canonical subtree.',
+        {type: 'callout', text: 'A range tree wins by decomposing one coordinate into canonical subtrees, then using stored order in the other coordinate instead of scanning candidates.'},
         'Highlighted nodes in green are the reported points -- they survived both the x decomposition and the y filter. Nodes in orange are active search nodes. Compare-colored nodes are points that exist in the tree but fall outside the query rectangle on at least one coordinate. The query node at the bottom shows the rectangle bounds: x in [2,8], y in [3,7].',
         'The fractional cascading view shifts focus to the repeated y-search problem. Y1, Y2, and Y3 are associated y-catalogs from different canonical subtrees. The bridges node represents the rank pointers that let a single binary search propagate through all catalogs without repeating work. The animation routes through bridges before reaching the output node to show that cascading replaces O(log n) independent searches with O(1) lookups per catalog.',
       ],
@@ -255,7 +256,8 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
-        'Build a balanced BST over the x-coordinates of all n points. At every internal node v, store an associated structure: a sorted array of the y-coordinates of all points in v\'s subtree. This associated array is the key to the second dimension. Construction takes O(n log n) time and O(n log n) space because each point appears in associated structures along one root-to-leaf path of depth O(log n).',
+        'Build a balanced BST over the x-coordinates of all n points. At every internal node v, store an associated structure: a sorted array of the y-coordinates of the subtree rooted at v. This associated array is the key to the second dimension. Construction takes O(n log n) time and O(n log n) space because each point appears in associated structures along one root-to-leaf path of depth O(log n).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree diagram with grouped keys in nodes', caption: 'Range trees rely on ordered search-tree decomposition; this B-tree visual shows the same idea of routing by separator keys before searching a stored catalog. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
         {
           type: 'diagram',
           label: '2D range tree with associated y-structures',
@@ -313,13 +315,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Metric', 'Plain 2D range tree', 'With fractional cascading', 'd-dimensional'],
-          rows: [
-            ['Build time', 'O(n log n)', 'O(n log n)', 'O(n log^(d-1) n)'],
-            ['Space', 'O(n log n)', 'O(n log n)', 'O(n log^(d-1) n)'],
-            ['Query time', 'O(log^2 n + k)', 'O(log n + k)', 'O(log^d n + k)'],
-            ['Doubling n', '+1 level, x2 catalogs', '+1 level, x2 catalogs', '+1 level per dimension'],
+          type: 'bullets',
+          items: [
+            'Plain 2D range tree: build time O(n log n), space O(n log n), query time O(log^2 n + k). The extra log comes from searching a y-catalog at each canonical x-subtree.',
+            'With fractional cascading: build time and space remain O(n log n), while query time drops to O(log n + k). One binary search is shared through bridge pointers.',
+            'd-dimensional range tree: build time and space become O(n log^(d-1) n), and query time is O(log^d n + k) without cascading-style improvements.',
+            'When n doubles, the tree gains about one level. The point also appears in about one more associated catalog per dimension layer.',
           ],
         },
         'The O(n log n) space comes from each point appearing in O(log n) associated y-arrays -- once per ancestor on its root-to-leaf path. The O(log^2 n + k) query cost is O(log n) canonical subtrees times O(log n) for a binary search in each y-array, plus O(k) to output the results.',
@@ -331,13 +332,12 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Structure', 'Query type', 'Query time (2D)', 'Space', 'Best for'],
-          rows: [
-            ['Range tree', 'Orthogonal reporting', 'O(log n + k)', 'O(n log n)', 'Exact static rectangle queries'],
-            ['k-d tree', 'Spatial pruning', 'O(sqrt(n) + k)', 'O(n)', 'Low-d nearest neighbor, moderate n'],
-            ['R-tree', 'Rectangle overlap', 'O(n) worst case', 'O(n)', 'Dynamic geometry, disk-backed'],
-            ['Segment tree', 'Interval stabbing/aggregate', 'O(log n + k)', 'O(n log n)', 'Interval queries, range updates'],
+          type: 'bullets',
+          items: [
+            'Range tree: exact orthogonal reporting in O(log n + k) with fractional cascading, at O(n log n) space. Best when the point set is static and rectangle queries must be exact.',
+            'k-d tree: spatial pruning with O(sqrt(n) + k) worst-case query time in 2D and O(n) space. Best for low-dimensional nearest neighbor or friendly distributions.',
+            'R-tree: rectangle-overlap indexing with O(n) worst case and O(n) space. Best for dynamic geometry, disk-backed spatial data, and broad rectangle predicates.',
+            'Segment tree: interval stabbing or aggregate queries with logarithmic overhead. Best when the problem is mostly one-dimensional intervals rather than full point reporting.',
           ],
         },
         'Range trees dominate when data is static, queries are axis-aligned rectangles, and every matching point must be reported with worst-case guarantees. Static map-label layers are a textbook fit: the label positions do not change, the viewport is an axis-aligned box, and missing a label is a visible bug. Offline spatial analytics -- "all events in this time-value window" -- is another natural case.',
@@ -349,6 +349,7 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'Range trees are not general spatial indexes. They do not handle nearest-neighbor queries, arbitrary polygon containment, circle range searches, or rectangle-to-rectangle intersection. For those problems, k-d trees, R-trees, ball trees, or spatial hashes are better fits because their pruning strategies match the query geometry.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/R-tree.svg/500px-R-tree.svg.png', alt: 'R-tree diagram with red object rectangles and blue parent bounding rectangles', caption: 'R-trees summarize object rectangles rather than exact point catalogs, which makes them a better fit for dynamic geometry but weaker for clean worst-case reporting. Source: Wikimedia Commons, R-tree.svg, CC BY-SA 3.0.'},
         'The O(n log n) space is a real cost. For a billion points, the associated y-arrays consume roughly 30 billion entries (log2(10^9) ~ 30). A k-d tree stores the same points in O(n) space. When memory is the binding constraint, the range tree loses.',
         'Dynamic updates are painful. Inserting a point requires updating associated y-arrays along the insertion path. Deletions are worse -- removing a point from O(log n) sorted arrays while maintaining sortedness is expensive. Semi-dynamic variants exist (logarithmic rebuilding), but they are complex and rarely match the simplicity of inserting into an R-tree or k-d tree. If the point set changes frequently, the range tree is the wrong tool.',
         {
@@ -370,17 +371,16 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'Binary Search Tree -- the outer tree structure and search-path decomposition'],
-            ['Prerequisite', 'Binary Search -- the 1D range query inside each associated array'],
-            ['Alternative', 'k-d Tree -- spatial pruning with O(n) space but weaker worst-case bounds'],
-            ['Alternative', 'R-Tree Spatial Index -- dynamic geometry with heuristic packing'],
-            ['Extension', 'Fractional Cascading -- the optimization that drops log^2 to log'],
-            ['Extension', 'Priority Search Tree Range Reporting -- three-sided queries without the second log'],
-            ['Analogue', 'Merge-Sort Tree Range Counting -- the array version with sorted catalogs'],
-            ['Complement', '2D Fenwick Tree & Coordinate Compression -- mutable aggregate queries instead of reporting'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Binary Search Tree -- the outer tree structure and search-path decomposition.',
+            'Prerequisite: Binary Search -- the 1D range query inside each associated array.',
+            'Alternative: k-d Tree -- spatial pruning with O(n) space but weaker worst-case bounds.',
+            'Alternative: R-Tree Spatial Index -- dynamic geometry with heuristic packing.',
+            'Extension: Fractional Cascading -- the optimization that drops log^2 to log.',
+            'Extension: Priority Search Tree Range Reporting -- three-sided queries without the second log.',
+            'Analogue: Merge-Sort Tree Range Counting -- the array version with sorted catalogs.',
+            'Complement: 2D Fenwick Tree and Coordinate Compression -- mutable aggregate queries instead of reporting.',
           ],
         },
       ],

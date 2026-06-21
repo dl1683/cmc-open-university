@@ -219,6 +219,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `RAG evaluation exists because a retrieval-augmented answer can fail in several places while still sounding plausible. The retriever may miss the needed source. The ranker may bury it below irrelevant chunks. The generator may ignore the source and invent a claim. The answer may be faithful to the context but not to the user's question. A single "good answer" score cannot tell the team which part to fix.`,
+        {type: 'callout', text: 'RAG evaluation is useful only when it names the broken layer: retrieval, ranking, grounding, answer relevance, or judge reliability.'},
         `RAGAS, ARES, and the RAG Triad are useful because they turn that blended judgment into component questions. RAGAS popularized reference-free metrics such as context precision, context recall, faithfulness, and response or answer relevance. ARES evaluates context relevance, answer faithfulness, and answer relevance with synthetic data, lightweight judges, and a small human-labeled set. The RAG Triad frames the same pressure as context relevance, groundedness, and answer relevance.`,
       ],
     },
@@ -241,6 +242,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         `A serious eval case stores the user question, retrieved chunks, chunk ranks, generated answer, citations, expected supporting facts when available, corpus version, retriever version, top-k, reranker version, model, prompt, and risk slice. The scorer then asks separate questions over the same record. Did the retrieved context contain the needed evidence? Were relevant chunks ranked above irrelevant chunks? Are answer claims supported by the retrieved context? Did the answer respond to the user's actual request?`,
+        {type: 'image', src: 'https://www.tensorflow.org/static/tfx/guide/images/prog_fin.png', alt: 'Machine learning pipeline diagram from data ingestion through validation and serving', caption: 'Pipeline diagrams make component boundaries explicit, which is exactly what RAG evaluation needs for retrieval, ranking, generation, and judging. Source: TensorFlow documentation.'},
         `RAGAS can run many of these checks with LLM-based or reference-free metrics. ARES adds a different pattern: generate synthetic training data, fine-tune lightweight judges for component judgments, and use a smaller human-labeled set with prediction-powered inference to estimate evaluation results. The lesson is not that one framework is enough. The lesson is that an evaluation suite needs reusable cases, explicit metric definitions, calibration against human labels, and separate development and holdout queues.`,
       ],
     },
@@ -248,6 +250,7 @@ export const article = {
       heading: 'What the visual proves',
       paragraphs: [
         `The graph view proves that evaluation is not attached only to the final answer. It sits beside retrieval, ranking, generation, claim extraction, and judging. A failure at an earlier layer constrains every later layer. A faithful generator cannot quote evidence that never entered the context window, and a high-quality retriever still cannot guarantee a grounded answer if generation ignores the evidence.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A RAG eval record is a directed evidence path from query to context to claims to judgment, not a single answer score. Source: Wikimedia Commons, David W., public domain.'},
         `The top-k plot proves the recall-precision trade. Adding chunks usually gives the answerer more chances to see the right fact, but it also adds distractors, stale policy, duplicate passages, and token cost. The diagnosis table proves why the metric matrix should point to a fix. Low recall, low precision, low faithfulness, and low answer relevance are different failures, not four names for bad output.`,
       ],
     },

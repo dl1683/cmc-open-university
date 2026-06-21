@@ -47,7 +47,7 @@ export function* run(input) {
   yield {
     state: scatterState({ points: docPoints, axes }),
     highlight: {},
-    explanation: 'An LLM\'s knowledge is frozen at training time, and when it doesn\'t know something it tends to guess fluently — hallucination. RAG (Retrieval-Augmented Generation) fixes both at once: keep your documents OUTSIDE the model, look up the relevant ones per question, and hand them to the model as context. Here is our document store, already embedded — notice pets, plants, and ML form natural neighborhoods (see Embeddings & Similarity).',
+    explanation: 'Model knowledge is frozen at training time, and when the model does not know something it tends to guess fluently — hallucination. RAG (Retrieval-Augmented Generation) fixes both at once: keep your documents OUTSIDE the model, look up the relevant ones per question, and hand them to the model as context. Here is our document store, already embedded — notice pets, plants, and ML form natural neighborhoods (see Embeddings & Similarity).',
   };
 
   const qPoint = { id: 'query', label: '? ' + question.replace('?', ''), x: query.x, y: query.y };
@@ -91,6 +91,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        { type: "callout", text: "RAG is a retrieval contract before it is a generation trick: the answer can be grounded only if the pipeline first chooses the right evidence." },
         "The scatter plot is an embedding space. Each dot is a document chunk whose position encodes its meaning — documents about similar topics land near each other. The clusters you see (pets, plants, ML) form because the embedding model maps semantically related text to nearby vectors.",
         "When a question appears (active marker), watch where it lands. Its position is computed by the same embedding model, so it falls near documents that share its meaning. The found markers are the top-k nearest neighbors — the chunks the system judges most relevant. Visited markers are the remaining documents, passed over because they are too far in embedding space.",
         "The view then switches to the prompt assembly: retrieved chunks stacked above the question. This is the context window the language model will read. The generation step treats these chunks as ground truth, producing an answer that cites them. If the wrong chunks were retrieved, the model would generate a confident answer from the wrong facts — that failure mode is the core design tension in every RAG system.",
@@ -99,6 +100,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        { type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg", alt: "Layered neural network diagram with colored nodes", caption: "The generator is still a neural model, but RAG moves changing facts into external context instead of model weights. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0." },
         "A language model can write fluently without knowing the current, private, or exact facts a user needs. A company handbook, support queue, product catalog, codebase, or legal repository changes faster than model pretraining. Retrieval-augmented generation exists to keep those facts outside the model and bring the right ones into the prompt at answer time.",
         "The contract is simple but demanding: documents remain the source of truth, retrieval chooses evidence, and the model reads that evidence to produce the answer. RAG is not fine-tuning. Fine-tuning changes behavior and style; retrieval changes context. A good system needs both strong retrieval and a model that obeys the retrieved evidence.",
       ],
@@ -134,6 +136,7 @@ export const article = {
     {
       heading: 'How it works (2)',
       paragraphs: [
+        { type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg", alt: "Directed graph with nodes connected by arrows", caption: "A production RAG system is a directed data flow: ingest, chunk, embed, retrieve, rerank, pack context, generate, and verify. Source: Wikimedia Commons, David W., public domain." },
         "Offline, documents are cleaned, split into chunks, embedded, and stored with metadata. Chunk sizes often land between 200 and 800 tokens, but tables, code, legal sections, and API references need structure-aware splitting. The system should preserve source IDs, section headings, timestamps, permissions, and canonical URLs because those fields become retrieval filters and citations later.",
         "At query time, the question is normalized and embedded with a compatible model. A vector index such as HNSW, FAISS, ScaNN, Milvus, pgvector, Elasticsearch vector search, or another ANN backend returns candidates. Many systems combine vector retrieval with BM25 or keyword search because exact names, error codes, and policy numbers are often lexical.",
         "A reranker may rescore the top candidates before context is built. Then the prompt contains the user question, selected passages, source IDs, and instructions about grounded answers. The model generates from that context, ideally citing the source spans that support each material claim.",
@@ -231,7 +234,7 @@ export const article = {
       heading: 'Hallucination reduction',
       paragraphs: [
         "RAG reduces hallucination by shifting the model from recall (generating facts from weights) to reading comprehension (extracting facts from provided text). When the context contains the answer and the model is instructed to use it, factual accuracy rises substantially — Lewis et al. showed this on knowledge-intensive benchmarks, and production deployments confirm it.",
-        "But RAG does not eliminate hallucination. The model can still fabricate details not in any retrieved chunk, combine facts from incompatible chunks, answer from parametric memory when retrieved evidence is ambiguous, or hallucinate a citation span that sounds right but does not exist in the source. Mitigation requires prompt engineering (\"answer only from the provided documents, say 'I don\'t know' otherwise\"), citation verification (check that each claim maps to a retrieved span), and evaluation pipelines that measure faithfulness separately from relevance.",
+        "But RAG does not eliminate hallucination. The model can still fabricate details not in any retrieved chunk, combine facts from incompatible chunks, answer from parametric memory when retrieved evidence is ambiguous, or hallucinate a citation span that sounds right but does not exist in the source. Mitigation requires prompt engineering (\"answer only from the provided documents, say 'I do not know' otherwise\"), citation verification (check that each claim maps to a retrieved span), and evaluation pipelines that measure faithfulness separately from relevance.",
       ],
     },
     {

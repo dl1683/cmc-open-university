@@ -238,6 +238,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "rank directory" view shows a 16-bit bitvector with three rows: raw bits, prefix 1-counts at every position, and stored superblock counters. Active highlights mark 1-bits the directory cares about. Found highlights mark the two superblock entries that are actually stored. The second frame decomposes a rank(10) query into its three additive pieces: superblock count, local block count, and popcount tail.',
+        {type: 'callout', text: 'Rank and select make bitstrings navigable: rank counts how far you have gone, and select jumps to the position where a count first becomes true.'},
         'The "select directory" view works in the opposite direction. The first frame traces select(6) from goal through coarse jump through word scan to the final answer position. Later frames compare how density affects directory design: dense, sparse, clustered, and random layouts demand different sampling strategies.',
         'At each frame, notice what is stored versus what is recomputed. The entire point of the structure is that almost nothing is stored, yet queries never scan from the beginning.',
       ],
@@ -278,6 +279,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The rank directory uses a two-level sampling hierarchy. Divide the n-bit string into superblocks of s bits each. For each superblock, store the absolute rank (total 1-count) up to its start. That costs (n/s) * log(n) bits. Then divide each superblock into blocks of b bits. For each block, store the local rank since its superblock. That costs (n/b) * log(s) bits. The remaining bits inside one block are resolved by masking and calling the hardware popcount instruction.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Binary_Search_Depiction.svg/250px-Binary_Search_Depiction.svg.png', alt: 'Binary search narrowing a sorted array to a target value', caption: 'Select can fall back to binary search over rank milestones when a faster select directory is not stored. Source: Wikimedia Commons, Binary Search Depiction.svg.'},
         {
           type: 'diagram',
           text: 'Bitvector B (n bits):\n|<--- superblock 0 (s bits) --->|<--- superblock 1 (s bits) --->| ...\n| blk0 | blk1 | blk2 | blk3    | blk4 | blk5 | blk6 | blk7    | ...\n\nStored:  R[0]=0          R[1]=cumulative 1s up to position s\n         r[0]=0  r[1]=local  r[2]=local  r[3]=local  ...\n\nrank1(i):\n  1. superblock_count = R[ i / s ]         -- one table lookup\n  2. block_count     = r[ i / b ]         -- one table lookup\n  3. tail_count      = popcount(word & mask)  -- one CPU instruction\n  4. answer          = superblock_count + block_count + tail_count',
@@ -299,7 +301,7 @@ export const article = {
         'Select is correct because rank is monotone non-decreasing. If rank1(a) < k and rank1(b) >= k with a < b, then the k-th one is in [a+1, b]. The sampled positions narrow this interval to at most one superblock. Within that region, popcount over successive words finds the exact word containing the target, and a final bit-scan locates the precise position. Monotonicity guarantees the search never skips the answer.',
         {
           type: 'note',
-          text: 'The o(n) space bound is the key theoretical contribution. The directory adds strictly fewer bits than the bitvector itself -- for Jacobson\'s original parameters, the overhead is O(n * log(log(n)) / log(n)) bits, which vanishes relative to n as n grows.',
+          text: 'The o(n) space bound is the key theoretical contribution. The directory adds strictly fewer bits than the bitvector itself -- under Jacobson original parameters, the overhead is O(n * log(log(n)) / log(n)) bits, which vanishes relative to n as n grows.',
         },
       ],
     },
@@ -307,14 +309,13 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Method', 'Rank time', 'Select time', 'Extra space', 'Notes'],
-          rows: [
-            ['Naive scan', 'O(n)', 'O(n)', '0', 'No directory; walk the bits each time'],
-            ['Full prefix array', 'O(1)', 'O(log n) via binary search', 'O(n log n) bits', 'Stores one integer per position; defeats compression'],
-            ['Two-level (Jacobson 1989)', 'O(1)', 'O(log log n) or O(1)', 'o(n) bits', 'Superblock + block + popcount; practical standard'],
-            ['Broadword / popcount', 'O(1)', 'O(1) practical', 'o(n) bits', 'Same two-level layout; uses hardware POPCNT/PDEP for the tail'],
-            ['RRR compressed (Raman, Raman, Rao 2002)', 'O(1)', 'O(1)', 'nH0 + o(n) bits', 'Entropy-compressed blocks; space adapts to density'],
+          type: 'bullets',
+          items: [
+            'Naive scan: rank O(n), select O(n), and zero extra space. It keeps the bitvector small but makes every navigation step linear.',
+            'Full prefix array: rank O(1), select O(log n) by binary search, and O(n log n) extra bits. It answers fast but defeats compression.',
+            'Two-level Jacobson directory: rank O(1), select O(log log n) or O(1) depending on samples, and o(n) extra bits. Superblocks, blocks, and popcount make this the practical standard.',
+            'Broadword and hardware popcount variants: rank O(1) and practical select O(1) with o(n) extra bits, using CPU bit instructions for the tail.',
+            'RRR compression: rank and select O(1) with nH0 + o(n) bits. It adapts space to bit density but pays extra decoding cost.',
           ],
         },
         'The two-level directory with hardware popcount is the workhorse. On x86, the POPCNT instruction counts the set bits in a 64-bit register in one cycle. ARM has equivalent instructions (CNT + ADDV). This makes the tail step essentially free, and the whole query costs two table lookups plus one instruction -- typically 2-3 cache line touches.',
@@ -329,15 +330,15 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Rank and select are the load-bearing primitives inside nearly every succinct and compressed data structure. The structures themselves are diverse, but they all reduce to "store topology or membership as bits, then navigate those bits with rank/select."',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Succinct structures often replace pointer graphs with bitstrings, then recover navigation through rank and select. Source: Wikimedia Commons, David W., public domain.'},
         {
-          type: 'table',
-          headers: ['Structure', 'How it uses rank', 'How it uses select'],
-          rows: [
-            ['Wavelet tree / matrix', 'Route queries left or right at each level by counting 0s/1s in a prefix', 'Recover original positions from leaf-level results'],
-            ['FM-index (BWT search)', 'LF-mapping: rank on the BWT bitvectors to walk backward through the text', 'Locate: convert suffix array samples back to text positions'],
-            ['LOUDS trie', 'rank1 on the parenthesis string to find the i-th child', 'select1/select0 to navigate from child back to parent'],
-            ['Compressed bitmap (Roaring-style)', 'Count set bits in a range for aggregation queries', 'Iterate over set bits for intersection / union'],
-            ['Succinct binary tree (Jacobson)', 'Navigate left/right child via rank on the level-order bitvector', 'Find parent node position'],
+          type: 'bullets',
+          items: [
+            'Wavelet tree or matrix: rank routes queries left or right at each level by counting 0s and 1s in a prefix; select helps recover original positions from leaf-level results.',
+            'FM-index over the Burrows-Wheeler transform: rank drives LF-mapping backward through the text; select helps locate sampled suffix-array positions.',
+            'LOUDS trie: rank on the level-order bitstring finds child ranges; select navigates from child positions back toward parents.',
+            'Compressed bitmap: rank counts set bits in a range for aggregation; select iterates set bits for intersection, union, or sparse-position recovery.',
+            'Succinct binary tree: rank and select navigate left child, right child, and parent relationships without explicit node pointers.',
           ],
         },
         'In bioinformatics, a single FM-index over a human genome may call rank billions of times during read alignment. In web search, wavelet trees over posting lists use rank to intersect and count term occurrences. In databases, compressed bitmaps use rank to translate between dense logical row IDs and sparse physical positions. The structure is invisible to end users but sits on the hottest loop of each system.',
