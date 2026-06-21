@@ -225,6 +225,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Sparse Set Entity Index. Keep a sparse entity-id array pointing into dense packed arrays, so membership is O(1), iteration is cache-friendly, and removal is swap-with-last..",
+        {type: 'callout', text: 'A sparse set separates addressability from iteration: sparse ids find rows, while dense rows stay compact for hot loops.'},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -250,6 +251,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A sparse set has at least two arrays. `denseEntities` stores the entity ids that are present, packed from row 0 to row `size - 1`. `sparse` is indexed by entity id and stores the row where that entity should appear in `denseEntities`.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Column_vs_row.svg', alt: 'Column-oriented and row-oriented storage layouts compared', caption: 'Dense component pools behave like column-oriented storage: packed arrays let systems scan one component field without visiting absent entities. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Column_vs_row.svg.'},
         'A component pool usually adds `denseValues` beside `denseEntities`. Row `i` in `denseValues` is the component value for entity `denseEntities[i]`. The dense side is the iteration order; the sparse side is only an index into that order.',
         'The membership check is `row = sparse[e]`, then `row < size && denseEntities[row] === e`. The equality check is not decoration. It rejects uninitialized sparse entries, stale rows left behind by removal, and ids that collide through default values.',
       ],

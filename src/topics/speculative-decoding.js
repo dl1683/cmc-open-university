@@ -105,6 +105,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a draft-verify loop producing one token sequence. Highlighted tokens are unverified guesses from the small draft model. Green tokens have been accepted by the large target model\'s verification pass. Red tokens were rejected at the first point where the draft disagreed with what the target model would have said.',
+        {type: 'callout', text: 'Speculative decoding is safe speedup only when verification preserves the target distribution, not just a plausible continuation.'},
         'Each round has two beats. First the draft model races ahead, proposing several tokens cheaply. Then the target model checks all of them in a single parallel forward pass -- the same cost as generating one token the slow way. The number of tokens that survive verification is the speedup. Toggle between "good draft" and "weak draft" to see how agreement rate controls whether speculation pays off or wastes effort.',
       ],
     },
@@ -134,6 +135,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Verifying K tokens costs about the same as generating one. The target model\'s forward pass is dominated by reading weights from memory. Once those weights are loaded for verification, scoring K candidate positions requires only a small amount of additional arithmetic -- the same weights, reused K times. This is exactly how the prefill phase works: the model processes hundreds of prompt tokens in one pass because the bottleneck is weight-loading, not per-token compute.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8f/The-Transformer-model-architecture.png', alt: 'Transformer model architecture diagram with encoder and decoder blocks', caption: 'Transformer decoding is expensive because each verified position reuses the same large block stack and attention machinery. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:The-Transformer-model-architecture.png.'},
         'A draft model that agrees with the target 80% of the time turns one expensive forward pass into 4-5 accepted tokens on average. The key constraint: the output must be identical to what the target model would have produced alone. A modified rejection sampling rule guarantees this -- accept draft token x with probability min(1, p(x)/q(x)), where p is the target distribution and q is the draft. If rejected, resample from the residual distribution. This is not an approximation. The output is statistically identical to the target model alone.',
       ],
     },
@@ -205,4 +207,3 @@ export const article = {
     },
   ],
 };
-

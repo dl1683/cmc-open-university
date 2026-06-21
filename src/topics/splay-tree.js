@@ -210,6 +210,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The zig-zig access view starts with a nine-node BST holding keys 1 through 14, rooted at 8. Highlighted (active) nodes trace the search path down to the target. Found markers land on nodes that have reached their final position after a rotation. Compare markers flag nodes whose depth changed as a side effect -- they were not the target, but the rotation moved them anyway.',
+        {type: 'callout', text: 'Splaying turns the last access into tree shape: recent and nearby keys move toward the root without stored balance metadata.'},
         'Each frame applies one of three rotation cases: zig (single rotation when the target\'s parent is the root), zig-zig (two same-direction rotations when target and parent sit on the same side), or zig-zag (two opposite rotations when the path bends). In every frame, check that in-order sorted order survives the rotation and notice how bystander nodes also drift toward the root. The working-set view replaces the tree with access-sequence tables showing how repeated or clustered lookups become cheaper over time.',
       ],
     },
@@ -238,6 +239,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'After every access, rotate the touched node to the root using a specific discipline of paired rotations. Not naive single rotations -- those preserve BST order but fail to compress long paths. The splay discipline uses zig-zig and zig-zag double rotations that halve the depth of every node along the access path. The expensive deep traversal pays for itself by restructuring the tree so that future traversals of the same region are cheap.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/da/Binary_search_tree.svg', alt: 'Binary search tree diagram with ordered values at nodes', caption: 'Splay trees preserve the ordinary BST order invariant while changing shape after each access. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_search_tree.svg.'},
         'The only invariant is standard BST order: left subtree keys are smaller, right subtree keys are larger, and every rotation preserves in-order traversal. Splaying changes depths and parent-child links but never changes the sorted sequence.',
       ],
     },

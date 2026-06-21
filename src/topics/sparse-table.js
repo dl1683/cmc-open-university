@@ -105,6 +105,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `A sparse table exists for a narrow but common situation: the data is fixed, and the program must answer many range queries quickly. The array might be an Euler tour depth list for lowest common ancestor, a suffix-array support table, an immutable metric series, or an offline dataset used by many queries.`,
+        {type: `callout`, text: `Sparse table speed comes from algebra: idempotence makes overlapping cached windows safe.`},
         `If the array never changes, every repeated scan is wasted work. The sparse table spends time once to precompute answers for carefully chosen windows. After that, each range-minimum query can be answered with two lookups and one comparison.`,
         `The structure is a good example of choosing a data structure from the shape of the problem. It is not trying to be general. It is trying to be extremely fast for static idempotent range queries, especially range minimum and range maximum.`,
       ],
@@ -121,6 +122,7 @@ export const article = {
       heading: `The core insight`,
       paragraphs: [
         `Precompute answers for every power-of-two window. Level 0 stores windows of length 1. Level 1 stores length 2. Level 2 stores length 4. Level k stores length 2^k. The key invariant is table[k][i] equals the minimum of the subarray starting at i with length 2^k.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg`, alt: `Row-major and column-major array storage order`, caption: `A sparse table is a two-dimensional precompute layout: one dimension selects window size, the other selects start position. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Row_and_column_major_order.svg.`},
         `Any query length has a largest power of two inside it. For range [lo, hi], choose k = floor(log2(hi - lo + 1)) and w = 2^k. One length-w window starts at lo. Another length-w window ends at hi. Those two windows cover the whole query range, usually with overlap.`,
         `Overlap is the trick. Minimum is idempotent: min(x, x) = x. If the same index appears in both windows, counting it twice does not change the answer. This is why sparse tables give O(1) range minimum but not ordinary range sum.`,
       ],

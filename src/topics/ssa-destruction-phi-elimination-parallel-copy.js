@@ -138,6 +138,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "phi to copies" view shows a phi node being lowered into edge-specific copies. Active nodes are the current transformation step. Found markers show completed copy placement. Compare markers show the final emitted moves that replace the abstract phi.',
+        {type: 'callout', text: 'SSA destruction is correct only when edge placement and parallel-copy semantics both survive lowering.'},
         'The "cycle resolution" view shows a parallel copy with a dependency cycle. Active nodes trace the cycle-breaking process. The temporary node lights up when the algorithm saves a value to break the cycle. Compare markers show the final sequential move list.',
         'At each frame, check: does this copy run only on the correct edge? Does this move sequence preserve every source value until its destination is written? If you can answer both, you understand the pass.',
       ],
@@ -180,6 +181,7 @@ export const article = {
         'SSA destruction proceeds in three stages: copy placement, critical-edge splitting, and parallel-copy sequentialization.',
         'Stage 1: For each phi x = phi(a from P, b from Q, ...) in a join block J, create a parallel copy on every incoming edge. Edge P->J gets the assignment x = a; edge Q->J gets x = b. Multiple phis in the same block produce multiple entries in the same edge parallel copy.',
         'Stage 2: If an edge P->J is critical (P has multiple successors, J has multiple predecessors), there is no existing block where edge-specific code can live. The compiler splits the edge by inserting a new empty block S on the edge: P branches to S, S falls through to J. The copies land in S.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bd/Rust_MIR_CFG.svg/250px-Rust_MIR_CFG.svg.png', alt: 'Rust compiler MIR control-flow graph with basic blocks and branch edges', caption: 'Real compiler IR exposes the same edge-sensitive problem: phi copies must land on control-flow edges, not merely inside successor blocks. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Rust_MIR_CFG.svg.'},
         {
           type: 'diagram',
           text: 'CRITICAL EDGE SPLITTING:\n\n  Before:                    After:\n\n  P --+--> J (critical)      P --+--> S --> J\n      |                          |\n      +--> K                     +--> K\n\n  S is an empty block that exists solely to hold\n  the copies for the P->J edge.',
@@ -206,13 +208,12 @@ export const article = {
       paragraphs: [
         'Phi elimination itself is linear in the number of phi arguments across all blocks. For a function with P total phi arguments and E edges in the CFG, copy placement visits each phi argument once: O(P). Critical-edge splitting visits each edge at most once: O(E). Parallel-copy sequentialization processes each copy once plus one extra step per dependency cycle.',
         {
-          type: 'table',
-          headers: ['Method', 'Lost-copy safe?', 'Swap safe?', 'Critical-edge split?', 'Extra moves per cycle', 'Complexity'],
-          rows: [
-            ['Naive copy insertion (Cytron 1991)', 'No', 'No', 'No', 'N/A -- broken', 'O(P)'],
-            ['Briggs method (1998)', 'Yes', 'Yes', 'Yes', '1 temp per cycle', 'O(P + E)'],
-            ['Sreedhar Method III (1999)', 'Yes', 'Yes', 'No -- uses renaming', '1 temp per cycle', 'O(P)'],
-            ['LLVM (current)', 'Yes', 'Yes', 'Yes', '1 temp per cycle', 'O(P + E)'],
+          type: 'bullets',
+          items: [
+            'Naive copy insertion (Cytron 1991): not lost-copy safe, not swap safe, no critical-edge split, broken for cycles, O(P).',
+            'Briggs method (1998): lost-copy safe, swap safe, uses critical-edge splitting, adds one temp per cycle, O(P + E).',
+            'Sreedhar Method III (1999): lost-copy safe, swap safe, avoids critical-edge splitting through renaming, adds one temp per cycle, O(P).',
+            'LLVM-style phi elimination: lost-copy safe, swap safe, uses critical-edge splitting when needed, adds one temp per cycle, O(P + E).',
           ],
         },
         'The Sreedhar Method III avoids critical-edge splitting entirely by renaming phi destinations. Instead of inserting copies on edges, it renames the phi target to a fresh variable and inserts copies at predecessor block ends and at the join block entry. This avoids creating new basic blocks but introduces more variable names for the register allocator to handle.',
@@ -261,15 +262,14 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'SSA construction and phi node placement (dominance frontiers)'],
-            ['Prerequisite', 'Control-flow graphs, basic blocks, and critical edges'],
-            ['Companion', 'Interference graphs and register coalescing'],
-            ['Extension', 'SSA-based register allocation (Hack et al.)'],
-            ['Extension', 'Linear scan register allocation'],
-            ['Contrast', 'Functional SSA / continuation-passing style (CPS) -- avoids phi nodes entirely'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: SSA construction and phi node placement through dominance frontiers.',
+            'Prerequisite: control-flow graphs, basic blocks, and critical edges.',
+            'Companion: interference graphs and register coalescing.',
+            'Extension: SSA-based register allocation, including Hack et al.',
+            'Extension: linear scan register allocation.',
+            'Contrast: functional SSA or continuation-passing style, which avoids phi nodes entirely.',
           ],
         },
         'A good exercise: take a CFG with two interacting phis at a join block, lower them to a parallel copy by hand, build the dependency graph, identify any cycles, and emit the sequentialized move list. Verify that every destination receives its original source value.',
@@ -277,4 +277,3 @@ export const article = {
     },
   ],
 };
-

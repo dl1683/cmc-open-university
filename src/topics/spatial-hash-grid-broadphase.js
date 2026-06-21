@@ -224,6 +224,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A spatial hash grid is a hash table whose keys are grid-cell coordinates. Instead of storing objects in a fixed 2D or 3D array, the system computes a cell coordinate such as floor(x / cellSize), floor(y / cellSize), hashes that coordinate, and stores object ids in the bucket for that cell. Empty space costs almost nothing because only occupied cells need buckets.',
+        {type: 'callout', text: 'A spatial hash is a conservative locality index: a bucket hit means maybe nearby, never definitely colliding.'},
         'This topic builds on Hash Table, Quadtree Spatial Index & Map Tiles, Bounding Volume Hierarchy, Octree Sparse Voxel Index, and Interval Tree. It is the practical, dynamic, low-ceremony option: less adaptive than trees, but often faster and simpler when object sizes are similar and positions change every frame.',
       ],
     },
@@ -275,6 +276,7 @@ export const article = {
       heading: 'Choosing cell size',
       paragraphs: [
         'Cell size is the main design decision. If all objects have roughly the same diameter, a cell size near that diameter or a small multiple of it often works well. If cells are much smaller than objects, each object is inserted into many buckets. If cells are much larger, bucket contents grow and the structure drifts back toward all-pairs testing inside each bucket.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/Quad_tree_bitmap.svg/500px-Quad_tree_bitmap.svg.png', alt: 'Bitmap image and compressed quadtree representation', caption: 'A quadtree adapts cell detail to data variation; a spatial hash chooses a fixed cell scale and wins only when that scale matches the workload. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Quad_tree_bitmap.svg.'},
         'Mixed-size worlds often need more than one layer. A uniform grid can handle small dynamic objects while large static geometry lives in a quadtree, BVH, or hand-authored spatial partition. Another option is a hierarchical hash grid, where object size chooses the grid level. The point is not to worship one data structure; it is to keep local density bounded.',
       ],
     },

@@ -283,6 +283,7 @@ export const article = {
       heading: 'Why physical joins exist',
       paragraphs: [
         `A SQL query describes a logical result. When you join customers to orders on matching customer ids, you are not telling the database how to find the matching rows. You are saying what rows should appear. The planner still has to choose a physical method: nested loop, hash join, merge join, or a variant built from those families.`,
+        {type: 'callout', text: 'A join plan is a runtime data-structure choice: probe an index, build a hash table, or consume sorted streams.'},
         `This separation is the reason SQL can feel both declarative and surprising. Two queries with the same answer can have very different execution costs because their physical plans touch data in different orders, use different indexes, allocate different memory, and recover differently when estimates are wrong.`,
         `A join algorithm is therefore a data-structure choice made at runtime planning time. Nested loop leans on repeated probes, often through a B-tree. Hash join builds an in-memory lookup table for equality keys. Merge join turns sorted order into a two-cursor stream. The best choice is not a moral ranking of algorithms; it is a match between the query shape and the evidence the planner has about the data.`,
       ],
@@ -307,6 +308,7 @@ export const article = {
       heading: 'Mechanism: nested loop join',
       paragraphs: [
         `Nested loop join chooses one input as the outer side and one input as the inner side. For each outer row, it looks for matching inner rows. With no supporting structure, that means scanning the inner relation repeatedly. With a selective index on the inner join key, it can become a series of targeted lookups.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree diagram with grouped keys in nodes', caption: 'Nested loop joins become practical when each outer row can probe an inner B-tree index instead of scanning the whole relation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:B-tree.svg.'},
         `This is why nested loop is not automatically the beginner algorithm to avoid. If the outer side has ten rows and the inner side has a B-tree on the join key, ten index probes can beat building a hash table or sorting both inputs. Nested loop is also useful for non-equality predicates because hash join needs exact-key lookup and merge join needs compatible order.`,
         `The failure mode is multiplication by surprise. If the planner thinks the outer side has ten rows and it actually has ten million, the inner probe cost is multiplied ten million times. The plan can look reasonable on paper while producing a production stall. In an EXPLAIN ANALYZE plan, this often appears as a nested loop whose inner node has many loops and whose actual outer row count dwarfs the estimate.`,
       ],

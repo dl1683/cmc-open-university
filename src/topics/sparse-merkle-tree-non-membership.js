@@ -224,6 +224,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A Merkle root is a compact commitment. If the verifier trusts the root, an untrusted server can prove that a particular leaf is part of the committed data by sending sibling hashes along the path to the root. That is enough for a list, but many real systems need an authenticated map: account id to balance, nullifier to spent status, document id to digest, or key to value.',
+        {type: 'callout', text: 'A sparse Merkle tree proves absence by making the missing key location deterministic, then opening that location against the committed root.'},
         'Maps need two kinds of claims. The first is membership: this key has this value. The second is non-membership: this key is absent. Non-membership is harder because a dishonest server can always say it did not find a key unless the verifier knows exactly where that key would have been.',
         'A sparse Merkle tree solves that by giving every possible key a deterministic slot in an enormous logical tree. Missing keys are represented by default empty leaves and default empty subtrees. Absence becomes an opening to a known empty location, not a promise from storage.',
       ],
@@ -240,6 +241,7 @@ export const article = {
       heading: 'The core invariant',
       paragraphs: [
         'The invariant is that each key maps to one path, and only that path can contain the key value. If the key hashes to bits 0101..., the verifier will accept only a proof that follows 0101... from the root. A proof for a different path is irrelevant.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Hash_Tree.svg/500px-Hash_Tree.svg.png', alt: 'Merkle hash tree with data blocks at leaves and hashes combined upward to a top hash', caption: 'Sparse trees use the same recursive hash commitment as ordinary Merkle trees, but most empty leaves are represented by default hashes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_Tree.svg.'},
         'The second invariant is that every all-empty subtree has a deterministic hash. The empty leaf hash is z0. The empty subtree one level up is z1 = hash(z0, z0). The next is z2 = hash(z1, z1), and so on. A verifier can use these constants without seeing every empty leaf.',
         'Together, these invariants make absence checkable. The verifier knows where the key belongs, knows what an empty region should hash to, and can recompute the committed root from the provided path data.',
       ],

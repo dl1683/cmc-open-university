@@ -173,6 +173,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Sparse conditional constant propagation, usually called SCCP, exists because constant propagation and reachability are not independent compiler problems. A constant condition can prove that a branch will not run. A dead branch can prove that a phi node has only one live incoming value. Those facts feed each other.`,
+        {type: 'callout', text: 'SCCP is precise because reachability is a value fact: dead edges are excluded before phi nodes merge operands.'},
         `A compiler that separates the two problems often needs several cleanup rounds. First it discovers constants, then it simplifies branches, then it removes dead blocks, then it may discover more constants. SCCP puts value facts and executable control-flow edges into one sparse fixed point so the compiler can find the combined result directly.`,
       ],
     },
@@ -188,6 +189,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `The core insight is to make executable edges first-class facts. An edge is not considered live just because it appears in the CFG. It becomes executable only after SCCP has evidence that control can reach it.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Some_types_of_control_flow_graphs.svg/250px-Some_types_of_control_flow_graphs.svg.png', alt: 'Examples of control flow graph shapes with branches and loops', caption: 'SCCP needs edge-level reachability because constants flow through branches, joins, and loops. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Some_types_of_control_flow_graphs.svg.'},
         `That one extra fact changes phi handling. A phi node merges only operands whose predecessor edges are executable. Dead code cannot poison live values. Constants decide branches, decided branches remove incoming phi operands, simpler phis create more constants, and those constants may decide more branches.`,
       ],
     },

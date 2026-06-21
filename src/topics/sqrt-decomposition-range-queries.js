@@ -221,6 +221,7 @@ export const article = {
       heading: 'Problem',
       paragraphs: [
         'Range-query problems ask the same question over many intervals of an array: what is the sum, minimum, count, or other aggregate on [l, r]? A direct scan is easy to trust, but it repeats work every time a long range appears.',
+        {type: 'callout', text: 'Square-root decomposition works by making the middle of a range cheap and keeping the messy edges small.'},
         'The harder version also allows updates. Prefix sums answer static range sums in O(1), but one point correction changes every later prefix. Square-root decomposition is the middle ground: keep enough precomputed state to skip most of a long interval, while leaving the local pieces simple.',
       ],
     },
@@ -235,6 +236,7 @@ export const article = {
       heading: 'Core mechanism',
       paragraphs: [
         'Split the array into contiguous blocks of length B. Store one summary per block. To answer a query, scan the left partial block until the next boundary, consume every full block by reading its summary, then scan the right partial block.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg', alt: 'Row-major and column-major array storage order', caption: 'Block decomposition is a layout decision over a linear array: adjacent cells are grouped so whole blocks can answer part of a query. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Row_and_column_major_order.svg.'},
         'For point updates, change the array cell and repair only the summary for the block containing that cell. For sums this is a constant-time delta update. For min, sorted blocks, or richer summaries, the containing block may need a local rebuild.',
       ],
     },
