@@ -323,6 +323,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Inverse update" walks the formula on a concrete 2x2 matrix: the old inverse, the outer-product change, the denominator guard, the correction, and the result. "Online least squares" shows a streaming regression pipeline where Sherman-Morrison keeps the inverse hot while rows arrive.',
+        {
+          type: 'callout',
+          text: 'Sherman-Morrison is useful when the matrix change is one outer product and the old inverse is already live state.',
+        },
         'Active cells mark the quantity being computed right now. Compare cells show the value being replaced or the baseline being measured against. Found markers appear when a result is confirmed correct. Removed markers flag a singular or numerically dangerous state.',
         {
           type: 'note',
@@ -380,16 +384,21 @@ export const article = {
           language: 'text',
           text: '(A + u v^T)^-1 = A^-1 - (A^-1 u)(v^T A^-1) / (1 + v^T A^-1 u)',
         },
+        {
+          type: 'image',
+          src: 'https://latex.codecogs.com/png.image?%5Cdpi%7B150%7D%20%28A%2Buv%5ET%29%5E%7B-1%7D%3DA%5E%7B-1%7D-%5Cfrac%7BA%5E%7B-1%7Duv%5ETA%5E%7B-1%7D%7D%7B1%2Bv%5ETA%5E%7B-1%7Du%7D',
+          alt: 'Sherman-Morrison inverse update formula',
+          caption: 'The image isolates the rank-one inverse update formula that the animation evaluates cell by cell. Source: CodeCogs equation renderer https://latex.codecogs.com/.',
+        },
         'The update proceeds in five steps, each building on the last.',
         {
-          type: 'table',
-          headers: ['Step', 'Compute', 'Cost', 'What it means'],
-          rows: [
-            ['1. Left vector', 'q = A^-1 u', 'O(n^2)', 'How the old system responds to the column direction u'],
-            ['2. Right vector', 'r^T = v^T A^-1', 'O(n^2)', 'How the old system responds to the row direction v'],
-            ['3. Denominator', 'd = 1 + v^T A^-1 u = 1 + r^T u', 'O(n)', 'Scalar safety check; zero means the new matrix is singular'],
-            ['4. Correction', 'C = q r^T / d', 'O(n^2)', 'Rank-one matrix that adjusts the inverse'],
-            ['5. New inverse', 'A_new^-1 = A^-1 - C', 'O(n^2)', 'Element-wise subtraction; the old inverse is corrected in place'],
+          type: 'bullets',
+          items: [
+            'Left vector: compute q = A^-1 u in O(n^2). This shows how the old system responds to the column direction u.',
+            'Right vector: compute r^T = v^T A^-1 in O(n^2). This shows how the old system responds to the row direction v.',
+            'Denominator: compute d = 1 + v^T A^-1 u = 1 + r^T u in O(n). Zero means the new matrix is singular.',
+            'Correction: compute C = q r^T / d in O(n^2). This is the rank-one matrix that adjusts the inverse.',
+            'New inverse: compute A_new^-1 = A^-1 - C in O(n^2). The old inverse is corrected in place.',
           ],
         },
         'The total cost is O(n^2) -- two matrix-vector products, one outer product, one scalar division, and one matrix subtraction. No factorization, no back-substitution, no pivot search.',
@@ -422,13 +431,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Fresh inverse', 'Sherman-Morrison update'],
-          rows: [
-            ['Time per update', 'O(n^3)', 'O(n^2)'],
-            ['Space', 'O(n^2) for the matrix', 'O(n^2) for the stored inverse'],
-            ['k updates total', 'O(k n^3)', 'O(n^3) initial + O(k n^2) updates'],
-            ['Breakeven', '--', 'Wins after ~1 update if inverse is already needed'],
+          type: 'bullets',
+          items: [
+            'Fresh inverse: O(n^3) time per update and O(n^2) space for the matrix.',
+            'Sherman-Morrison update: O(n^2) time per rank-one update and O(n^2) space for the stored inverse.',
+            'k updates total: fresh recomputation costs O(k n^3), while inverse maintenance costs one initial O(n^3) inverse plus O(k n^2) updates.',
+            'Breakeven: the update wins as soon as the inverse is already needed and at least one rank-one event arrives.',
           ],
         },
         'The cost difference is one factor of n per update. For n = 100, that is 100x less work per row. For n = 1000, it is 1000x. Doubling n quadruples the update cost but cubes the recomputation cost.',
@@ -444,14 +452,13 @@ export const article = {
       paragraphs: [
         'Sherman-Morrison wins when updates are truly rank one, the inverse is needed for scoring or uncertainty, and latency matters more than batch throughput.',
         {
-          type: 'table',
-          headers: ['System', 'Matrix being updated', 'Why rank-one', 'What uses A^-1 directly'],
-          rows: [
-            ['Recursive least squares (RLS)', 'A = X^T X + lambda I', 'Each new row x adds x x^T', 'theta = A^-1 b gives model weights'],
-            ['LinUCB contextual bandits', 'A_a per action arm', 'Each impression adds x x^T to the chosen arm', 'x^T A^-1 x gives the exploration bonus'],
-            ['Kalman filter (scalar obs)', 'Error covariance P', 'Each scalar observation is a rank-one correction', 'P drives the Kalman gain and state update'],
-            ['Gaussian process (incremental)', 'Kernel matrix K', 'Adding one data point extends K by one row/column', 'K^-1 needed for posterior mean and variance'],
-            ['Sensitivity analysis', 'System matrix A', 'Perturbing one component is a rank-one edit', 'A^-1 gives response to forcing changes'],
+          type: 'bullets',
+          items: [
+            'Recursive least squares: A = X^T X + lambda I; each new row x adds x x^T, and theta = A^-1 b gives model weights.',
+            'LinUCB contextual bandits: each action arm keeps A_a; each impression adds x x^T, and x^T A^-1 x gives the exploration bonus.',
+            'Kalman filter with scalar observations: the error covariance P receives a rank-one correction, and P drives the Kalman gain.',
+            'Incremental Gaussian process models: adding one data point extends K by one row and column, while K^-1 is needed for posterior mean and variance.',
+            'Sensitivity analysis: perturbing one component is a rank-one edit, and A^-1 gives the response to forcing changes.',
           ],
         },
         {
@@ -486,14 +493,13 @@ export const article = {
       heading: 'Sources and study next',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Source', 'What it covers'],
-          rows: [
-            ['Sherman & Morrison, "Adjustment of an Inverse Matrix" (Annals of Math. Stat., 1950)', 'Original derivation of the rank-one inverse update formula'],
-            ['Woodbury, "Inverting Modified Matrices" (Princeton, 1950)', 'Generalization to rank-k updates: (A + U C V)^-1'],
-            ['Golub & Van Loan, "Matrix Computations" (4th ed., 2013), Section 2.1.4', 'Numerical stability analysis, when to use vs. avoid explicit inverses'],
-            ['Hager, "Updating the Inverse of a Matrix" (SIAM Review, 1989)', 'Survey of rank-one update applications and numerical considerations'],
-            ['Li et al., "A Contextual-Bandit Approach to Personalized News" (WWW 2010)', 'LinUCB: Sherman-Morrison as the engine for online exploration-exploitation'],
+          type: 'bullets',
+          items: [
+            'Sherman and Morrison, "Adjustment of an Inverse Matrix" (Annals of Math. Stat., 1950): original derivation of the rank-one inverse update formula.',
+            'Woodbury, "Inverting Modified Matrices" (Princeton, 1950): generalization to rank-k updates, (A + U C V)^-1.',
+            'Golub and Van Loan, "Matrix Computations" (4th ed., 2013), Section 2.1.4: numerical stability analysis and explicit-inverse warnings.',
+            'Hager, "Updating the Inverse of a Matrix" (SIAM Review, 1989): survey of rank-one update applications and numerical considerations.',
+            'Li et al., "A Contextual-Bandit Approach to Personalized News" (WWW 2010): LinUCB uses Sherman-Morrison for online exploration-exploitation.',
           ],
         },
         {

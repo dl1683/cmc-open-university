@@ -347,6 +347,10 @@ export const article = {
       heading: 'Why This Exists',
       paragraphs: [
         'Many machine-learning inputs are collections, not sequences. A bag of image patches, a point cloud, a few-shot support set, a group of particles, a candidate list, or a cluster of log events has rows, but the row order is often just storage order. If the data loader shuffles the rows, the meaning of the collection should not change.',
+        {
+          type: 'callout',
+          text: 'Set Transformer preserves set symmetry while using attention to model relationships that a plain pooled Deep Sets baseline can miss.',
+        },
         'Set Transformer exists for that contract. It lets elements interact through attention while refusing to treat row index as a signal. Elementwise outputs should move with the input permutation. Pooled outputs should stay the same. The model is built around that distinction: equivariance before pooling, invariance after pooling.',
       ],
     },
@@ -396,6 +400,12 @@ export const article = {
       heading: 'Costs',
       paragraphs: [
         'SAB costs O(N^2) attention scores per layer. ISAB costs O(Nm) for each of two attention passes when m is the number of inducing points. If m is fixed and N doubles, the ISAB attention work grows close to linearly rather than quadratically. That is the main reason the inducing-point version exists.',
+        {
+          type: 'image',
+          src: 'https://ar5iv.labs.arxiv.org/html/1810.00825/assets/figs/runtime.png',
+          alt: 'Runtime plot comparing SAB and ISAB as set size grows',
+          caption: 'The Set Transformer supplementary runtime plot shows why inducing points matter for large sets. Source: ar5iv rendering of the Set Transformer supplementary material https://ar5iv.labs.arxiv.org/html/1810.00825.',
+        },
         'The price is capacity. A small m forces many elements to share a narrow memory bottleneck and can miss rare pairwise relationships. A large m approaches dense-attention cost. Treat m as a memory and latency budget. It should be chosen against set size, task error, tail latency, and the amount of interaction the task actually needs.',
       ],
     },

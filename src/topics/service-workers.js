@@ -161,6 +161,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Service Workers & Offline-First. A programmable proxy between page and network: intercept every request, answer from cache, survive airplane mode..",
+        {
+          type: 'callout',
+          text: 'A service worker moves fetch policy into a programmable browser-side proxy, so offline behavior becomes application logic.',
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -193,6 +197,12 @@ export const article = {
       heading: 'Lifecycle',
       paragraphs: [
         'Registration starts with a page calling navigator.serviceWorker.register("sw.js"). The browser downloads the worker script and associates it with a scope. A worker registered at the site root can control more URLs than a worker registered in a subdirectory. Scope is a security and routing boundary.',
+        {
+          type: 'image',
+          src: 'https://web.dev/static/articles/service-worker-lifecycle/image/error-displayed-service.png',
+          alt: 'Chrome DevTools showing a service worker registration error',
+          caption: 'Service worker lifecycle bugs are visible in browser tooling because the worker persists outside the page reload path. Source: web.dev service worker lifecycle article https://web.dev/articles/service-worker-lifecycle.',
+        },
         'Install is the first gate. The worker receives an install event and often opens a versioned precache, then stores the required shell files. If the install promise rejects, the new worker does not become the offline layer. That is a feature: keeping the old worker is safer than activating an incomplete release.',
         'Activate is the cleanup and ownership gate. A newly installed worker may wait while old tabs remain controlled by the previous worker. During activate, the worker can delete obsolete caches, enable navigation preload, and claim clients if the application deliberately wants open pages to switch controllers. This lifecycle is why update bugs often involve old tabs and old cache names.',
         'Fetch is the serving gate. For each controlled request, the worker can call event.respondWith and provide a Response. The worker must return quickly enough to avoid making the app feel stuck, and it must handle cache misses as normal because browser storage can be evicted under pressure.',

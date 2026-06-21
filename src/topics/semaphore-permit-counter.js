@@ -209,6 +209,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The permits-and-waiters view shows a semaphore with capacity 2. Active highlights mark the current decision point: which thread is trying to acquire and what the counter reads. Found highlights mark threads that hold permits and are inside the protected region. Compare highlights mark threads that have arrived but cannot yet enter.',
+        {
+          type: 'callout',
+          text: 'A semaphore turns capacity into an atomic admission rule: enter while a permit exists, otherwise join the wait queue.',
+        },
         'Watch the counter. It starts at 2, drops to 0 as A and B acquire, stays at 0 while C blocks, and stays at 0 after A releases because the freed permit passes directly to C. The counter never goes negative. That is the semaphore invariant.',
         'The bulkhead view shows three independent semaphores guarding three dependencies. Each semaphore has its own counter and queue. A slowdown in one dependency exhausts only its own permits, not the others. Watch the permit counts and arrival rates to see why isolation matters.',
       ],
@@ -217,6 +221,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'In 1965, Edsger Dijkstra needed a synchronization primitive for the THE multiprogramming system at Eindhoven. Interrupts and busy-wait loops were the only tools available, and they were error-prone: race conditions were invisible, correctness arguments were ad hoc, and adding a new concurrent process meant re-auditing every shared variable.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Edsger_Wybe_Dijkstra.jpg/250px-Edsger_Wybe_Dijkstra.jpg',
+          alt: 'Edsger Dijkstra, who introduced semaphores as a synchronization primitive',
+          caption: 'Dijkstra introduced semaphores while designing early multiprogramming systems. Source: Wikipedia image page https://en.wikipedia.org/wiki/Edsger_W._Dijkstra.',
+        },
         'Dijkstra invented the semaphore as the first general-purpose synchronization primitive. He defined two atomic operations and gave them Dutch names: P (from proberen, to try) decrements the counter if positive, otherwise blocks the caller; V (from verhogen, to increment) increments the counter and wakes a blocked caller if one exists. The names survive in POSIX as sem_wait and sem_post.',
         'The semaphore solved two problems at once. A binary semaphore (counter 0 or 1) provides mutual exclusion. A counting semaphore (counter 0 to N) provides bounded concurrency. Both reduce to the same mechanism: a nonnegative integer that callers cannot drive below zero, plus a queue for callers that arrive when the integer is zero.',
         'The idea endures because bounded capacity is everywhere. A database pool allows 40 connections. A crawler allows 6 requests per host. A microservice allows 20 concurrent calls to a fragile dependency. A mutex is too strict because it admits only one holder. An unbounded queue admits overload and hides the damage. A semaphore sits at the admission point and makes capacity visible in code.',

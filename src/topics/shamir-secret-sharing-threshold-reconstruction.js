@@ -215,6 +215,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Some secrets must survive loss without becoming easy to steal. A root encryption key, recovery key, signing key, or emergency credential cannot live only in one safe, one laptop, or one person\'s memory. That is available only until the holder disappears.',
+        {
+          type: 'callout',
+          text: 'Shamir sharing makes recovery a threshold algebra problem: enough points determine the secret, fewer points leave every secret possible.',
+        },
         'Copying the secret fixes availability by destroying the security model. One stolen copy is the secret. Shamir secret sharing gives a cleaner contract: split one secret into n shares so any k shares reconstruct it, while k - 1 or fewer shares leave the secret completely undetermined.',
       ],
     },
@@ -229,6 +233,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A polynomial of degree k - 1 is fixed by k distinct points. With fewer than k points, many polynomials still fit. Shamir puts the secret at f(0), chooses the other coefficients uniformly at random, and gives participants nonzero points on the curve.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/3_polynomials_of_degree_2_through_2_points.svg/250px-3_polynomials_of_degree_2_through_2_points.svg.png',
+          alt: 'Several degree two polynomials passing through the same two points',
+          caption: 'Fewer than the threshold points leave many compatible polynomials, which is the privacy intuition. Source: Wikipedia Shamir secret sharing image https://en.wikipedia.org/wiki/Shamir%27s_secret_sharing.',
+        },
         'The x coordinate can be public. The y coordinate is the share. Recovery is not a vote and not a password ceremony; it is interpolation over a finite field. The threshold is enforced by algebra, not by trust in a coordinator.',
       ],
     },

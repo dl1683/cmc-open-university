@@ -134,6 +134,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation runs Shell sort in multiple passes, each with a decreasing gap. In each pass, elements that are gap positions apart form an interleaved subarray, and that subarray gets insertion-sorted.',
+        {
+          type: 'callout',
+          text: 'Shell sort makes insertion sort cheaper by moving far-away elements early, then finishing with a nearly sorted gap-1 pass.',
+        },
         'The active highlight marks the element being inserted. The compare highlights show it being tested against the element gap positions to its left. When a shift occurs, the swap highlight marks both positions. The found highlight marks where the element lands.',
         'Watch how the early large-gap passes move small values leftward and large values rightward in big jumps. By the time the final gap-1 pass runs, the array is nearly sorted and very few shifts are needed. That is the entire point of Shell sort: do the expensive long-distance moves when the subarrays are small and cheap.',
       ],
@@ -163,6 +167,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Choose a decreasing sequence of gap values ending with 1. For each gap g, divide the array into g interleaved subarrays: subarray 0 contains positions 0, g, 2g, 3g, and so on; subarray 1 contains positions 1, g+1, 2g+1, and so on. Insertion-sort each subarray independently. When all g subarrays are sorted, the array is "g-sorted."',
+        {
+          type: 'image',
+          src: 'https://www.programiz.com/sites/tutorial2program/files/shell-sort-0.0.png',
+          alt: 'Eight-element input array used in a Shell sort gap-pass example',
+          caption: 'A Shell sort trace starts from a fixed array, then applies decreasing gap passes to move distant values early. Source: Programiz Shell Sort tutorial https://www.programiz.com/dsa/shell-sort.',
+        },
         'After the g-sorted pass, move to the next smaller gap and repeat. Each pass sorts longer subarrays, but those subarrays are already partially ordered by the previous passes. The final pass uses gap 1, which is plain insertion sort over the entire array — but by now the array is nearly sorted, so this pass is fast.',
         'Shell\'s original gap sequence is n/2, n/4, n/8, ..., 1. The implementation is just insertion sort with the inner loop stepping by gap instead of 1, wrapped in an outer loop that shrinks the gap.',
       ],

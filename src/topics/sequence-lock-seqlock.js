@@ -211,6 +211,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Sequence Locks (Seqlocks). A read-mostly consistency pattern: writers bump an odd/even version counter, while readers copy data and retry if the version changed..",
+        {
+          type: 'callout',
+          text: 'A seqlock makes readers cheap by turning coherence into a validation step instead of a read-side lock.',
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -236,6 +240,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A seqlock uses a sequence counter as a version certificate. Writers make the counter odd while data is unstable and even when a coherent version is available. Readers accept a copy only if the counter was even and unchanged before and after the copy.',
+        {
+          type: 'image',
+          src: 'https://image1.slideserve.com/2773571/seqlocks-l.jpg',
+          alt: 'Lecture slide describing a seqlock as a spinlock plus a sequence counter',
+          caption: 'The seqlock state is a writer lock plus a sequence counter that readers sample twice. Source: SlideServe CSC 660 lecture image https://www.slideserve.com/yuval/csc-660-advanced-os.',
+        },
         'The reader may race a writer, but it can detect the race afterward. Same even sequence means the copied fields belong to one coherent version. Odd or changed sequence means discard the copy and retry.',
         'The important constraint is that readers must only copy data that remains safe to touch during the read attempt. A seqlock can detect a torn value; it cannot undo a use-after-free. If the protected data includes pointers whose targets can disappear, pair the design with RCU, hazard pointers, epochs, or another lifetime scheme instead.',
       ],

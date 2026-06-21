@@ -170,6 +170,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "splitting the table" view walks through partitioning strategies. Each shard is a row in the matrix. Row counts show data distribution; highlighted cells mark skew or imbalance. When a cell turns red, that shard is overloaded. Green cells mark balanced or repaired placements. The celebrity-problem frame shows how a single hot key can re-concentrate traffic even when row counts are perfectly even.',
+        {
+          type: 'callout',
+          text: 'Sharding only stays cheap when the request names the partition key and the router can reduce the cluster to one shard.',
+        },
         'The "what sharding breaks" view shows the costs. The graph frame draws a query router fanning out to four shards; the red shard and edge mark the straggler whose latency becomes the entire query\'s latency. Matrix frames compare single-shard transactions (green, fast) against cross-shard transactions (red, slow). The resharding frame contrasts naive mod-N remapping against consistent hashing by how much data must move.',
         'Watch for the contrast between highlighted and unhighlighted cells in each frame. The animation is designed so the highlighted state answers: "where is the pain right now?"',
       ],
@@ -209,6 +213,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A sharded system has three components: a partitioning function that maps a key to a partition, a shard map that records which machine owns each partition, and a routing layer that sends each request to the right owner.',
+        {
+          type: 'image',
+          src: 'https://quickchart.io/graphviz?format=png&graph=digraph%20G%20%7Brankdir%3DLR%3Bnode%5Bshape%3Dbox%2Cstyle%3Drounded%5D%3BClient-%3ERouter%3BRouter-%3EShardA%5Blabel%3D%22key%20range%200-33%22%5D%3BRouter-%3EShardB%5Blabel%3D%22key%20range%2034-66%22%5D%3BRouter-%3EShardC%5Blabel%3D%22key%20range%2067-99%22%5D%3B%7D',
+          alt: 'Client request routed through a shard router to one of three key ranges',
+          caption: 'A sharded request goes through a routing layer that maps the partition key to an owning shard. Source: QuickChart Graphviz renderer https://quickchart.io/graphviz.',
+        },
         'Range partitioning assigns contiguous key intervals to shards: users A-F on shard 1, G-M on shard 2. This preserves sort order, so range scans, sorted pagination, and time-window queries can stay on one shard. The cost is skew. Names starting with S are far more common than names starting with X. Timestamps concentrate all new writes on the newest range. Range partitioning gives useful neighborhoods, but neighborhoods have rush hours.',
         'Hash partitioning hashes the key and assigns hash-space segments to shards. Row counts balance well and point lookups become simple. The cost is lost locality: a query for users G through M now scatters across every shard. Naive hash(key) mod N also makes resharding brutal because changing N remaps most rows. Consistent hashing, rendezvous hashing, and jump consistent hashing reduce movement when shards are added or removed, but they do not restore range locality.',
         'Directory-based partitioning uses an explicit lookup table: key X lives on shard Y. This is the most flexible scheme because any key can be moved to any shard without changing the function. The cost is that the directory itself becomes a dependency on every request, so it must be fast, replicated, and cached. Vitess uses a VSchema (a directory mapping vindex keys to shards). MongoDB\'s config servers maintain chunk-to-shard mappings.',
@@ -271,4 +281,3 @@ export const article = {
     },
   ],
 };
-

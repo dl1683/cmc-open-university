@@ -192,6 +192,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Sigstore Keyless Signing Transparency. A code-signing case study: bind an OIDC identity to an ephemeral key, issue a short-lived Fulcio certificate, log the signing event in Rekor, and verify by policy..",
+        {
+          type: 'callout',
+          text: 'Sigstore replaces long-lived release-key custody with identity-bound short certificates plus public log evidence.',
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -222,6 +226,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'During signing, the signer gets an OIDC token, generates an ephemeral key pair, asks Fulcio for a certificate for that key, signs the artifact digest, and uploads the signature plus certificate to Rekor. The result can be carried as a bundle or fetched by verifiers.',
+        {
+          type: 'image',
+          src: 'https://docs.sigstore.dev/fulcio-4-construct-certificate.png',
+          alt: 'Fulcio constructing a certificate from an OIDC token and public key',
+          caption: 'Fulcio embeds the authenticated identity and public key into a short-lived certificate before signing. Source: Sigstore certificate issuing overview https://docs.sigstore.dev/certificate_authority/certificate-issuing-overview/.',
+        },
         'During verification, the verifier obtains trusted Sigstore roots, checks the certificate chain and identity, verifies the artifact signature, verifies Rekor inclusion or signed timestamp evidence, checks that the certificate was valid at signing time, and then applies policy to the identity and artifact namespace.',
       ],
     },

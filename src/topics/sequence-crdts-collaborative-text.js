@@ -216,6 +216,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Collaborative text is difficult because the shared object is not just a bag of characters. Order is the product. Users care whether a letter lands before or after another letter, whether a delete removes the intended word, and whether two people typing into the same gap see a sensible result after sync. A replicated counter can merge by addition. A document must preserve a sequence.',
+        {
+          type: 'callout',
+          text: 'A sequence CRDT replaces fragile offsets with stable element identities, then lets every replica apply the same deterministic ordering rule.',
+        },
         'The hard constraint is latency and disconnection. A local-first editor cannot ask a central server for permission before every keystroke. The user must be able to type while offline, on a slow connection, or while another peer is editing the same sentence. When the peers reconnect, their independently created operations must merge into one visible order.',
         'A sequence CRDT is the ordering layer for that setting. CRDT means conflict-free replicated data type: replicas can apply operations in different orders and still converge when they have received the same set of operations. A sequence CRDT specializes that idea for text and ordered lists. It gives inserted elements stable identities, defines deterministic order among concurrent inserts, and keeps enough causal metadata for deletes and later sync.',
       ],
@@ -224,6 +228,12 @@ export const article = {
       heading: 'The naive baseline and the wall',
       paragraphs: [
         'The naive operation format is offset based: insert X at index 12, delete 3 characters starting at index 7. This is how a single local string often feels. It is also how many editor APIs expose positions. The format is not foolish. Inside one process, against one current buffer, offsets are compact and fast.',
+        {
+          type: 'image',
+          src: 'https://xi-editor.io/docs/img/tp2.png',
+          alt: 'Collaborative editing trace where asynchronous operations can diverge without a convergence rule',
+          caption: 'A text-editing convergence failure makes the offset problem concrete. Source: Xi Text Engine CRDT notes https://xi-editor.io/docs/crdt-details.html.',
+        },
         'The wall is that offsets are local facts, not replicated facts. If Alice inserts at index 12 while Bob inserts earlier in the document, Alice and Bob no longer agree on what index 12 names. If a delete shifts the buffer before a remote insert arrives, the remote offset may point at the wrong character. A central server can serialize all edits and transform positions, but that makes the server the ordering authority and weakens offline-first editing.',
         'A second naive approach is last-writer-wins. It is simple for registers, but destructive for text. If two users type different words in the same paragraph, choosing one whole document version loses valid work. Collaborative text needs a merge rule that can preserve independent inserts while still producing a single deterministic sequence.',
       ],
