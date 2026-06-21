@@ -197,6 +197,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "admission chain" view traces a write request from client through authentication, authorization, mutating admission, schema validation, validating admission (in-process CEL or external webhook), audit logging, and finally persistence to etcd. Active nodes are the current phase. Compare markers show upstream or downstream phases that contrast with the active one.',
+        {
+          type: 'callout',
+          text: 'Admission policy turns a permitted write into a checked write before the object can become cluster state.',
+        },
         'The "CEL policy binding" view shows how a ValidatingAdmissionPolicy object, a binding, parameter resources, and the incoming request feed into the CEL evaluator, which produces Warn, Audit, or Deny outcomes. The supply-chain gate at the end highlights where CEL stops and external verification begins.',
         'In both views, removed markers mean persistence was blocked. Found markers mean a decision outcome is now determined. Follow the edges to see which inputs feed each decision point.',
       ],
@@ -205,6 +209,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Kubernetes is API-driven. Every cluster mutation -- create a Pod, update a Deployment, patch a Secret -- enters through the API server as an HTTP request. Authentication identifies the caller. Authorization (RBAC) decides whether that caller may perform the verb on the resource. But RBAC is intentionally coarse: it grants "create Pods in namespace X," not "create Pods whose images are digest-pinned and whose containers are non-privileged." A team allowed to create Pods can submit a spec that mounts the host filesystem, runs as root, and pulls an unsigned image with a mutable tag.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/Kubernetes.png/250px-Kubernetes.png',
+          alt: 'Kubernetes architecture diagram with API server, controller manager, scheduler, etcd, and worker nodes',
+          caption: 'The API server is the write boundary between clients, controllers, and persistent cluster state. Source: Wikimedia Commons, File:Kubernetes.png.',
+        },
         'Admission controllers exist to answer the question RBAC cannot: given that this caller is allowed to write this resource type, should this particular object be allowed to become cluster state? They sit on the write path between authorization and etcd. If admission rejects a request, the object never persists. No controller ever sees it. No automation can build on it. The unsafe state simply does not exist.',
         'Without admission, security becomes a race. Scanners, runtime policies, and controllers all try to detect and remediate bad state after it has already been committed. Every tool that reacts to persisted state instead of preventing it is slower, more complex, and easier to bypass than a gate at the write boundary.',
       ],
@@ -215,13 +225,12 @@ export const article = {
         'The first generation of Kubernetes policy enforcement used admission webhooks: external HTTP services that the API server calls for every matching write request. A team deploys a webhook service (often OPA/Gatekeeper or Kyverno), registers a ValidatingWebhookConfiguration, and writes policy in Rego or YAML. The webhook receives the admission review, evaluates it, and returns allow or deny.',
         'This works, and thousands of clusters run it today. Webhooks can execute arbitrary logic: call a registry, verify a signature, query an external database, run a Rego program with hundreds of rules. The ecosystem is mature, the tooling is battle-tested, and the policy languages are expressive.',
         {
-          type: 'table',
-          headers: ['Approach', 'Policy language', 'Runs where', 'Latency', 'Failure mode', 'Maturity'],
-          rows: [
-            ['Admission webhook (raw)', 'Any (Go, Python, etc.)', 'External pod', 'Network RTT + eval', 'Webhook down = fail-open or block all writes', 'GA since v1.9'],
-            ['OPA / Gatekeeper', 'Rego', 'External pod (controller)', 'Network RTT + Rego eval', 'Same as webhook + OPA sync lag', 'Mature, CNCF graduated'],
-            ['Kyverno', 'YAML + CEL (some Rego)', 'External pod (controller)', 'Network RTT + policy eval', 'Same as webhook', 'CNCF incubating'],
-            ['ValidatingAdmissionPolicy (KEP-3488)', 'CEL', 'In-process (API server)', 'Microseconds (no network)', 'API server process = always available', 'GA in v1.30'],
+          type: 'bullets',
+          items: [
+            'Raw admission webhook: any language, external pod, network round trip plus policy evaluation, and a fail-open or block-all choice when the service is down.',
+            'OPA or Gatekeeper: Rego policy in an external controller path, mature tooling, plus webhook availability and synchronization risk.',
+            'Kyverno: YAML-native policy with its own controller path, strong cluster ergonomics, and the same external-service dependency for matching writes.',
+            'ValidatingAdmissionPolicy: CEL inside the API server process, no network hop, bounded evaluation, and GA as of Kubernetes 1.30.',
           ],
         },
       ],
@@ -238,6 +247,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'ValidatingAdmissionPolicy (KEP-3488, GA in Kubernetes 1.30) moves policy evaluation inside the API server process. No webhook. No network call. No external service to keep alive.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/39/Kubernetes_logo_without_workmark.svg/120px-Kubernetes_logo_without_workmark.svg.png',
+          alt: 'Kubernetes wheel logo',
+          caption: 'Kubernetes policy works best when common structural checks stay close to the API server path. Source: Wikimedia Commons, Kubernetes Authors, Apache License 2.0.',
+        },
         {
           type: 'diagram',
           label: 'Admission flow',
@@ -323,4 +338,3 @@ spec:
     },
   ],
 };
-

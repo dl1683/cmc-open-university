@@ -213,6 +213,10 @@ export const article = {
       heading: 'Why This Exists',
       paragraphs: [
         'A Bloom filter answers a narrow question: is this key definitely absent, or is it maybe present? It is useful because it compresses a large set into a bit array while keeping one promise. It may accidentally accept a nonmember, but it must not reject a real member that was inserted.',
+        {
+          type: 'callout',
+          text: 'The learned model may be wrong; the backup filter is what preserves the no-false-negative contract.',
+        },
         'A learned Bloom filter exists because some membership sets are not random. URLs from a curated crawl, product identifiers, usernames, table keys, and managed namespaces often have visible structure. A model can sometimes learn that structure and reject obvious nonmembers before the ordinary hash-based filter has to spend memory on them.',
         'The goal is not to replace hashing with machine learning for style points. The goal is to spend the false-positive budget more carefully. If a cheap model can eliminate a large share of negative queries, the backup filter can be smaller, the downstream database can be called less often, or the same memory budget can reach a lower false-positive rate.',
       ],
@@ -221,6 +225,12 @@ export const article = {
       heading: 'The Baseline And The Wall',
       paragraphs: [
         'The baseline is the classic Bloom filter. Insert a key by hashing it several ways and setting the selected bits. Query a key by checking the same bit positions. If any bit is missing, the key is definitely absent. If all bits are present, the key is maybe present.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/500px-Bloom_filter.svg.png',
+          alt: 'Bloom filter diagram mapping keys through hash functions into a bit array',
+          caption: 'A classic Bloom filter proves absence when any required bit is zero; the learned variant must preserve that one-sided contract. Source: Wikimedia Commons, David Eppstein, public domain.',
+        },
         'That baseline is hard to beat because it is simple, cache-friendly, and distribution-agnostic. It does not care whether the keys are English words, hashes, user IDs, or database records. Its behavior is controlled by the number of inserted keys, the bit-array size, and the number of hash functions.',
         'The wall appears when you try to use a classifier by itself. A classifier can have false negatives. It can say a real member looks absent. That violates the membership contract that made the Bloom filter useful. A learned Bloom filter has to repair that weakness instead of pretending it is harmless.',
       ],
@@ -269,6 +279,12 @@ export const article = {
       heading: 'Costs And Tradeoffs',
       paragraphs: [
         'The cost is not just bits. A learned Bloom filter pays for model storage, model inference, backup-filter memory, threshold tuning, calibration checks, and rebuild logic. A tiny model can be worthwhile. A large model can lose to a plain Bloom filter simply because hashing is cheap and predictable.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloom_filter_fp_probability.svg/500px-Bloom_filter_fp_probability.svg.png',
+          alt: 'Bloom filter false positive probability curves',
+          caption: 'False-positive probability rises with load, so a learned filter must measure the model path and backup path together. Source: Wikimedia Commons, File:Bloom filter fp probability.svg.',
+        },
         'Threshold choice controls where the errors move. A lower threshold shrinks the backup by trusting the model more, but it admits more nonmembers through the model path. A higher threshold lowers model false positives, but it pushes more real members into the backup. With a fixed memory budget, a larger backup set can increase backup false positives.',
         'The operational cost is distribution awareness. A learned filter trained on one negative distribution can fail against another. Random negative samples may make the design look excellent while production traffic contains near-miss keys, adversarial probes, or new naming patterns that the model scores incorrectly.',
       ],
@@ -300,7 +316,7 @@ export const article = {
       heading: 'Study Next',
       paragraphs: [
         'Study Bloom Filter first, because the learned version inherits its one-sided-error contract. Then study Xor Filter and Quotient Filter to see other ways approximate membership structures trade memory for speed and false positives. Study Learned Indexes to understand the broader idea of using models inside data structures.',
-        'For model evaluation, study Calibration Curves, Cross-Validation and Honest Evaluation, and Data Leakage and Contamination. The important papers are The Case for Learned Index Structures and Michael Mitzenmacher\'s model for learned Bloom filters and related structures. Read them with attention to the auxiliary filter, because that is the part that preserves the guarantee.',
+        'For model evaluation, study Calibration Curves, Cross-Validation and Honest Evaluation, and Data Leakage and Contamination. The important papers are The Case for Learned Index Structures and the model from Michael Mitzenmacher for learned Bloom filters and related structures. Read them with attention to the auxiliary filter, because that is the part that preserves the guarantee.',
       ],
     },
   ],

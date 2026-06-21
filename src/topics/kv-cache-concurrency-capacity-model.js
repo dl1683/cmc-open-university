@@ -196,6 +196,16 @@ export const article = {
       heading: 'Why it exists',
       paragraphs: [
         'Autoregressive inference looks simple from the outside: send a prompt, receive tokens. Inside the server, every active request leaves behind a growing memory object. Each generated token needs to attend to earlier tokens, so the model stores key and value tensors for those earlier positions in every transformer layer. That resident state is the KV cache.',
+        {
+          type: 'callout',
+          text: 'KV cache capacity is a resident-memory promise, not a request-count metric.',
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/The-Transformer-model-architecture.png/250px-The-Transformer-model-architecture.png',
+          alt: 'Transformer architecture diagram with repeated attention blocks',
+          caption: 'The repeated attention blocks explain why K and V tensors exist at every layer, not just once per request. Source: Wikimedia Commons, from Vaswani et al. 2017.',
+        },
         'The cache is useful because it prevents the server from recomputing the entire prompt on every decode step. The same cache is also the reason long-context products are hard to host. A GPU can have enough arithmetic capacity to decode more tokens and still be unable to admit another request because high-bandwidth memory is full.',
         'This topic exists to make that constraint explicit. Concurrency is not just requests per second or tokens per second. For a decoder-only model, concurrency is partly an accounting problem: how many live token histories can the serving pool keep resident while still honoring output budgets, latency promises, and safe recovery paths.',
       ],
@@ -252,6 +262,12 @@ export const article = {
       heading: 'Tradeoffs and uses',
       paragraphs: [
         'KV capacity modeling is useful anywhere long-context inference is sold as an interactive product: chat systems, coding agents, document analysis, retrieval-augmented assistants, batch summarizers, and multi-turn tools. It helps decide max context, max output, per-tenant quotas, queue policy, GPU pool sizing, and whether a new model variant is economically viable.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg/330px-AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg',
+          alt: 'GPU package with high-bandwidth memory stacks surrounding the processor',
+          caption: 'High-bandwidth memory is the scarce resident tier that long-context KV cache consumes. Source: Wikimedia Commons, File:AMD at 28nm GCN Fiji Radeon R9 Nano photo.',
+        },
         'The tradeoff is that strict accounting can make the service feel less flexible. Users may see queueing or output-limit reductions even when raw GPU utilization looks low. That is not necessarily a bug. It may be the correct response to a memory-bound workload. The engineering challenge is to expose product-level policies that match the economics: short interactive chats, long agent traces, and batch jobs should not all receive the same reservation rule.',
         'Capacity models also shape architecture. A server that repeatedly sees shared system prompts may invest in prefix caching. A server dominated by long private traces may favor grouped-query attention, quantized KV, sliding windows, or offload. A platform with many tenants may need admission control tied to fairness and SLO budgets rather than one global first-come queue.',
       ],

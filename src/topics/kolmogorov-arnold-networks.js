@@ -235,6 +235,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Edge functions vs neurons" shows the architectural difference between MLPs and KANs: where nonlinearity lives, what the graph looks like, and how one scalar weight becomes a learnable curve. "Training and interpretability" shows how spline coefficients are trained, how KANs compare to MLPs on smooth fitting tasks, and the interpretability workflow from dense network to candidate law.',
+        {
+          type: 'callout',
+          text: 'A KAN teaches each edge to be a small function, so interpretability starts at the connection rather than the node.',
+        },
         'Active highlights mark the current decision point -- the edge function being evaluated or the coefficient being updated. Found markers show quantities that are now determined: a sum node that has collected its inputs, or a symbolic form that survived pruning. Compare markers contrast the MLP baseline against the KAN approach so you can see exactly what moved.',
         'At each frame, ask: what changed, what is the learned object on this edge, and would a scalar weight have captured the same shape?',
       ],
@@ -243,6 +247,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A standard multilayer perceptron learns one scalar weight per connection. The node applies a fixed nonlinearity -- ReLU, GELU, tanh -- and the learned structure disappears into a dense weight matrix. This design is fast, general, and supported by decades of optimized kernels. It is also opaque. If a physicist trains an MLP to predict drag force from airfoil geometry, the weight matrix rarely reveals which input feature matters through which functional relationship. The model predicts; it does not explain.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg',
+          alt: 'Layered neural network diagram with colored nodes and weighted connections',
+          caption: 'A standard neural network hides learned behavior inside many scalar edge weights and node activations. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.',
+        },
         'Kolmogorov-Arnold Networks (KANs) relocate the nonlinearity from nodes to edges. Each connection learns its own one-dimensional function -- typically a B-spline -- instead of a single number. The receiving node sums the transformed inputs. A connection is no longer "multiply by 0.7." It is "evaluate this learned curve at the incoming value." That curve can be plotted, regularized, pruned, and sometimes matched to a symbolic expression like sin(x) or x^2.',
         'The motivation is not raw accuracy on large-scale benchmarks. It is interpretability and parameter efficiency on problems where the target function has smooth, low-dimensional structure that edge functions can capture directly.',
       ],
@@ -272,11 +282,17 @@ export const article = {
         },
         'In the default implementation, each phi is a B-spline defined by a grid of knot points and a vector of learned coefficients. The spline is a weighted sum of basis functions, each of which is nonzero only over a local interval. This locality means a coefficient update changes the curve shape in one region without disturbing distant parts -- finer control than a single scalar weight provides.',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/B-spline_curve.svg/500px-B-spline_curve.svg.png',
+          alt: 'B-spline curve controlled by local control points',
+          caption: 'A B-spline curve shows the local-control idea behind many KAN edge functions: coefficients bend regions of the curve rather than the whole function at once. Source: Wikimedia Commons, File:B-spline curve.svg.',
+        },
+        {
           type: 'code',
           language: 'python',
           text: '# B-spline basis activation (simplified)\nimport torch\n\ndef b_spline_basis(x, grid, degree=3):\n    """Evaluate B-spline basis functions at x.\n    grid: tensor of knot positions, shape (num_knots,)\n    Returns: basis values, shape (*x.shape, num_basis)\n    """\n    x = x.unsqueeze(-1)          # (..., 1)\n    g = grid.unsqueeze(0)         # (1, num_knots)\n    # degree-0 bases: indicator functions between knots\n    bases = ((x >= g[:, :-1]) & (x < g[:, 1:])).float()\n    # Cox-de Boor recursion for higher degrees\n    for d in range(1, degree + 1):\n        left  = (x - g[:, :-(d+1)]) / (g[:, d:-1] - g[:, :-(d+1)] + 1e-8)\n        right = (g[:, d+1:] - x)    / (g[:, d+1:] - g[:, 1:-d]    + 1e-8)\n        bases = left * bases[:, :-1] + right * bases[:, 1:]\n    return bases  # shape: (*x.shape, num_coefficients)\n\n# Edge activation: dot product of basis values and learned coefficients\n# phi(x) = sum_k  c_k * B_k(x)\ncoeffs = torch.randn(num_basis)   # learned parameters\nphi_x  = (b_spline_basis(x, grid) * coeffs).sum(-1)',
         },
-        'Backpropagation works unchanged. The loss gradient flows through the sum node into each edge function, then into that function\'s coefficients. A gradient step on coefficient c_k changes the curve only in the region where basis function B_k is nonzero. This is more expressive than updating a scalar weight, and also more expensive: every edge requires a basis evaluation, coefficient lookup, and weighted sum instead of a single multiply.',
+        'Backpropagation works unchanged. The loss gradient flows through the sum node into each edge function, then into the coefficients of that function. A gradient step on coefficient c_k changes the curve only in the region where basis function B_k is nonzero. This is more expressive than updating a scalar weight, and also more expensive: every edge requires a basis evaluation, coefficient lookup, and weighted sum instead of a single multiply.',
       ],
     },
     {
@@ -292,16 +308,14 @@ export const article = {
       paragraphs: [
         'The cost difference between MLPs and KANs is paid on every edge, every forward pass.',
         {
-          type: 'table',
-          headers: ['Property', 'MLP', 'KAN'],
-          rows: [
-            ['Edge learned object', 'Scalar weight (1 param)', 'Spline coefficients (G+k params per edge)'],
-            ['Node operation', 'Fixed activation (ReLU, GELU)', 'Sum (identity)'],
-            ['Forward cost per edge', 'One multiply-add', 'Basis eval + weighted sum over G coefficients'],
-            ['Kernel maturity', 'Decades of cuBLAS/cuDNN optimization', 'Early-stage; custom CUDA needed'],
-            ['Interpretability', 'Post-hoc (SHAP, gradients)', 'Direct: plot edge curves, prune, fit symbols'],
-            ['Scaling to large models', 'Proven (GPT, ViT, etc.)', 'Open research question'],
-            ['Tuning surface', 'Width, depth, learning rate, activation', 'Width, depth, LR, spline degree, grid size, grid update, pruning threshold, symbolic fit'],
+          type: 'bullets',
+          items: [
+            'Learned object: an MLP stores one scalar per edge; a KAN stores spline coefficients, usually G plus k values per edge.',
+            'Node operation: an MLP bends at the node with a fixed activation; a KAN mostly sums values after edge functions have already bent them.',
+            'Forward cost: an MLP edge is one multiply-add; a KAN edge needs basis evaluation and a weighted sum over local coefficients.',
+            'Kernel maturity: MLPs ride decades of dense-matrix optimization; KANs need specialized kernels before their parameter efficiency becomes wall-clock efficiency.',
+            'Interpretability: MLP explanations are usually post-hoc; KAN edge curves can be plotted, pruned, and fit to candidate symbolic forms.',
+            'Scaling risk: MLPs are proven at transformer scale; KANs remain a research path, especially for large batched GPU workloads.',
           ],
         },
         'A KAN with G grid intervals per edge and spline degree k stores (G + k) coefficients per edge instead of 1. For a layer connecting n_in inputs to n_out outputs, that is n_in * n_out * (G + k) parameters versus n_in * n_out for an MLP. The parameter count per layer grows linearly with grid resolution. More importantly, the forward pass replaces one fused multiply-add with a basis evaluation loop, which is harder to vectorize on current GPU architectures.',
@@ -351,4 +365,3 @@ export const article = {
     },
   ],
 };
-

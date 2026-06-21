@@ -206,6 +206,10 @@ export const article = {
   sections: [
     { heading: 'What it is', paragraphs: [
       'Leapfrog Triejoin is a worst-case optimal multiway join algorithm. It represents relations through trie-like indexes over variable orders and searches assignments variable by variable, intersecting sorted candidate iterators at each level.',
+      {
+        type: 'callout',
+        text: 'Triejoin treats a join result as a variable assignment that survives all constraints at the same time.',
+      },
       'The key shift is from binary joins to multiway constraint search. A binary plan chooses pairwise joins and may materialize large intermediates. Triejoin keeps all relevant constraints active while binding each variable.',
     ] },
     { heading: 'Why this exists', paragraphs: [
@@ -233,6 +237,12 @@ export const article = {
     ] },
     { heading: 'Index contract', paragraphs: [
       'The algorithm depends on indexes that behave like tries over the chosen variable order. At each level, the engine needs to open the current prefix, seek to a candidate value, advance to the next value, and enumerate children under that prefix.',
+      {
+        type: 'image',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg',
+        alt: 'Trie storing words by shared prefixes',
+        caption: 'A trie makes prefix-constrained lookup visible: open a prefix, then enumerate only compatible children. Source: Wikimedia Commons, Booyabazooka, public domain.',
+      },
       'That contract is why Leapfrog Triejoin is not just a clever loop over ordinary row stores. If relations are not available in compatible orders, the engine must build or maintain the right indexes, and that cost belongs in the plan.',
     ] },
     { heading: 'Why it works', paragraphs: [
@@ -245,6 +255,12 @@ export const article = {
     ] },
     { heading: 'Complete case study', paragraphs: [
       'A social-graph triangle query asks for x, y, z where edge(x,y), edge(y,z), and edge(x,z) all hold. A binary plan can first build all two-hop paths, then filter by the third edge. If the graph has many two-hop paths but few triangles, that intermediate is wasteful. Triejoin intersects adjacency indexes as it binds variables and rejects impossible candidates earlier.',
+      {
+        type: 'image',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg',
+        alt: 'Directed graph with connected vertices and arrows',
+        caption: 'Graph-pattern joins are simultaneous constraints over edges, which is the shape worst-case optimal joins are built to exploit. Source: Wikimedia Commons, David W., public domain.',
+      },
       'At level x, all three edge relations restrict which nodes can begin a triangle. After x is fixed, the y iterator is opened under the relevant edge prefixes. After y is fixed, z must satisfy both edge(y,z) and edge(x,z). The closing edge is never an afterthought; it participates during candidate generation.',
     ] },
     { heading: 'Where it wins / Where it fails', paragraphs: [

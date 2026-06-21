@@ -200,6 +200,16 @@ export const article = {
       heading: 'Why KV Compression Exists',
       paragraphs: [
         `KV-cache quantization and compression exist because modern LLM serving is often limited less by model weights than by live request state. During prefill, a decoder-only Transformer computes keys and values for every prompt token at every layer. During decode, each new token reads the accumulated keys and values so attention can compare the current query against the past. That cache grows with context length, batch size, layer count, head count, and head dimension.`,
+        {
+          type: 'callout',
+          text: 'KV compression is correct only when smaller cache entries preserve the attention evidence the decoder will reuse.',
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/The-Transformer-model-architecture.png/250px-The-Transformer-model-architecture.png',
+          alt: 'Transformer architecture diagram showing attention and feed-forward layers',
+          caption: 'KV compression targets the cached key and value tensors produced by the attention layers, not the whole model graph. Source: Wikimedia Commons, from Vaswani et al. 2017.',
+        },
         `Weight quantization helps store the model more cheaply, but it does not remove the fact that each active user creates a private KV cache. A 70B model with long prompts may run out of HBM or memory bandwidth because thousands of old token vectors must remain accessible. Even when HBM capacity is sufficient, decode can become a bandwidth problem: the server reads old K and V entries repeatedly while doing relatively little compute for one new token.`,
         `KV compression is therefore a serving-system idea, not just a numerical trick. It asks how many bytes of request-generated state are really needed to preserve attention quality, and whether the runtime can exploit smaller cache entries without spending the savings on unpacking, scale loads, network transfers, or cache misses.`,
       ],
@@ -247,6 +257,12 @@ export const article = {
       heading: 'Costs And Tradeoffs',
       paragraphs: [
         `The obvious cost is accuracy. Attention is sensitive to relative scores, and low-bit keys can change which tokens receive probability mass. Low-bit values can distort the information returned after attention selects a token. Outlier handling, grouping, and calibration reduce this risk, but they do not erase it. The lower the bit width, the more workload-specific validation matters.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg/330px-AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg',
+          alt: 'GPU package with high-bandwidth memory stacks near the processor',
+          caption: 'KV compression pays off only if it reduces traffic to the scarce HBM tier without moving the bottleneck into unpacking work. Source: Wikimedia Commons, File:AMD at 28nm GCN Fiji Radeon R9 Nano photo.',
+        },
         `The second cost is overhead. Packed formats need metadata. Dequantization needs arithmetic. Outlier paths can branch or require extra loads. If the runtime reads compressed bytes and then performs enough extra work to become compute-limited, the wall has only moved. This is why papers and production systems should report end-to-end tokens per second and tail latency, not only theoretical memory reduction.`,
         `Compression is also not eviction. Compression makes a resident entry cheaper. Eviction decides which entries remain available at all. A long-context server may need compression, paging, prefix reuse, eviction policy, and offload. Confusing those layers leads to brittle designs: a compressed cache can still OOM, and an eviction system can still be too slow if each block is too large.`,
       ],

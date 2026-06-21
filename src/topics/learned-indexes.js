@@ -251,6 +251,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The first view shows a traditional page-table index and a learned CDF model side by side. The page table maps key ranges to pointers. The CDF plot maps every key to its rank in sorted order, with the learned model drawn as an approximation of the true curve. The query marker shows where the model predicts key 58 should live, and the gap between that prediction and the true position is the error the system must correct.',
+        {
+          type: 'callout',
+          text: 'A learned index is a fast position guess wrapped by an exact bounded search.',
+        },
         'The second view focuses on failure modes and the correction machinery. Active highlights mark the current prediction or decision. Found highlights mark results that are now confirmed correct. Compare highlights mark the baseline or fallback that would handle the same query without learning.',
         'Watch the error bound step carefully. The model guesses a slot; the bound defines a search window; the local search inside that window recovers the exact answer. That three-step sequence -- predict, bound, search -- is the entire mechanism. If the window is small, the model saved work. If the window is large, the model is overhead.',
       ],
@@ -272,6 +276,12 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The obvious approach is a B-tree. It stores separator keys at internal nodes, child pointers that partition the key space, and sorted records at the leaves. Lookup walks from root to leaf in O(log_B n) I/Os, where B is the node fanout. It handles inserts, deletes, and range scans. It is cache-friendly when nodes are sized to fit cache lines or disk pages. Every serious database engine ships one.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg',
+          alt: 'B-tree diagram with keys grouped into wide nodes',
+          caption: 'A B-tree stores separator keys and child pointers explicitly; a learned index asks whether a model can compress that navigation. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.',
+        },
         'B-trees earn their place because they make no assumption about the data. Uniform keys, skewed keys, adversarial keys, keys arriving in any order -- the tree rebalances and the contract holds. That is why they survived fifty years of competition.',
         'The cost of that generality is structural. Every internal node stores separators that describe the key distribution, but it stores them as literal values and pointers, not as a compressed model. A B-tree over 200 million uniformly spaced 64-bit keys still builds millions of internal nodes even though the rank function is almost a straight line. The separators are doing real work, but they are also a verbose encoding of a simple pattern.',
       ],
@@ -288,6 +298,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A learned index treats the sorted key array as defining a cumulative distribution function (CDF). For every key k, CDF(k) = rank(k) / n, a value between 0 and 1 that says what fraction of keys are less than or equal to k. Multiply by n and you get the array position. A model that approximates this CDF can predict the position of any key in one evaluation.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Empirical_CDF%2C_CDF_and_Confidence_Interval_plots_for_various_sample_sizes_of_Normal_Distribution.png/250px-Empirical_CDF%2C_CDF_and_Confidence_Interval_plots_for_various_sample_sizes_of_Normal_Distribution.png',
+          alt: 'Empirical CDF step plots approaching a smooth cumulative distribution curve',
+          caption: 'A learned index models the key CDF: key values on x, sorted rank on y, with exact search correcting the prediction error. Source: Wikimedia Commons, File:Empirical CDF CDF and confidence interval plots for normal distribution.',
+        },
         {
           type: 'diagram',
           label: 'Recursive Model Index (RMI) architecture',
@@ -355,13 +371,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Structure', 'Lookup', 'Space overhead', 'Build time'],
-          rows: [
-            ['B-tree', 'O(log_B n) pointer chases', 'O(n / B) internal nodes, often MBs-GBs', 'O(n log_B n) sorted insert'],
-            ['Learned index (RMI)', 'O(1) model eval + O(log maxErr) search', 'Model params only, often KBs', 'O(n) scan + model training'],
-            ['ALEX', 'O(1) model eval + O(log gap) search', 'Gapped arrays + models, moderate', 'O(n log n) with adaptive splits'],
-            ['PGM-index', 'O(log_eps n) model evals', 'O(n / eps) segments, very compact', 'O(n) optimal linear scan'],
+          type: 'bullets',
+          items: [
+            'B-tree: lookup costs O(log_B n) pointer chases, space is O(n / B) internal nodes, and build or sorted insert work follows the tree update path.',
+            'Learned index or RMI: lookup is O(1) model evaluation plus O(log maxErr) local search, space is mostly model parameters, and build is a data scan plus model training.',
+            'ALEX: lookup is O(1) model evaluation plus local search in gapped arrays, with adaptive splits and higher implementation complexity for updates.',
+            'PGM-index: lookup walks a compact tree of piecewise-linear models, space is O(n / epsilon), and build can be done in an optimal linear scan for the chosen error.',
           ],
         },
         'The practical cost of a learned index is model evaluation time plus correction search time. With a two-stage RMI, model evaluation is two multiply-adds -- essentially free. The correction search dominates, and its cost depends entirely on the error bound. If maxError is 64, the binary search takes 6-7 comparisons. If maxError is 8, it takes 3. Compare that to a B-tree over 100 million keys with fanout 128: about 4 levels of pointer chasing, each potentially a cache miss.',
