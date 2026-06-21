@@ -197,6 +197,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation runs two views. "Reweighting the logs" walks through a ledger of 500 episodes drawn from a logging policy q, each repriced with a weight p(a)/q(a) to estimate the value of a candidate policy p. Tables show the weights, exact answer, IS estimate, variance, and effective sample size. The convergence plot tracks how the running estimate approaches the true value over samples drawn.',
+        {type: 'callout', text: 'Importance sampling changes the question by changing weights: samples from q can answer for p only where q actually gathered evidence.'},
         '"When the weights explode" shows the failure mode: a bad logger that avoids the actions p favors. Tables dissect the weight distribution, ESS collapse, and the practical toolbox (self-normalization, clipping, defensive logging, doubly robust). The final table maps the IS identity to five real domains.',
         'Active cells mark the current focus. Found cells mark quantities that match the exact answer. Compare cells highlight the gap between truth and estimate. Removed cells flag pathological values like collapsed ESS. Watch for the gap between "unbiased" and "reliable" -- it is the central lesson.',
       ],
@@ -205,6 +206,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A hospital wants to know whether a new treatment protocol would improve outcomes before assigning patients to it. An ads platform wants to score a candidate bidding rule on yesterday\'s auctions without running it live. An RL lab wants to grade a new robot controller without risking a crash. In each case, deploying the new policy to collect fresh data is expensive, slow, or dangerous. The only available evidence is a log of decisions made by the old policy.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/MonteCarloIntegrationCircle.svg/500px-MonteCarloIntegrationCircle.svg.png', alt: 'Monte Carlo integration points inside and outside a quarter circle', caption: 'Monte Carlo estimators answer questions with samples. Importance sampling changes where samples come from, then corrects the accounting with weights. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:MonteCarloIntegrationCircle.svg'},
         'Importance sampling, formalized by Kahn and Harris in 1951 for Monte Carlo neutron transport at Los Alamos, answers this class of problem. It converts samples drawn from one distribution into an estimate of an expectation under a different distribution, using only arithmetic on the existing data. No new experiment is needed. The cost is paid in variance, not in deployment risk.',
         {
           type: 'diagram',
@@ -252,6 +254,7 @@ export const article = {
           text: 'E_p[f(a)] = sum_a p(a) * f(a)\n           = sum_a q(a) * [p(a)/q(a)] * f(a)\n           = E_q[ w(a) * f(a) ]    where w(a) = p(a) / q(a)',
         },
         'Each logged sample gets a weight w = p(a)/q(a). An action that p would choose 4x more often than q counts 4x. An action p would choose less often shrinks. The weighted average of rewards estimates the value of p. The animation traces this with five discrete actions, rewards [1, 2, 3, 5, 8], and two policies that disagree sharply about which actions matter.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density functions with different parameters', caption: 'The estimator is healthy when proposal and target densities overlap enough that weights stay controlled. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Normal_Distribution_PDF.svg'},
         {
           type: 'code',
           language: 'javascript',
@@ -283,6 +286,7 @@ export const article = {
           ],
         },
         'The real cost is statistical. ESS measures how much of the data survives reweighting. If 500 logged episodes yield ESS of 120, the estimate has the precision of 120 on-policy samples -- 76% of the data\'s power is burned as reweighting overhead. When p and q diverge sharply, ESS can collapse to single digits, making the estimate nominally unbiased but practically useless.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/en/thumb/7/72/Relative_error_of_a_Monte_Carlo_integration_to_calculate_pi.svg/500px-Relative_error_of_a_Monte_Carlo_integration_to_calculate_pi.svg.png', alt: 'Relative error plot for Monte Carlo integration estimating pi', caption: 'Monte Carlo error can fall slowly even for a simple target; importance weights can make the effective sample count much smaller than the log size. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Relative_error_of_a_Monte_Carlo_integration_to_calculate_pi.svg'},
         'Effective sample size: ESS = (sum w)^2 / sum(w^2). This is the diagnostic that matters. Report it alongside every IS estimate. If ESS / n < 0.1, the estimate is fragile. If ESS / n < 0.01, it is noise.',
       ],
     },
@@ -324,4 +328,3 @@ export const article = {
     },
   ],
 };
-

@@ -128,6 +128,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows three phases: a frequency table, a tree construction, and the final code assignment.',
+        {type: 'callout', text: 'Huffman coding turns frequency skew into tree depth: common symbols stay near the root, rare symbols pay longer paths.'},
         'In the frequency table, each symbol is labeled with its count. The animation then enters the merge loop. At each step, the two lightest nodes are highlighted as the compare pair. They merge under a new internal node whose weight is their sum. The new parent appears highlighted as active.',
         'After the last merge, the single remaining tree is the Huffman tree. Leaves are marked as found. Each leaf carries a binary code: the path from root to that leaf, where left = 0 and right = 1. Because every symbol sits at a leaf, no code is a prefix of another, so the decoder can walk the bitstream without separators.',
         'Watch which symbols sink deep (rare ones get long codes) and which stay near the root (frequent ones get short codes). The final step compares total Huffman bits against fixed-width bits to show the savings.',
@@ -137,6 +138,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'David Huffman invented this algorithm in 1952 as an MIT term paper. Robert Fano, his professor, had offered students a choice: take the final exam, or find an optimal prefix-free binary code. Fano and Shannon had both tried top-down frequency splitting and failed to prove optimality. Huffman nearly gave up, then realized the problem inverts: start from the bottom, merge the two rarest symbols, and induct upward. His greedy algorithm was provably optimal, beating his professor\'s own method.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d8/HuffmanCodeAlg.png/500px-HuffmanCodeAlg.png', alt: 'Stepwise construction of a Huffman tree from weighted symbols', caption: 'The merge sequence shows the greedy invariant: the two lightest roots combine first, then re-enter the forest as one weighted subtree. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:HuffmanCodeAlg.png'},
         'The problem Huffman solved is the foundation of data compression. Real symbol streams are lopsided: in English, \'e\' appears roughly 100 times more often than \'z\', yet ASCII gives both 8 bits. Compression means spending fewer bits on common symbols and more on rare ones. The hard constraint is that the compressed stream must still be decodable left to right, with no separators between symbols. A code with that property is called prefix-free. Huffman coding produces the optimal prefix-free code for any given frequency distribution.',
       ],
     },
@@ -160,6 +162,7 @@ export const article = {
         'Step 1: count the frequency of each symbol in the input.',
         'Step 2: create a leaf node for each symbol, weighted by its frequency. Insert all leaves into a min-heap (priority queue) keyed by weight.',
         'Step 3: the merge loop. Extract the two lightest nodes from the heap. Create a new internal node with those two as children, weighted by their sum. Insert the parent back into the heap. Repeat until one node remains. That node is the root of the Huffman tree.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/74/Huffman_coding_example.svg/500px-Huffman_coding_example.svg.png', alt: 'Small Huffman code tree with probabilities and binary labels', caption: 'A Huffman tree is a prefix-code trie: leaf depth becomes code length, and branch labels become bits. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Huffman_coding_example.svg'},
         'Step 4: assign codes. Walk the tree. At every internal node, going left appends 0, going right appends 1. Each leaf\'s accumulated path is its code.',
         'Step 5: encode. For each input symbol, emit its code bits. Decode: start at the root, consume bits to walk left or right, emit the leaf\'s symbol when reached, return to the root.',
         'The prefix-free property falls out of the tree structure. Every symbol is a leaf. No path to one leaf passes through another leaf. So no code can be the start of a longer code, and the decoder never faces ambiguity.',
@@ -196,6 +199,7 @@ export const article = {
       paragraphs: [
         'Two-pass requirement. Huffman needs the full frequency table before encoding starts. That means either scanning the input twice (count, then encode) or transmitting the tree alongside the data. Adaptive Huffman (Vitter\'s algorithm) updates the tree as symbols arrive, avoiding the two-pass problem, but adds bookkeeping at every symbol.',
         'Whole-bit rounding. Each symbol must receive a whole number of bits. A symbol with probability 0.3 ideally costs -log2(0.3) = 1.74 bits, but Huffman assigns 1 or 2. Arithmetic coding and ANS (Asymmetric Numeral Systems) remove this constraint by encoding the entire message as one number, reaching costs arbitrarily close to entropy. Modern compressors like zstd and LZMA use ANS instead of Huffman for exactly this reason.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Arithmetic_coding_visualisation.svg/500px-Arithmetic_coding_visualisation.svg.png', alt: 'Arithmetic coding interval narrowing for example messages', caption: 'Arithmetic coding removes the whole-bit-per-symbol constraint by narrowing one interval for the whole message. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Arithmetic_coding_visualisation.svg'},
         'No inter-symbol correlation. Huffman codes each symbol independently. It cannot exploit the fact that \'u\' almost always follows \'q\' in English, or that pixel values are correlated with their neighbors. Dictionary methods (LZ77, LZ78) and context-based models handle that. Real compressors combine both: LZ77 finds repeated patterns, then Huffman or ANS codes the residual symbols.',
         'Short messages. The codebook overhead can exceed the savings. If the message has fewer symbols than the alphabet, fixed-width wins.',
       ],
@@ -228,4 +232,3 @@ export const article = {
     },
   ],
 };
-

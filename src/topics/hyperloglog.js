@@ -188,6 +188,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The register-updates view shows eight buckets numbered 0 through 7, each storing one integer: the longest leading-zero run seen so far for that bucket. Each incoming item is hashed. The first few hash bits pick the bucket; the remaining bits are scanned for leading zeros, and the count plus one becomes the rank. When the rank exceeds the bucket\'s stored value, the cell lights up and the value rises. When it does not, nothing changes -- the max is already higher.',
+        {type: 'callout', text: 'HyperLogLog keeps the most surprising hash event per bucket, then turns many noisy bucket guesses into one stable cardinality estimate.'},
         'Watch for "u17" and "u42" appearing twice. Duplicates hash identically, so they always land in the same bucket with the same rank. The max never moves. This is how HyperLogLog ignores duplicates without storing them.',
         'The title line tracks the running cardinality estimate -- the harmonic-mean formula applied to the current register state -- next to the exact distinct count. The gap between the two is the estimation error. With only 8 registers the error is large; with 16,384 registers it drops below 1%.',
         'The merge view splits the stream across two shards. Merging takes the register-wise max: for each bucket, keep whichever shard saw the longer zero-run. The merged sketch is identical to a single sketch over the combined stream. That visual identity is the entire distributed-counting trick.',
@@ -204,6 +205,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Insert every element into a hash set. The set\'s size is the exact distinct count at any moment. For a website with 10 million unique visitors stored as 4-byte IDs, the set costs roughly 40 MB. One counter is manageable.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Hash_table_3_1_1_0_1_0_0_SP.svg/500px-Hash_table_3_1_1_0_1_0_0_SP.svg.png', alt: 'Hash table with keys distributed into bucket slots', caption: 'The exact approach keeps identities in hash buckets, so memory follows the number of distinct keys. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Hash_table_3_1_1_0_1_0_0_SP.svg'},
         'Scale breaks it. Run 1,000 such counters -- one per page, per hour, per region -- and the cost is 40 GB. In a distributed system, merging two hash sets means transmitting and deduplicating all raw identities across the network. Sampling helps with memory but biases the count: infrequent visitors vanish from a 1% sample, so distinct counts systematically undercount.',
       ],
     },
@@ -218,6 +220,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A good hash function makes each output bit look like an independent fair coin flip. The probability of seeing k leading zeros in a row is exactly 1/2^k -- the same odds as flipping k heads consecutively. If the longest leading-zero run you have ever observed is k, roughly 2^k distinct items have passed through. One integer tracking the maximum leading-zero run is already a cardinality estimator. It is wildly noisy, but it uses almost no memory.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/500px-Bloom_filter.svg.png', alt: 'Bloom filter diagram showing hash functions setting bits in a compact array', caption: 'Bloom filters and HyperLogLog both trade raw identities for compact hash-derived state; the difference is the query, membership for Bloom filters and cardinality for HyperLogLog. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Bloom_filter.svg'},
         'To tame the noise, split items into m = 2^p buckets using the first p hash bits. Keep one max-leading-zeros register per bucket. Each register independently estimates the cardinality of its slice. Combine them through the harmonic mean of 2^(register value) across all buckets. The harmonic mean dampens the outliers that make any single register unreliable. Result: standard error of 1.04/sqrt(m), using m registers of about 6 bits each. Flajolet called this technique stochastic averaging.',
       ],
     },
@@ -243,6 +246,7 @@ export const article = {
       paragraphs: [
         'Insert: O(1) -- one hash, one comparison, one possible register write. Query: O(m) -- scan all registers and compute the harmonic-mean sum. Merge: O(m) -- register-wise max. Memory: m registers of ceil(log2(log2(N_max))) bits each. In practice, 6-bit registers handle cardinalities up to 2^63, so total memory is m * 6 bits.',
         'Concrete sizing: m = 64 (p=6) gives ~13% standard error in 48 bytes. m = 1,024 (p=10) gives ~3.25% in 768 bytes. m = 16,384 (p=14) gives ~0.81% in 12 KB. Redis uses p=14. Doubling m halves the standard error and doubles the memory -- a clean linear tradeoff. The memory never grows with the stream. Twelve kilobytes handles cardinalities from zero to billions with the same accuracy.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloom_filter_fp_probability.svg/500px-Bloom_filter_fp_probability.svg.png', alt: 'Chart of Bloom filter false positive probability as bit array density changes', caption: 'Probabilistic summaries make error a tunable engineering parameter. This Bloom filter curve is not HyperLogLog math, but it shows the same design habit: choose memory to bound acceptable error. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Bloom_filter_fp_probability.svg'},
         'Pick m from your error budget. 5% error needs m >= 433 (round up to 512, 384 bytes). 1% error needs m >= 10,816 (round to 16,384, 12 KB). 0.5% error needs m >= 43,264 (round to 65,536, 48 KB). All of these are tiny compared to exact sets at any interesting cardinality.',
       ],
     },

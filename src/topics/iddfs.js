@@ -184,6 +184,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each iteration starts fresh from the root with a new depth limit. The depth label beside each node (d=0, d=1, ...) shows its distance from the root. Active nodes are on the current DFS stack. Visited nodes have been expanded in this iteration.',
+        {type: 'callout', text: 'IDDFS buys BFS depth order with DFS memory by proving one depth limit empty before paying for the next.'},
         'Watch the same shallow nodes reappear in every iteration. A appears in iteration 0, then again in iterations 1, 2, and so on. B, C, D appear from iteration 1 onward. This re-expansion is the cost of IDDFS — and the animation makes it visible so you can see why it is acceptable.',
         'When a node is at exactly the depth limit, the algorithm turns back. Its children exist in the tree but are invisible to this pass. The next iteration increases the limit by one and re-explores everything from scratch, reaching one level deeper.',
       ],
@@ -192,6 +193,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Richard Korf published "Depth-First Iterative-Deepening: An Optimal Admissible Tree Search" in 1985. The paper posed a clean question: can you get BFS\'s guarantee of finding the shallowest goal while using only DFS\'s O(bd) memory? The answer is yes, and the trick is embarrassingly simple — run DFS repeatedly with increasing depth limits.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Depth-first-tree.svg/500px-Depth-first-tree.svg.png', alt: 'Tree labeled by depth-first expansion order', caption: 'A depth-first expansion keeps one root-to-leaf path active, which is the memory behavior IDDFS preserves. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Depth-first-tree.svg'},
         'BFS guarantees the shallowest goal but stores the entire frontier in a queue. On a tree with branching factor b and goal at depth d, the frontier at depth d holds up to b^d nodes. For b=10 and d=6, that is a million nodes in the queue. DFS uses only O(bd) memory (the current path from root to frontier), but it can dive arbitrarily deep down a wrong branch and miss a shallow goal entirely. IDDFS combines DFS\'s memory with BFS\'s depth-optimality.',
       ],
     },
@@ -199,6 +201,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'BFS is the natural choice when you want the shallowest goal. It explores every node at depth 0, then depth 1, then depth 2, expanding level by level. The first time it reaches the goal, the path is guaranteed shortest by hop count.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/Tic-tac-toe-game-tree.svg/500px-Tic-tac-toe-game-tree.svg.png', alt: 'Top of a tic-tac-toe game tree', caption: 'A game tree shows why frontier size explodes: every ply multiplies the number of states a BFS queue would have to hold. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Tic-tac-toe-game-tree.svg'},
         'DFS is the natural choice when memory matters. It stores only the current root-to-frontier path — O(bd) space on a tree with branching factor b and maximum depth d. It will find a goal if one exists, but not necessarily the shallowest one.',
       ],
     },
@@ -246,6 +249,7 @@ export const article = {
       paragraphs: [
         'Low branching factor. When b=2, the overhead is 100% — IDDFS does twice the work of a single pass. On a binary tree, BFS or bidirectional BFS may be preferable if memory allows. The advantage of IDDFS grows with b; it is most compelling when b >= 10.',
         'Known goal depth. If you already know the target is at depth d, a single DFS with limit d finds it without re-expansion. IDDFS pays for not knowing the depth. Use it when the depth is unknown.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/57/Tree_edges.svg/500px-Tree_edges.svg.png', alt: 'Depth-first search tree with tree, back, forward, and cross edges', caption: 'General graphs add edge cases that pure tree IDDFS avoids; cycles and repeated states change the memory story. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Tree_edges.svg'},
         'Graph search with cycles. On a tree, IDDFS needs no visited set because there are no repeated states. On a general graph, cycles can cause infinite loops within a single iteration. Adding a visited set per iteration restores correctness but uses O(b^d) memory for the set — the same cost as BFS. Path-checking (only avoiding ancestors on the current stack) uses O(bd) memory but may re-expand nodes reached by different paths.',
         'Uniform-cost search problems. When edges have different weights and you want the cheapest path (not just the shallowest), IDDFS does not apply directly. IDA* extends the idea by using cost thresholds instead of depth limits, but that is a different algorithm.',
       ],

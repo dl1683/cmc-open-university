@@ -197,6 +197,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         `The animation shows two columns of vertices -- left (U) and right (V) -- connected by edges. Matched edges are distinguished from candidate edges. A sentinel node NIL marks free right endpoints. Active highlights mark the vertices and edges the algorithm is currently examining. Found highlights mark edges that have been added to the matching. Compare highlights mark edges that were already matched before this phase.`,
+        {type: `callout`, text: `Hopcroft-Karp is fast because one BFS phase finds the shortest legal layer graph, then DFS spends that layer graph on a whole batch of disjoint augmenting paths.`},
         `In the layered-search view, watch BFS build distance labels outward from every free left vertex, alternating between unmatched edges (left to right) and matched edges (right back to left). The search stops the moment a free right vertex is reached. In the augment-phase view, watch DFS trace vertex-disjoint paths through those layers, then flip matched and unmatched edges along each path.`,
         `After each frame, identify: which vertices gained a distance label, which edges changed status, and why the algorithm chose to stop or continue. The layer graph is the structure; the augmenting paths are the payoff.`,
       ],
@@ -205,6 +206,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Bipartite matching pairs items from a left set with items from a right set, one partner each. Workers to shifts, students to dorm rooms, reviewers to papers, kidneys to patients, tests to machines. An edge means the pair is allowed. The question: how many compatible pairs can be chosen without sharing endpoints?`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Simple_bipartite_graph%3B_two_layers.svg/500px-Simple_bipartite_graph%3B_two_layers.svg.png`, alt: `Bipartite graph drawn as two layers with edges only between layers`, caption: `A bipartite graph makes the two-part assignment constraint visible: every allowed pair crosses from left to right. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Simple_bipartite_graph;_two_layers.svg`},
         `That count is often the feasibility layer before any optimizer runs. If only 93 of 100 shifts can be covered under the eligibility graph, no cost function can cover all 100 without relaxing constraints. Maximum matching answers a binary capacity question that weighting cannot bypass.`,
         `The problem was formalized by Denes Konig in 1931, who proved that in bipartite graphs the size of the maximum matching equals the size of the minimum vertex cover. Harold Kuhn published the Hungarian algorithm for weighted assignment in 1955. Hopcroft and Karp gave an O(E*sqrt(V)) algorithm for unweighted maximum matching in 1973 by batching shortest augmenting paths instead of finding them one at a time.`,
       ],
@@ -238,6 +240,7 @@ export const article = {
       paragraphs: [
         `State: adjacency lists from left to right vertices, arrays pairU and pairV storing matched partners (NIL if free), and a distance array dist for left vertices. NIL is a sentinel representing any free right endpoint.`,
         `BFS phase: enqueue every free left vertex at distance 0. For each dequeued left vertex u, scan its neighbors v. If v is free (pairV[v] = NIL), record that NIL is reachable at distance dist[u]+1 but do not explore further -- the shortest augmenting length is fixed. If v is matched to some u2 = pairV[v] and dist[u2] is not yet set, assign dist[u2] = dist[u]+1 and enqueue u2. BFS ends when the queue is empty. If NIL was never reached, no augmenting path exists and the algorithm terminates.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with nodes connected by arrows`, caption: `The alternating search can be read as a directed reachability problem: unmatched edges move left-to-right, matched edges move back. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg`},
         `DFS phase: for each free left vertex u, attempt to reach NIL through the layered graph. At vertex u, try each neighbor v. Accept v if v is free, or if pairV[v] has dist equal to dist[u]+1 and the recursive DFS from pairV[v] succeeds. On success, set pairU[u] = v and pairV[v] = u along the way -- this flips the path. On failure, set dist[u] = infinity so no other DFS re-enters this dead end during the same phase.`,
         `Repeat BFS and DFS phases until BFS finds no path to NIL. The union of all flipped paths across all phases is the maximum matching.`,
       ],
@@ -255,6 +258,7 @@ export const article = {
       paragraphs: [
         `Time: O(E*sqrt(V)) total. Each BFS phase scans every edge once. Each DFS phase scans edges inside the layered graph, and marking dead ends prevents rescanning. The number of phases is at most O(sqrt(V)), proven by the path-length monotonicity argument.`,
         `Space: O(V + E). Adjacency lists dominate. The pairU, pairV, and dist arrays are each O(V). BFS uses a queue of at most V entries. DFS uses a stack bounded by V.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Biclique_K_3_5_bicolor.svg/500px-Biclique_K_3_5_bicolor.svg.png`, alt: `Complete bipartite graph K three five with two colored vertex sets`, caption: `Dense bipartite graphs make the E term visible: one phase may inspect many left-right eligibility edges. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Biclique_K_3_5_bicolor.svg`},
         `Doubling V with constant average degree roughly doubles E. The sqrt(V) factor grows slowly: 100 vertices need at most ~10 phases, 10,000 need ~100, 1,000,000 need ~1,000. In practice, most graphs need far fewer phases because the matching saturates early.`,
         `Compared to the simple augmenting-path method at O(V*E): on a graph with 10,000 vertices per side and 50,000 edges, Hopcroft-Karp does roughly 100 * 50,000 = 5 million edge scans versus 10,000 * 50,000 = 500 million. That is a 100x difference from scheduling discipline alone.`,
       ],

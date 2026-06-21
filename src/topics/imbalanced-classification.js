@@ -130,6 +130,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "How the metrics deceive" builds confusion matrices for a do-nothing model and a real model on 1,000 transactions (10 fraud, 990 legit), then shows how the same 20 false positives look under ROC versus precision-recall denominators. "The fixes, honestly priced" walks through class weights, resampling, threshold movement, and their side effects.',
+        {type: 'callout', text: 'On imbalanced data, the denominator decides the story: accuracy rewards the majority, precision prices the alert queue.'},
         'Active cells are the current computation. Found cells are correct catches (true positives). Compare cells highlight two quantities that use the same numerator but different denominators -- the core of the accuracy paradox. Removed cells are missed positives or discarded data.',
         'At each frame, read the denominator. That single choice -- dividing by all examples, all negatives, or all alarms -- is the entire argument about whether a model is good or broken.',
       ],
@@ -138,6 +139,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Most classifiers are trained and evaluated on roughly balanced data: spam vs. ham at 40/60, cats vs. dogs at 50/50. In production, the class that matters most is often the rarest. Fraud is 0.1% of card transactions. Manufacturing defects appear in one part per ten thousand. Malignant tumors are absent from most screenings. The model exists to find these rare cases, yet standard training and standard metrics conspire to ignore them.',
+        {type: 'image', src: 'https://scikit-learn.org/stable/_images/sphx_glr_plot_confusion_matrix_001.png', alt: 'Confusion matrix heatmap for a classifier', caption: 'A confusion matrix is the basic accounting surface: true positives, false negatives, false positives, and true negatives must stay visible before any summary metric. Source: scikit-learn example gallery: https://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html'},
         'A model that labels every transaction "legitimate" scores 99.9% accuracy on a 0.1% fraud dataset. It catches nothing. Accuracy measures the base rate, not the model. This is the accuracy paradox: the laziest possible classifier earns the highest score because the majority class dominates the sum. Any model that actually catches fraud will score lower, because it creates visible false alarms that depress the accuracy denominator.',
         {
           type: 'note',
@@ -157,6 +159,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The wall is the denominator. Every confusion-matrix metric divides by something, and that denominator determines what story the number tells. Accuracy divides by all examples -- so 990 easy negatives drown 10 hard positives. False-positive rate divides by all negatives -- so a sea of easy legits makes any alarm count look small. Precision divides by the alarms themselves -- so it exposes the analyst experience honestly.',
+        {type: 'image', src: 'https://scikit-learn.org/stable/_images/sphx_glr_plot_precision_recall_001.png', alt: 'Precision-recall curve plot with operating points', caption: 'Precision-recall curves expose the alert-queue tradeoff directly, which is why they are more honest than accuracy for rare-positive problems. Source: scikit-learn example gallery: https://scikit-learn.org/stable/auto_examples/model_selection/plot_precision_recall.html'},
         'Consider a model with 6 true positives, 4 false negatives, 20 false positives, and 970 true negatives. Its ROC point is (FPR=2.0%, TPR=60%) -- gorgeous. Its precision is 6/26 = 23% -- three of every four alarms waste an investigation. Now scale the negatives 10x: same 2% FPR produces 200 false alarms against the same 6 catches. The ROC curve does not move. Precision collapses to 6/206 = 2.9%. ROC is base-rate-blind by construction; the precision-recall curve redraws itself for every prevalence.',
         {
           type: 'diagram',
@@ -170,6 +173,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'There are four main interventions, each re-pricing mistakes at a different point in the pipeline. Threshold movement changes the decision policy without retraining. Class weighting changes the loss function so the gradient cares about rare errors. Random oversampling duplicates minority examples. SMOTE synthesizes new minority examples by interpolating between nearest neighbors.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/13/Roc_curve.svg', alt: 'Receiver operating characteristic curve with true positive and false positive axes', caption: 'ROC space is useful for ranking behavior, but its false-positive denominator can hide operational pain when negatives dominate. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Roc_curve.svg'},
         {
           type: 'quote',
           text: 'An approach to the construction of classifiers from imbalanced datasets is described. A dataset is imbalanced if the classification categories are not approximately equally represented. [...] Our method of over-sampling the minority class involves creating synthetic examples rather than over-sampling with replacement.',
@@ -247,4 +251,3 @@ export const article = {
     },
   ],
 };
-

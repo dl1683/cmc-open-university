@@ -164,6 +164,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The first view races grid search against random search on an identical budget of nine trials. A hidden accuracy curve depends strongly on learning rate and barely on the regularization knob lambda. Neither searcher can see this curve; each can only spend trials and observe scores. Watch the scatter plots: each dot is one trial. Project both scatter plots onto the learning-rate axis and count distinct values -- that projection is the entire argument.',
+        {type: 'callout', text: 'Hyperparameter search is budget allocation under uncertainty: every trial should either cover a new region or exploit evidence from earlier trials.'},
         'The second view shows two smarter ideas. Bayesian optimization fits a surrogate belief curve (mean plus uncertainty band) and picks the next trial where expected improvement is highest. Successive halving starts many candidates cheaply and promotes only survivors. The matrix at the end shows the protocol card: the rules that keep a search honest.',
         'Colors: "found" (green) marks the best configuration discovered. "Visited" (blue) marks evaluated candidates. "Compare" (orange) highlights the structural contrast between strategies. "Active" (yellow) marks the current evaluation step.',
       ],
@@ -172,6 +173,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A model learns its weights by gradient descent, but someone must choose the knobs above the learning: learning rate, regularization strength, depth, batch size, dropout rate. These are the hyperparameters. Each evaluation costs a full training run plus cross-validation scoring, so a budget of nine trials is realistic. Spending them well is an optimization problem in its own right -- one where you cannot take gradients, each function evaluation is expensive, and the landscape is noisy.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Three-dimensional Rosenbrock function surface with a curved valley', caption: 'Expensive black-box search often feels like navigating a curved objective surface when gradients are unavailable or untrusted. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Rosenbrock_function.svg'},
         'The core tension: most hyperparameter spaces have low effective dimensionality. One or two knobs dominate the score; the rest barely matter. But you do not know which knobs matter until after you have searched. A search strategy that wastes budget re-asking answered questions along irrelevant axes leaves the important axes undersampled.',
         {
           type: 'quote',
@@ -243,6 +245,7 @@ export const article = {
         },
         'Bayesian optimization (BO) makes the search learn from its history. After each trial, fit a cheap surrogate model -- a Gaussian process (GP-BO) or tree-structured Parzen estimator (TPE) -- that predicts the score at untried points plus an uncertainty band. An acquisition function (expected improvement, upper confidence bound) picks the next trial where the surrogate predicts either high score (exploit) or high uncertainty (explore). This is the same explore/exploit tradeoff from Thompson Sampling and multi-armed bandits, played over a continuous configuration space.',
         'Successive halving attacks the per-trial cost. Start 27 candidates with one epoch each. Keep the top third, triple their budget, repeat. Total cost: 4 rungs x 27 epoch-units = 108 epochs, the price of four full 27-epoch trainings, but 27 candidates were screened. Hyperband hedges the early-stopping aggressiveness by running multiple halving brackets in parallel: one aggressive (many candidates, tiny initial budget), one conservative (few candidates, long initial budget).',
+        {type: 'image', src: 'https://scikit-learn.org/stable/_images/sphx_glr_plot_successive_halving_iterations_001.png', alt: 'Successive halving plot showing candidate counts shrinking as iterations receive more resources', caption: 'Successive halving spends tiny budgets broadly, then concentrates training resources on survivors. Source: scikit-learn example gallery: https://scikit-learn.org/stable/auto_examples/model_selection/plot_successive_halving_iterations.html'},
         'BOHB (Bayesian Optimization and Hyperband) combines both: TPE chooses which configurations to sample, Hyperband decides how long each one trains. Population-Based Training (PBT) goes further -- it mutates hyperparameters during training, letting a population of models share discoveries in real time rather than restarting from scratch.',
       ],
     },
@@ -289,6 +292,7 @@ export const article = {
         'Every search method fails when the space is badly designed. If the optimal learning rate is outside your chosen range, no strategy will find it. If you sample linearly over a range spanning four orders of magnitude, 99% of trials land in the top decade and the bottom three decades are nearly unsampled. Log-uniform sampling is mandatory for magnitude-spanning knobs.',
         'Bayesian optimization fails in high dimensions (above ~20 knobs). The surrogate model struggles to fit a useful surface, acquisition optimization becomes its own hard problem, and the overhead per trial grows. For very large spaces, random search or population methods are more robust.',
         'Successive halving fails on slow starters: a configuration that needs learning-rate warmup or a schedule that ramps up late will look bad at rung one and get killed. Hyperband mitigates this by running a conservative bracket, but cannot eliminate the risk entirely.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal distribution diagram showing standard deviation intervals around the mean', caption: 'Validation noise matters because search repeatedly samples from a score distribution, not from a perfectly stable scalar. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg'},
         'The deepest failure is overfit through search itself. Every trial is a chance to exploit noise in the validation set. A 9,000-trial search that reports its best score is practicing multiple testing at industrial scale -- the forking-paths problem from A/B testing. The test set must stay sealed until the search is complete, and the search budget must be reported alongside the final number. A model that "reaches 94%" after 9 trials and one that "reaches 94%" after 9,000 trials are making different claims.',
       ],
     },
@@ -314,4 +318,3 @@ export const article = {
     },
   ],
 };
-

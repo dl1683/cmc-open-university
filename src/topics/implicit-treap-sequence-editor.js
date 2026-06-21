@@ -346,6 +346,7 @@ export const article = {
       heading: 'Problem',
       paragraphs: [
         'Many applications store an ordered sequence and then edit the middle of it. A text editor inserts and deletes spans. A playlist lets the user drag songs. A timeline editor moves clips. A browser tab strip reorders tabs. A flat array gives fast indexing, but inserting or removing in the middle shifts many elements. A linked list edits locally, but finding position i requires scanning.',
+        {type: 'callout', text: 'An implicit treap stores sequence position as subtree size accounting, so edits repair local ranks instead of rewriting global indexes.'},
         'An implicit treap solves the middle ground: keep sequence order, support rank-based access, and make cut, paste, insert, delete, move, and reverse run in expected logarithmic time. It is "implicit" because the tree does not store explicit keys. The key of a node is its position in the in-order traversal, derived from subtree sizes.',
       ],
     },
@@ -354,6 +355,7 @@ export const article = {
       paragraphs: [
         'The obvious structure is an array. select(i) is O(1), rendering a contiguous window is cache-friendly, and appending is cheap. But insertion at the front or middle shifts O(n) items. Moving a block can require two shifts. Reversing a long selected range can touch every item even when the UI only needs to record the operation.',
         'A linked list fixes local insertion and deletion, but now select(i), split at i, or render rows 100000 through 100050 require walking from a known pointer. Skip lists, ropes, piece tables, and finger trees each solve parts of the problem. An implicit treap is the compact randomized-tree version built around two primitives: split by rank and merge adjacent sequences.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Vector_Rope_example.svg/500px-Vector_Rope_example.svg.png', alt: 'Rope data structure example with string chunks stored in a tree', caption: 'Ropes solve a related editor problem by storing sequence chunks in a tree; implicit treaps use a randomized tree with rank-derived positions. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:Vector_Rope_example.svg'},
       ],
     },
     {
@@ -367,6 +369,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'Use a treap where the binary-search order is not stored as a field. The in-order traversal is the sequence. Each node stores a random priority for balance and a subtree size for rank. The priority gives expected logarithmic height. The size tells how many items appear before the current node inside its subtree.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/TreapAlphaKey.svg/500px-TreapAlphaKey.svg.png', alt: 'Treap diagram showing key order and heap priorities', caption: 'A treap combines binary-search order with heap priority. In an implicit treap, the visible keys are replaced by in-order rank derived from subtree sizes. Source: Wikimedia Commons: https://commons.wikimedia.org/wiki/File:TreapAlphaKey.svg'},
         'The structure has two invariants. First, in-order order is sequence order: everything in the left subtree comes before the node, and everything in the right subtree comes after it. Second, heap priority gives balance: a parent has higher priority than its children. Because positions are implied by sizes, an insertion changes sizes only on the paths touched by split and merge.',
         'This is why the data structure is useful for editors. Instead of updating every later index after an insert, update O(log n) size fields. Instead of moving a range item by item, split the sequence into pieces, then merge the pieces in the new order.',
       ],
