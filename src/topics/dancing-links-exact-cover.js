@@ -294,7 +294,9 @@ export const article = {
       heading: 'Why Exact Cover Exists',
       paragraphs: [
         `Exact cover is the problem of choosing rows from a 0-1 matrix so every required column has exactly one selected 1. The matrix is a way to write constraints. A row is a possible choice. A column is a rule that must be satisfied once, not zero times and not twice.`,
+        { type: 'callout', text: `DLX is valuable because exact-cover search spends more time undoing sparse state changes than choosing the next row.` },
         `This form is useful because many puzzles and search problems have the same hidden shape. A Sudoku candidate, a polyomino placement, and a queen placement can all be written as rows that satisfy several constraints at once. Exact cover gives one common search language for all of them.`,
+        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/Exact_cover_instance.svg/250px-Exact_cover_instance.svg.png`, alt: `Exact cover instance showing selected subsets covering every element once`, caption: `The highlighted exact-cover instance shows the contract: selected choices partition the constraints. Source: https://en.wikipedia.org/wiki/Exact_cover.` },
       ],
     },
     {
@@ -315,6 +317,7 @@ export const article = {
       heading: 'The Core Insight',
       paragraphs: [
         `Dancing Links, or DLX, stores only the 1s and makes deletion reversible. Each 1-cell is a node with four links: left and right within its row, up and down within its column. Column headers are linked too, so the live matrix is a set of circular doubly linked lists.`,
+        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Dancing_links.svg/250px-Dancing_links.svg.png`, alt: `Dancing Links sparse matrix as linked row and column nodes`, caption: `DLX stores sparse 1-cells as linked nodes, so cover and uncover are local pointer edits. Source: https://en.wikipedia.org/wiki/Dancing_links.` },
         `Removing a node from a doubly linked list is local pointer surgery. Its neighbors point around it, but the removed node still remembers the neighbors it used to have. If the solver later backtracks, it can splice the same node back into the same place. DLX turns search-state restoration into reversing pointer edits.`,
       ],
     },

@@ -139,6 +139,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Compilers and static-analysis tools need to know facts about a program without running that program on every possible input. Which definition of x can reach this use? Which variables are live before this instruction? Which pointer may be null? Which user input can reach a dangerous sink? These questions are about all possible paths through code, not just the path taken by one test.`,
+        { type: 'callout', text: `A worklist analysis is useful because it repeats only the CFG blocks whose facts can still change.` },
         `Data-flow analysis gives those questions a reusable engine. It represents the program as a control-flow graph, stores facts at each block, applies local transfer rules, and propagates changed facts through edges until the graph stabilizes. The worklist is the practical scheduler that decides which blocks deserve another visit.`,
         `The reason this exists is loops. A single pass through the blocks can be wrong because information can travel around a cycle and change the facts at a block that was already processed. The analysis needs a disciplined repeat-until-stable process, not hope that one traversal order happened to see enough.`,
       ],
@@ -154,6 +155,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         `The central idea is to separate the meaning of an analysis from the machinery that reaches a stable answer. The machinery is always similar: each block has input facts and output facts, neighboring facts are joined, a transfer function models the block, and changed outputs schedule more propagation.`,
+        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Some_types_of_control_flow_graphs.svg/250px-Some_types_of_control_flow_graphs.svg.png`, alt: `Examples of control-flow graph shapes with branches and loops`, caption: `Data-flow facts move over CFG edges; branches and loops are the reason the analysis needs joins and fixpoints. Source: https://en.wikipedia.org/wiki/Control-flow_graph.` },
         `The analysis author supplies the domain and rules. Reaching definitions uses sets of definitions. Liveness uses sets of variables. Constant propagation uses values such as unknown, constant 7, or not-a-constant. Taint analysis uses labels that describe where data came from. The worklist engine does not need to know the business meaning of those facts as long as it can join them, compare them, and apply transfer functions.`,
       ],
     },
@@ -168,6 +170,7 @@ export const article = {
       heading: 'Mechanism',
       paragraphs: [
         `A typical forward worklist starts by initializing facts for every block and putting entry or all blocks on the queue. It removes a block, computes its input by joining predecessor outputs, applies the transfer function to produce a new output, and compares that output with the old one. If the output changed, it pushes successors because their inputs may now change.`,
+        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/b/bd/Rust_MIR_CFG.svg/250px-Rust_MIR_CFG.svg.png`, alt: `Rust compiler MIR control-flow graph with basic blocks and branch edges`, caption: `Real compiler IR exposes the same graph skeleton: basic blocks, branch edges, and join points for facts. Source: https://en.wikipedia.org/wiki/Control-flow_graph.` },
         `A backward worklist flips the edge direction. It computes a block's output from successor inputs, applies the backward transfer rule, and pushes predecessors when the input changes. The same queue, changed check, and fixpoint idea remain. Only the neighbor relation and transfer direction change.`,
         `The changed check is not an optimization bolt-on; it is what makes the scheduler precise. If a block recomputes the same facts, its neighbors do not need another visit because no new information can reach them through that edge. If the facts change, the block has just learned something that could affect the rest of the graph.`,
       ],

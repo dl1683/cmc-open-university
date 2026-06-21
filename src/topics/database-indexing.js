@@ -122,6 +122,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `A database index is a separate, sorted copy of one or more columns with pointers back to the original rows. Think of a book's index: instead of reading every page to find "algorithms", you look up "algorithms" in the index, which tells you page numbers to jump to. A table itself is already sorted by its primary key — MySQL InnoDB, Postgres, and SQLite all store the clustered index, where the table IS the primary-key B-tree. Secondary indexes (what you create with CREATE INDEX) are additional B-trees you build on other columns: (age, pointer-to-row), (name, pointer-to-row), etc.`,
+        { type: 'callout', text: `An index is a paid second layout: it turns a query predicate into a short tree walk and charges every write for keeping that proof current.` },
         `Indexes exist because queries on unsorted columns require a full table scan: checking every row's value. At scale (millions of rows), this means pulling a million rows off disk to answer one lookup. An index shrinks that work: a binary search in the sorted index (~20 touches at a million rows) plus one jump to fetch the full row, versus a million touches for the scan.`,
       ],
     },
@@ -200,6 +201,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'An index is a second copy of selected columns, stored in sorted order, with pointers back to the full rows. Sorted order turns a linear scan into a tree descent: one comparison at each level eliminates an entire subtree of non-matching keys. The data itself does not move; the index is a parallel proof structure that lets the engine skip work the table layout cannot skip.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Bplustree.png/500px-Bplustree.png', alt: 'B plus tree with internal keys and linked leaf records', caption: 'A B+ tree makes the index layout visible: internal keys route the lookup, and leaves hold ordered values for scans. Source: https://en.wikipedia.org/wiki/B%2B_tree.' },
         'The deeper insight is that indexes are not just about lookup speed. They are physical layout decisions. A B+ tree index stores all actual values in its leaves, linked together in key order. Internal nodes hold only separator keys that route searches downward. This separation means range scans never touch internal nodes at all: find the first matching leaf, then walk the linked leaf chain. This is why B+ trees dominate databases while plain B-trees do not: B-trees store data at every level, so a range scan must traverse the entire tree structure. B+ trees confine data to leaves and link those leaves, making sequential access as fast as reading a sorted file.',
       ],
     },
@@ -208,6 +210,7 @@ export const article = {
       heading: 'B+ tree structure: why databases chose it',
       paragraphs: [
         'A B+ tree is a balanced search tree where every value lives in a leaf node, and internal nodes exist only to route searches. In an order-4 B+ tree, each internal node holds up to 3 keys and 4 child pointers; each leaf holds up to 3 key-value pairs and a pointer to the next leaf. The root-to-leaf path length is identical for every key, so lookup cost is uniform.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/B%2Btree_node_format.png/330px-B%2Btree_node_format.png', alt: 'B plus tree node format with keys and child pointers', caption: 'The node format shows why B+ trees have high fanout: one page can route many child ranges. Source: https://en.wikipedia.org/wiki/B%2B_tree.' },
         'Internal nodes are a search index over the leaves. When searching for key 41, the engine reads the root, compares 41 against the separator keys, and follows the appropriate child pointer. At each level, one comparison eliminates all children on the wrong side. After log_b(n) levels (where b is the branching factor), the search lands on the correct leaf. The leaf contains the actual value (or a pointer to the table row).',
         'The leaf chain is the feature that separates B+ trees from B-trees. In a B-tree, data lives at every level, so a range query like "WHERE age BETWEEN 30 AND 50" must traverse internal nodes, descend to children, ascend back, and continue. In a B+ tree, the engine finds the first leaf where age >= 30, then walks the next-leaf pointers until age > 50. No backtracking, no re-traversal. The leaf chain turns a tree into a sorted linked list for range access.',
         'Disk alignment is the other reason. A B+ tree node is sized to match a disk page (typically 4 KB or 8 KB). One disk read loads an entire node with hundreds of keys. A binary search tree, by contrast, stores one key per node and requires one disk read per comparison. For a million keys, a BST needs ~20 disk reads (one per level); a B+ tree with a branching factor of 200 needs ~3 disk reads (log_200 of 1,000,000). Disk reads cost milliseconds; CPU comparisons cost nanoseconds. The wide node amortizes disk latency across hundreds of comparisons per read.',
@@ -219,6 +222,7 @@ export const article = {
       paragraphs: [
         'Correctness rests on the B+ tree invariant: for every internal node, all keys in the i-th subtree are strictly less than the i-th separator key, and all keys in the (i+1)-th subtree are greater than or equal to it. This ordering guarantee means a search that follows the correct child pointer at each level will always land on the leaf that contains the target key if it exists. No key can hide in a subtree the search skipped.',
         'Insertions preserve the invariant by splitting: when a leaf overflows (exceeds its maximum key count), it splits into two leaves and pushes a copy of the middle key up to the parent as a new separator. If the parent overflows, it splits too, potentially all the way to the root. A root split creates a new root with two children, increasing tree height by one. Since splits propagate upward and the tree grows from the top, all leaves remain at the same depth. This guarantees O(log n) worst-case lookup regardless of insertion order.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/B%2B-tree-remove-61.png/250px-B%2B-tree-remove-61.png', alt: 'B plus tree deletion example showing leaf and parent updates', caption: 'Deletes preserve the same sorted range invariant by redistributing, merging, and updating separators. Source: https://en.wikipedia.org/wiki/B%2B_tree.' },
         'Deletions merge or redistribute keys between siblings when a leaf underflows. The parent separator key is updated to reflect the new boundary. The invariant is preserved at every step: the separator always truthfully describes the key range of each subtree below it.',
       ],
     },
@@ -252,4 +256,3 @@ export const article = {
     },
 ],
 };
-

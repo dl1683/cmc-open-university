@@ -163,6 +163,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `Data leakage is the evaluation bug that rewards you for being wrong. Information that will not be available at prediction time sneaks into training, validation, or test data. The model scores beautifully because the answer key is already present in the exam. Then the same model fails in production, where the answer key is gone.`,
+        { type: 'callout', text: `Leakage is a chain-of-custody failure: information crosses the prediction boundary before evaluation begins.` },
         `This page exists because leakage is easy to miss and hard to forgive. Nothing crashes. Cross-validation runs. Metrics improve. Model selection chooses the cheater because it looks best. A team can ship a model with high offline scores and only discover the truth when real users, real patients, real trades, or real customers produce the first honest evaluation.`,
       ],
     },
@@ -170,6 +171,7 @@ export const article = {
       heading: `The obvious approach`,
       paragraphs: [
         `The naive approach is to gather all rows, compute all useful features, augment the data, scale everything, split randomly, and train. That pipeline feels clean because every step is common. It is also the pipeline that leaks. A scaler fitted before the split saw validation rows. Augmentation before the split can put near-copies on both sides. A feature computed from the whole table can smuggle future or label information into every fold.`,
+        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Traintest.svg/960px-Traintest.svg.png`, alt: `Training and test sets with different fitted model curves`, caption: `The train-test wall only works if preprocessing, augmentation, grouping, and feature fitting do not cross it. Source: https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets.` },
         `Another naive approach is to trust the metric because the code is deterministic. Leakage is not usually a nondeterministic bug. It is a chain-of-custody bug. The question is not whether the training loop ran correctly; it is whether each value was legally knowable at the moment the prediction would have been made.`,
       ],
     },
@@ -219,6 +221,7 @@ export const article = {
       heading: `Detection`,
       paragraphs: [
         `Leakage often announces itself as performance you did not earn. A hard medical prediction producing 0.99 AUC on the first attempt should trigger an audit. One feature explaining nearly all importance should trigger a timestamp check. A huge offline-production gap should trigger a split and feature lineage review. A language model continuing a benchmark item verbatim should trigger a contamination investigation.`,
+        { type: 'image', src: `https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Simplified_neural_network_training_example.svg/250px-Simplified_neural_network_training_example.svg.png`, alt: `Simplified neural network training diagram with feature signals feeding classes`, caption: `Feature audits ask which training signals dominate the model and whether those signals would exist at prediction time. Source: https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets.` },
         `Simple ablations help. Remove the suspect feature and retrain. If performance collapses to a more believable level, inspect how that feature was created. Search for duplicates across splits. Recompute preprocessing inside folds. Run a point-in-time feature build. Use influence or nearest-neighbor tools to find training examples that look too much like test examples.`,
       ],
     },

@@ -192,6 +192,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'K-means requires you to choose k and always returns exactly k convex clusters. Real data contains rings, arcs, unequal densities, and outliers that k-means cannot represent. A customer dataset might have one dense urban segment, one sprawling rural segment, and scattered fraudulent accounts that belong to no group at all.',
+        { type: 'callout', text: 'DBSCAN replaces a chosen cluster count with a local density rule, so clusters grow where neighborhoods stay connected.' },
         "DBSCAN (Density-Based Spatial Clustering of Applications with Noise) was introduced by Ester, Kriegel, Sander, and Xu at KDD 1996 to solve this. It defines clusters as connected regions of high point density, separated by low-density gaps. Cluster shape is unconstrained. Outliers are labeled as noise rather than forced into a group. The number of clusters emerges from the data — the user never specifies k.",
       ],
     },
@@ -213,6 +214,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A cluster is a region where points are packed tightly together, separated from other clusters by regions where points are sparse. DBSCAN operationalizes this with two parameters: epsilon (a neighborhood radius) and minPts (the minimum number of points that must fall within that radius for the region to count as dense).',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/DBSCAN-Illustration.svg/500px-DBSCAN-Illustration.svg.png', alt: 'DBSCAN diagram showing core, border, and noise points with epsilon neighborhoods', caption: 'Core points, border points, and noise are defined by the same epsilon-neighborhood rule. Source: https://en.wikipedia.org/wiki/DBSCAN.' },
         "A point with at least minPts neighbors within epsilon is a CORE point — it sits in a dense region. A point reachable from a core point but without enough neighbors of its own is a BORDER point — it sits at the cluster's edge. A point reachable from no core point is NOISE. Clusters form by chaining core points together: if core point A is in core point B's neighborhood, they belong to the same cluster, and the cluster boundary is the set of border points reachable from any core in the chain.",
         'This chaining is the key move. It lets DBSCAN follow any shape — rings, crescents, filaments — because the cluster boundary is defined by local density, not by distance to a single center.',
       ],
@@ -256,6 +258,7 @@ export const article = {
       paragraphs: [
         'DBSCAN has two parameters instead of k-means\' one, but they are more interpretable. Epsilon defines the physical scale of density: "how close must points be to count as neighbors?" MinPts defines the density threshold: "how many neighbors make a region dense?"',
         'The k-distance plot is the standard tool for choosing epsilon. For each point, compute the distance to its k-th nearest neighbor (where k = minPts). Sort these distances and plot them. The curve rises slowly through the dense regions and then sharply at the transition to noise. The elbow of this curve is a good epsilon. Below the elbow, too many points are noise; above it, clusters merge.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/DBSCAN-density-data.svg/250px-DBSCAN-density-data.svg.png', alt: 'Nonlinear clusters and noise points that DBSCAN can identify', caption: 'Density-based clustering can recover shapes that centroid methods split or blur. Source: https://en.wikipedia.org/wiki/DBSCAN.' },
         'MinPts controls sensitivity to noise. The original paper recommends minPts ≥ dimensionality + 1. For 2D data, minPts = 3 or 4 is common. Larger minPts makes the algorithm more conservative — small clumps become noise. Smaller minPts lets small groups form clusters but risks treating noise as structure. In practice, minPts = 5-10 works for most datasets.',
       ],
     },

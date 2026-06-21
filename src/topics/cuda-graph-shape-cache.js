@@ -212,6 +212,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'GPU kernels can be fast while CPU launch overhead still hurts latency. A model-serving request may launch many small kernels, synchronize around memory work, and repeat almost the same decode step thousands of times. The GPU is doing the math, but the CPU still pays to submit the work.',
+        { type: 'callout', text: 'A shape cache turns repeated GPU launch structure into a keyed replay contract instead of recomputing kernel submissions.' },
         'CUDA graphs solve part of that problem by capturing a repeated sequence of GPU operations and replaying it with much lower launch overhead. The catch is that replay is only valid when the captured assumptions still hold: shapes, kernel choices, device state, and memory addresses need to match.',
         'LLM serving makes this hard. Batch size changes. Sequence lengths grow. A prefill step is not the same as a decode step. Allocators move buffers. Models roll forward. A CUDA graph shape cache decides which serving shapes are stable enough to capture and when the runtime must fall back to ordinary eager execution.',
       ],
@@ -228,6 +229,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The cache key must include every assumption that makes replay legal: model version, kernel variant, batch bucket, decode versus prefill, sequence length class, dtype, device, and memory-pool identity. Leaving one out can replay the wrong graph.',
+        { type: 'image', src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Directed_acyclic_graph.svg', alt: 'Directed acyclic graph with arrows between ordered tasks', caption: 'CUDA graph capture records an execution DAG; shape caching decides which DAG instances are safe to replay. Source: https://commons.wikimedia.org/wiki/File:Directed_acyclic_graph.svg.' },
         'The value is not just an executable. It also stores static buffers, capture warmup state, hit counters, last-used time, memory pressure, and an eager fallback. This is a hash table plus LRU policy plus safety guard.',
         'That safety guard is the main idea. A graph cache is not a memoized function result. It is memoized execution structure. The key must prove that replaying the old structure will run the right kernels over the right buffers.',
       ],
@@ -243,6 +245,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The runtime observes traffic. After a shape appears enough times, it warms up, captures the graph, and inserts it into the cache. Later requests compute the same shape key and replay the graph when the key matches and buffers are valid.',
+        { type: 'image', src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Nvidia_CUDA_Logo.jpg', alt: 'NVIDIA CUDA logo', caption: 'The cache sits at the CUDA execution layer, where captured GPU work can be replayed instead of relaunched piece by piece. Source: https://commons.wikimedia.org/wiki/File:Nvidia_CUDA_Logo.jpg.' },
         'When an unusual batch appears, the runtime has choices: pad to a nearby captured bucket, run eager fallback, or count misses until that shape proves hot. Each choice trades latency, wasted compute, memory stability, and implementation risk.',
         'A practical entry needs more than a graph handle. It needs static input and output buffers or a memory-pool contract, the captured executable, a model/version stamp, hit and miss counters, last-used time, invalidation rules, and a pointer to the eager path. Without the fallback, the optimization becomes a correctness risk.',
       ],

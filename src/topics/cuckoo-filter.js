@@ -223,6 +223,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         "Many systems need a cheap front-door answer before they pay for the real lookup. A storage engine wants to know whether an SSTable might contain a key. A cache wants to avoid probing a cold shard. A security service may need to ask whether a token is on a changing deny list. The exact set still lives somewhere else; the filter exists to reject definite misses quickly.",
+        { type: 'callout', text: 'A cuckoo filter keeps deletion cheap by storing each key as one movable fingerprint with two legal homes.' },
         "A cuckoo filter is for mutable approximate membership. It answers no with certainty for keys that are not represented, and maybe for keys that collide with stored fingerprints. Its advantage over a basic Bloom filter is deletion: the filter stores small movable entries instead of spreading each key across many shared bits.",
       ],
     },
@@ -230,6 +231,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         "The standard first answer is a Bloom filter. Hash the key several times, set several bits, and check those bits on lookup. If any required bit is zero, the key is definitely absent. If all required bits are one, the key may be present. It is simple, fast, and very good for append-heavy or immutable sets.",
+        { type: 'image', src: 'https://commons.wikimedia.org/wiki/Special:FilePath/Bloom_filter.svg', alt: 'Bloom filter bit array with hash positions for inserted keys', caption: 'Bloom filters spread each key across shared bits, which explains both compact negatives and hard deletion. Source: https://commons.wikimedia.org/wiki/File:Bloom_filter.svg.' },
         "Deletion is the problem. Clearing a Bloom-filter bit can damage another key that happened to set the same bit. Counting Bloom filters replace bits with counters, but now each insert and delete touches multiple counters, the structure takes more space, and counter overflow or underflow becomes another operational concern.",
       ],
     },
@@ -244,6 +246,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         "Store a short fingerprint, not the full key. Give that fingerprint two candidate buckets using the cuckoo-hashing placement idea. A lookup computes the same fingerprint and bucket pair, then scans those two small buckets for a matching fingerprint.",
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/92/Cuckoo_hashing_example.svg/250px-Cuckoo_hashing_example.svg.png', alt: 'Cuckoo hashing diagram showing alternate locations and eviction arrows', caption: 'Cuckoo placement gives each item two legal homes; cuckoo filters apply the same idea to short fingerprints. Source: https://en.wikipedia.org/wiki/Cuckoo_hashing.' },
         "The structure is intentionally weaker than an exact set. It cannot prove that the original key is present because different keys can share the same fingerprint. But it can prove absence when neither candidate bucket contains that fingerprint, and that is the answer many systems need most often.",
       ],
     },

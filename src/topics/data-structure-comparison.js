@@ -204,6 +204,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Choosing the right data structure is the most impactful decision in program design. A wrong algorithm on the right structure is fixable; the right algorithm on the wrong structure is doomed. The difference between O(1) hash lookup and O(n) linear scan is not a percentage improvement — at n = 1,000,000 it is a million-fold gap.',
+        { type: 'callout', text: 'Data structure choice is workload design: the invariant that makes one operation cheap charges another operation somewhere else.' },
         'Yet most introductory courses teach data structures in isolation: here is a linked list, here is a tree, here is a hash table. The comparison chart that reveals the tradeoffs — why you would ever choose a slower structure — is often left as an exercise. This visualization makes the tradeoffs visceral: you see the curves diverge and understand that speed on one operation comes at the cost of another.',
       ],
     },
@@ -231,6 +232,7 @@ export const article = {
         'BST (balanced): each node stores a key; left children are smaller, right children are larger. Search, insert, and delete all walk from root to leaf — O(log n) when balanced. AVL and red-black trees maintain balance with rotations after each mutation.',
         'Hash table: hash the key to compute a slot index. Search, insert, and delete all cost O(1) amortized — one hash computation, one memory access (ignoring collisions). Worst case is O(n) when all keys collide, but good hash functions and resizing make this rare.',
         'Heap (binary): a complete binary tree stored as an array where each parent is smaller (min-heap) or larger (max-heap) than its children. Insert bubbles up — O(log n). Extract-min/max sifts down — O(log n). Arbitrary search is O(n) because the heap property only constrains parent-child, not left-right.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Binary_Heap_with_Array_Implementation.JPG/500px-Binary_Heap_with_Array_Implementation.JPG', alt: 'Binary heap tree shown beside its array representation', caption: 'A heap shows how one layout can serve two views: tree semantics for order and array storage for locality. Source: https://en.wikipedia.org/wiki/Binary_heap.' },
       ],
     },
     {
@@ -240,6 +242,7 @@ export const article = {
         'Pointers enable O(1) structural mutations. Inserting into a linked list rewrites one or two pointers regardless of list size. No elements move. The price is that finding the right spot requires a traversal, because pointers do not support arithmetic the way array indices do.',
         'Hashing bypasses comparison entirely. Instead of asking "is this key less than or greater than that key?" a hash function computes the answer location directly from the key bits. This is why hash tables beat comparison-based structures for exact lookup: they do not climb the log n comparison tree at all.',
         'The heap property is weaker than the BST property. A BST maintains a total order (left < node < right at every level), which is why search is O(log n). A heap only maintains a partial order (parent < children), which is enough for extract-min but not for arbitrary search. Weaker invariant, cheaper maintenance, narrower use case.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Max-Heap.svg/250px-Max-Heap.svg.png', alt: 'Complete binary max heap with largest value at the root', caption: 'The heap invariant is local: each parent dominates its children, but siblings and subtrees are not globally sorted. Source: https://en.wikipedia.org/wiki/Binary_heap.' },
       ],
     },
     {
@@ -261,6 +264,7 @@ export const article = {
         'Sorted array: when the data is static or rarely modified and searches are frequent. Lookup tables, configuration data, binary search on read-heavy workloads. Also the foundation for interpolation search and cache-friendly range scans.',
         'Linked list: when insertions and deletions at known positions dominate and random access is unnecessary. LRU caches (doubly-linked list + hash map), free lists in memory allocators, and undo stacks where splicing is frequent.',
         'BST (balanced): when you need all operations in O(log n) with sorted order. Database indexes (B-trees are the multi-way generalization), in-memory ordered maps (C++ std::map, Java TreeMap), and any workload needing range queries, rank queries, or nearest-neighbor lookups.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Bplustree.png/500px-Bplustree.png', alt: 'B plus tree with linked leaf nodes for ordered access', caption: 'B+ trees show why the comparison is not just Big-O: wide nodes and linked leaves are tuned for database range scans. Source: https://en.wikipedia.org/wiki/B%2B_tree.' },
         'Hash table: when exact-match lookups, inserts, and deletes dominate and ordering is irrelevant. Symbol tables, caches, deduplication, counting, and any key-value store. The most-used data structure in practice.',
         'Heap: when the workload is a priority queue — repeatedly inserting elements and extracting the minimum or maximum. Dijkstra\'s algorithm, event-driven simulation, merge of k sorted streams, and real-time scheduling.',
       ],

@@ -246,6 +246,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Data structures are usually taught as a catalog: arrays, linked lists, trees, hash tables. Each one gets its own page, its own Big-O table, its own set of operations. That works for learning the parts, but it does not explain how experienced engineers design new structures or modify existing ones to fit a workload.',
+        { type: 'callout', text: 'Advanced structures are usually simple invariants plus one maintained shortcut that removes repeated work.' },
         'Behind every useful modification to a data structure is a reusable pattern -- a move that appears in many contexts under different names. Augmentation shows up in order-statistic trees and interval trees. Lazy deletion shows up in heaps and B-trees. Amortization shows up in dynamic arrays and splay trees. Path compression shows up in union-find and suffix links. Fractional cascading shows up in multi-level search structures and computational geometry.',
         'This primer names those patterns explicitly so you can recognize them when they appear and apply them when you need them.',
       ],
@@ -285,6 +286,7 @@ export const article = {
           label: 'Augmented BST with subtree sizes',
           text: '        [15] size=7\n       /           \\\n    [10] size=3   [20] size=3\n    /    \\        /    \\\n  [5]    [12]  [17]   [25]\n  s=1    s=1   s=1    s=1\n\nRank of 17: left subtree of 15 has size 3,\nplus 15 itself = 4, then 17 is in left subtree\nof 20, so rank = 3 + 1 + 1 = 5.',
         },
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Binary_tree_in_array.svg/500px-Binary_tree_in_array.svg.png', alt: 'Binary tree nodes mapped onto array cells with arrows to children', caption: 'Implicit layouts are a recurring pattern: store structure in positions so navigation becomes arithmetic. Source: https://en.wikipedia.org/wiki/Binary_heap.' },
         'Lazy deletion marks elements as removed without immediately restructuring. A binary heap supporting arbitrary deletes can mark the target and ignore it when it surfaces at the top during extract-min. The heap property is maintained for all live elements; dead ones are garbage-collected on contact. The tradeoff is that the heap may hold dead weight, wasting memory and slightly slowing extract-min until tombstones are purged.',
         'Amortization accepts occasional expensive operations as long as the average over a sequence stays cheap. A dynamic array doubles its capacity when full. The doubling costs O(n), but it happens only after n cheap O(1) appends. Spread over the sequence, each append costs O(1) amortized. The banker method assigns two credits per append -- one to pay for the append itself, one saved for the future copy. When the array doubles, the saved credits pay the bill.',
         'Path compression flattens long chains so future traversals are fast. In union-find, find(x) walks from x to the root of its tree. Path compression makes every node along that path point directly to the root. The next find on any of those nodes is O(1). Combined with union by rank (always attach the shorter tree under the taller one), a sequence of n operations on n elements costs O(n * alpha(n)), where alpha is the inverse Ackermann function -- effectively constant for any practical input size.',
@@ -326,6 +328,7 @@ export const article = {
         'Augmentation wins whenever you need to answer aggregate queries about subtrees or subranges without scanning. Order-statistic trees power rank/select in databases and text editors. Interval trees augment BSTs with maximum endpoints to find all overlapping intervals in O(log n + k). Red-black trees augmented with subtree sizes power Java TreeMap operations like headMap().size().',
         'Lazy deletion wins in priority queues that must support cancellation. Dijkstra implementations often push updated distances without removing stale entries; the heap skips stale entries when they surface. Kafka consumer groups use tombstone-based deletion in compacted logs. LSM-tree storage engines use tombstones across levels, deferring physical deletion to compaction.',
         'Amortization wins in any dynamic collection that grows unpredictably. Every resizable array in every major language runtime (Python list, Java ArrayList, Go slice, Rust Vec) uses geometric growth with amortized O(1) append. Splay trees use amortization to achieve O(log n) amortized access without storing balance metadata, which simplifies the implementation at the cost of unpredictable individual operations.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Bplustree.png/500px-Bplustree.png', alt: 'B plus tree with internal routing keys and linked leaves', caption: 'B+ trees combine several patterns at once: wide-node locality, separator summaries, and linked leaves for range scans. Source: https://en.wikipedia.org/wiki/B%2B_tree.' },
         'Path compression wins in connectivity and equivalence problems. Union-find with path compression and union by rank is the backbone of Kruskal minimum spanning tree, connected components in image processing, equivalence class tracking in compilers, and online graph connectivity. The nearly-constant per-operation cost makes it practical for millions of elements.',
         'Fractional cascading wins in computational geometry (layered range trees, multi-level search) and any setting where the same query must be resolved against multiple sorted indexes simultaneously.',
       ],
@@ -354,4 +357,3 @@ export const article = {
     },
   ],
 };
-

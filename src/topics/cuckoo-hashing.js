@@ -165,6 +165,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Standard hash tables promise O(1) expected lookup, but collisions break that promise. A chaining table with a bad hash function or adversarial input can degrade to O(n) -- every key in one bucket, lookup becomes a linked-list scan. Open addressing under high load clusters probes into long runs. The expected case is fast; the worst case is not.',
+        { type: 'callout', text: 'Cuckoo hashing makes lookup constant by forcing every key into one of two precomputed homes.' },
         'Pagh and Rodler (2004) asked: can a hash table guarantee O(1) worst-case lookup, not just expected? Cuckoo hashing is their answer. Two hash functions, two tables, two probes per lookup -- always. The table pays for this guarantee during insertion, not during reads.',
       ],
     },
@@ -186,6 +187,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Give each key exactly two legal homes, one per table. Lookup checks both homes and stops -- two probes, always, regardless of how many keys are stored or how many collisions happened during insertion.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/92/Cuckoo_hashing_example.svg/250px-Cuckoo_hashing_example.svg.png', alt: 'Cuckoo hashing table with arrows to alternate locations', caption: 'The arrows make the two-home invariant visible: insertion may move keys, but lookup still checks fixed homes. Source: https://en.wikipedia.org/wiki/Cuckoo_hashing.' },
         'Insertion enforces this by eviction. If the new key\'s first home is occupied, it kicks the resident out. The displaced key tries its alternate home in the other table. If that is also occupied, another eviction happens. The chain continues until someone lands in an empty slot. The name comes from the cuckoo bird, which lays eggs in other birds\' nests and evicts their young.',
       ],
     },
