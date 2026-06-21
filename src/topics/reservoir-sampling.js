@@ -91,6 +91,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a reservoir array of k = 3 slots and a stream of 10 items flowing past one at a time. Empty slots display a dot. An active highlight marks the item currently being decided on. A swap highlight means the item was accepted and replaced an existing slot. A range highlight across all slots means the item was rejected and the reservoir stayed unchanged. A found highlight at the end marks the final sample.',
+        {type: 'callout', text: 'Reservoir sampling is fair because late admission and old-item eviction are tuned to leave every seen item with the same final chance.'},
         'The invariant line below each step is the real proof target: after processing item i, every item seen so far sits in the reservoir with probability exactly k/i. Watch how that fraction shrinks as i grows, but shrinks for every item equally. The specific letters that end up in the reservoir depend on the frozen random draws. The probability structure does not.',
       ],
     },
@@ -98,6 +99,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'You have a stream of items: log lines, click events, sensor readings, database rows from a scan. You need a fair random sample of k items. Fair means every item that ever appeared has the same probability of being in the final sample. The stream may be enormous or unbounded. You cannot store it all and pick afterward.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'Queue diagram with input and output ends', caption: 'Streaming data behaves like a queue of arrivals: the sampler must decide before the tail is known. Source: https://commons.wikimedia.org/wiki/File:Data_Queue.svg.'},
         'Jeffrey Vitter formalized the solution in 1985 as Algorithm R. The idea existed in folklore before that (Knuth discusses it in TAOCP Vol. 2, 1969 edition), but Vitter gave the first rigorous analysis and the faster skip-based variants. The algorithm sees each item once, stores exactly k items, and guarantees uniform probability k/n after n items have passed.',
       ],
     },
@@ -128,6 +130,7 @@ export const article = {
         'Algorithm R has two phases.',
         'Phase 1 (filling): for items 1 through k, place each item in the next empty reservoir slot. No randomness is needed. After k items, the reservoir is full and every item is present with probability 1 = k/k.',
         'Phase 2 (streaming): for each item at position i (where i > k), generate a random integer j uniformly in the range [0, i). If j < k, replace reservoir[j] with the new item. If j >= k, discard the item. The test j < k succeeds with probability k/i, so each new item enters with exactly the right chance. If it enters, it lands in slot j, which is uniform over the k slots.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A stream can be read as a directed path of decisions: each item either enters the reservoir or flows past. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'The algorithm never backtracks, never buffers rejected items, and never needs to know how many items remain. It processes each item in O(1) time.',
       ],
     },
@@ -140,6 +143,7 @@ export const article = {
         'Item i enters with probability k/i. That handles the new item.',
         'For any older item already in the reservoir, it is evicted only if two things happen: item i is accepted (probability k/i) and the random slot chosen is that specific item\'s slot (probability 1/k). The combined eviction probability is (k/i) * (1/k) = 1/i. So the older item survives round i with probability 1 - 1/i = (i - 1)/i.',
         'The older item\'s probability of being in the reservoir was k/(i - 1) before this round. After surviving, it becomes k/(i - 1) * (i - 1)/i = k/i. The (i - 1) terms cancel, giving exactly k/i.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal curve with standard deviation regions', caption: 'The proof is about distribution, not a particular run: repeated samples converge toward the intended probability law. Source: https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.'},
         'After n total items, every item has probability k/n. The first item and the last item have the same chance. The proof works because the admission probability k/i and the survival probability (i - 1)/i are designed to telescope.',
       ],
     },

@@ -182,6 +182,16 @@ export function* run(input) {
 export const article = {
   sections: [
     { heading: 'Why this exists', paragraphs: [
+      {
+        type: 'callout',
+        text: 'Rollback DSU makes deletion manageable by changing the traversal so every union can be undone in stack order.',
+      },
+      {
+        type: 'image',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg',
+        alt: 'Small directed graph with labeled vertices and edges.',
+        caption: 'Connectivity is a graph question, but rollback DSU answers it by replaying only the edge intervals active at a time leaf. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg',
+      },
       'Normal Union-Find is excellent when edges only get added. It is not built to split a component when an edge is removed.',
       'Rollback DSU exists for the common compromise: all operations are known in advance. If you can process the timeline offline, deletions become edge lifetime intervals and the data structure only needs add and undo.',
     ] },
@@ -195,6 +205,12 @@ export const article = {
     ] },
     { heading: 'The core insight', paragraphs: [
       'Change the processing order. Read all operations first, convert every edge into the time interval where it is alive, and place that interval on a segment tree over time.',
+      {
+        type: 'image',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg',
+        alt: 'Binary tree diagram with one root and several levels of children.',
+        caption: 'A segment tree over time has the same branching shape: each edge lifetime is stored on the few nodes fully covered by its interval. Source: https://commons.wikimedia.org/wiki/File:Binary_tree.svg',
+      },
       'During DFS through the time tree, every root-to-leaf path contains exactly the edges alive at that time. The DSU only needs union on entry and rollback on exit.',
     ] },
     { heading: 'Data structures', paragraphs: [
@@ -216,6 +232,12 @@ export const article = {
     ] },
     { heading: 'How it works', paragraphs: [
       'For every edge, pair add and remove events to form an active interval. Insert that interval into O(log q) segment-tree nodes. Then DFS the segment tree. On entry, union all edges stored at the node. At leaves, answer connectivity queries. On exit, rollback to the saved stack size.',
+      {
+        type: 'image',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png',
+        alt: 'Queue diagram showing ordered data items moving through a buffer.',
+        caption: 'The operation log is first turned into ordered edge lifetimes before DFS begins. Source: https://commons.wikimedia.org/wiki/File:Data_Queue.svg',
+      },
       'Rollback DSU stores parent and size mutations on a stack. It uses union by size or rank, but typically avoids path compression because compression changes many parent pointers and would require many undo records.',
     ] },
     { heading: 'Why it works', paragraphs: [

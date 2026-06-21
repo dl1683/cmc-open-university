@@ -239,6 +239,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type: 'callout', text: 'Roaring bitmaps are fast because each 16-bit chunk chooses the cheapest exact container for its local density.'},
         "Read the animation as the execution trace for Roaring Bitmaps. Compressed integer sets: split values into chunks, pick array/bitmap/run containers, and intersect at machine speed..",
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
@@ -248,6 +249,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/500px-Bloom_filter.svg.png', alt: 'Bloom filter diagram with hashed keys and bit positions', caption: 'Bit-level membership structures save space by trading raw records for compact set representations; Roaring keeps exactness instead of using false positives. Source: https://commons.wikimedia.org/wiki/File:Bloom_filter.svg.'},
         `Many production queries reduce to set algebra over integer ids: users in a cohort, documents matching a term, rows with a flag, accounts eligible for an experiment. The query engine needs to intersect, union, and subtract these sets many times before it touches the full records.`,
         `A plain sorted list stores sparse sets well. A plain bitset answers AND and OR with machine-word operations. Real id sets are rarely all sparse or all dense. Roaring bitmaps exist for that mixed case: keep exact sets compressed, but still run set operations close to bitset speed when local density justifies it.`,
       ],
@@ -276,6 +278,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Matrix_multiplication_diagram.svg/250px-Matrix_multiplication_diagram.svg.png', alt: 'Matrix multiplication diagram showing regular numeric layout', caption: 'Set operations over chunks are regular numeric kernels: align local regions, apply the container-specific operation, and emit another compressed chunk. Source: https://commons.wikimedia.org/wiki/File:Matrix_multiplication_diagram.svg.'},
         `To insert id 131075, compute high = 2 and low = 3 because 131075 = 2 * 65,536 + 3. The directory finds chunk 2, then the chunk container records low value 3. Decoding reverses the operation: high * 65,536 + low.`,
         `Set operations first align chunks by high key. If one side has no chunk for a key, intersection for that key is empty. If both sides have the key, the operation dispatches by container pair: array-array uses a sorted merge, bitmap-bitmap uses word AND, run-run uses interval overlap, and mixed pairs use specialized kernels or temporary conversion.`,
         `After an operation, each output chunk can choose a new container. A bitmap intersection may become sparse enough to store as an array. An array union may become dense enough to store as a bitmap. This closure property lets analytics engines chain filters without decompressing everything into integer lists.`,
@@ -321,6 +324,7 @@ export const article = {
     {
       heading: 'Real-world uses',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'Analytics query plans combine many candidate sets before fetching records; the graph shape makes chained bitmap operations easier to see. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         `Roaring fits column indexes, search posting lists, feature-store cohorts, fraud rules, eligibility filters, and experiment platforms. These systems often run the same pattern: build many candidate id sets, combine them with AND, OR, and AND-NOT, then fetch only the surviving records.`,
         `It is strongest when ids are clustered enough for compression but irregular enough that a single bitset would waste memory. It also works well in distributed analytics because intermediate sets can stay compressed while moving between stages.`,
       ],
@@ -333,65 +337,11 @@ export const article = {
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Bloom Filter to contrast exact compressed sets with probabilistic membership. Study Hash Table for exact lookup without sorted set algebra. Study Database Indexing for bitmap-index query plans, Inverted Index for posting-list intersections, and A/B Testing & p-values for cohort analytics where these id sets often appear.`,
+        `Primary sources: Chambi, Lemire, Kaser, and Godin, "Better bitmap performance with Roaring bitmaps" at https://arxiv.org/abs/1402.6407; Lemire et al., "Roaring Bitmaps: Implementation of an Optimized Software Library" at https://arxiv.org/abs/1709.07821; and the CRoaring implementation at https://github.com/RoaringBitmap/CRoaring.`,
+        `Study Bloom Filter to contrast exact compressed sets with probabilistic membership. Study Hash Table for exact lookup without sorted set algebra. Study Database Indexing for bitmap-index query plans, Inverted Index for posting-list intersections, and A/B Testing and p-values for cohort analytics where these id sets often appear.`,
       ],
     },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Roaring Bitmaps moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

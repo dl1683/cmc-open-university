@@ -474,6 +474,7 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {type: 'callout', text: 'Recurrence gives a model memory by feeding state forward; LSTM gates decide which parts of that memory survive.'},
         'The animation unrolls a recurrent network across time steps. Each column is one moment in a sequence. The top row shows inputs arriving one at a time. The bottom row shows hidden states — the network\'s memory after processing each input.',
         'Arrows labeled Wₓ carry the current input into the hidden state. Arrows labeled Wₕ carry the previous hidden state forward. In LSTM views, the four gates (forget, input, candidate, output) appear as separate nodes. Active markers highlight the gate currently being computed. Found markers show the resulting cell state and hidden state after all gates fire.',
         'In the vanishing gradient view, two curves compare how gradient magnitude decays across time steps for a simple RNN versus an LSTM. The gap between them is the reason LSTM exists.',
@@ -482,6 +483,7 @@ export const article = {
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Recurrent_neural_network_unfold.svg/250px-Recurrent_neural_network_unfold.svg.png', alt: 'Recurrent neural network shown compressed and unfolded through time', caption: 'Unrolling makes recurrence visible: one shared cell is reused at each time step with state carried forward. Source: https://commons.wikimedia.org/wiki/File:Recurrent_neural_network_unfold.svg.'},
         'Feed-forward networks take a fixed-size input and produce a fixed-size output. That works for images (224x224 pixels) but not for language ("the cat sat on the mat" has 6 tokens; "she left" has 2). Sequences vary in length, and meaning depends on order. A network that processes each token independently cannot know that "bank" means a financial institution in one sentence and a riverbank in another — context from earlier tokens determines meaning.',
         'The core need: a neural network that can process one element at a time while maintaining a running summary of everything it has seen. That running summary is the hidden state. Elman proposed this in 1990 — feed the previous hidden state back into the network alongside each new input. The same weights are applied at every step, so the network handles sequences of any length with a fixed number of parameters.',
       ],
@@ -496,6 +498,7 @@ export const article = {
     {
       heading: 'The wall',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/88/Logistic-curve.svg', alt: 'Logistic sigmoid curve', caption: 'Saturating nonlinearities help explain vanishing gradients: far from the center, local slope becomes small. Source: https://commons.wikimedia.org/wiki/File:Logistic-curve.svg.'},
         'Fixed windows cannot capture long-range dependencies. Consider: "The cat that sat on the mat next to the dog that chased the bird ... was hungry." The verb "was" must agree with "cat," which could be 20 tokens back. A trigram model sees only "bird ... was" and has no path to "cat." Making the window larger does not scale — a 50-token window means 50x more parameters, most of which are useless for any given prediction.',
         'The dependency distance problem is not rare. Coreference ("she" referring to a character introduced paragraphs earlier), negation scope ("I don\'t think he said she was wrong" — how many negations?), and discourse structure all require memory that spans many tokens. Any architecture that sees only a local window is structurally blind to these patterns.',
       ],
@@ -511,6 +514,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/NN_LSTM-Cell_v2.svg/330px-NN_LSTM-Cell_v2.svg.png', alt: 'LSTM cell diagram with gates and state paths', caption: 'The LSTM cell separates the long-term state path from gated write and output paths. Source: https://commons.wikimedia.org/wiki/File:NN_LSTM-Cell_v2.svg.'},
         'The LSTM cell maintains two state vectors: the cell state cₜ (long-term memory) and the hidden state hₜ (working output). At each time step, four operations run in parallel on the concatenation of xₜ and hₜ₋₁:',
         'Forget gate: fₜ = σ(Wf·[hₜ₋₁, xₜ] + bf). This sigmoid output is between 0 and 1 for each dimension. It multiplies the old cell state element-wise: dimensions where fₜ is near 0 are erased, dimensions near 1 are preserved. When a new sentence begins, the forget gate learns to clear the old subject\'s features.',
         'Input gate: iₜ = σ(Wi·[hₜ₋₁, xₜ] + bi). Candidate memory: c̃ₜ = tanh(Wc·[hₜ₋₁, xₜ] + bc). The input gate controls how much of the candidate actually gets written. This two-part design separates "what is the new information" (candidate) from "how strongly should it be stored" (input gate).',

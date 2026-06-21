@@ -1,4 +1,4 @@
-﻿// Ring buffer: a fixed-size array whose head and tail wrap around, giving a
+// Ring buffer: a fixed-size array whose head and tail wrap around, giving a
 // queue-like stream without shifting memory.
 
 import { matrixState, InputError } from '../core/state.js';
@@ -183,6 +183,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a fixed-size array with two moving pointers: head (where the next read happens) and tail (where the next write happens). Slots between head and tail are occupied; the rest are free or stale. The “H” and “T” markers in the index-role row track which slot each pointer names.',
+        {type: 'callout', text: 'A ring buffer makes queue motion cheap by moving ownership indexes instead of moving stored bytes.'},
         'Watch for the wraparound frame. When tail reaches the physical end of the array, it jumps back to slot 0. The logical queue order is still head-to-tail, even though the physical bytes now sit in two separate chunks. That single frame is the entire trick.',
         'Active markers highlight the slot being read or written right now. Found markers show slots that hold live data. Stale slots still contain old values in memory, but they are outside the live range and logically dead. The state row makes this distinction explicit.',
       ],
@@ -191,6 +192,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Streaming data needs a buffer: audio samples arrive from hardware, network packets land from a NIC, log events fire from application code. The producer writes; the consumer reads. Both need O(1) operations, bounded memory, and no coordination beyond “is there space?” and “is there data?”',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Circular_buffer.svg/250px-Circular_buffer.svg.png', alt: 'Circular buffer shown as a ring of slots', caption: 'The ring drawing captures the logical idea: a fixed array behaves as if its ends connect. Source: https://commons.wikimedia.org/wiki/File:Circular_buffer.svg.'},
         'A ring buffer solves this by allocating one array at startup and never moving the stored values. Head and tail slide forward as items are consumed and produced. When an index reaches the end, modular arithmetic wraps it to zero. The array acts as if its ends are glued together into a circle, so a steady stream reuses the same fixed memory forever.',
       ],
     },
@@ -220,6 +222,7 @@ export const article = {
       paragraphs: [
         'The buffer stores an array of fixed capacity, a head index, a tail index, and a size counter (or uses a one-slot-wasted convention to distinguish full from empty).',
         'Enqueue (push_back): write the item at buf[tail], then advance tail = (tail + 1) % capacity. Increment the size counter. If the buffer is already full, apply the overflow policy (reject, overwrite oldest, or block).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/Circular_buffer_-_XX123XX_with_pointers.svg/250px-Circular_buffer_-_XX123XX_with_pointers.svg.png', alt: 'Linear view of a circular buffer with read and write pointers', caption: 'The physical view is still linear memory; read and write pointers provide the circular interpretation. Source: https://commons.wikimedia.org/wiki/File:Circular_buffer_-_XX123XX_with_pointers.svg.'},
         'Dequeue (pop_front): read the item at buf[head], then advance head = (head + 1) % capacity. Decrement the size counter. The old value may remain in the physical slot, but it is outside the live range and logically dead.',
         'Full vs. empty: if head == tail, is the buffer empty or completely full? Without extra state, these two cases are indistinguishable. The two standard solutions: (1) keep a separate size counter, or (2) waste one slot so the buffer is full when (tail + 1) % capacity == head. Many high-performance implementations use power-of-two capacity so that index % capacity becomes index & (capacity - 1), replacing division with a single bitwise AND.',
       ],
@@ -244,6 +247,7 @@ export const article = {
       paragraphs: [
         'BFS queues: breadth-first search enqueues discovered nodes and dequeues the next node to expand. A ring buffer gives O(1) at both ends without linked-list overhead.',
         'Producer-consumer handoff: the Linux kernel kfifo is a ring buffer. One thread produces, another consumes, and the bounded capacity applies natural backpressure. The single-producer single-consumer (SPSC) case needs only atomic index reads and memory barriers, no locks.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching animation through a small network', caption: 'Network and device queues are natural ring-buffer workloads: packets arrive steadily and consumers drain bounded slots. Source: https://commons.wikimedia.org/wiki/File:Packet_Switching.gif.'},
         'Sliding window algorithms: a fixed-size window over a data stream is a ring buffer by nature. Samples enter at the tail as new data arrives, and old samples fall off the head as the window advances.',
         'Logging and telemetry: a ring buffer keeps the most recent N events in bounded memory. When the buffer fills, the oldest record is overwritten. After a crash, the newest records are the most useful, and no allocation failure can prevent logging.',
         'Network packet buffers: NIC receive rings, DPDK descriptor rings, and io_uring submission and completion rings are all ring buffers. The hardware writes at the tail, the driver reads at the head, and the fixed slot count bounds DMA memory.',
@@ -279,4 +283,3 @@ export const article = {
     },
   ],
 };
-

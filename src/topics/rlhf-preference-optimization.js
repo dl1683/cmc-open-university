@@ -1,4 +1,4 @@
-﻿// RLHF and preference optimization: turn human comparisons into a reward model
+// RLHF and preference optimization: turn human comparisons into a reward model
 // or directly into a policy update.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -201,6 +201,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The RLHF pipeline view shows the full training path left to right. Each node is a stage: pretrained model, SFT model, sample outputs, human rankings, reward model, PPO update, KL penalty, and aligned model. Active (highlighted) nodes mark the current training stage. Compare nodes show stages that inform or constrain the active step.',
+        {type: 'callout', text: 'Preference optimization works by turning comparative human judgment into a gradient while keeping the policy near a trusted reference.'},
         'The DPO shortcut view shows the simplified path: chosen and rejected responses feed a single loss that updates the policy directly, anchored by a frozen reference model. Found markers indicate components whose values are fixed.',
         'Preference pairs are the raw material. A pair is one prompt with two completions and a human label saying which is better. Reward scores are the numbers the reward model assigns to each completion. Policy updates are the gradient steps that make the language model more likely to produce preferred-style outputs.',
       ],
@@ -209,6 +210,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Pretrained language models learn to predict the next token. That gives them broad knowledge and fluent continuation, but next-token prediction does not distinguish helpful from harmful, truthful from false, or clear from confusing. The model matches the distribution of all training text, good and bad.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'A pretrained language model is still a neural network trained on token prediction; RLHF changes the post-training objective, not the basic model substrate. Source: https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
         'The alignment problem: you want the model to follow instructions, refuse dangerous requests, give accurate answers, and be genuinely useful. None of these goals can be written as a simple loss function over tokens. You cannot specify "be helpful" the way you specify "predict the next word."',
         'Christiano et al. (2017) introduced deep RL from human preferences for Atari and robotics. Stiennon et al. (2020) applied it to text summarization. Ouyang et al. (2022) scaled it to InstructGPT, showing that a 1.3B parameter model aligned with RLHF was preferred by humans over the unaligned 175B parameter GPT-3. The method turned comparative human judgment into a training signal that steers model behavior without requiring a hand-written objective.',
       ],
@@ -233,6 +235,7 @@ export const article = {
       paragraphs: [
         'Phase 1: Supervised fine-tuning. Train the pretrained model on demonstration data to produce a model that can follow instructions. This SFT model becomes both the starting policy and the reference for later KL constraints.',
         'Phase 2: Reward model training. The SFT model generates multiple responses to the same prompt. Human labelers compare pairs and mark which response is better. A separate model (the reward model) learns to assign scalar scores to responses so that chosen outputs score higher than rejected ones. The comparison follows the Bradley-Terry model: the probability that response A is preferred over B is sigmoid(r(A) - r(B)), where r is the reward model\'s score.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'The RLHF pipeline is a directed training graph: demonstrations, samples, labels, proxy reward, constrained update, and final policy. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Phase 3: Policy optimization with PPO. The language model is treated as a policy over tokens. For each prompt, it generates a response, the reward model scores it, and the policy gradient pushes the model toward higher-reward outputs. A KL divergence penalty is added to the reward: total_reward = reward_model_score - beta * KL(policy || reference). The beta coefficient controls how far the policy can drift from the SFT reference. Without it, the optimizer exploits reward model weaknesses instead of genuinely improving.',
         'DPO (Rafailov et al. 2023) is a simpler alternative that skips the reward model entirely. Given preference pairs, it directly optimizes: increase the log-probability ratio of chosen over rejected responses, measured against a frozen reference model. The loss is L = -log sigmoid(beta * (log pi(chosen)/pi_ref(chosen) - log pi(rejected)/pi_ref(rejected))). Same theoretical objective as RLHF, no RL loop, no separate reward model, no PPO instability. Used by Llama 2, Llama 3, and many open-weight models.',
       ],
@@ -267,6 +270,7 @@ export const article = {
       paragraphs: [
         'Reward hacking. The policy finds outputs that score high on the reward model but are not genuinely good. Common exploits: excessive hedging, sycophantic agreement, verbose padding that correlates with labeler preference for thoroughness. The model optimizes the proxy, not the real objective.',
         'Preference inconsistency. Different labelers value different things: brevity versus detail, caution versus directness, creativity versus accuracy. A single rubric may erase important disagreement. If the preference data is noisy, the reward model learns noise.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal curve with standard deviation regions', caption: 'Preference labels are sampled judgments with variance; disagreement measurement is part of the training signal, not an afterthought. Source: https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.'},
         'Annotator disagreement is structural, not noise. On safety-sensitive prompts, reasonable people disagree about whether a response should be a refusal, a careful answer, or a direct answer. Treating majority vote as ground truth hides real uncertainty.',
         'KL penalty sensitivity. Too low: reward hacking, mode collapse, language quality degrades. Too high: the model barely moves from SFT, wasting the preference data. The right beta is task-dependent and often found by expensive sweeps.',
         'Evaluation leakage. If the same prompt styles, rubrics, or LLM judges drive both training and evaluation, scores rise while real behavior stagnates. Held-out human evaluation, red-team prompts, and slice-level regression checks are essential safeguards.',
@@ -289,4 +293,3 @@ export const article = {
     },
   ],
 };
-

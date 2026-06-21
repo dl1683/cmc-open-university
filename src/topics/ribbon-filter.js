@@ -197,6 +197,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The banded-system view shows the shape that makes Ribbon filters possible. Each key maps to a short contiguous run of columns in the constraint matrix, so the matrix forms a narrow diagonal strip instead of a scattered cloud of ones. Active cells (highlighted) show which table positions participate in one key\'s equation. Found cells show an overlapping neighbor. The strip shape is the reason construction can solve compactly and queries can read a local memory window.',
+        {type: 'callout', text: 'Ribbon filters turn static membership into a narrow linear system, then serve only the solved bits and query parameters.'},
         'The solver frame shows the lifecycle transition that matters most. During construction, keys and equations exist together. The served artifact is just the compact bit table plus a small set of parameters. The query frame replays the same hash-derived band, reads local table cells, and checks whether the combined result matches the candidate fingerprint.',
         'The filter-tradeoffs view places Ribbon beside Bloom, Xor, and Binary Fuse filters. Compare the "space goal" column: Ribbon pushes hardest toward the information-theoretic lower bound, at the cost of a more complex build step. The "updates" column is the critical tradeoff -- Bloom supports incremental adds; every other filter in the table requires a full rebuild.',
       ],
@@ -217,6 +218,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The standard answer is a Bloom filter. Hash each key to k bit positions in a bit array, set those bits during construction, and test them during lookup. If any bit is zero the key is absent. Bloom filters are easy to implement, support incremental inserts, and give fast negative checks. They have been the default approximate-membership structure for decades.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/500px-Bloom_filter.svg.png', alt: 'Bloom filter diagram with three keys setting bits and a query key missing one bit', caption: 'A Bloom filter is the baseline approximate-membership structure: several hash probes set and test bits. Source: https://commons.wikimedia.org/wiki/File:Bloom_filter.svg.'},
         'For a mutable, growing set, Bloom is hard to beat. It handles inserts without rebuilding, needs no sorting or batching, and the implementation fits in a few dozen lines. Engineers reach for it because it works immediately and fails gracefully.',
         'Cuckoo filters improve on Bloom by supporting deletion and offering better space efficiency at low false-positive rates. Xor filters push space further for static sets by encoding keys into a random hypergraph and peeling the solution. Each generation trades something -- update support, build complexity, or construction reliability -- for fewer bits per key.',
       ],
@@ -233,6 +235,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Construction takes a static key set. For each key, a hash function produces two things: a start position in the table (the band offset) and a short bit pattern (the coefficient row). The row says which table cells participate in that key\'s equation. A separate hash produces the key\'s fingerprint, which becomes the right-hand side of the equation. The result is a system of linear equations over GF(2) -- exclusive-or arithmetic where addition and subtraction are the same operation.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Matrix_multiplication_diagram.svg/250px-Matrix_multiplication_diagram.svg.png', alt: 'Matrix multiplication diagram with rows and columns combining', caption: 'Ribbon construction is linear algebra over bits: rows constrain table positions and the solution becomes the served filter. Source: https://commons.wikimedia.org/wiki/File:Matrix_multiplication_diagram.svg.'},
         {
           type: 'diagram',
           label: 'Banded matrix and Gaussian elimination',
@@ -273,16 +276,16 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Filter', 'Bits/key (1% FPR)', 'Construction', 'Query speed', 'Updates'],
-          rows: [
-            ['Bloom', '~9.6 (1.44x optimal)', 'O(nk) -- set k bits per key', 'k hash probes, scattered', 'Incremental add'],
-            ['Cuckoo', '~7.2', 'O(n) expected, kick chains', '2 lookups, good locality', 'Add + delete'],
-            ['Xor', '~8.1 (1.23x optimal)', 'O(n) -- peel random hypergraph', '3 lookups, scattered', 'Full rebuild'],
-            ['Ribbon', '~6.7 (1.01x optimal)', 'O(nw) -- solve banded system', '1 local band read', 'Full rebuild'],
+          type: 'bullets',
+          items: [
+            'Bloom at 1 percent false positives: about 9.6 bits per key, simple incremental adds, and scattered k-probe lookups.',
+            'Cuckoo filter: roughly 7.2 bits per key in common settings, supports add and delete, and pays for kick chains during construction.',
+            'Xor filter: about 1.23 times the lower bound, static build by peeling a random hypergraph, and full rebuilds for updates.',
+            'Ribbon filter: about 6.7 bits per key at 1 percent false positives, static build by solving a banded system, and one local band read at query time.',
           ],
         },
         'Query cost is O(1) with a fixed band width w (typically 64 or 128 bits to match a machine word). The lookup reads w contiguous bits from the table, masks them with the coefficient pattern, XORs the result, and compares against the fingerprint. That is one cache line or two, making it competitive with or faster than Bloom\'s scattered probes.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloom_filter_fp_probability.svg/500px-Bloom_filter_fp_probability.svg.png', alt: 'False positive probability curves for Bloom filter parameters', caption: 'False-positive targets are memory targets: lower error rates require more stored information per key. Source: https://commons.wikimedia.org/wiki/File:Bloom_filter_fp_probability.svg.'},
         'Construction is O(n * w) for n keys. For w = 128 and a million keys, that is roughly 128 million XOR operations -- fast on modern hardware. The tradeoff versus Bloom is clear: Bloom builds incrementally in O(k) per key; Ribbon requires the full key set upfront and a batch solve. The payoff is that Ribbon stores nearly the information-theoretic minimum: about 6.7 bits per key at 1% false-positive rate, versus Bloom\'s 9.6.',
         'Memory during construction is the hidden cost. The builder needs to hold the banded matrix in memory (n * w bits) plus the key hashes. For very large sets, this can be significant. The served filter, however, is smaller than any Bloom filter for the same false-positive rate.',
       ],

@@ -341,6 +341,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The table shows 8 slots, each displaying a key and its probe distance -- how far that key sits from its home slot (h(key) mod 8). Active highlights mark the slot being examined. Collision highlights show an occupied slot blocking the incoming key. Found highlights mark a key that just landed.',
+        {type: 'callout', text: 'Robin Hood hashing reduces lookup tail cost by equalizing probe distances across an open-addressed cluster.'},
         'The probe distance column is the heart of Robin Hood hashing. Watch it during insertion: when the incoming key\'s probe distance exceeds the resident\'s, the resident is evicted and the incoming key takes the slot. The evicted key then continues probing. During lookup, the probe distance enables early termination: if your search distance exceeds the resident\'s, the key is absent.',
         'The insert-walk view shows collisions, the swap decision, and the cascade of displaced keys. The lookup view shows how probe-distance ordering makes unsuccessful lookups fast.',
       ],
@@ -349,6 +350,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Pedro Celis introduced Robin Hood hashing in his 1986 PhD thesis at the University of Waterloo, supervised by J. Ian Munro. The problem was not average-case lookup speed -- linear probing already achieves O(1) expected time. The problem was variance.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal curve with standard deviation regions', caption: 'The target is variance reduction: average probe cost can be fine while the tail still hurts latency. Source: https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.'},
         'In a linear-probing table at 80% load, most keys sit at or near their home slot, but a few unlucky keys land at the end of long clusters and require 10, 20, or more probes. The maximum probe distance for n keys under standard linear probing is O(log n). A single slow lookup can blow a latency budget. Robin Hood hashing attacks the variance, not the mean.',
       ],
     },
@@ -356,6 +358,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Linear probing: hash the key to a slot; if occupied, try the next slot, then the next, until an empty slot appears. Lookup follows the same path. It is simple, cache-friendly (sequential memory access), and O(1) expected time.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/HASHTB12.svg/500px-HASHTB12.svg.png', alt: 'Hash table diagram showing collisions resolved by linear probing', caption: 'Open addressing stores records inside the table and resolves a collision by probing later slots. Source: https://commons.wikimedia.org/wiki/File:HASHTB12.svg.'},
         'At moderate load factors (50-70%), linear probing works well. Most insertions find an empty slot within 1-3 probes. The hash table is a contiguous array, so the CPU prefetcher helps. For many workloads, this is good enough.',
       ],
     },
@@ -377,6 +380,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Insert(key): compute home = h(key) mod m. Set probe_distance = 0 and slot = home. While slot is occupied: if probe_distance > resident.probe_distance, swap the incoming key with the resident (the incoming key takes the slot; the displaced resident becomes the new "incoming" key with the resident\'s old probe distance). Move to the next slot, increment probe_distance. When an empty slot is found, place the key with its current probe_distance.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'A probe chain is a directed walk through candidate slots; the Robin Hood rule changes who gets to stop earlier on that walk. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Lookup(key): compute home = h(key) mod m. Set search_distance = 0. Scan forward from home. At each slot: if the slot holds the key, return it. If the slot is empty, the key is absent. If search_distance > resident.probe_distance, the key is absent (early termination). Otherwise increment search_distance and continue.',
         'Delete(key): find the key using the lookup procedure. Then either mark the slot with a tombstone (simple but degrades performance over time) or use backward-shift deletion: move subsequent keys back to fill the gap, decrementing their probe distances. Backward-shift keeps the table tombstone-free but is more complex to implement.',
       ],

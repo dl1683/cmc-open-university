@@ -108,6 +108,10 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
+        {
+          type: 'callout',
+          text: 'ROC shows the whole threshold menu; AUC asks how often a random positive outranks a random negative.',
+        },
         "Read the animation as the execution trace for ROC Curves & AUC. Sweep every threshold at once: the curve is the menu of trade-offs, the area is the ranking skill..",
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
@@ -118,6 +122,12 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `Many classifiers do not begin by making a hard yes-or-no decision. They produce a score. A spam filter may score one email 0.91 and another 0.37. A fraud model may score a transaction 0.08 even though the deployed threshold is 0.02. A medical model may rank patients by suspicion before a hospital chooses who receives a follow-up test. The threshold turns a score into an action, but the score itself contains more information than any one threshold can show.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/Roccurves.png/250px-Roccurves.png',
+          alt: 'Several ROC curves compared against a diagonal random baseline.',
+          caption: 'ROC curves turn many possible thresholds into one visible tradeoff surface. Source: https://commons.wikimedia.org/wiki/File:Roccurves.png',
+        },
         `ROC curves exist because threshold choice is a policy decision, not only a modeling decision. One team may want to catch every possible positive case and tolerate many false alarms. Another may have a strict investigation budget and accept lower recall. If both teams use the same model, a single accuracy number at a default threshold hides the real question: what tradeoffs are available as the threshold changes?`,
         `A ROC curve sweeps all thresholds and plots true-positive rate against false-positive rate. AUC, the area under that curve, compresses the sweep into one ranking score. Its concrete interpretation is useful: draw one random positive example and one random negative example. AUC is the probability that the model scores the positive higher than the negative, with ties counting as half. That makes AUC a threshold-free measure of ranking skill.`,
       ],
@@ -134,6 +144,12 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `Start with a threshold above every score. The model flags nothing. True-positive rate is zero because it catches no positives. False-positive rate is zero because it falsely flags no negatives. Now lower the threshold to the next score. If that score belongs to a positive example, true-positive rate increases. If it belongs to a negative example, false-positive rate increases. Continue until the threshold is below every score and the model flags everything. The curve moves from (0, 0) to (1, 1).`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/ROC_curves.svg/330px-ROC_curves.svg.png',
+          alt: 'ROC curves showing weak, random, and strong classifier behavior.',
+          caption: 'The curve shape reveals how quickly positives rise before false positives accumulate. Source: https://commons.wikimedia.org/wiki/File:ROC_curves.svg',
+        },
         `True-positive rate is TP / (TP + FN). It is the same as recall: among actual positives, what fraction did the threshold catch? False-positive rate is FP / (FP + TN): among actual negatives, what fraction did the threshold wrongly flag? The x-axis asks how many negatives you disturb. The y-axis asks how many positives you capture. A useful classifier bends toward the top-left because it catches many positives before it accumulates many false positives.`,
         `A random ranker lies near the diagonal. If positives and negatives have identical score distributions, then lowering the threshold admits positives and negatives at the same rate. A perfect ranker goes straight up the y-axis and then across the top because every positive scores above every negative. Real curves live between those extremes.`,
       ],
@@ -173,6 +189,12 @@ export const article = {
       paragraphs: [
         `The most common misconception is that high AUC means good deployment performance. AUC can be high while the selected threshold is bad, while probabilities are uncalibrated, or while the alert queue is unusable. AUC says the ordering is strong on average across all thresholds. It does not say that score 0.8 means 80 percent risk, and it does not say the threshold 0.5 is meaningful.`,
         `ROC can flatter rare-event models. Suppose fraud is extremely rare. A false-positive rate of 1 percent may sound excellent because it divides false positives by all legitimate transactions. But if there are millions of legitimate transactions, 1 percent can be an enormous investigation queue. Precision answers a different operational question: when the alarm fires, how often is it correct? For imbalanced classification, precision-recall curves often expose the burden that ROC hides.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/ROC_curve_example_highlighting_sub-area_with_low_sensitivity_and_low_specificity.png/250px-ROC_curve_example_highlighting_sub-area_with_low_sensitivity_and_low_specificity.png',
+          alt: 'ROC curve with a highlighted low-sensitivity and low-specificity region.',
+          caption: 'AUC averages over the full curve, including regions a product may never use. Source: https://commons.wikimedia.org/wiki/File:ROC_curve_example_highlighting_sub-area_with_low_sensitivity_and_low_specificity.png',
+        },
         `Another mistake is to compare AUC across mismatched datasets or time periods without checking distribution shift. If the negative population becomes easier, AUC may improve even though the model did not become better on hard cases. If positives are sampled differently from deployment, the curve may describe the benchmark rather than the service. Evaluation should include slices, confidence intervals, and the threshold region that matters.`,
       ],
     },
@@ -185,102 +207,12 @@ export const article = {
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Sources and study next`,
       paragraphs: [
+        `Primary sources: Fawcett, "An introduction to ROC analysis" at https://people.inf.elte.hu/kiss/13dwhdm/roc.pdf; Hanley and McNeil, "The meaning and use of the area under a receiver operating characteristic curve" at https://pubs.rsna.org/doi/10.1148/radiology.143.1.7063747; and scikit-learn ROC documentation at https://scikit-learn.org/stable/modules/model_evaluation.html#roc-metrics.`,
         `Study Precision, Recall and the Confusion Matrix to connect each ROC point to counts. Study imbalanced classification to see why ROC can hide false-alarm volume in rare-event problems. Study calibration and reliability diagrams to separate ranking from probability meaning. Study threshold selection with real costs to turn a score distribution into a deployed policy.`,
-        `Then revisit logistic regression, Naive Bayes, and softmax temperature as score-producing models. Their outputs are useful only after you ask three separate questions: do the scores rank examples well, are the scores calibrated, and what threshold or decision rule matches the cost of action? ROC and AUC answer the first question.`,
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        "Cost is both asymptotic and practical.",
-        "State what grows, what stays flat, and what setup cost dominates before the method becomes useful.",
-        "If possible, convert cost into an intuition: doubling, halving, or crossing a fixed bound.",
-      ],
-    },
-
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        "Show where this approach appears in products, libraries, or service designs.",
-        "Tie each use case to a workload shape, not a brand name.",
-        "The learner should know exactly when this pattern should be chosen next.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why ROC Curves & AUC moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
 ],
 };
 

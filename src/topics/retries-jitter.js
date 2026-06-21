@@ -253,6 +253,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "one outage, three policies" view simulates 80 requests per second of steady demand against 100 requests per second of capacity, with a complete outage from t = 5 to t = 15. The capacity line is the ceiling. When offered load exceeds it, the service is overloaded regardless of whether the outage is still active. Watch the gap between offered load and capacity after t = 15: that gap is the retry damage.',
+        {type: 'callout', text: 'A retry policy is a load-shaping policy: timing, jitter, and budget decide whether recovery creates a second outage.'},
         'The first plot shows naive immediate retry. Failed cohorts return immediately and stack on top of new traffic. The second plot overlays exponential backoff without jitter: the retries are spaced further apart but still synchronized, creating waves. The third plot shows backoff with jitter and a retry budget: load stays close to capacity and recovery sticks.',
         'In "the discipline" view, the checklist and layer table are the production rules. The checklist starts with idempotency because a retry is a duplicate request by definition. The layer table shows the multiplicative danger: three layers retrying three times each can turn one user click into 27 downstream attempts.',
       ],
@@ -261,6 +262,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Distributed systems fail in ways that clear themselves. A packet drops and the next one arrives. A leader election finishes in two seconds. A rate-limit window resets. A deployment rolls forward. A queue drains its backlog. These are transient failures, and retrying turns them into successful requests without human intervention.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching animation with packets moving through network nodes', caption: 'Packet-switched systems already absorb small losses and delays; retry policy decides how clients react when that loss clusters. Source: https://commons.wikimedia.org/wiki/File:Packet_Switching.gif.'},
         'The problem is that retries are extra load aimed at a system that just demonstrated weakness. One client retrying is harmless. Ten thousand clients retrying at the same instant after a shared failure is a second outage caused by the recovery from the first. Retry policy exists to make retries helpful to the individual caller without being destructive to the shared dependency.',
       ],
     },
@@ -270,9 +272,74 @@ export const article = {
         'The first instinct is immediate retry: the call failed, so try again. For a single client talking to a healthy server, this works and feels free. The failure was a blip, the retry succeeds, and the user never notices.',
         'The next refinement is a fixed delay: wait one second, then retry. This avoids a tight spin loop but introduces no randomness. If a thousand clients all fail at the same moment, they all wait one second and retry together. The delay postpones the herd; it does not disperse it.',
       ],
-    }
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is synchronized recovery. A clean initial failure becomes a second synchronized spike when many clients follow the same retry schedule. Immediate retries amplify load during the outage. Deterministic backoff moves that amplification later without spreading it out.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'Queue diagram showing input and output ends', caption: 'Retry bursts behave like a queue whose arrivals exceed service capacity: backlog keeps the system unhealthy after the trigger is gone. Source: https://commons.wikimedia.org/wiki/File:Data_Queue.svg.'},
+        'The deeper failure is metastability. The dependency may be healthy again, but retry load can keep offered traffic above capacity. The incident persists because the client population became part of the overload loop.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Backoff gives the service time to recover. Jitter keeps clients from returning in lockstep. A retry budget caps total amplification so callers cannot add unbounded work to a weak dependency.',
+        'Those three controls solve different problems. Backoff changes delay, jitter changes synchronization, and the budget changes volume. Removing any one of them leaves a path to overload.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A practical client starts by checking whether the operation is safe to repeat. Reads are often safe. Writes need idempotency keys, request identifiers, or server-side dedupe before retry can be correct.',
+        'After a retryable failure, the client computes an exponential window such as 100ms, 200ms, 400ms, and so on, then picks a random delay inside that window. Full jitter means the delay is uniform from zero to the current cap, which spreads the cohort rather than moving it as one block.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'A request path is a directed dependency graph; retry ownership should be clear so every layer does not multiply the same user action. Source: https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
+        'The budget can be local, such as at most two retries per request, and global, such as no more than 10 to 20 percent extra traffic over baseline. When the budget is spent or the deadline is gone, the client stops retrying and returns the error.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Jitter works because independent random delays turn one shared failure time into many return times. The expected retry volume can stay similar, but the peak offered load drops because clients no longer align on the same second.',
+        'Budgets work because they make amplification measurable. If the base request rate is 80 per second and the budget is 20 percent, retry traffic cannot exceed 16 extra requests per second for long. That bound is what lets capacity planning survive client behavior.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The CPU cost is small: timers, counters, random delay selection, and metadata. The semantic cost is larger. Duplicate writes can charge twice, send two emails, or apply a database mutation twice unless idempotency is part of the design.',
+        'Stacked retries are the operational cost. Three attempts in the browser, gateway, service, and database driver can turn one user action into many downstream attempts. Pick the layer that owns the user deadline and let inner layers fail clearly.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'HTTP clients, cloud SDKs, service meshes, queue consumers, mobile upload clients, and database drivers all need retry policy. The right settings depend on the operation deadline, dependency capacity, idempotency model, and whether the retry owner can observe global load.',
+        'Payment APIs lean on idempotency keys. Background sync can tolerate long retry windows. Interactive checkout cannot. Message queues combine delayed retry with dead-letter queues when work keeps failing.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Retries fail on persistent sickness. If a dependency is down for minutes, retrying harder only adds load. The circuit breaker should stop attempts until health evidence changes.',
+        'They also fail when the operation is not repeatable. A policy that retries non-idempotent writes is a correctness bug with a timer attached. Backoff and jitter make duplicate work smoother; they do not make duplicate work safe.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Start with 80 requests per second, 100 requests per second capacity, and a 10-second outage. Immediate retry with three attempts stacks failed cohorts onto new demand, so offered load can rise far above capacity just when the service returns.',
+        'With deterministic backoff, clients wait longer but still return together. With full jitter and a 20 percent retry budget, the same failed cohort spreads over the retry window and cannot exceed the configured extra load. The service sees noise instead of a wave.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Marc Brooker, "Exponential Backoff and Jitter" at https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/; Google SRE Book, "Handling Overload" at https://sre.google/sre-book/handling-overload/; and Google SRE Book, "Addressing Cascading Failures" at https://sre.google/sre-book/addressing-cascading-failures/.',
+        'Study next: Circuit Breakers and Deadlines for stopping persistent failure, Load Shedding and Graceful Degradation for server-side overload response, Backpressure and Flow Control for explicit slowdown, and Tail Latency and p99 Thinking for choosing retry windows from real latency distributions.',
+      ],
+    },
   ],
 };
-
 
 
