@@ -173,6 +173,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each row is one suffix of the input text. The "start" column is the integer position where that suffix begins in the original string. The "suffix" column shows the characters from that position to the end. Before sorting, rows appear in text order (0, 1, 2, ...). After sorting, they appear in lexicographic order. That permutation of starting positions is the suffix array.',
+        {type: 'callout', text: 'A suffix array flattens the suffix tree idea into sorted integers: every substring search becomes a prefix search over neighboring suffixes.'},
         'During the search steps, highlighted cells mark the active binary-search window. The compared cell is the midpoint. When matches appear, notice that they occupy a contiguous block of rows -- no gaps. That contiguity is the structural guarantee that makes binary search over suffixes correct: all suffixes sharing a prefix are neighbors in sorted order.',
         'In the LCP view, each row carries the count of leading characters shared with the previous sorted suffix. A high LCP value means a long repeated substring. The operations table shows what the LCP array unlocks beyond basic search: longest repeated substring, distinct substring count, and suffix-tree-equivalent queries via range-minimum.',
       ],
@@ -182,21 +183,23 @@ export const article = {
       paragraphs: [
         'Any text that will be searched many times deserves a one-time index. The human genome is 3 billion characters. A log corpus can be terabytes. Scanning the text from scratch for every query wastes the structure that sorting could expose.',
         'Suffix trees (Weiner 1973, Ukkonen 1995) solve this: build a compressed trie of every suffix in O(n) time, then search for any pattern of length m in O(m) time. The catch is memory. Each node needs child pointers, suffix links, and edge labels -- roughly 20 bytes per input character. A suffix tree for the human genome eats about 60 GB of RAM.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Suffix_tree_BANANA.svg/250px-Suffix_tree_BANANA.svg.png', alt: 'Suffix tree for the text BANANA with suffix links and leaves', caption: 'Suffix arrays keep the suffix order that a tree exposes, but store it as a flat integer array instead of pointer-heavy topology. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Suffix_tree_BANANA.svg.'},
         'Manber and Myers introduced the suffix array in 1993 to get the same substring-search power in far less space. A suffix array stores just n integers -- the starting positions of every suffix, sorted lexicographically. At 4 bytes per integer (32-bit indices), the human genome needs about 12 GB. Same query ability, five times less memory. The core observation: every substring of a text is a prefix of some suffix, so sorting suffixes makes every substring binary-searchable.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Suffix trees. Ukkonen\'s algorithm builds one in O(n) time and supports O(m) pattern search, longest repeated substring, longest common substring of two texts, and many other operations through tree traversal. For moderate-sized texts that fit in memory, suffix trees work well and the implementation (while nontrivial) is well-documented.',
+        'Suffix trees. Ukkonen algorithm builds one in O(n) time and supports O(m) pattern search, longest repeated substring, longest common substring of two texts, and many other operations through tree traversal. For moderate-sized texts that fit in memory, suffix trees work well and the implementation (while nontrivial) is well-documented.',
         'An even simpler first attempt: store all n suffixes as separate strings in a sorted array. Binary search then finds any pattern as a prefix match. For "banana$", that means storing "$", "a$", "ana$", "anana$", "banana$", "na$", "nana$" as seven independent strings.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie containing words with shared prefixes', caption: 'The suffix tree begins from the trie idea: share common prefixes, then compress paths and finally flatten order into an array. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie_example.svg.'},
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
         'Storing suffixes as separate strings costs O(n^2) total characters: n + (n-1) + ... + 1 = n(n+1)/2. For n = 1,000,000, that is half a trillion characters just for the string copies. Sorting them is worse -- each comparison scans O(n) characters on average, so O(n log n) comparisons cost O(n^2 log n) total work.',
-        'Suffix trees avoid the copy problem but pay a pointer tax. Each internal node carries child pointers (often one per alphabet symbol), a suffix link, and edge label indices. In practice this is 20+ bytes per character. For the human genome at 3 billion characters, the tree needs roughly 60 GB -- more RAM than most machines have. Ukkonen\'s construction is O(n) but the output itself is too large.',
+        'Suffix trees avoid the copy problem but pay a pointer tax. Each internal node carries child pointers (often one per alphabet symbol), a suffix link, and edge label indices. In practice this is 20+ bytes per character. For the human genome at 3 billion characters, the tree needs roughly 60 GB -- more RAM than most machines have. Ukkonen construction is O(n) but the output itself is too large.',
         'The problem is not algorithmic speed. It is physical memory. You need the search power of a suffix tree in the memory footprint of a flat array. The suffix array stores neither copied strings nor tree pointers -- just n integers pointing back into the original text.',
       ],
     },
@@ -206,7 +209,7 @@ export const article = {
         'Sort all n suffixes of the text lexicographically. Store only their starting positions in an array SA of n integers. SA[0] is the start of the lexicographically smallest suffix, SA[1] the next, and so on. The text itself is stored once; suffixes are never copied. Any comparison during construction reads characters directly from the text at the stored positions.',
         'Construction has three tiers. Naive: generate start positions 0..n-1, sort them with a comparator that compares the corresponding suffixes character by character. Cost: O(n^2 log n) worst case. Prefix doubling (Karp, Miller, Rosenberg): rank suffixes by their first character, then iteratively rank by the first 2, 4, 8, ... characters using pairs of previously computed ranks. After ceil(log n) rounds, ranks are final. Cost: O(n log^2 n) with comparison sort, O(n log n) with radix sort. SA-IS (Nong, Zhang, Chan 2009): classify each suffix as S-type or L-type, identify leftmost-S-type (LMS) suffixes, recursively sort a reduced problem of at most n/2 symbols, then induce all remaining positions. Cost: O(n) time, O(n) space.',
         'Search. To find pattern P of length m, binary search SA for the leftmost suffix that has P as a prefix and the rightmost suffix that has P as a prefix. Every position in between is an occurrence. Each comparison checks at most m characters, and there are O(log n) comparisons, so the total is O(m log n).',
-        'The LCP array accelerates this. LCP[i] is the length of the longest common prefix between the suffix at SA[i] and the suffix at SA[i-1]. Kasai\'s algorithm builds the LCP array in O(n) time from the suffix array and the text. With LCP information cached at binary-search boundaries, search drops to O(m + log n): the m characters of P are compared only once total, and log n steps navigate the suffix array using precomputed prefix lengths to skip redundant character comparisons.',
+        'The LCP array accelerates this. LCP[i] is the length of the longest common prefix between the suffix at SA[i] and the suffix at SA[i-1]. Kasai algorithm builds the LCP array in O(n) time from the suffix array and the text. With LCP information cached at binary-search boundaries, search drops to O(m + log n): the m characters of P are compared only once total, and log n steps navigate the suffix array using precomputed prefix lengths to skip redundant character comparisons.',
       ],
     },
     {
@@ -241,7 +244,7 @@ export const article = {
         'Construction complexity. SA-IS is O(n) and elegant in theory, but the implementation is subtle. Bugs in suffix classification (S-type vs L-type), LMS identification, or the induction step are hard to catch because they produce plausible-looking but incorrect arrays. Most practitioners rely on a tested library (libdivsufsort, SDSL) rather than reimplementing.',
         'Static text only. Inserting or deleting a character can change the relative order of many suffixes. Suffix arrays must be rebuilt from scratch after edits. For text editors, collaborative documents, or streaming logs, ropes, piece tables, or periodic rebuilds are more practical.',
         'Some operations are easier with suffix trees. Suffix links in trees allow O(1) transitions when shortening a pattern, which suffix arrays do not natively support. Algorithms that traverse suffix links heavily (some variants of Ukkonen-style online matching) do not translate cleanly to suffix arrays.',
-        'For very short patterns with simple matching needs, inverted word indexes or hash-based approaches (Rabin-Karp) may be simpler to build, query, and maintain. The suffix array\'s power is substring-level generality; if you only need word-level lookup, simpler tools suffice.',
+        'For very short patterns with simple matching needs, inverted word indexes or hash-based approaches (Rabin-Karp) may be simpler to build, query, and maintain. The suffix-array power is substring-level generality; if you only need word-level lookup, simpler tools suffice.',
       ],
     },
     {

@@ -208,6 +208,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A chip implementation flow needs one shared identity layer. Synthesis, static timing, placement, routing, power analysis, ECO repair, and signoff reports must all point at the same cells, pins, nets, clocks, hierarchy paths, and library arcs. If those views disagree, the flow can produce a clean report for a design that is not the design being manufactured.',
+        {type: 'callout', text: 'A netlist is the identity ledger that lets timing, placement, routing, power, and ECO tools argue about the same physical circuit.'},
         'A standard-cell netlist is that identity layer. It is the gate-level circuit database after logic has been mapped into library cells such as NANDs, inverters, flip-flops, buffers, adders, and clock cells. The netlist says which instances exist and which pins are connected. Later tools attach timing delay, load, placement coordinates, routing parasitics, power activity, congestion, violations, and repair history to the same objects.',
       ],
     },
@@ -222,6 +223,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The better model is a typed hypergraph with stable object IDs. Cells own pins. Nets connect pins. Liberty timing arcs connect input pins to output pins inside a cell. Hierarchy names tell humans where an object came from. Physical views attach rows, coordinates, shapes, blockages, and routing resources. Timing views attach clocks, required times, arrivals, slews, loads, and slack.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/aa/Silicon_chip_3d.png', alt: 'Three-dimensional rendering of metal and polysilicon structures in a small integrated circuit cell', caption: 'A standard-cell database has to preserve both logical pins and physical shapes; later analyses attach timing and routing facts to those same objects. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Silicon_chip_3d.png.'},
         'The hypergraph part matters because a net is not just many independent edges. All loads on the same net share one driver, one parasitic network, one naming identity, and one place where buffering or routing changes propagate. The typed part matters because U1/A as a pin, n2 as a net, U1 as an instance, and A-to-Y as a timing arc answer different questions even when they sit next to each other in the diagram.',
       ],
     },
@@ -229,6 +231,7 @@ export const article = {
       heading: 'How the system works',
       paragraphs: [
         'The implementation flow begins with inputs such as Verilog for instances and net connectivity, Liberty for cell timing and pin properties, SDC for clocks and timing exceptions, and LEF/DEF-style physical data for rows, layers, pins, blockages, and placed locations. The database normalizes those inputs into objects that other tools can join. That joinability is the practical value of the netlist.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A timing or cone query is a directed walk over typed connectivity; stable IDs decide which physical and timing records travel with each edge. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Tools then build indexes over the graph instead of reparsing the whole design for every query. Driver-to-load maps answer fanout questions. Load-to-driver maps support fanin backtraces. Levelized buckets let timing visit combinational logic in a safe order. Cone marks keep debug local. Dirty sets tell incremental engines which arrivals, loads, parasitics, or reports became stale after a change.',
       ],
     },

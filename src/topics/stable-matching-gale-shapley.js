@@ -287,6 +287,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         `The animation shows two columns: proposers on the left and recipients on the right. Each person carries a status label -- free or matched with a partner. Edges between columns represent proposals, tentative matches, or rejections.`,
+        {type: 'callout', text: `Stable matching is not the highest-score pairing; it is the pairing where every rejected pair has at least one side that will not leave.`},
         `Active highlights mark the proposer currently making a proposal. Compare highlights mark the recipient evaluating that proposal against her current partner. Found highlights mark edges in the current tentative matching. When a recipient switches partners, the old edge disappears and the rejected proposer returns to the free pool.`,
         `Watch three things at each step: which proposer is free and proposing, which recipient is comparing, and whether the comparison triggers a rejection. Every rejection pushes the proposer one slot down his preference list, and that slot is never revisited. The algorithm ends when no free proposer remains.`,
       ],
@@ -295,6 +296,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Many allocation problems cannot be solved by optimization alone because participants have preferences. A hospital wants the best residents, but residents also rank hospitals. A school district assigns students to schools, but families have ranked choices. An organ exchange matches donors to recipients across incompatible pairs. In each case, the goal is not a maximum or minimum -- it is a matching that no pair of participants would jointly abandon.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Graph_K3-3.svg/250px-Graph_K3-3.svg.png', alt: 'Complete bipartite graph K3,3 with three vertices on each side and every cross-side edge drawn', caption: 'A two-sided matching market starts as a bipartite candidate graph; preferences and stability decide which edges survive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Graph_K3-3.svg.'},
         `David Gale and Lloyd Shapley formalized this in 1962: given two groups of equal size with strict preference rankings, find a matching where no unmatched pair mutually prefer each other to their assigned partners. They proved such a stable matching always exists and gave an O(n^2) algorithm to find one. Shapley received the Nobel Prize in Economics in 2012 for this work and related contributions to cooperative game theory.`,
         `The National Resident Matching Program (NRMP) has used a variant of the algorithm since 1952 to match medical residents to hospitals in the United States -- predating the formal publication by a decade. The algorithm was independently discovered in practice before it was proven in theory.`,
       ],

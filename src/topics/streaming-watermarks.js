@@ -210,6 +210,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Streaming systems exist because useful facts arrive continuously: clicks, payments, sensor readings, logs, fraud signals, location updates, and device events. The hard part is that arrival order is not the same as event order. A phone can go offline and upload an hour of events later. A broker partition can lag. A retry can deliver an older message after a newer one. If a pipeline uses processing time as truth, it will count records in the hour they arrived, not the hour they happened.`,
+        {type: 'callout', text: `A watermark is a promise about event-time progress, not a promise that the physical world has stopped producing late facts.`},
         `A watermark is the system's event-time progress signal. It says that, for a stream or partition, the processor believes event time has advanced to a particular timestamp. That signal lets windowed computations decide when to emit an answer, when to accept a correction, and when to clean up state. Apache Flink describes watermarks as measuring progress in event time, and Apache Beam frames them as estimates of input completeness. The key word is estimate: a watermark is operational evidence, not a law of nature.`,
       ],
     },
@@ -217,6 +218,7 @@ export const article = {
       heading: 'The reasonable first attempt',
       paragraphs: [
         `The first attempt is to process each event as soon as it arrives and group it by the current clock time. That is simple and often good enough for operational counters such as "requests processed in the last minute." It fails for questions whose meaning belongs to event time: revenue for 2:00-3:00, rides that started before midnight, sensor readings during a storm cell, or ad conversions within seven days of an impression. Those answers should not change just because a device uploaded late.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Packet switching animation showing packets moving through a network path', caption: 'Packet networks make arrival order unstable; stream processors need event-time semantics because transport and retry paths can reorder facts. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Packet_Switching.gif.'},
         `A second attempt is to wait until the system is sure no late data can appear. For an unbounded stream, certainty may never arrive. Waiting forever gives perfect completeness and no product. Emitting immediately gives freshness and wrong finality. The wall is the missing progress contract: the system needs a disciplined way to say "this window is complete enough to publish now, and here is what we will do if older data still arrives."`,
       ],
     },
@@ -231,6 +233,7 @@ export const article = {
       heading: 'Mechanism',
       paragraphs: [
         `A typical pipeline assigns an event timestamp to each record, either from the payload or from source metadata. A watermark generator watches source progress and disorder, then emits increasing watermark values. Operators group records into windows by event time. When the watermark passes a window end, the operator can produce an on-time pane. If the system allows lateness, a later record for that already-emitted window can produce a correction pane or be routed to a side output.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'State transition diagram with process states and arrows', caption: 'A window has lifecycle states too: open, eligible to fire, accepting late corrections, and finally cleaned up. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Process_states.svg.'},
         `In a partitioned stream, the global watermark is often limited by the slowest active input because a lagging partition may still contain old event-time data. That is why idle-source detection matters: a quiet partition should not hold the entire job hostage forever. State cleanup also follows the contract. The operator cannot drop a window's state at the first on-time firing if late corrections are allowed. It can drop that state only after the lateness horizon has passed, or after a domain-specific reconciliation path takes over.`,
       ],
     },

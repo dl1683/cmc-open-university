@@ -178,6 +178,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'In the online-build view, each highlighted node is the state just created for the newest prefix. Suffix links appear as dashed arcs pointing to shorter context states. The critical frame is not the one that adds a transition -- it is the one that clones a state because two substring classes need to split.',
+        {type: 'callout', text: 'A suffix automaton is compact because it merges substrings by identical future behavior, not by identical spelling.'},
         'In the query view, the walk from the start state follows one transition per character. If every transition exists, the pattern is a substring. If any transition is missing, the pattern is not. The animation is deliberately simple here because the sophistication lives in construction, not lookup.',
         'Active (bright) nodes mark the current extend path. Found (green) nodes mark suffix-link targets. Compare (dimmed) nodes show states that already existed before this step. Read each frame as: "we just extended by one character -- which states changed, and did any state need to be cloned?"',
       ],
@@ -186,6 +187,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A string of length n has up to n(n+1)/2 substrings. Many tasks -- substring membership, counting distinct substrings, finding the longest common substring between two texts, locating repeated patterns -- need access to all of them. Storing every substring explicitly takes quadratic space and quadratic build time. The suffix automaton compresses all substring information into a deterministic finite automaton with at most 2n-1 states, built in O(n) time.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/ce/Suffix_automaton_bold.svg/250px-Suffix_automaton_bold.svg.png', alt: 'Suffix automaton state graph with labeled transitions and final states', caption: 'A suffix automaton is a deterministic graph over substrings; suffix links and clones keep that graph minimal while text is appended online. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Suffix_automaton_bold.svg.'},
         'Blumer, Blumer, Haussler, McConnell, and Ehrenfeucht introduced the structure in 1985 under the name DAWG (Directed Acyclic Word Graph). The key promise: one linear-time, linear-space pass over the text produces an index that answers substring queries in time proportional to the query length, not the text length.',
         {
           type: 'note',
@@ -212,7 +214,7 @@ export const article = {
     {
       heading: 'How it works',
       paragraphs: [
-        'The suffix automaton is built online, one character at a time. Each character triggers an "extend" step that creates at most one new state and potentially clones one existing state. The algorithm maintains three fields per state: maxLen (the length of the longest substring in this state\'s equivalence class), link (the suffix link pointing to the next shorter equivalence class), and trans (a map from characters to successor states).',
+        'The suffix automaton is built online, one character at a time. Each character triggers an "extend" step that creates at most one new state and potentially clones one existing state. The algorithm maintains three fields per state: maxLen (the length of the longest substring in the state equivalence class), link (the suffix link pointing to the next shorter equivalence class), and trans (a map from characters to successor states).',
         {
           type: 'code',
           language: 'javascript',
@@ -253,7 +255,7 @@ export const article = {
   last = cur;
 }`,
         },
-        'The extend step has three cases. First: no ancestor state has a transition on the new character, so the new state links directly to the root. Second: an ancestor has a transition to state q, and q.len equals p.len + 1, meaning q already represents exactly the right length class -- link directly. Third: q.len is too large, so q must be cloned. The clone gets the correct shorter length, copies q\'s transitions and suffix link, and then all ancestors that pointed to q are redirected to the clone.',
+        'The extend step has three cases. First: no ancestor state has a transition on the new character, so the new state links directly to the root. Second: an ancestor has a transition to state q, and q.len equals p.len + 1, meaning q already represents exactly the right length class -- link directly. Third: q.len is too large, so q must be cloned. The clone gets the correct shorter length, copies transitions and suffix link from q, and then all ancestors that pointed to q are redirected to the clone.',
         'Each extend call does O(1) amortized work. The total construction is O(n) for a string of length n, with at most 2n-1 states and at most 3n-4 transitions.',
       ],
     },
@@ -289,17 +291,14 @@ Suffix links (each points to longest proper suffix class):
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Suffix Automaton', 'Suffix Tree', 'Suffix Array', 'FM-Index'],
-          rows: [
-            ['Build time', 'O(n)', 'O(n)', 'O(n) to O(n log n)', 'O(n)'],
-            ['Build space', 'O(n) states, O(n|A|) with arrays', 'O(n) nodes + edge labels', 'O(n) integers + O(n) LCP', 'O(n) compressed'],
-            ['Substring membership', 'O(|P|) walk', 'O(|P|) walk', 'O(|P| log n) binary search', 'O(|P|) backward search'],
-            ['Count distinct substrings', 'O(n) sum over states', 'O(n) sum over edges', 'O(n) with LCP array', 'Not direct'],
-            ['Longest common substring', 'O(|T2|) scan', 'O(|T1|+|T2|) generalized', 'O(|T1|+|T2|) with LCP', 'O(|T2|) backward search'],
-            ['Online construction', 'Yes, one char at a time', 'Ukkonen (complex)', 'No (rebuild needed)', 'No (rebuild needed)'],
-            ['Max states/nodes', '<= 2n-1', '<= 2n-1', 'n entries', 'n entries'],
-            ['Max transitions/edges', '<= 3n-4', '<= 2n-2', 'N/A', 'N/A'],
+          type: 'bullets',
+          items: [
+            'Build time: suffix automaton, suffix tree, and FM-index construction can be linear; suffix array construction ranges from linear to O(n log n) depending on the algorithm.',
+            'Build space: suffix automata store O(n) states and transitions, suffix trees store O(n) nodes plus edge labels, suffix arrays store n integers plus LCP, and FM-indexes compress the suffix-array idea.',
+            'Substring membership: suffix automata and suffix trees walk O(|P|); suffix arrays use binary search unless LCP acceleration is added; FM-indexes use backward search.',
+            'Distinct substrings: suffix automata sum maxLen minus suffix-link maxLen over states; suffix trees sum edge-label lengths; suffix arrays subtract LCP overlap.',
+            'Online construction: suffix automata extend one character at a time with compact state repair; suffix arrays and FM-indexes are normally rebuilt for static text.',
+            'Size bounds: a suffix automaton has at most 2n - 1 states and 3n - 4 transitions, while a suffix tree has linear nodes and edges but heavier pointers.',
           ],
         },
         'The suffix automaton has at most 2n-1 states and 3n-4 transitions for a string of length n. Both bounds are tight: the string "abbb...b" achieves the state bound, and "abb...bcc...c" achieves the transition bound. Construction is O(n) amortized because each extend step does constant work plus a suffix-link walk whose total length across all steps is O(n).',
@@ -328,7 +327,7 @@ Suffix links (each points to longest proper suffix class):
       heading: 'Where it fails',
       paragraphs: [
         'The suffix automaton indexes exact symbol sequences. It does not handle approximate matching, edit distance, or wildcards without layering additional logic on top. If the task requires fuzzy search, a different index is needed.',
-        'For static, read-heavy workloads on large texts where memory is constrained, the FM-index (based on the Burrows-Wheeler transform) compresses better. The suffix automaton\'s transition maps can be memory-hungry for large alphabets: with 256 byte values and 2n states, a naive array-based implementation uses 512n bytes just for transitions.',
+        'For static, read-heavy workloads on large texts where memory is constrained, the FM-index (based on the Burrows-Wheeler transform) compresses better. The suffix automaton transition maps can be memory-hungry for large alphabets: with 256 byte values and 2n states, a naive array-based implementation uses 512n bytes just for transitions.',
         'It is also the wrong tool for simple problems. If the task is matching one pattern against one text, KMP or Boyer-Moore is simpler and faster in practice. If the task is matching many fixed patterns simultaneously, Aho-Corasick is more direct. The suffix automaton earns its complexity only when the problem requires all-substring structure.',
         {
           type: 'note',
@@ -353,15 +352,14 @@ Suffix links (each points to longest proper suffix class):
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'Trie -- understand prefix sharing before substring sharing'],
-            ['Prerequisite', 'KMP Prefix Function -- failure links are the single-pattern ancestor of suffix links'],
-            ['Sibling structure', 'Suffix Array and LCP -- the sorted-suffix alternative for static text'],
-            ['Extension', 'Aho-Corasick Automaton -- multi-pattern matching with failure links'],
-            ['Extension', 'FM-Index -- compressed full-text index via Burrows-Wheeler transform'],
-            ['Related structure', 'Eertree (Palindromic Tree) -- similar online construction for palindromic substrings'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Trie -- understand prefix sharing before substring sharing.',
+            'Prerequisite: KMP Prefix Function -- failure links are the single-pattern ancestor of suffix links.',
+            'Sibling structure: Suffix Array and LCP -- the sorted-suffix alternative for static text.',
+            'Extension: Aho-Corasick Automaton -- multi-pattern matching with failure links.',
+            'Extension: FM-Index -- compressed full-text search through the Burrows-Wheeler transform.',
+            'Related structure: Eertree or Palindromic Tree -- similar online construction for palindromic substrings.',
           ],
         },
       ],

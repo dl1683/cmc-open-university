@@ -63,6 +63,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a vertical stack. Items enter from the top (push) and leave from the top (pop). The highlighted item in green is the one being added or inspected. A red highlight means that item is about to be removed.',
+        {type: 'callout', text: 'A stack is useful because it turns nested unfinished work into one enforced rule: the newest live item is the only item you can touch.'},
         'Watch the top position. After every push, the new value sits on top of everything already there. After every pop, the item beneath the removed one becomes the new top. Peek highlights the top without removing it. At the end, the stack empties in reverse order: the last value pushed is the first value popped.',
         'If you pause at any frame, the top of the stack is always the most recently pushed item that has not yet been popped. That one fact is the entire data structure.',
       ],
@@ -71,6 +72,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Alan Turing proposed using a stack of return addresses for subroutine calls in his 1946 design for the ACE computer. If function A calls function B, and B calls C, the machine needs to remember that C returns to B and B returns to A, in that order. A list of addresses is not enough; you need the guarantee that the most recent address is the next one used. Turing realized that pushing each return address on entry and popping it on exit gives exactly that guarantee.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Call_stack_layout.svg/500px-Call_stack_layout.svg.png', alt: 'Call stack frame layout with return address, parameters, locals, stack pointer, and frame pointer', caption: 'A runtime call stack records return addresses and frame state in the same newest-first order shown by push and pop. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Call_stack_layout.svg.'},
         'Friedrich Bauer and Klaus Samelson formalized the stack as an abstract data type in 1957, earning the IEEE Computer Pioneer Award for the contribution. Their insight was that the pattern Turing used for return addresses applies everywhere nesting appears: expression parsing, memory allocation, undo history, and recursive computation all share the same shape. Start something, start something inside it, finish the inner thing before the outer thing resumes.',
         'The result is the simplest useful abstraction over ordered data. Three operations (push, pop, peek), one rule (last in, first out), and a large family of problems that become trivial once you have it.',
       ],
@@ -95,6 +97,7 @@ export const article = {
         'A stack exposes three operations. Push places a new item on top. Pop removes the top item and returns it. Peek reads the top item without removing it. Some implementations add isEmpty to guard against popping an empty stack (underflow).',
         'Array-backed implementation: treat the end of the array as the top. Push appends to the end, pop removes from the end. Neither operation shifts existing elements, so both run in O(1) amortized time. When the backing array fills, it doubles in capacity; the occasional resize costs O(n) but is spread across n preceding O(1) pushes, keeping the amortized cost constant.',
         'Linked-list-backed implementation: treat the head of the list as the top. Push creates a new node pointing to the current head and updates the head pointer. Pop moves the head pointer to the next node. Each operation rewires one pointer in O(1) worst-case time, with no amortization needed, but each node carries pointer overhead.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Singly linked list nodes connected by next pointers', caption: 'A linked-list stack changes only the head pointer on push or pop; the rest of the chain stays untouched. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Linked_list.svg.'},
         'Stack overflow occurs when pushes exceed available space. For an array-backed stack with a fixed capacity, this means the array is full. For recursive function calls, the language runtime allocates a fixed-size call stack (typically around 1 MB); deep recursion can exhaust it even when heap memory remains plentiful.',
       ],
     },
@@ -147,7 +150,7 @@ export const article = {
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Samelson and Bauer, "Sequentielle Formelubersetzung" (1957) formalized the stack as an abstract data type for expression translation. Turing\'s 1946 ACE report described return-address stacks for subroutine calls. Dijkstra\'s 1961 Shunting-yard algorithm demonstrated stack-based expression parsing.',
+        'Samelson and Bauer, "Sequentielle Formelubersetzung" (1957) formalized the stack as an abstract data type for expression translation. The 1946 ACE report by Turing described return-address stacks for subroutine calls. Dijkstra 1961 Shunting-yard algorithm demonstrated stack-based expression parsing.',
         'Study Queue next for the opposite access rule (FIFO). Revisit Recursion to see the call stack in action. Linked List shows the pointer-based stack implementation. Tree Traversals and depth-first search make the choice between stack and queue visible in traversal order. Expression parsing (Shunting-yard) and bracket matching are direct stack applications worth implementing.',
       ],
     },

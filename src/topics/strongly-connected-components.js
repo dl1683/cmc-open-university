@@ -79,7 +79,7 @@ export function* run() {
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: 'An 8-node directed graph. Three groups of nodes can reach each other through directed paths: {A, B, C}, {D, E, F}, and {G, H}. These are the strongly connected components. Tarjan\'s algorithm finds all of them in a single DFS pass using two values per node: disc (discovery time) and low (the lowest disc reachable via back edges and subtree links).',
+    explanation: 'An 8-node directed graph. Three groups of nodes can reach each other through directed paths: {A, B, C}, {D, E, F}, and {G, H}. These are the strongly connected components. Tarjan algorithm finds all of them in a single DFS pass using two values per node: disc (discovery time) and low (the lowest disc reachable via back edges and subtree links).',
   };
 
   // Tarjan's SCC algorithm — iterative DFS to avoid stack overflow on large graphs.
@@ -223,6 +223,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each node shows two numbers once DFS reaches it: d (discovery time) and l (low-link). Discovery time is when the node was first visited. Low-link is the smallest discovery time the node can reach by following edges downward through the DFS tree and then taking one back edge upward to an ancestor.',
+        {type: 'callout', text: 'Tarjan works because low-link turns cycle discovery into one local test: if no child can reach above a node, that node closes a component.'},
         'The active node (highlighted) is where DFS is currently working. Visited nodes sitting on the SCC stack are candidates for the current component. When a back edge lands on a node still on the stack, that target gets a swap highlight — the edge proves those nodes share a cycle.',
         'The critical moment: when a node finishes processing all its neighbors and its low-link still equals its own discovery time, no descendant found a path back above it. That node is the root of its SCC. The algorithm pops every node above it off the stack, and they all light up as found — one complete strongly connected component. Watch the low-link values ripple upward as DFS returns from subtrees: that propagation is the algorithm learning which nodes share cycles.',
       ],
@@ -231,6 +232,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A directed graph may contain groups of vertices where every vertex can reach every other vertex through directed paths. These maximal mutually-reachable groups are strongly connected components. Decomposing a graph into its SCCs reveals its deep structure: which parts form cycles, which parts are one-way pipelines, and how everything connects in a hierarchy.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Strong connectivity is a directed-graph property: edge direction decides which cycles form components and which edges become one-way links in the condensation DAG. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Robert Tarjan published a single-pass linear-time algorithm for this decomposition in 1972. The problem matters everywhere directed dependencies appear. Compilers decompose call graphs into SCCs to optimize mutually recursive functions together. 2-SAT solvers build an implication graph and check whether any variable and its negation land in the same SCC — if so, the formula is unsatisfiable. Database lock managers detect deadlocks by finding SCCs of size two or more in wait-for graphs. Collapsing each SCC to a single super-node yields a DAG, which unlocks topological sorting and shortest-path algorithms on graphs that originally had cycles.',
       ],
     },
@@ -251,8 +253,8 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
-        'Tarjan observed that a single DFS already contains all the information needed to identify SCCs. The key is tracking, for each node, the earliest ancestor it can reach through back edges. If a node\'s earliest reachable ancestor is itself, then nothing in its subtree connects back above it — that subtree is a self-contained cycle, an SCC.',
-        'Two values per node make this work. disc[v] is the DFS discovery timestamp — when v was first visited. low[v] is the minimum discovery time reachable from v\'s subtree via back edges. A separate stack holds all nodes that have been discovered but not yet assigned to a finished SCC. When DFS finishes v and finds disc[v] = low[v], every node on the stack above v was discovered inside v\'s subtree and cannot escape above v. Pop them all: that group is the SCC.',
+        'Tarjan observed that a single DFS already contains all the information needed to identify SCCs. The key is tracking, for each node, the earliest ancestor it can reach through back edges. If the earliest reachable ancestor of a node is itself, then nothing in its subtree connects back above it — that subtree is a self-contained cycle, an SCC.',
+        'Two values per node make this work. disc[v] is the DFS discovery timestamp — when v was first visited. low[v] is the minimum discovery time reachable from the subtree rooted at v via back edges. A separate stack holds all nodes that have been discovered but not yet assigned to a finished SCC. When DFS finishes v and finds disc[v] = low[v], every node on the stack above v was discovered inside the subtree rooted at v and cannot escape above v. Pop them all: that group is the SCC.',
       ],
     },
     {
@@ -260,16 +262,16 @@ export const article = {
       paragraphs: [
         'Start a global timer at 0. For each unvisited vertex v, begin DFS. On entry: increment the timer, set disc[v] = low[v] = timer, push v onto the SCC stack.',
         'For each neighbor w of v: if w is unvisited, recurse into w, then set low[v] = min(low[v], low[w]) — whatever ancestor w can reach, v can reach through w. If w is on the SCC stack (visited but not yet assigned to a finished SCC), set low[v] = min(low[v], disc[w]) — the edge from v to w is a back edge to an open ancestor. If w belongs to an already-finished SCC, ignore the edge entirely — it leads to a closed component.',
-        'When all of v\'s neighbors are processed: if disc[v] = low[v], then v is an SCC root. Pop the SCC stack until v is removed. Every popped node belongs to this SCC. Mark them as finished.',
-        'Kosaraju\'s algorithm (1978) takes a different path. First pass: run DFS on the original graph, recording vertices by finish time. Second pass: reverse every edge, then run DFS in reverse finish order. Each DFS tree in the second pass is exactly one SCC. Kosaraju\'s is easier to reason about — it reduces the problem to two textbook DFS passes — but it traverses the graph twice and needs the transposed graph in memory.',
+        'When all neighbors of v are processed: if disc[v] = low[v], then v is an SCC root. Pop the SCC stack until v is removed. Every popped node belongs to this SCC. Mark them as finished.',
+        'Kosaraju algorithm (1978) takes a different path. First pass: run DFS on the original graph, recording vertices by finish time. Second pass: reverse every edge, then run DFS in reverse finish order. Each DFS tree in the second pass is exactly one SCC. The two-pass version is easier to reason about — it reduces the problem to two textbook DFS passes — but it traverses the graph twice and needs the transposed graph in memory.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Consider the moment disc[v] = low[v]. No node in v\'s subtree found a back edge to any ancestor above v. Every node on the SCC stack above v was pushed during v\'s subtree exploration, so they were all discovered after v. Since none of them can escape above v, the only cycles they participate in are cycles that pass through v or stay below v. Popping them gives a maximal mutually-reachable group.',
+        'Consider the moment disc[v] = low[v]. No node in the subtree rooted at v found a back edge to any ancestor above v. Every node on the SCC stack above v was pushed during exploration below v, so they were all discovered after v. Since none of them can escape above v, the only cycles they participate in are cycles that pass through v or stay below v. Popping them gives a maximal mutually-reachable group.',
         'If v could reach an ancestor discovered earlier, then low[v] < disc[v], and the algorithm would not trigger — it would wait for the real root higher up. This is how maximality is guaranteed: the algorithm never emits an SCC prematurely, and it never merges two separate SCCs.',
-        'Kosaraju\'s correctness relies on finish-order structure. In the first DFS, the SCC whose vertices finish last has no incoming cross-SCC edges — it is a source in the condensation DAG. In the transposed graph, that source becomes a sink with no outgoing cross-SCC edges. Processing in reverse finish order means each second-pass DFS is trapped inside exactly one SCC, unable to leak into adjacent components because the escape edges now point inward.',
+        'Kosaraju correctness relies on finish-order structure. In the first DFS, the SCC whose vertices finish last has no incoming cross-SCC edges — it is a source in the condensation DAG. In the transposed graph, that source becomes a sink with no outgoing cross-SCC edges. Processing in reverse finish order means each second-pass DFS is trapped inside exactly one SCC, unable to leak into adjacent components because the escape edges now point inward.',
       ],
     },
     {
@@ -277,25 +279,26 @@ export const article = {
       paragraphs: [
         'Both algorithms run in O(V + E) time. Every vertex is discovered once, pushed onto the SCC stack once, and popped once. Every edge is examined once during neighbor scanning. Auxiliary space is O(V) for the disc array, low array, SCC stack, and on-stack membership set.',
         'Doubling the vertices doubles the per-vertex bookkeeping. Doubling the edges doubles the neighbor-scanning work. On sparse graphs (E proportional to V), total cost tracks graph size linearly. On dense graphs (E near V^2), edge scanning dominates but stays linear in E.',
-        'Concrete comparison: a graph with 100,000 vertices and 500,000 edges. Tarjan\'s examines about 600,000 items total. The naive per-vertex-reachability approach performs roughly 60 billion operations — a 100,000x difference.',
+        'Concrete comparison: a graph with 100,000 vertices and 500,000 edges. Tarjan algorithm examines about 600,000 items total. The naive per-vertex-reachability approach performs roughly 60 billion operations — a 100,000x difference.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
         'Compiler optimization: mutually recursive functions form an SCC in the call graph. The compiler must analyze them as a unit because inlining one may unlock constant folding in another. Both GCC and LLVM compute call-graph SCCs before interprocedural optimization.',
-        '2-SAT: each boolean variable x produces two nodes (x and not-x) in an implication graph. Directed edges encode "if x then y." The formula is satisfiable exactly when no variable shares an SCC with its own negation. Tarjan\'s algorithm solves 2-SAT in O(V + E).',
+        '2-SAT: each boolean variable x produces two nodes (x and not-x) in an implication graph. Directed edges encode "if x then y." The formula is satisfiable exactly when no variable shares an SCC with its own negation. Tarjan algorithm solves 2-SAT in O(V + E).',
         'Deadlock detection: in a wait-for graph, processes are vertices and "process A waits for process B" is a directed edge. Any SCC of size two or more is a deadlock — a set of processes in mutual wait. Database lock managers run SCC detection to identify and break these cycles.',
         'Web structure: Broder et al. (2000) decomposed a billion-page web crawl into SCCs and found the "bow-tie" structure — a giant SCC containing about 28% of pages, an IN set that reaches the giant SCC but not vice versa, and an OUT set reachable from the giant SCC but unable to reach back.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt: 'Internet topology map with many connected network nodes', caption: 'Large link graphs make the SCC payoff concrete: cycles, one-way regions, and giant connected cores become visible only after decomposition. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Internet_map_1024.jpg.'},
         'Condensation: collapsing each SCC to a single node yields a DAG. This condensation graph can be topologically sorted, enabling shortest-path, scheduling, and dependency-resolution algorithms to work on graphs that originally contained cycles.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Undirected graphs: the concept does not apply. In an undirected graph, every connected component is trivially strongly connected because each edge works in both directions. The analogous question for undirected graphs is biconnected components — subgraphs that stay connected after removing any single vertex — found by Tarjan\'s bridge-finding algorithm, a related but distinct technique.',
-        'Dynamic graphs: adding or removing an edge can change the SCC structure. Rerunning Tarjan\'s from scratch costs O(V + E) per update. Incremental SCC algorithms exist (Bender, Fineman, and Gilbert, 2015) but are complex and carry high constant factors. Most systems recompute periodically instead.',
-        'Parallelism: Tarjan\'s algorithm depends on a global DFS order, which is inherently sequential. Parallel SCC decomposition (Fleischer et al., 2000) uses forward-backward reachability queries instead of DFS, trading the single-pass elegance for the ability to split work across processors. On distributed graphs with billions of nodes, these parallel algorithms are necessary.',
+        'Undirected graphs: the concept does not apply. In an undirected graph, every connected component is trivially strongly connected because each edge works in both directions. The analogous question for undirected graphs is biconnected components — subgraphs that stay connected after removing any single vertex — found by Tarjan bridge-finding algorithm, a related but distinct technique.',
+        'Dynamic graphs: adding or removing an edge can change the SCC structure. Rerunning Tarjan algorithm from scratch costs O(V + E) per update. Incremental SCC algorithms exist (Bender, Fineman, and Gilbert, 2015) but are complex and carry high constant factors. Most systems recompute periodically instead.',
+        'Parallelism: Tarjan algorithm depends on a global DFS order, which is inherently sequential. Parallel SCC decomposition (Fleischer et al., 2000) uses forward-backward reachability queries instead of DFS, trading the single-pass elegance for the ability to split work across processors. On distributed graphs with billions of nodes, these parallel algorithms are necessary.',
         'Memory at extreme scale: the disc, low, and stack arrays require O(V) space. For a billion-node graph, that is several gigabytes of auxiliary storage on top of the graph itself.',
       ],
     },
@@ -307,7 +310,7 @@ export const article = {
         'C examines neighbor A. A is on the stack, so this is a back edge: low[C] = min(3, disc[A]) = 1. C can reach all the way back to A — proof of a cycle. C examines neighbor D. D is unvisited: disc[D]=4, low[D]=4, push D. Stack: [A,B,C,D].',
         'DFS continues: D->E (disc[E]=5), E->F (disc[F]=6). Stack grows to [A,B,C,D,E,F]. F examines neighbor D: D is on the stack, so low[F] = min(6, 4) = 4. F examines neighbor G: unvisited, disc[G]=7. Stack: [A,B,C,D,E,F,G].',
         'G->H: disc[H]=8. H examines neighbor G: on the stack, so low[H] = min(8, 7) = 7. H is done. Return to G: low[G] = min(7, low[H]) = min(7, 7) = 7. Now disc[G] = low[G] = 7 — G is an SCC root. Pop H and G off the stack. SCC #1 = {H, G}.',
-        'Return to F. low[F] stays 4 (G\'s low was 7, higher than 4). Return to E: low[E] = min(5, 4) = 4. Return to D: low[D] = min(4, 4) = 4. disc[D] = low[D] = 4 — D is an SCC root. Pop F, E, D. SCC #2 = {F, E, D}.',
+        'Return to F. low[F] stays 4 (low[G] was 7, higher than 4). Return to E: low[E] = min(5, 4) = 4. Return to D: low[D] = min(4, 4) = 4. disc[D] = low[D] = 4 — D is an SCC root. Pop F, E, D. SCC #2 = {F, E, D}.',
         'Return to C. low[C] stays 1. Return to B: low[B] = min(2, 1) = 1. Return to A: low[A] = min(1, 1) = 1. disc[A] = low[A] = 1 — A is an SCC root. Pop C, B, A. SCC #3 = {C, B, A}.',
         'Three SCCs found in one DFS pass. Total work: 8 vertex discoveries, 10 edge examinations, 8 stack pushes, 8 stack pops. The condensation DAG is SCC1 -> SCC2 -> SCC3 — acyclic, as guaranteed.',
       ],
@@ -315,10 +318,10 @@ export const article = {
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Tarjan, R.E. (1972), "Depth-First Search and Linear Graph Algorithms," SIAM Journal on Computing — the original disc/low-link algorithm. Kosaraju\'s algorithm (S. Rao Kosaraju, 1978; published by Sharir, 1981) — the two-pass DFS alternative. Cormen, Leiserson, Rivest, and Stein (CLRS), Chapter 22 — textbook proofs of both algorithms. Broder et al. (2000), "Graph structure in the web" — SCC decomposition applied to a billion-page crawl.',
-        'Prerequisites: graph DFS (discovery/finish timestamps and back-edge classification are the foundation Tarjan\'s algorithm builds on), topological sort (the condensation DAG produced by SCC decomposition is the input to topological sorting).',
+        'Tarjan, R.E. (1972), "Depth-First Search and Linear Graph Algorithms," SIAM Journal on Computing — the original disc/low-link algorithm. Kosaraju algorithm (S. Rao Kosaraju, 1978; published by Sharir, 1981) — the two-pass DFS alternative. Cormen, Leiserson, Rivest, and Stein (CLRS), Chapter 22 — textbook proofs of both algorithms. Broder et al. (2000), "Graph structure in the web" — SCC decomposition applied to a billion-page crawl.',
+        'Prerequisites: graph DFS (discovery/finish timestamps and back-edge classification are the foundation Tarjan algorithm builds on), topological sort (the condensation DAG produced by SCC decomposition is the input to topological sorting).',
         'Natural extensions: articulation points and bridges (the same disc/low machinery applied to undirected graphs finds vertices and edges whose removal disconnects the graph), 2-SAT (SCC on an implication graph yields a linear-time satisfiability algorithm).',
-        'Contrasting alternatives: for undirected connectivity, Union-Find or simple BFS/DFS connected components suffice — SCC is strictly a directed-graph concept. For biconnected components in undirected graphs, use Tarjan\'s bridge-finding variant.',
+        'Contrasting alternatives: for undirected connectivity, Union-Find or simple BFS/DFS connected components suffice — SCC is strictly a directed-graph concept. For biconnected components in undirected graphs, use Tarjan bridge-finding variant.',
       ],
     },
   ],

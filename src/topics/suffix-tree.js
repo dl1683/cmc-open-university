@@ -203,6 +203,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "compressed trie" view opens with a matrix listing every suffix of banana$. Rows highlighted in green share a first character -- those suffixes will merge into a common branch. The graph that follows compresses one-child chains into single labeled edges. Each internal node is a real branch point; each leaf is a distinct suffix.',
+        {type: 'callout', text: 'A suffix tree wins by storing every suffix path while charging memory only for branch points and edge-label intervals.'},
         'When the view searches for "ana", watch the path from root through the "a" edge and then across "na". The walk succeeds partway through the tree, and every leaf below that point is an occurrence. Green leaves are hits; blue nodes are the path taken.',
         'The "Ukkonen phases" view focuses on construction. The matrix shows the active point -- active node, active edge, active length, and remainder. These four values are the compressed cursor that lets Ukkonen avoid restarting from the root. The suffix link arrow shows the jump from an internal node representing xA to the node representing A.',
         {
@@ -220,6 +221,7 @@ export const article = {
           attribution: 'Esko Ukkonen, "On-line construction of suffix trees," Algorithmica, 1995',
         },
         'String problems repeat the same shape: where does this pattern appear, what is the longest repeated substring, where do two documents share content, how many distinct substrings exist. Each question rescans the text unless the text has been preprocessed into an index that makes all substrings visible at once.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Suffix_tree_BANANA.svg/250px-Suffix_tree_BANANA.svg.png', alt: 'Suffix tree for BANANA with suffix links and numbered leaves', caption: 'The BANANA suffix tree shows the key layout: edge labels compress paths, leaves identify suffix starts, and dashed suffix links speed construction. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Suffix_tree_BANANA.svg.'},
         'A suffix tree is that index. It stores every suffix of a string in a compressed trie so that any substring query becomes a downward walk from the root. The tree answers the query in O(m) time where m is the pattern length, regardless of how long the text is. One preprocessing pass, then unlimited queries.',
         'The topology also exposes structure that flat search cannot see. Internal branch points correspond to repeated substrings. The depth of a branch gives the repeat length. The number of descendant leaves gives the repeat count. These are not separate algorithms -- they are path and counting questions on the same tree.',
       ],
@@ -234,6 +236,7 @@ export const article = {
           label: 'Suffix trie for "ab$": every character gets its own node',
           text: '        root\n       / | \\\n      a  b  $\n      |  |\n      b  $\n      |\n      $',
         },
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie containing words with shared prefixes', caption: 'A suffix tree starts from the trie invariant, then removes the one-child nodes that do not represent real branch decisions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie_example.svg.'},
         'For short strings the trie is fine. Many learners and quick prototypes stop here.',
       ],
     },
@@ -243,14 +246,13 @@ export const article = {
         'The suffix trie has O(n^2) nodes in the worst case. Every suffix of length k contributes up to k nodes, and the sum 1 + 2 + ... + n = n(n+1)/2. For a 10-million-character genome, that is 50 trillion nodes. The structure does not fit in memory.',
         'The waste is specific: long one-child chains. When a suffix passes through ten characters before hitting a branch point, the trie stores ten nodes that carry no decision. Each node has only one child, so no query could diverge there. Those nodes exist only because the trie insists on one character per edge.',
         {
-          type: 'table',
-          headers: ['String', 'Length n', 'Trie nodes (worst case)', 'Compressed tree nodes'],
-          rows: [
-            ['ab$', '3', '6', '5'],
-            ['banana$', '7', '22', '11'],
-            ['abcabcabc$', '10', '55', '19'],
-            ['aaaaaaaaaa$', '11', '66', '21'],
-            ['Human chr1 (250M bases)', '250,000,000', '~31 quadrillion', '< 500,000,000'],
+          type: 'bullets',
+          items: [
+            'For ab$, the trie has 6 character nodes while the compressed tree has 5 structural nodes.',
+            'For banana$, the trie shape has 22 possible character nodes while the compressed tree needs about 11 nodes.',
+            'For abcabcabc$, the quadratic trie budget is 55 character nodes, but compression keeps the tree linear.',
+            'For a repeated 10-character run plus $, the trie budget is 66 character nodes; the compressed tree stays near 2n.',
+            'For a 250-million-base chromosome, the trie budget reaches roughly 31 quadrillion character nodes while a suffix tree remains below about 500 million nodes.',
           ],
         },
         'The query idea is right. The representation is wrong. Compression must eliminate the one-child chains without losing the ability to walk paths and count leaves.',
@@ -274,12 +276,11 @@ export const article = {
         'Ukkonen construction builds the tree online, left to right, in O(n) time. It maintains four values: active node (which internal node the cursor sits at), active edge (which outgoing edge the cursor is partway down), active length (how many characters into that edge), and remainder (how many suffixes still need explicit insertion in this phase).',
         'Each new character triggers at most three outcomes per pending suffix:',
         {
-          type: 'table',
-          headers: ['Rule', 'Condition', 'Action', 'Why it is cheap'],
-          rows: [
-            ['Leaf extension', 'Active point is at a leaf edge', 'Increment the shared leaf-end pointer', 'O(1) -- all leaves grow simultaneously'],
-            ['Edge split', 'Next character diverges mid-edge', 'Create new internal node + new leaf', 'Happens at most n-1 times total'],
-            ['Already present', 'Next character matches existing edge', 'Stop phase early; increment active length', 'Deferred work is implicit, not lost'],
+          type: 'bullets',
+          items: [
+            'Leaf extension: if the active point is at a leaf edge, increment the shared leaf-end pointer; all leaves grow in O(1).',
+            'Edge split: if the next character diverges mid-edge, create one internal node and one leaf; this happens at most n - 1 times total.',
+            'Already present: if the next character already matches, stop the phase early and let the remaining suffixes stay implicit.',
           ],
         },
         'Suffix links connect an internal node that spells xA (some character x followed by string A) to the internal node that spells A. After an edge split creates a new internal node, the next extension follows the suffix link instead of rescanning from root. This is the mechanism that keeps total construction work linear.',
@@ -315,17 +316,15 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Time', 'Space', 'Notes'],
-          rows: [
-            ['Build (Ukkonen)', 'O(n)', 'O(n)', 'Online, left-to-right; constants are large'],
-            ['Build (naive insert all suffixes)', 'O(n^2)', 'O(n)', 'Simpler but impractical for n > 10^5'],
-            ['Search for pattern of length m', 'O(m)', '-', 'Walk from root; independent of n'],
-            ['Count occurrences', 'O(m)', '-', 'Store subtree leaf counts at internal nodes'],
-            ['Report all k occurrences', 'O(m + k)', '-', 'Walk down, then enumerate leaves'],
-            ['Longest repeated substring', 'O(n)', '-', 'Deepest internal node by string depth'],
-            ['Longest common substring (2 texts)', 'O(n + m)', 'O(n + m)', 'Build generalized tree; deepest node with leaves from both texts'],
-            ['Number of distinct substrings', 'O(n)', '-', 'Sum of edge-label lengths across all edges'],
+          type: 'bullets',
+          items: [
+            'Ukkonen build: O(n) time and O(n) space, online from left to right; constants are large.',
+            'Naive suffix insertion: O(n^2) time with linear-size compressed output, but it becomes impractical past moderate n.',
+            'Pattern search: O(m) for pattern length m because the query walks edge labels from the root and never scans unrelated text.',
+            'Occurrence counting: O(m) when internal nodes store subtree leaf counts; reporting k positions costs O(m + k).',
+            'Longest repeated substring: O(n) by finding the deepest internal node by string depth.',
+            'Longest common substring over two texts: O(n + m) with a generalized suffix tree and the deepest node whose leaves come from both texts.',
+            'Distinct substring count: O(n) by summing edge-label lengths across all edges.',
           ],
         },
         'The constants matter. Each internal node stores a suffix link, a parent pointer, and an edge map. Each edge stores two integers (start, end) and a target pointer. For a 100-million-character genome, a suffix tree can consume 10--20 bytes per input character, reaching 1--2 GB. A suffix array for the same text uses 4--8 bytes per character.',
@@ -341,14 +340,13 @@ export const article = {
       paragraphs: [
         'Suffix trees win when the workload asks many substring questions against a single static text. The O(n) build cost is paid once; each subsequent query costs only O(m). No other structure answers the full range of substring topology questions as directly.',
         {
-          type: 'table',
-          headers: ['Application', 'Query', 'Why the tree fits'],
-          rows: [
-            ['Genome repeat finding', 'Longest repeated substring', 'Deepest internal node by string depth; leaf positions give coordinates'],
-            ['Plagiarism detection', 'Longest common substring', 'Generalized tree over two documents; deepest shared internal node'],
-            ['Log template extraction', 'Repeated motifs across entries', 'Internal nodes with high leaf count reveal common templates'],
-            ['Exact pattern matching (many queries)', 'All occurrences of pattern P', 'O(|P| + k) per query vs O(n + |P|) per query with KMP'],
-            ['Bioinformatics (MUMmer)', 'Maximal unique matches', 'Internal nodes with exactly one leaf per input sequence'],
+          type: 'bullets',
+          items: [
+            'Genome repeat finding: the deepest internal node gives the longest repeated substring, and its descendant leaves give coordinates.',
+            'Plagiarism detection: a generalized tree over two documents exposes the deepest internal node shared by both inputs.',
+            'Log template extraction: internal nodes with high leaf count reveal repeated motifs across entries.',
+            'Many exact pattern queries: each query costs O(|P| + k) for k matches after the tree is built, instead of rescanning the whole text.',
+            'Bioinformatics tools such as MUMmer: maximal unique matches appear as internal-node neighborhoods with exactly one leaf per input sequence.',
           ],
         },
         'The mental model transfers even when the shipped structure differs. Suffix arrays, LCP arrays, and FM-indexes solve the same problems, but the suffix tree makes the topology explicit. Understanding why a deep internal node means a long repeat, or why leaf counts give occurrence counts, makes the compressed representations intelligible.',

@@ -244,6 +244,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'An NFA is a compact way to represent many possible paths through a regular expression. A Thompson-style matcher can simulate those paths safely by carrying the whole active frontier after each input character.',
+        {type: 'callout', text: 'Subset construction buys a one-edge scan loop by making each deterministic state remember a whole NFA frontier.'},
         'That is reliable, but it still does work during every scan. Lexers, tokenizers, protocol filters, and hot regexes often want the scan loop to be as small as possible: current state plus input byte gives next state.',
         'Subset construction moves work from matching time to construction time. It turns each reachable NFA frontier into one deterministic DFA state, so the runtime scanner no longer has to reason about eps edges or multiple active paths.',
       ],
@@ -260,6 +261,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'A set of NFA states can itself be a state. If the NFA frontier after some input prefix is {R, A, L, S, C}, assign that set a DFA id such as D0. If reading a from D0 always leads to another set, assign that set D1 and store the transition D0 --a--> D1.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/9d/DFAexample.svg', alt: 'Deterministic finite automaton state diagram with labeled transitions', caption: 'After subset construction, the scanner sees an ordinary DFA: one current state and one outgoing transition per input symbol. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:DFAexample.svg.'},
         'The data-structure move is interning. Represent each set with a canonical key, usually a bitset or sorted state-id list. A hash map turns that key into one stable DFA id. The queue explores only sets that have not been seen before.',
         'Deterministic does not mean the underlying language became simpler. It means the representation has one next state per symbol. The complexity was pushed into the state identity.',
       ],
@@ -268,6 +270,7 @@ export const article = {
       heading: 'Mechanics',
       paragraphs: [
         'The start DFA state is epsClosure(startNfaState). For each DFA state S and each input symbol c, compute move(S, c), then epsClosure of that move result. That closed set is the target DFA state.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/cf/Finite_state_machine_example_with_comments.svg', alt: 'Annotated finite state machine with states, transitions, and transition conditions', caption: 'Finite-state diagrams make the determinization contract visible: the current state and symbol fully determine the next state. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Finite_state_machine_example_with_comments.svg.'},
         'If the target set has no id yet, intern it, assign a new DFA state number, and enqueue it. Then record the transition from the source id on c to the target id. If the set is empty, send the transition to a dead state or leave it implicit depending on the engine design.',
         'A DFA state is accepting when its NFA-state set contains at least one accepting NFA state. If multiple accepting states are present, a lexer also needs priority rules such as earliest rule order or longest-match handling.',
       ],
