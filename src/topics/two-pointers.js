@@ -63,6 +63,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a sorted array with two highlighted positions: a left pointer starting at the smallest value and a right pointer starting at the largest. At each step, the two values are summed and compared to the target.',
+        {type: 'callout', text: 'Two pointers works when one comparison proves an endpoint useless, so the search interval shrinks without losing any possible answer.'},
         'When a pointer moves, the value it leaves behind has been eliminated by proof, not by guessing. The highlight color changes to mark it as visited -- permanently excluded from consideration.',
         'If a pair matching the target is found, both positions light up as found. If the pointers meet without a match, every position shows as visited: the entire array has been scanned in one pass, and no valid pair exists.',
         'Watch for the asymmetry: only one pointer moves per step. That is the mechanism. Each comparison produces a logical argument that kills exactly one endpoint.',
@@ -102,6 +103,7 @@ export const article = {
         'Sort the array if it is not already sorted. Set left = 0 and right = n - 1. Compute the sum of the values at those positions.',
         'If the sum equals the target, the pair is found. If the sum is too small, the left value has just been paired with the largest available partner and still fell short -- no other partner can save it, so advance left by one. If the sum is too large, the right value has just been paired with the smallest available partner and still overshot -- no other partner can save it, so move right back by one.',
         'Repeat until the pointers meet. Each pointer moves at most n - 1 times total, and they never move backward, so the scan visits at most 2n positions.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/e6/Merge_sort_algorithm_diagram.svg', alt: 'Merge sort diagram showing sorted runs merged left to right', caption: 'The merge phase is a production-grade two-pointer scan: compare the two run heads, consume one, and never rewind either pointer. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Merge_sort_algorithm_diagram.svg.'},
         'Two variants cover most problems. Opposite-direction pointers (as above) converge from both ends: two-sum on sorted arrays, container with most water, palindrome checks, partitioning. Same-direction pointers walk the array together at different speeds: Floyd\'s cycle detection (fast/slow on a linked list), removing duplicates in place, the merge step of merge sort, and sliding-window problems where the window boundaries are the two pointers.',
       ],
     },

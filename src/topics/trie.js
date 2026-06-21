@@ -139,6 +139,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each circle is a trie node labeled with one character. The root carries a dot. The path from the root down to any node spells the prefix that node represents: root-c-a spells "ca." An edge from parent to child means "append the child\'s character."',
+        {type: 'callout', text: 'A trie turns every prefix into an addressable state, so prefix search starts at the prefix node instead of scanning complete keys.'},
         'Active (highlighted) nodes show the path the algorithm is walking right now. Found nodes have an end-of-word marker: the full root-to-node path is a complete stored word, not just a prefix. Visited nodes mark trail already covered.',
         'Watch two things during insertion. First, how many existing nodes the walk reuses (shared prefix) versus how many it creates (unique suffix). Second, notice that "car" and "cat" share root-c-a, so three characters of storage serve both words. During autocomplete, the shaded subtree below the prefix node is the entire result set. Everything outside is never examined. When a prefix is missing, the walk hits a dead edge and the empty answer is proven in one failed child lookup.',
       ],
@@ -147,6 +148,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Edward Fredkin named the structure "trie" in 1960, clipping the word "retrieval." Rene de la Briandais described the same idea independently in 1959. The problem both solved: how do you answer "what keys share this beginning?" without scanning everything?',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie diagram with shared prefixes for several English words', caption: 'This trie makes the storage claim visible: each edge contributes one character, and complete words end at marked nodes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie_example.svg.'},
         'A hash table can check whether "card" is present, but asking it for every word starting with "car" requires examining every key in the table. A BST can answer the query, but it compares whole strings at each node, costing O(m log n) where m is the key length. Tries take a different path: store words one character per edge so that shared prefixes are shared nodes. Lookup, insertion, and prefix queries all cost O(m) -- proportional only to the key length, independent of how many keys are stored.',
       ],
     },
@@ -190,6 +192,7 @@ export const article = {
         'Insert, search, and delete all cost O(m), where m is the key length in characters. This is the key insight: cost tracks key length, not dictionary size. Looking up "card" in a trie of 6 words costs 4 steps. Looking up "card" in a trie of 6 million words costs 4 steps. Doubling the dictionary adds zero comparisons.',
         'Prefix query costs O(m + k): m steps to reach the prefix node, then a subtree traversal proportional to the k results. The trie does no work on keys outside the prefix subtree.',
         'Space is the tax. Each node may store up to |S| child pointers. For lowercase English, that is 26 pointers per node. With n keys of average length m, worst-case node count is O(n * m), and each node costs O(|S|) with a fixed child array. Total worst case: O(n * m * |S|). Shared prefixes reduce the actual node count, but sparse alphabets still waste space on empty child slots.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/cd/Patricia_tree.png', alt: 'Patricia tree compressing strings with shared binary prefixes', caption: 'A Patricia tree stores branch positions instead of every intermediate character node, showing the space-saving direction compressed tries take. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Patricia_tree.png.'},
         'Compressed tries (radix trees, Patricia tries) collapse chains of single-child nodes into one node carrying a multi-character edge label. This cuts node count when keys share long prefixes or when the key set is sparse. A radix tree storing "card," "care," and "careful" merges the single-child chain c-a-r into one node labeled "car."',
       ],
     },

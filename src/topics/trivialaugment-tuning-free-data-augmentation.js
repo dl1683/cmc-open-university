@@ -194,6 +194,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for TrivialAugment: Tuning-Free Data Augmentation. A minimal augmentation baseline: pick one transform, pick one magnitude bin, apply it, and benchmark the cheap baseline first..",
+        {type: "callout", text: "TrivialAugment treats the augmentation catalog as the policy: one sampled operation plus one sampled magnitude is the whole baseline."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -219,6 +220,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `The core idea is that the augmentation space is the policy. A catalog contains operations such as identity, shear, translate, rotate, brightness, color, contrast, sharpness, posterize, solarize, equalize, autocontrast, and cutout-style masking. For each training example, the algorithm samples one operation uniformly and samples one magnitude bin uniformly from the allowed bins for that operation. It applies that transformation and sends the result to the learner with the same label.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/4/4b/Fractal_fern_explained.png`, alt: `Affine transformation example showing reflected, rotated, translated, and scaled fern parts`, caption: `Affine transformations are the geometric primitives behind many image augmentations; TrivialAugment samples from a catalog of such label-preserving changes instead of searching a policy. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Fractal_fern_explained.png.`},
         `This is not the same as saying every transformation is equally safe. The operation catalog is a human-designed hypothesis about invariances in the data. A small rotation should not change whether a natural image contains a dog. A moderate color shift usually should not change whether a photograph contains a truck. But those assumptions are domain-dependent. Rotating a digit can turn a six into something closer to a nine. Cropping a medical scan can remove the evidence. Color changes can destroy signals in pathology or satellite imagery. TrivialAugment removes tuning, not judgment.`,
         `The method\'s appeal comes from separating two questions that are often blurred together. First, do random label-preserving views improve generalization? Second, do we need a searched policy to choose those views? TrivialAugment answers the second question with a strong default: try the simplest random policy before paying for search.`,
       ],
@@ -301,4 +303,3 @@ export const article = {
     },
   ],
 };
-

@@ -117,6 +117,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         `The node labeled C is the coordinator. The three lower nodes (pay, stock, order) are participants, each owning a separate database. Edges represent network messages between coordinator and participants.`,
+        {type: `callout`, text: `Two-phase commit makes every participant durable before any participant becomes visible, then lets one logged coordinator decision resolve all local promises.`},
         `When edges light up, the coordinator is sending PREPARE requests (phase 1) or COMMIT/ABORT decisions (phase 2). When participant nodes show "voted YES" or "voted NO," that participant has written its vote durably and replied. "committed" means the participant finalized its local work and released locks.`,
         `Run the "coordinator crashes" scenario to see the blocking problem. The coordinator disappears, participants show "BLOCKED," and no edges remain. Those participants are holding locks on real rows with no way to learn the outcome. That frozen state is 2PC's defining tradeoff.`,
       ],
@@ -126,6 +127,7 @@ export const article = {
       paragraphs: [
         `A single database gets atomicity from its write-ahead log: if the process crashes, recovery replays the log and either finishes the transaction or rolls it back. One log, one decision, no ambiguity.`,
         `Distributed transactions break that model. A checkout might debit a card in one database, reserve inventory in another, and create an order in a third. The customer expects one outcome: all three effects persist, or none of them do. But no single log spans all three machines.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/8/86/Two_phase_commit_seq_diagram_success_01.png`, alt: `Sequence diagram of a successful two-phase commit between a coordinator and two participants`, caption: `The message sequence shows the core shape: prepare all participants first, then broadcast one final commit decision. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Two_phase_commit_seq_diagram_success_01.png.`},
         `Jim Gray formalized this problem in his 1978 paper "Notes on Data Base Operating Systems." The question is not how to prevent failures; it is how to prevent partial success. Two-phase commit is the protocol that provides an all-or-nothing boundary across machines that share no disk, no lock manager, and no write-ahead log.`,
       ],
     },

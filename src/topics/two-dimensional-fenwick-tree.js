@@ -215,6 +215,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. The rectangle-sum view shows how the nested Fenwick walk updates and queries a dense 2D grid. The compressed sparse BIT view shows how offline coordinate compression shrinks a huge grid into per-bucket arrays. Switch between them using the dropdown.',
+        {type: 'callout', text: 'A 2D Fenwick tree is a prefix-sum table made dynamic: update only the rectangles that contain the changed point, then rebuild any query from disjoint stored rectangles.'},
         'Active (highlighted) nodes are the current step in the walk. Found nodes are stored summaries the algorithm has accumulated. Compare nodes mark the inclusion-exclusion pieces being subtracted or added back.',
         'Watch the direction of the walk. During an update, both x and y move upward (adding lowbit) because every larger bucket that contains the point must be repaired. During a prefix query, both move downward (subtracting lowbit) because the query decomposes its rectangle into stored, disjoint buckets.',
       ],
@@ -223,6 +224,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A 1D Fenwick tree (Fenwick, 1994) gives O(log n) point updates and prefix sums on a line. Many counting problems live on a line: cumulative frequency, running totals, inversion counts. But real data often has two ordered axes. Count events by time and severity. Count points inside a bounding box. Sum order revenue between two price ranges and two date ranges.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/70/16-node_Fenwick_tree.svg', alt: 'Sixteen-node Fenwick tree showing stored prefix ranges', caption: 'The 2D structure nests this same lowbit decomposition: one Fenwick walk chooses x buckets, and each bucket owns a second Fenwick walk over y. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:16-node_Fenwick_tree.svg.'},
         'The query shape is a rectangle: how much total value lies between x1..x2 and y1..y2? A 1D Fenwick tree cannot answer this because it only partitions one axis. You need a structure that partitions both axes and still supports fast point updates.',
         'A 2D Fenwick tree extends the 1D idea by nesting one Fenwick walk inside another. The prefix becomes a rectangle from the origin to (x, y), and any arbitrary rectangle query reduces to four prefix queries via inclusion-exclusion.',
       ],
@@ -261,6 +263,7 @@ export const article = {
       paragraphs: [
         'The 1D Fenwick invariant guarantees that any prefix [1..x] decomposes into O(log n) non-overlapping stored ranges. In 2D, apply this twice. The x walk splits [1..x] into O(log n) x-ranges. For each x-range, the y walk splits [1..y] into O(log m) y-ranges. The Cartesian products of these ranges form O(log n * log m) disjoint rectangles that tile the prefix rectangle exactly.',
         'Inclusion-exclusion works because sums are additive. The four-corner formula is the same identity used for 2D prefix-sum tables, just applied to the prefix function of the Fenwick tree instead of a flat array.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/bd/Integral_image_application_example.svg', alt: 'Summed-area table example using four colored corner values to compute a rectangle sum', caption: 'The four-corner rectangle identity is the same algebra the 2D Fenwick tree uses; Fenwick changes how prefix values are maintained under updates. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Integral_image_application_example.svg.'},
         {
           type: 'diagram',
           label: '2D responsible cells for point (3, 5) in an 8x8 grid',
@@ -273,13 +276,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Structure', 'Build', 'Point update', 'Rect query', 'Memory'],
-          rows: [
-            ['2D prefix sum', 'O(nm)', 'O(nm) rebuild', 'O(1)', 'O(nm)'],
-            ['2D Fenwick tree', 'O(nm log n log m)', 'O(log n * log m)', 'O(log n * log m)', 'O(nm)'],
-            ['2D segment tree', 'O(nm)', 'O(log n * log m)', 'O(log n * log m)', 'O(nm) to O(nm * 4)'],
-            ['Compressed 2D BIT', 'O(K log^2 n)', 'O(log n * log K)', 'O(log n * log K)', 'O(K log n)'],
+          type: 'bullets',
+          items: [
+            '2D prefix sum: O(nm) build, O(1) rectangle query, O(nm) rebuild after one point update, O(nm) memory.',
+            '2D Fenwick tree: O(nm log n log m) naive build, O(log n * log m) point update, O(log n * log m) rectangle query, O(nm) memory.',
+            '2D segment tree: O(nm) build, O(log n * log m) point update and rectangle query, higher memory and implementation cost.',
+            'Compressed 2D BIT: O(K log^2 n) offline build, O(log n * log K) operations, O(K log n) memory when K update points are sparse.',
           ],
         },
         'For an n x m dense grid, each point update and prefix query touches O(log n * log m) cells. A rectangle query calls prefix four times, so the constant is 4x but the asymptotic cost is the same. On a 1024 x 1024 grid, each operation touches at most 10 * 10 = 100 stored cells.',

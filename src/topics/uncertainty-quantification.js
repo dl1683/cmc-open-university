@@ -130,6 +130,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "The two kinds of doubt" draws a prediction band over a sensor-calibration dataset: 9 training points between readings 2 and 5, then extrapolation beyond. Active markers are training data. The band\'s width IS the uncertainty -- narrow inside the data, flaring outside. Watch where the band stays flat (irreducible noise) versus where it grows (missing knowledge).',
+        {type: 'callout', text: 'Uncertainty is useful only when it changes the decision: accept routine predictions, widen intervals for noise, and escalate inputs the model has not learned.'},
         '"MC dropout in action" runs the same input through one network eight times with dropout left on. Active cells are individual forward-pass outputs. When they cluster tightly, the model is stable. When they scatter, the model is guessing. The matrix view at the end maps scatter width to a decision: accept or escalate.',
         'At each frame, ask: is the doubt coming from noisy data or missing data? The answer determines whether the system should widen its interval or refuse to answer.',
       ],
@@ -143,6 +144,7 @@ export const article = {
           text: 'We show that a dropout network is mathematically equivalent to an approximation to a probabilistic deep Gaussian process. We develop tools for representing model uncertainty of existing dropout NNs -- extracting information that has been thrown away so far.',
           attribution: 'Yarin Gal and Zoubin Ghahramani, "Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning" (2016)',
         },
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal distribution with one, two, and three standard deviation intervals shaded', caption: 'Prediction bands are decision surfaces, not decoration: their width tells the system how much outcome range to reserve. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.'},
         'Uncertainty quantification exists because confidence must be actionable. A medical imaging model that flags "I am not sure about this scan" routes it to a specialist. A lending model that flags "this applicant is outside my training distribution" triggers manual review instead of an automated denial. Without a doubt signal, every prediction gets the same trust level, and the system cannot distinguish routine cases from dangerous ones.',
         'Two distinct problems hide under the word "uncertainty." Aleatoric uncertainty is noise in the world -- the sensor scatters even on inputs the model has seen thousands of times. Epistemic uncertainty is ignorance -- the model has never seen this region. The first cannot be fixed with more data. The second can. Conflating them means applying the wrong remedy.',
       ],
@@ -167,6 +169,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'MC dropout (Gal and Ghahramani, 2016) repurposes the dropout regularizer as a Bayesian approximation. During training, dropout randomly silences neurons to prevent co-adaptation. The standard practice is to turn dropout off at test time. MC dropout keeps it on. Each forward pass through the network uses a different random dropout mask, producing a different thinned sub-network. Run the same input T times, collect T outputs, and compute their mean (the prediction) and standard deviation (the uncertainty).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes and connections', caption: 'MC dropout samples many thinned versions of the same layered network; disagreement across those samples becomes an epistemic signal. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
         {
           type: 'code',
           language: 'python',
@@ -193,14 +196,13 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Method', 'Training cost', 'Inference cost', 'Epistemic signal', 'Calibration', 'Guarantees'],
-          rows: [
-            ['MC dropout', '1x (standard training)', 'T forward passes', 'Decent -- dropout mask diversity', 'Needs post-hoc calibration', 'Approximate Bayesian'],
-            ['Deep ensembles', 'Mx (train M models)', 'M forward passes', 'Strong -- full initialization diversity', 'Better calibrated out-of-box', 'Empirical, no formal guarantee'],
-            ['Bayesian NNs (variational)', '1-2x (variational overhead)', 'T samples from weight posterior', 'Principled but often underestimates', 'Depends on approximation quality', 'Approximate Bayesian'],
-            ['Temperature scaling', '1x + calibration set', '1 forward pass', 'None -- does not detect OOD', 'Good on in-distribution data', 'None for OOD'],
-            ['Conformal prediction', '1x + calibration set', '1 forward pass + set construction', 'None -- model-agnostic wrapper', 'Coverage guaranteed by construction', 'Finite-sample coverage under exchangeability'],
+          type: 'bullets',
+          items: [
+            'MC dropout: one standard training run, T forward passes at inference, useful dropout-mask disagreement, post-hoc calibration still needed, approximate Bayesian interpretation.',
+            'Deep ensembles: M full training runs and M forward passes, strong initialization diversity, often better calibrated, empirical rather than formal guarantees.',
+            'Bayesian neural networks: variational overhead during training and sampled inference, principled posterior target, approximation quality can still underestimate uncertainty.',
+            'Temperature scaling: one calibration pass and one forward pass, good in-distribution calibration, no out-of-distribution novelty signal.',
+            'Conformal prediction: one model plus a calibration set, prediction-set construction at inference, finite-sample coverage under exchangeability.',
           ],
         },
         'MC dropout with T=30 passes costs 30x inference compute for one model. Deep ensembles with M=5 models cost 5x training and 5x inference. For a model that takes 10ms per forward pass, MC dropout adds 290ms per prediction; ensembles add 40ms but required 5 full training runs. Both are acceptable for medical imaging or loan decisions where a single mistake costs thousands. Both are expensive for real-time serving at millions of queries per second unless batched or distilled.',
@@ -248,4 +250,3 @@ export const article = {
     },
   ],
 };
-

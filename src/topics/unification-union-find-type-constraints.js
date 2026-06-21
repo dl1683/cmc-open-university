@@ -140,6 +140,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Unification Union-Find Type Constraints. Solve type equations with substitutions: fresh variables, equality constraints, union-find classes, occurs checks, and most-general unifiers..",
+        {type: "callout", text: "Unification delays guesses: it records forced equalities, merges equivalent variables, and binds structures only when the occurs check says the type stays finite."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -171,6 +172,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Do not guess a type. Create fresh variables, collect equality constraints from program use, and solve only what the constraints force.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/67/Dsu_disjoint_sets_init.svg', alt: 'Initial disjoint-set forest with every element in its own set', caption: 'Union-Find starts with separate equivalence classes; type inference begins the same way when each unknown gets a fresh variable. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_init.svg.'},
         'Union-Find stores equal type variables as one equivalence class. Structured type terms store constructors such as int, bool, list a, and a -> b. A class can be bound to a structure only when doing so passes the occurs check.',
         'The target is the most-general unifier. If the program only proves a = b, the solver should merge a and b, not invent int. More specific answers can come later from more constraints.',
       ],
@@ -179,6 +181,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Inference first walks the expression tree. It gives fresh variables to unknown expressions and emits equations from usage: applying f to x emits f = a -> b, using a value as an int emits a = int, and returning two branch values emits left = right.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Dsu_disjoint_sets_final.svg', alt: 'Final disjoint-set forest after several union operations', caption: 'After unions, equivalent unknowns share representatives; the type solver can then attach one structure to the class instead of repeating the same substitution. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Dsu_disjoint_sets_final.svg.'},
         'The solver keeps a worklist of equations. If the equation is a = a, it is done. If it is a = b, the two classes are unioned. If it is a = int, the class for a is bound to int. If it is a -> b = int -> c, the solver decomposes it into a = int and b = c.',
         'Different constructors fail immediately. int cannot unify with bool, and list a cannot unify with a function type. A variable can bind to a structure only if that variable does not occur inside the structure.',
       ],
@@ -193,4 +196,3 @@ export const article = {
     }
   ],
 };
-

@@ -404,6 +404,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The top row shows positive literals (x1, x2, x3, x4). The bottom row shows their negations (~x1, ~x2, ~x3, ~x4). Directed edges are implications: an edge from p to q means "if p is true, then q must be true."',
+        {type: 'callout', text: '2-SAT is fast because every clause becomes implication edges, and contradiction reduces to one SCC membership test for each variable and its negation.'},
         'The animation builds the implication graph clause by clause. Each clause (a OR b) adds two edges: NOT a -> b and NOT b -> a. Active nodes (highlighted) show the current implication pair being added.',
         'Once the graph is complete, Tarjan\'s SCC algorithm runs. Nodes in the same SCC are mutually forced: if any one is true, all must be true. The critical check is whether any variable x and its negation ~x land in the same SCC. If they do, x must be both true and false, which is impossible. If they do not, the formula is satisfiable, and the algorithm assigns truth values by SCC topological order. Found nodes (final highlight) are the TRUE literals in the satisfying assignment.',
       ],
@@ -434,6 +435,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Every 2-literal clause (a OR b) is logically equivalent to two implications: NOT a implies b, and NOT b implies a. If a is false, b must be true. If b is false, a must be true. These implications form a directed graph where each literal is a node and each implication is an edge.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2f/Implication_graph.svg', alt: 'Implication graph for a 2-satisfiability instance with literals and directed edges', caption: 'An implication graph makes each clause operational: every OR clause becomes two forced edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Implication_graph.svg.'},
         'In this implication graph, a directed path from p to q means "if p is true, then q is forced true." A cycle means all literals in the cycle are mutually forced. If a variable x and its negation ~x are in the same cycle (same strongly connected component), then x being true forces ~x true, and ~x being true forces x true. That is a contradiction: the formula is unsatisfiable. If no such contradiction exists, the formula is satisfiable, and the SCC structure directly produces a valid assignment.',
       ],
     },
@@ -450,6 +452,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'The contradiction check is correct because of a symmetry property of the implication graph. For every edge NOT a -> b, there is also an edge NOT b -> a (the contrapositive). This means if there is a path from x to ~x, there is also a path from x to ~x through the same chain of contrapositives, creating a path from ~x to x. So x and ~x are in the same SCC: they mutually force each other, and no truth value can satisfy both.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/e1/Scc-1.svg', alt: 'Directed graph with shaded strongly connected components', caption: 'Strongly connected components partition a directed graph into mutually reachable regions; 2-SAT rejects exactly when a variable and its negation share one. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Scc-1.svg.'},
         'The assignment rule is correct because of the topological ordering. If literal p implies literal q (there is a path from p to q), then the SCC of p appears no later than the SCC of q in topological order. The rule assigns TRUE to the literal whose SCC comes later. So if p is assigned TRUE and p implies q, then q\'s SCC is at least as late as p\'s, and q is also assigned TRUE. Implications are preserved.',
         'The contrapositive symmetry also guarantees consistency of negations. If x is assigned TRUE, then ~x\'s SCC comes earlier in topological order. If ~x implied some literal r, then r\'s SCC is at least as late as ~x\'s, but the assignment of r depends on its own variable\'s SCC comparison, not on ~x. The structure prevents any chain of implications from forcing both a literal and its negation to be TRUE simultaneously.',
       ],

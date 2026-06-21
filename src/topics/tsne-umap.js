@@ -164,6 +164,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for t-SNE & UMAP: Seeing Embeddings. Squash 768 dimensions into 2 by preserving neighborhoods — then learn which parts of the picture are lies..",
+        {type: "callout", text: "Projection maps are neighborhood diagnostics, not geometry certificates; trust local neighbors and verify every global claim back in the source space."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -173,6 +174,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Embeddings often live in hundreds or thousands of dimensions, while humans inspect data on a two-dimensional screen. t-SNE and UMAP exist because we need a diagnostic view of high-dimensional neighborhoods: which points sit near one another, which labels look mixed, and which regions look suspicious enough to investigate.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f1/T-SNE_Embedding_of_MNIST.png', alt: 't-SNE projection of MNIST digits into colored two-dimensional clusters', caption: 'A t-SNE map can reveal local grouping, but the visual cluster area and axis direction are layout artifacts rather than measured facts. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:T-SNE_Embedding_of_MNIST.png.'},
         'This is not a compression method for preserving every geometric fact. It is a visualization method with a narrow contract. The map is useful for local neighborhood structure and cluster debugging. It is dangerous when readers treat island size, axis direction, or gaps between islands as literal measurements.',
         'The practical setting is usually messy. You may have millions of text chunks, product embeddings, image features, cells, customers, or failures, and a nearest-neighbor metric that only becomes meaningful after a model has converted raw objects into vectors. Projection gives you a first pass over that invisible geometry. It does not certify the model, but it can quickly show whether the model is worth deeper evaluation.',
       ],
@@ -198,10 +200,10 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         't-SNE converts high-dimensional distances into neighbor probabilities. The perplexity parameter roughly controls how many neighbors matter. It then initializes points on a plane and uses gradient descent to make low-dimensional neighbor probabilities resemble high-dimensional ones. Nearby source points attract; other points repel. The heavy-tailed low-dimensional distribution helps separate groups that would otherwise crowd together.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/94/T-SNE_visualisation_of_word_embeddings_generated_using_19th_century_literature.png', alt: 't-SNE visualization of word embeddings with annotated local clusters', caption: 'This word-embedding projection is useful as an inspection surface: close labels invite source-space checks, while long-range distances should not be treated as semantic measurements. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:T-SNE_visualisation_of_word_embeddings_generated_using_19th_century_literature.png.'},
         'UMAP starts by building a nearest-neighbor graph. It treats the high-dimensional data as a fuzzy topological structure, then optimizes a low-dimensional graph layout. Its n_neighbors parameter controls the local-versus-global tradeoff: smaller values focus on very local neighborhoods, while larger values preserve broader structure at the cost of local sharpness.',
         'Many workflows run PCA first to reduce noise and dimensionality before t-SNE or UMAP. At larger scale, approximate nearest-neighbor methods such as HNSW may supply the neighbor graph. That makes projection a pipeline: clean vectors, find neighborhoods, optimize a layout, then validate claims back in the source space.',
       ],
     }
   ],
 };
-
