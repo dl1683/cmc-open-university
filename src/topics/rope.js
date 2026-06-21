@@ -42,7 +42,7 @@ export function* run(input) {
     }),
     highlight: {},
     explanation: `RoPE leaves the vector length alone and changes only its angle. Position ${deg} per step becomes rotation, so the same content vector has a different direction at each row while its strength stays unchanged.`,
-    invariant: 'Rotation never changes a vector\'s length — the content\'s strength is untouched by position.',
+    invariant: `Rotation never changes vector length -- content strength is untouched by position.`,
   };
 
   const pairs = [[2, 0], [5, 3], [4, 2], [3, 0]];
@@ -87,6 +87,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Frame 1 shows one content vector rotated to six positions. Every arrow has the same length; only the angle changes. That is the RoPE invariant: rotation encodes position without changing the content's magnitude.",
+        {type: 'callout', text: 'RoPE turns position into phase so attention scores can read relative offset without changing vector length.'},
         "Frame 2 is the payoff. Look at the dot-product column: pairs with the same positional offset (m - n) produce the same score. The highlighted cells share offset 2; the unhighlighted cell has offset 3 and a different score. This is how attention sees relative distance through rotation.",
         "Frame 3 shows two dimension pairs rotating at different speeds. The fast pair separates nearby positions clearly; the slow pair changes gradually, keeping distant positions distinguishable. Real models use many such pairs across the embedding width.",
         "Frame 4 summarizes why RoPE became the default: relative offsets, norm preservation, and compatibility with KV caching during autoregressive decoding.",
@@ -96,6 +97,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `RoPE, short for rotary position embedding, encodes position by rotating query and key vectors instead of adding a separate position vector to token embeddings. Su et al. introduced it in the 2021 RoFormer paper, and it became common in Llama, Mistral, Qwen, and many other decoder models because it gives attention a natural notion of relative distance while preserving vector norms.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Unit_circle.svg/250px-Unit_circle.svg.png', alt: 'Unit circle with cosine and sine coordinates', caption: 'RoPE uses the same unit-circle geometry: rotate a two-dimensional pair by an angle, preserving length while changing phase. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Unit_circle.svg.'},
         `The contrast with Positional Encoding is the key. A sinusoidal input encoding adds numbers to the embedding before the model starts. Rotary encoding waits until Attention Mechanism forms Q and K, then rotates each 2D dimension pair by an angle proportional to token position. Content stays in the vector components; position enters as phase. The dot product between a rotated query and rotated key then depends on their relative offset in a mathematically clean way.`,
       ],
     },
@@ -116,6 +118,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `Each adjacent pair of dimensions is treated as a 2D plane. For position p and frequency index i, the pair rotates by p times theta_i, with theta_i usually following a geometric ladder such as base^(-2i/d). Fast frequencies distinguish local offsets; slow frequencies keep long-range offsets from wrapping too quickly. In matrix form, each pair uses the familiar rotation [x cos a - y sin a, x sin a + y cos a], the same geometry behind Eigenvalues & Eigenvectors lessons on linear transformations.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png', alt: 'Scaled dot-product attention block with query key value mask softmax and output', caption: 'RoPE is applied at the query-key comparison point, before attention scores become softmax weights. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Transformer,_attention_block_diagram.png.'},
         `The useful identity is R_m(q) dot R_n(k) = q dot R_(n-m)(k), up to the sign convention. That means the position part of the query-key score is a function of relative distance, not an arbitrary absolute label. Be precise: two pairs with the same offset do not automatically have identical scores if their content vectors q and k differ. RoPE says the positional transformation depends on m - n; the learned content still matters.`,
         `In Multi-Head Attention, each head applies this rotation to its own Q and K dimensions. Values are usually not rotated. The rotated keys are what the KV Cache stores during decoding, so future queries can compare against position-aware cached keys without recomputing the old tokens.`,
       ],

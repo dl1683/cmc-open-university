@@ -36,7 +36,7 @@ export function* run(input) {
   yield {
     state: arrayState(labels),
     highlight: {},
-    explanation: 'Booking a trip touches four services — flights, hotels, cars, payments — each owning its OWN database. Two-Phase Commit (2PC) could make this atomic, but at the price of every service holding locks while waiting on a coordinator (and blocking if it dies). The saga\'s bargain: give up the single atomic moment, keep the all-or-nothing OUTCOME.',
+    explanation: `Booking a trip touches four services -- flights, hotels, cars, payments -- each owning its OWN database. Two-Phase Commit (2PC) could make this atomic, but at the price of every service holding locks while waiting on a coordinator and blocking if it dies. The saga bargain: give up the single atomic moment, keep the all-or-nothing OUTCOME.`,
   };
 
   yield {
@@ -53,7 +53,7 @@ export function* run(input) {
     yield {
       state: arrayState(labels),
       highlight: { found: ids(completed), active: [`i${i}`] },
-      explanation: `Step ${i + 1}: ${STEPS[i].action} — COMMITTED, for real, right now. ${i === 0 ? 'Note what did NOT happen: no lock held, no coordinator consulted, and the airline\'s database is already showing this seat as sold to everyone in the world. Sagas expose intermediate states — that is the trade.' : 'Each service did one normal transaction and moved on.'}`,
+      explanation: `Step ${i + 1}: ${STEPS[i].action} -- COMMITTED, for real, right now. ${i === 0 ? "Note what did NOT happen: no lock held, no coordinator consulted, and the airline database is already showing this seat as sold to everyone in the world. Sagas expose intermediate states -- that is the trade." : 'Each service did one normal transaction and moved on.'}`,
     };
   }
 
@@ -75,7 +75,7 @@ export function* run(input) {
     yield {
       state: arrayState(labels),
       highlight: { removed: ids(STEPS.length) },
-      explanation: 'The saga ends in the "nothing happened" state: flight refunded, hotel cancelled, customer never charged. Eventually consistent — for a minute, the world COULD see a booked hotel for a trip that would never exist, and any process reading mid-saga must tolerate that (see CAP Theorem: this is choosing availability). The guarantee is weaker than 2PC\'s, the availability is far better: no service ever waited on another.',
+      explanation: `The saga ends in the "nothing happened" state: flight refunded, hotel cancelled, customer never charged. Eventually consistent -- for a minute, the world COULD see a booked hotel for a trip that would never exist, and any process reading mid-saga must tolerate that (see CAP Theorem: this is choosing availability). The guarantee is weaker than 2PC, the availability is far better: no service ever waited on another.`,
     };
     return;
   }
@@ -99,6 +99,8 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `A real business workflow rarely lives inside one database. A checkout touches inventory, payment, tax, shipping, notification, fraud scoring, and analytics. A trip booking touches airlines, hotels, car rental, payment, loyalty points, and email. Each part has its own service, owner, database, retry policy, and failure mode.`,
+        {type: 'callout', text: 'A saga trades one global commit for durable local steps plus compensations that repair the business outcome.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A saga is easiest to reason about as directed workflow state: forward commands, failure edges, and reverse compensation edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         `The saga pattern exists because these workflows still need a coherent outcome. The customer should not pay for an order that cannot ship. The traveler should not be charged for a trip whose flight could not be booked. At the same time, the system cannot afford to hold distributed locks while it waits on remote services, external providers, and human-scale delays.`,
         `A saga chooses a practical contract: each service performs a normal local transaction, and the workflow records enough state to continue, retry, or compensate later. It does not promise one magical atomic commit across the whole company. It promises a controlled path from partial progress to a final business outcome.`,
       ],
@@ -109,6 +111,7 @@ export const article = {
         `The obvious approach is one distributed transaction that spans every service. In a database textbook, that means a coordinator asks every participant to prepare, waits for votes, and then tells everyone to commit or roll back. Two-Phase Commit is a serious tool, and it is still useful when participants are close together, tightly controlled, and the transaction is short.`,
         `The wall is duration and ownership. A checkout may call a payment network that takes seconds. A hotel reservation may call a partner system outside your control. A shipment may be created now and cancelled later. A service may deploy while the workflow is open. If every participant holds locks until the slowest one finishes, local availability is sacrificed for a global boundary that may not match the business process.`,
         `The second wall is that many real actions cannot be rolled back by a database undo log. You cannot unsend an email, uncall a partner API, unnotify a warehouse worker, or pretend a payment authorization was never seen. The system needs semantic repair, not physical rollback.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'Queue diagram with one input end and one output end', caption: 'Retries and compensations usually move through durable queues; the saga state machine decides which command enters the queue next. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Data_Queue.svg.'},
       ],
     },
     {

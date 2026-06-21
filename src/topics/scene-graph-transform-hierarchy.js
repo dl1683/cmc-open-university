@@ -203,6 +203,7 @@ export const article = {
       heading: 'Why This Exists',
       paragraphs: [
         'Scene graphs exist because visual objects are rarely independent. A hand follows an arm, a weapon follows a character, a muzzle flash follows the weapon, a UI badge follows its parent panel, and a camera rig follows a target. The system needs a way to express those relationships directly instead of rewriting positions everywhere.',
+        {type: 'callout', text: 'A scene graph stores relationship once, then derives world transforms and bounds by traversing the affected subtree.'},
         'The main idea is to store local transforms in a hierarchy. A child is placed relative to its parent. The runtime composes those local transforms into world transforms when it needs to render, cull, pick, simulate, or show editor handles. Relationship is stored once, and derived world-space data is produced from it.',
         'This is both a data-structure topic and a graphics topic. The tree gives ownership, traversal order, invalidation scope, and editing semantics. The transforms give the math that moves points from local space to parent space to world space.',
       ],
@@ -219,6 +220,7 @@ export const article = {
       heading: 'Core Mechanism',
       paragraphs: [
         'Each node stores a parent reference, zero or more children, and a local transform. The local transform may be represented as translation, rotation, and scale; as a matrix; or as engine-specific components such as quaternion plus vector. The cached world transform is derived data.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A transform hierarchy is a directed parent-child graph; traversal order gives each child valid parent input before composition. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'The invariant is world(child) = world(parent) composed with local(child). The root usually has an identity or explicit world transform. A parent-before-child traversal computes each node world transform after its parent world transform is current. Rendering and picking can then read the cached world values quickly.',
         'Composition order matters. Matrix conventions differ across engines, and non-uniform scale combined with rotation can produce shear-like effects. A scene graph article is not complete without saying this plainly: the structure is simple, but transform math must follow one consistent convention everywhere.',
       ],
@@ -228,6 +230,7 @@ export const article = {
       paragraphs: [
         'World transforms are not the only derived values. A node may also cache world-space bounds, aggregate subtree bounds, visibility state, render-layer membership, picking identifiers, physics debug transforms, or editor gizmo positions. These values are fast to read but must be invalidated when the source hierarchy changes.',
         'Bounds show why the hierarchy is useful beyond placement. A parent can aggregate child bounds into one world-space box or sphere. If that aggregate bound is outside the camera frustum, a renderer can reject an entire subtree before visiting each child mesh. The same idea helps editor selection and broad-phase collision systems.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/R-tree.svg/500px-R-tree.svg.png', alt: 'R-tree diagram with object rectangles grouped by blue parent bounding rectangles', caption: 'Hierarchical bounds let systems prune whole groups; scene graphs use the same summary idea for culling and picking. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:R-tree.svg.'},
         'The scene graph is therefore not just a render list. It is a relationship structure that feeds render lists, culling, picking, animation, UI layout, and tools. Production engines often flatten the final draw work, but the hierarchy remains valuable for editing and transform propagation.',
       ],
     },

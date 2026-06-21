@@ -61,7 +61,7 @@ function* interrogate() {
       format: (v) => `${(v * 100).toFixed(1)}%`,
     }),
     highlight: { found: ['caps:drop'], compare: ['excl:drop'] },
-    explanation: `Occlusion verifies the claim by deletion. Remove exclamation marks and the score falls to ${(predict(0, X.caps) * 100).toFixed(1)}%; remove CAPS and it falls to ${(predict(X.excl, 0) * 100).toFixed(1)}%. The larger drop is stronger evidence than a bright heatmap because it changes the model\'s behavior.`,
+    explanation: `Occlusion verifies the claim by deletion. Remove exclamation marks and the score falls to ${(predict(0, X.caps) * 100).toFixed(1)}%; remove CAPS and it falls to ${(predict(X.excl, 0) * 100).toFixed(1)}%. The larger drop is stronger evidence than a bright heatmap because it changes the model behavior.`,
   };
 
   const HEAT = [
@@ -144,6 +144,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Interrogating one verdict" fixes one email with known features and runs three attribution methods on it: gradient saliency, occlusion, and a pixel-level heatmap. "The honesty tests" runs sanity checks that catch lying explanations. Active cells mark the feature or method under examination. Found cells mark results that passed a behavioral test. Removed cells mark explanations that failed.',
+        {type: 'callout', text: 'A saliency map is only useful when deleting or perturbing the highlighted evidence changes the model verdict.'},
         'Watch the gradient table first. Each row is one input feature; the gradient column shows per-unit sensitivity, and gradient times input shows how much that feature contributed to this specific score. The occlusion table then deletes features one at a time and measures how far the verdict drops. If the two methods agree on which feature matters most, the attribution is more trustworthy.',
         'The heatmap frame scales the same logic to a grid of pixels. Bright cells are high-sensitivity regions. The question to ask at every frame: if I deleted the highlighted feature, would the prediction actually change?',
       ],
@@ -152,6 +153,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A classifier says "spam" or "tumor" or "block this post." The next question is always narrower: which parts of this input caused this specific verdict? Saliency maps answer that local attribution question. They do not certify the model in general. They try to explain one prediction on one input.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Attribution traces one output decision back through the learned network to the input features that moved it. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
         {
           type: 'quote',
           text: 'If the model needs to provide a visual explanation for any arbitrary decision, it needs to find what in the image is evidence for or against a class, and present that evidence to the user.',
@@ -193,6 +195,7 @@ export const article = {
           text: '# Vanilla gradient saliency in PyTorch\nimport torch\n\ndef saliency_map(model, image, target_class):\n    image.requires_grad_(True)\n    logits = model(image.unsqueeze(0))\n    score = logits[0, target_class]\n    score.backward()\n    # Absolute gradient across color channels\n    saliency, _ = image.grad.abs().max(dim=0)\n    return saliency',
         },
         'Gradient times input multiplies each gradient by the corresponding input value. This shifts the question from "where is the model locally sensitive?" to "how much did each feature actually contribute to this score?" A pixel with a large gradient but value near zero contributed little to this prediction; multiplying by the input captures that.',
+        {type: 'image', src: 'https://docs.pytorch.org/tutorials/_images/fgsm_panda_image.png', alt: 'FGSM panda example showing original image perturbation and changed prediction', caption: 'The same input gradient that powers simple saliency also powers FGSM attacks; explanation and attack share the derivative. Source: PyTorch documentation, https://docs.pytorch.org/tutorials/beginner/fgsm_tutorial.html.'},
         'Occlusion works by intervention rather than derivatives. Mask a patch, re-run the model, measure the score drop. If the score collapses, the masked region was causally involved. The cost is one forward pass per patch position, which is expensive but produces a behavioral signal that does not depend on gradient flow or activation functions.',
       ],
     },
@@ -208,14 +211,13 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Method', 'Cost', 'Resolution', 'Sanity-check safe', 'Main weakness'],
-          rows: [
-            ['Vanilla gradient', '1 backward pass', 'Pixel-level', 'Yes', 'Noisy, saturates at ReLU/sigmoid'],
-            ['SmoothGrad', 'N backward passes (N~50)', 'Pixel-level', 'Yes', 'Smoothing hides real signal too'],
-            ['Integrated Gradients', 'M backward passes (M~50-300)', 'Pixel-level', 'Yes', 'Baseline choice changes the map'],
-            ['Grad-CAM', '1 backward pass + layer hook', 'Coarse (conv layer)', 'Yes', 'CNN-only, resolution of last conv'],
-            ['SHAP (KernelSHAP)', 'O(2^k) exact, sampled in practice', 'Feature-group level', 'Yes', 'Expensive, feature grouping matters'],
+          type: 'bullets',
+          items: [
+            'Vanilla gradient: one backward pass, pixel-level resolution, usually sanity-check safe, but noisy and vulnerable to ReLU or sigmoid saturation.',
+            'SmoothGrad: about 50 backward passes over noisy copies, pixel-level resolution, often clearer than vanilla gradients, but smoothing can also hide real signal.',
+            'Integrated Gradients: roughly 50 to 300 backward passes along a baseline path, pixel-level resolution, and stronger axioms, but the baseline choice changes the result.',
+            'Grad-CAM: one backward pass plus a layer hook, coarse convolution-layer resolution, and good class localization for CNNs, but not a pixel-exact explanation.',
+            'KernelSHAP: exact cost is exponential in feature groups and sampled cost is still high; it gives feature-group attributions, but grouping choices strongly affect the answer.',
           ],
         },
         'Vanilla gradients are nearly free: one backward pass, same cost as one training step. SmoothGrad averages gradients over N noisy copies of the input, typically N=50, so it costs 50x. Integrated Gradients interpolates along a path from baseline to input with M steps, costing M backward passes. Grad-CAM is cheap (one backward pass plus a hook on the target layer) but produces coarse maps at the spatial resolution of the last convolutional layer.',
@@ -257,4 +259,3 @@ export const article = {
     },
   ],
 };
-

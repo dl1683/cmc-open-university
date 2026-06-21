@@ -222,6 +222,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "slide and match" view shows the rolling hash pipeline at each window position in the text. Active nodes (drop, shift, add) mark the three O(1) operations that update the hash as the window moves one character right. When the check node lights up as found, the window hash matched the pattern hash and the full character-by-character verification confirmed a real match.',
+        {type: 'callout', text: 'Rabin-Karp is exact because hashing only rejects windows; every accepted candidate still passes a byte comparison.'},
         'The matrix view below the pipeline shows concrete hash values for each window. Windows highlighted as compare were rejected by a single integer comparison -- no characters examined. Windows highlighted as found passed both the hash check and the byte verification.',
         'In the "collisions and uses" view, a deliberately tiny modulus forces different windows to produce the same hash. The verdict column shows the byte check catching every collision. Watch how many windows are rejected by one integer comparison versus how many require the full m-character scan. That ratio is the entire point of the algorithm.',
       ],
@@ -252,16 +253,17 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Treat a length-m string as a polynomial in a chosen base d. "abc" with d = 256 becomes 97 * 256^2 + 98 * 256 + 99. When the window slides one character right, the outgoing character occupies the highest-order term. Remove it, multiply the remainder by d to shift every coefficient up one position, and add the incoming character in the ones place. Three arithmetic operations, regardless of m.',
-        'This is a rolling hash: each window\'s fingerprint is derived from the previous window\'s fingerprint in O(1). A modulus q keeps numbers small. Total hashing for all n - m + 1 windows: O(n). Hashing the pattern once: O(m).',
+        `This is a rolling hash: each window fingerprint is derived from the previous window fingerprint in O(1). A modulus q keeps numbers small. Total hashing for all n - m + 1 windows: O(n). Hashing the pattern once: O(m).`,
         'Two invariants hold after every slide. First, the maintained hash equals what a full recomputation would produce. Second, a hash match is only a candidate, never proof -- the algorithm always verifies candidates by comparing actual characters, because different strings can hash to the same value under modular arithmetic.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Hash the pattern P to get h_P. Hash the first window T[0..m-1] to get h_w. Precompute highPower = d^(m-1) mod q so the outgoing character\'s contribution can be removed in one multiply.',
+        `Hash the pattern P to get h_P. Hash the first window T[0..m-1] to get h_w. Precompute highPower = d^(m-1) mod q so the outgoing character contribution can be removed in one multiply.`,
         'For each position i from 1 to n - m: (1) subtract T[i-1] * highPower from h_w to remove the outgoing character; (2) multiply h_w by d to shift remaining characters up; (3) add T[i+m-1] for the incoming character; (4) reduce mod q. If h_w equals h_P, compare T[i..i+m-1] against P character by character. Report i on match.',
         'The polynomial structure is what makes the O(1) update exact. Each character contributes d^k for its position k in the window. Sliding right decrements every position by one -- which is precisely what multiplying by d does after removing the old high-order term.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Matrix_multiplication_diagram.svg/250px-Matrix_multiplication_diagram.svg.png', alt: 'Matrix multiplication diagram showing rows and columns combining', caption: 'The rolling hash is a compact numeric layout: character coefficients combine with powers of the base the way rows combine with columns. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Matrix_multiplication_diagram.svg.'},
         'The hash formula: hash("c_0 c_1 ... c_{m-1}") = (c_0 * d^(m-1) + c_1 * d^(m-2) + ... + c_{m-1} * d^0) mod q. Rolling from position i to i+1: h_new = (d * (h_old - c_i * d^(m-1)) + c_{i+m}) mod q.',
       ],
     },
@@ -287,7 +289,8 @@ export const article = {
       paragraphs: [
         'Plagiarism detection: hash every m-word window of a submitted document and check against a database of known fingerprints. The rolling hash makes scanning cheap; the hash set lookup handles thousands of reference patterns in one pass.',
         'Rsync delta transfer: rsync computes a cheap rolling checksum over fixed-size blocks to find matching regions between a local and remote file, then confirms matches with a strong MD5 digest. The rolling hash identifies unchanged blocks without transferring them, cutting network traffic.',
-        'Git pack files: git uses a rolling hash (similar to rsync\'s Adler32-style checksum) to find matching blocks between file versions for delta compression. The rolling hash nominates candidates; a stronger SHA comparison confirms them.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'Queue diagram showing data entering one end and leaving the other', caption: 'A sliding window has queue-like movement: one item leaves, one enters, and the maintained summary updates from that boundary change. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Data_Queue.svg.'},
+        `Git pack files: git uses a rolling hash similar to the Adler32-style checksum used by rsync to find matching blocks between file versions for delta compression. The rolling hash nominates candidates; a stronger SHA comparison confirms them.`,
         'Content-defined chunking in backup and deduplication: a rolling hash over a sliding window triggers a chunk boundary when hash mod p equals 0. Variable-size chunks adapt to insertions and deletions, so identical content produces identical chunks even when shifted in the file. The rolling hash picks boundaries; a strong content hash (SHA-256, BLAKE3) provides chunk identity.',
       ],
     },
@@ -307,7 +310,7 @@ export const article = {
         'Pattern hash: h_P = (97 * 256^2 + 98 * 256 + 99) mod 101. That is 6,382,179 mod 101 = 90. Precompute highPower = 256^2 mod 101 = 65,536 mod 101 = 88.',
         'Position 0, window "xab": h = (120 * 256^2 + 97 * 256 + 98) mod 101 = 39. Since 39 != 90, reject. One integer comparison, zero character work.',
         'Position 1, window "abc": roll the hash. Remove outgoing "x" (code 120): h = (39 - 120 * 88) mod 101 = (39 - 10,560) mod 101. The result is negative, so add multiples of 101 to normalize: -10,521 mod 101 = 84. Shift and add incoming "c" (code 99): h = (84 * 256 + 99) mod 101 = 21,603 mod 101 = 90. Hash matches h_P. Verify: T[1..3] = "abc" = P. Match at position 1.',
-        'Position 2 "bcy": hash 28, reject. Position 3 "cyа": hash 62, reject. Position 4 "yabc"[0..2] = "yab": hash 71, reject. Each rejection costs one integer comparison.',
+        'Position 2 "bcy": hash 28, reject. Position 3, window "cya": hash 62, reject. Position 4, window "yab": hash 71, reject. Each rejection costs one integer comparison.',
         'Position 5, window "abc": rolling hash produces 90 again. Verify: T[5..7] = "abc" = P. Match at position 5.',
         'Total: 6 rolling hash updates (O(1) each), 2 full verifications (O(m) each), 4 instant rejections. Expected time: O(n + m). With q = 101, each non-matching window has about a 1% chance of a false positive. With q = 10^9 + 7, that drops to roughly one in a billion per window.',
       ],

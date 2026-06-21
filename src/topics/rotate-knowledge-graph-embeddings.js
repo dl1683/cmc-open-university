@@ -213,6 +213,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "relational rotation" view shows a knowledge graph, then the complex plane where RotatE scores triples. Active nodes and edges are the current triple being evaluated. Found markers show the tail entity that the rotation lands near. Compare markers show candidate tails that score poorly.',
+        {type: 'callout', text: 'RotatE works because relation composition becomes phase addition on the complex unit circle.'},
         'The "pattern reasoning" view shows how relation patterns -- symmetry, inversion, composition -- map to phase algebra on the unit circle. Active vectors are relation rotations. The compare vector shows the conjugate (inverse). Watch how multiplying two rotations composes their phases.',
         'In both views, the scoring matrix highlights the distance between h * r and t. Small distance means a plausible triple. Large distance means the rotation missed the tail. At each frame, ask: did the rotation land close, and does the phase algebra match the relation pattern?',
       ],
@@ -221,6 +222,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Knowledge graphs store facts as triples: (head entity, relation, tail entity). Paris located_in France. Curie won Nobel Prize. A drug treats a disease. Real graphs are massively incomplete -- Freebase had roughly 3 billion facts but an estimated 70% of person-place-of-birth edges were missing. The core task is link prediction: given the observed triples, rank which missing triples are likely true.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A knowledge graph is a directed labeled graph; RotatE changes missing-edge prediction into geometry over those directed facts. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Link prediction matters because downstream systems consume these facts. Search engines use entity relations for knowledge panels. Biomedical researchers use protein-protein and drug-target graphs to prioritize wet-lab experiments. Recommendation systems use item-attribute graphs to suggest products. If the graph is incomplete, those systems degrade silently. Filling in plausible links is not academic curiosity; it is infrastructure.',
         'RotatE (Sun et al., ICLR 2019) treats link prediction as geometry. Entities become complex-valued vectors. Each relation becomes a rotation in complex space. A triple (h, r, t) is plausible when multiplying h by r lands near t. This one design choice gives the model a natural way to represent symmetry, antisymmetry, inversion, and composition -- the four relation patterns that dominate real knowledge graphs.',
       ],
@@ -243,14 +245,13 @@ export const article = {
         'TransE cannot model symmetric relations. If r is the translation for "similar_to" and h + r = t, then t + r = t + r, not h. To get back to h you need -r, but -r is a different relation. TransE forces every relation to be antisymmetric. On the WN18 benchmark, where 18 symmetric relation types dominate, TransE pays a large accuracy penalty.',
         'DistMult has the opposite problem. Its scoring function f(h, r, t) = sum(h * r * t) is symmetric in h and t, so it cannot distinguish (h, r, t) from (t, r, h). Every relation looks symmetric. Antisymmetric and inverse relations are invisible to the model.',
         {
-          type: 'table',
-          headers: ['Model', 'Symmetry', 'Antisymmetry', 'Inversion', 'Composition'],
-          rows: [
-            ['TransE', 'No', 'Yes', 'Yes', 'Yes'],
-            ['DistMult', 'Yes', 'No', 'No', 'No'],
-            ['ComplEx', 'Yes', 'Yes', 'Yes', 'No'],
-            ['RotatE', 'Yes', 'Yes', 'Yes', 'Yes'],
-            ['QuatE', 'Yes', 'Yes', 'Yes', 'Yes'],
+          type: 'bullets',
+          items: [
+            'TransE: strong at antisymmetry, inversion, and composition, but weak on symmetry because one translation cannot point both ways.',
+            'DistMult: strong at symmetry, but its score is symmetric in head and tail, so antisymmetry and inversion disappear.',
+            'ComplEx: handles symmetry, antisymmetry, and inversion, but lacks a clean relation-composition operator.',
+            'RotatE: handles symmetry, antisymmetry, inversion, and composition with one phase-rotation mechanism.',
+            'QuatE: also covers the four patterns with richer quaternion rotations, at the cost of a more complex representation.',
           ],
         },
         'ComplEx fixes the symmetry problem by moving to complex space, but it still cannot model composition because its bilinear scoring has no mechanism for chaining two relations into a third. The wall is composition: city->country->region should imply city->region, but bilinear models have no algebraic path from r1 and r2 to r3. RotatE breaks through because complex multiplication is inherently compositional -- multiplying two unit rotations produces a third rotation whose phase is the sum of the first two.',
@@ -269,7 +270,7 @@ export const article = {
         'Training uses a self-adversarial negative sampling loss. For each positive triple (h, r, t), the model generates k negative triples by corrupting the head or tail. The key innovation is weighting each negative by its current model probability: negatives the model already scores as implausible get low weight, while negatives near the decision boundary get high weight. This focuses gradient updates on the hardest cases.',
         {
           type: 'note',
-          text: 'The self-adversarial weight for negative triple (h_i\', r, t) is p(h_i\' | h, r, t) = exp(alpha * f(h_i\', r, t)) / sum(exp(alpha * f(h_j\', r, t))). The temperature alpha controls how aggressively the model focuses on hard negatives. The paper treats these weights as fixed (no gradient through them), making the approach a form of importance sampling.',
+          text: `The self-adversarial weight for negative triple (h_i_prime, r, t) is p(h_i_prime | h, r, t) = exp(alpha * f(h_i_prime, r, t)) / sum(exp(alpha * f(h_j_prime, r, t))). The temperature alpha controls how aggressively the model focuses on hard negatives. The paper treats these weights as fixed with no gradient through them, making the approach a form of importance sampling.`,
         },
       ],
     },
@@ -277,6 +278,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'The power of RotatE comes from one algebraic fact: the group of unit-modulus complex numbers under multiplication is isomorphic to the group of rotations on the circle. This makes four relation patterns fall out of basic complex arithmetic.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Unit_circle_angles_color.svg/250px-Unit_circle_angles_color.svg.png', alt: 'Unit circle marked with common angle coordinates', caption: 'Relation phases live on the unit circle; composing relations adds angles, and inverse relations flip the sign of the angle. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Unit_circle_angles_color.svg.'},
         {
           type: 'bullets',
           items: [
@@ -299,13 +301,12 @@ export const article = {
       paragraphs: [
         'RotatE stores one d-dimensional complex vector per entity (2d floats) and one d-dimensional phase vector per relation (d floats). For a graph with E entities and R relations, total parameter count is 2dE + dR. On FB15k-237, d = 1000 gives roughly 30 million parameters -- comparable to TransE and much smaller than a graph neural network.',
         {
-          type: 'table',
-          headers: ['Operation', 'Time', 'Space'],
-          rows: [
-            ['Score one triple', 'O(d)', 'O(d)'],
-            ['Train one epoch (N triples, k negatives)', 'O(Nkd)', 'O(Ed + Rd)'],
-            ['Rank all tails for one query', 'O(Ed)', 'O(Ed)'],
-            ['Full evaluation (filtered)', 'O(N_test * E * d)', 'O(Ed)'],
+          type: 'bullets',
+          items: [
+            'Score one triple: O(d) time to rotate and compare one embedding pair; O(d) working space for the component-wise distance.',
+            'Train one epoch over N triples with k negatives: O(Nkd) scoring work, with O(Ed + Rd) parameter storage for entities and relations.',
+            'Rank all tails for one query: O(Ed) if every entity is scored exactly; approximate nearest-neighbor search trades this cost for recall risk.',
+            'Filtered full evaluation: O(N_test * E * d) in the exact protocol because each test query is ranked against the entity set.',
           ],
         },
         'Training takes hours on a single GPU for standard benchmarks (FB15k-237: ~15k entities, ~237 relations, ~310k triples). For large production graphs with millions of entities, the bottleneck is the negative sampling loop and the all-entity ranking at evaluation time. Approximate nearest-neighbor search (HNSW, IVF) can reduce inference cost from O(Ed) to O(d log E) per query, but this introduces recall loss.',
@@ -360,4 +361,3 @@ export const article = {
     },
   ],
 };
-
