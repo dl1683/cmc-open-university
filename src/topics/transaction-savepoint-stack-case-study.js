@@ -202,6 +202,7 @@ export const article = {
       paragraphs: [
         `A transaction gives one outer promise: either the whole unit commits or the whole unit aborts. That promise is useful, but it is too coarse for many application workflows. A loader may need to keep the valid rows in a batch while skipping one malformed optional row. A migration may need to test a risky statement after setup work has already run. A library may need to recover from a local statement failure while leaving the caller in charge of the transaction.`,
         `A savepoint gives a smaller undo scope inside the same transaction. It marks a transaction state that the application can return to without committing earlier work. The outer transaction still controls durability. The savepoint only decides how much of the in-progress work should survive after a local error.`,
+        {type:'callout', text:`Savepoints turn one transaction into a stack of local undo scopes while leaving the outer commit boundary intact.`},
       ],
     },
     {

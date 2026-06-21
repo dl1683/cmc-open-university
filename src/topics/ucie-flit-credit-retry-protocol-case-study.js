@@ -207,6 +207,7 @@ export const article = {
       paragraphs: [
         'UCIe exists because chiplets need a reusable die-to-die contract, not just a set of wires. Modern packages may combine compute dies, I/O dies, cache chiplets, memory-facing logic, and accelerators from different process nodes or vendors. Those pieces need a standard way to talk.',
         'The physical lanes move bits, but a usable interconnect also needs framing, flow control, retry, sideband bring-up, management, and clear ownership between layers. Without that contract, every package becomes a one-off integration project.',
+        {type:'callout', text:'UCIe turns a die-to-die wire budget into a layered contract for flits, credits, retries, sideband state, and observability.'},
         'The UCIe Consortium describes Universal Chiplet Interconnect Express as an open die-to-die interconnect specification for an open chiplet ecosystem: https://www.uciexpress.org/. Its public white paper page frames the goal as reusable chiplet interconnects rather than one-off proprietary package links: https://www.uciexpress.org/general-8.',
       ],
     },

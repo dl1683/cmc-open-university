@@ -229,6 +229,7 @@ export const article = {
       paragraphs: [
         'Training-serving skew exists when a model sees one feature reality during training and a different feature reality during production serving. The model may be mathematically unchanged, the code may deploy cleanly, and offline metrics may look strong, but live predictions degrade because the input vector is different. Fraud counts default to zero online while training rows had real counts. A category is lowercased in one path and not in the other. A timestamp join leaks future data offline but production only has past data. These are systems failures that appear as model failures.',
         'A replay diff turns that vague failure into evidence. For a sampled production prediction, the serving path logs the exact online feature vector and metadata. Later, a replay job recomputes the same features from offline definitions using the same entity keys and prediction timestamp. The diff compares online and offline values, records tolerances, and stores the result in a ledger. The goal is not to admire disagreement after metrics have fallen. The goal is to catch skew early enough to block releases, page the right owner, and make the incident debuggable.',
+        {type:'callout', text:'Replay diffs make production feature vectors the audit artifact, so skew becomes a data-path incident instead of a vague model regression.'},
       ],
     },
     {

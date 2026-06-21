@@ -226,6 +226,7 @@ export const article = {
         `Tree-sitter exists because code editors need syntax information while the code is changing. A user types half a function, deletes a brace, pastes a block, or opens a file with mixed languages. The editor still has to highlight tokens, fold blocks, show local symbols, support structural selection, and keep diagnostics useful.`,
         `A compiler-style parser is usually built for a different moment. It receives a complete file or compilation unit and can reject invalid input. An editor parser lives during the messy middle. Most source buffers are temporarily broken many times per minute, and the parser must recover quickly enough that the UI does not lag behind typing.`,
         `Tree-sitter is a parser generator and incremental parsing library designed for that editor workload. It keeps a concrete syntax tree synchronized with an editable buffer, reuses unchanged subtrees after edits, and reports the ranges whose syntax actually changed. That makes syntax a maintained data structure rather than a full-file rebuild.`,
+        {type:'callout', text:`Incremental parsing treats syntax as maintained editor state, repairing the old tree just enough to reuse unchanged structure.`},
       ],
     },
     {

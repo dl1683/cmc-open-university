@@ -208,6 +208,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Generate evaluate select" traces the full ToT loop on a Game of 24 instance: root state generates candidate thoughts, the evaluator scores them, the selector keeps the best frontier, and expansion continues until a branch reaches 24. "Backtracking search" focuses on what happens when a branch dies and the search recovers.',
+        {type:'callout', text:'Tree of Thoughts moves reasoning control out of one token stream and into an explicit frontier that can score, prune, and revisit partial states.'},
         {
           type: 'bullets',
           items: [

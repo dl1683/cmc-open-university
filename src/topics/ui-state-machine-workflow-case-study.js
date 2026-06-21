@@ -220,6 +220,8 @@ export const article = {
         'A UI is not just data on a screen. It is a workflow that moves through modes: editing, validating, submitting, failed, retrying, cancelled, and done. Bugs appear when those modes are stored as unrelated flags instead of one explicit state.',
         'The hard part is not drawing the button. The hard part is deciding whether that button is legal now. A submit click, promise completion, retry timer, route change, or cancel action should mean different things in different modes.',
         'State machines make that contract visible. They name the legal states, the events that can move between them, the guards that block illegal moves, the actions that run on transitions, and the async work owned by a state.',
+        {type:'callout', text:'State machines replace flag combinations with legal modes, making events ask the current state for permission before changing the UI.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/cf/Finite_state_machine_example_with_comments.svg', alt:'Finite state machine diagram showing open and closed states with labeled transitions.', caption:'Finite state machine example with comments. Wikimedia Commons, Macguy314; reworked by Perhelion, public domain.'},
       ],
     },
     {

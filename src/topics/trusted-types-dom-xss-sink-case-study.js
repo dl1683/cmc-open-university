@@ -167,6 +167,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The graph traces how a value moves from raw input to DOM render through the Trusted Types pipeline. Each node is either a data source, a policy component, or a browser enforcement gate. Each edge is a data-flow step the value must traverse.',
+        {type:'callout', text:'Trusted Types makes DOM sinks a typed capability boundary, so raw strings lose the power to become executable markup.'},
         {
           type: 'bullets',
           items: [

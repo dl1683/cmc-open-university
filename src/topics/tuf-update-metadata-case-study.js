@@ -196,6 +196,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Role graph" traces how TUF splits update trust across four signed metadata families -- root, targets, snapshot, and timestamp -- each with a different job, different keys, and a different blast radius if compromised. "Client workflow" traces the ordered verification sequence a client follows from its pinned trusted root through timestamp, snapshot, targets, and file download.',
+        {type:'callout', text:'TUF protects updates by splitting trust into signed roles where each role blocks one specific class of repository attack.'},
         {
           type: 'bullets',
           items: [

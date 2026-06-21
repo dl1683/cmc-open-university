@@ -192,6 +192,8 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Log proof path" traces a single entry from submission through leaf hashing, Merkle root computation, signed tree head publication, and finally inclusion and consistency proof verification. "Witness and monitor" shows the ecosystem that prevents a log from equivocating: witnesses cosign checkpoints, monitors scan entries, auditors verify proofs, and alarms reach domain owners.',
+        {type:'callout', text:'Transparency works by making every security-relevant event public, provable, and hard to show differently to different observers.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt:'Binary hash tree diagram with leaves feeding interior hashes and a top hash.', caption:'Binary hash tree diagram. Wikimedia Commons, Azaghal after David Gothberg, CC0 1.0.'},
         {
           type: 'bullets',
           items: [
