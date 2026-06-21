@@ -150,6 +150,7 @@ export const article = {
         'Each box is a B-tree node holding sorted keys separated by dots. Edges are child pointers. A node with keys [20, 40] has three children: left holds everything below 20, middle holds 20-40, right holds everything above 40. The keys are separators that route searches.',
         'Highlighted nodes show where the algorithm is currently deciding which child to descend into. Visited nodes mark levels already checked. Found marks the node where the target was located or proved absent. Watch for splits: when a node overflows, it breaks in two and pushes its median key up into the parent.',
         'This demo uses an order-3 B-tree (each node holds at most 2 keys). Real databases use order 500+, but the mechanics -- multi-way branching, upward splits, uniform leaf depth -- are identical.',
+        {type: 'callout', text: 'A B-tree wins by matching the unit of search to the unit of storage, so one page read discards hundreds of key ranges.'},
       ],
     },
     {
@@ -177,6 +178,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Size each node to fill one disk page. A 4 KB page holding 8-byte keys and 8-byte child pointers fits roughly 250 keys and 251 children. One page read now eliminates 250 out of 251 subtrees instead of 1 out of 2. Height drops from log2(n) to log251(n). For one billion keys: log2(10^9) = 30 levels, but log251(10^9) = 3.7 levels. Four page reads at 10 ms each = 40 ms total, instead of 30 reads at 300 ms. That is the entire trick.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'B-tree with wide internal nodes and multiple children.', caption: 'Wide nodes reduce height by replacing binary branching with page-sized fanout. (Source: Wikimedia Commons)'},
         'The minimum-fill rule keeps this guarantee stable under inserts and deletes. Every non-root node must stay at least half full, so the branching factor never drops below ~125 even in the worst case. Height stays bounded at log_{ceil(m/2)}(n).',
       ],
     },
@@ -219,6 +221,7 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'B+ trees beat plain B-trees in nearly every production use. In a B+ tree, internal nodes hold only keys (no row data), so they pack more separators per page and the tree is shorter. Leaves form a linked list, so range scans walk forward without climbing back to the root. Almost every system you encounter uses B+ trees, not plain B-trees.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/37/Bplustree.png', alt: 'B+ tree with data stored in linked leaf nodes.', caption: 'B+ trees move records to linked leaves, which makes range scans linear after the first lookup. (Source: Wikimedia Commons)'},
         'Write-heavy workloads expose B-tree weakness. Inserting one row may rewrite an entire 16 KB page. Random inserts cause frequent splits and scattered I/O. LSM trees (LevelDB, RocksDB, Cassandra) buffer writes in memory and flush sorted runs sequentially, achieving 10-100x better write throughput at the cost of read amplification during compaction.',
         'In-memory workloads do not benefit from disk-page-sized nodes. A red-black tree or skip list has less per-operation overhead when pointer hops are cache-line fetches, not disk seeks. Adaptive radix trees can beat both for string keys in memory.',
         'For pure equality lookups with no range or ordering need, a hash index is faster: O(1) expected time, no tree traversal, no page hierarchy.',

@@ -188,6 +188,7 @@ export const article = {
       paragraphs: [
         `Entropy coding is the last step that turns modeled events into bits. A compressor may first find repeated strings, predict pixels, quantize transforms, or tokenize text, but eventually it has a stream of symbols with probabilities. If A appears three times as often as B, a good bitstream should spend fewer bits on A than on B. That is the pressure arithmetic coding and ANS respond to.`,
         `The hard part is that information theory does not usually ask for whole bits per symbol. A symbol with probability 0.75 has an ideal cost of about 0.415 bits, not one bit. A rare symbol with probability 0.25 costs two bits. Huffman coding is excellent when probabilities line up with powers of two, but real distributions are messier. Arithmetic coding and ANS exist so a coder can approach fractional average costs without assigning a separate fractional bitstring to a single symbol.`,
+        {type: 'callout', text: 'Entropy coding turns probability mass into bit cost; arithmetic coding uses nested ranges, while ANS uses reversible integer states.'},
       ],
     },
     {
@@ -201,6 +202,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `Arithmetic coding changes the unit of coding from one symbol to one message. Instead of saying "A is 0 and B is 10", it keeps an interval between 0 and 1. Each symbol narrows the current interval according to the model. After the whole message is processed, any binary fraction inside the final interval identifies the same path of choices. A likely message leaves a wider final interval and needs fewer bits to point into it. An unlikely message leaves a narrow final interval and needs more bits.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Arithmetic_coding_visualisation.svg/330px-Arithmetic_coding_visualisation.svg.png', alt: 'Arithmetic coding interval narrowing for two example messages.', caption: 'Nested intervals show how a whole message becomes one short binary prefix. (Source: Wikimedia Commons)'},
         `ANS makes a different surface move but follows the same economics. It keeps one integer state. Encoding a symbol maps the current state to a new state and emits low bits when the state grows too large. Common symbols occupy more of the state space, so they tend to move through the machine cheaply. Rare symbols occupy less state space and tend to force more emitted bits. The state is not just a counter; it carries the compressed payload and the alignment needed for exact decoding.`,
       ],
     },
@@ -216,6 +218,7 @@ export const article = {
       paragraphs: [
         `ANS can feel stranger because it decodes in reverse order. The encoder pushes symbols into a state, and the decoder pops symbols out while reconstructing the previous state. rANS uses arithmetic formulas over frequency tables. tANS, also known through Finite State Entropy, materializes a table of state transitions. In both forms, the probability model decides how many states each symbol owns.`,
         `The toy transition table in the visual is not a production rANS table. It is showing the shape that matters. A common A appears in more state slots. A rarer B appears in fewer slots and can push the state far enough to emit a bit. The emitted bits are not separate from the state machine; they are how the coder keeps the integer state inside a bounded range while preserving enough information for the inverse transition.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Simple_example_of_ANS_automaton.png/500px-Simple_example_of_ANS_automaton.png', alt: 'Four-state ANS automaton for symbols with unequal probabilities.', caption: 'The automaton makes the ANS state buffer visible: common symbols often emit fewer bits, rare symbols emit more. (Source: Wikimedia Commons)'},
       ],
     },
     {
@@ -223,6 +226,7 @@ export const article = {
       paragraphs: [
         `The interval-coder view proves that the number of required bits tracks the final interval width, not the count of symbols. The row for BAA gets narrower after each symbol. That shrinking width is the probability of the whole message under the model. When the final width is about 0.141, the ideal cost is about -log2(0.141), or a little under three bits. The visual ties compression cost to probability mass rather than to a fixed codeword list.`,
         `The ANS view proves the same claim with discrete states. The model feeds a symbol and a state transition; renormalization sends bits out only when the bounded state needs room. The comparison table then places Huffman, arithmetic coding, and ANS side by side. Huffman is a prefix-tree method, arithmetic coding is a range method, and ANS is an integer-state method. All three need a model. The better the model, the fewer bits the entropy coder has to spend.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/ANS_general_picture.png/960px-ANS_general_picture.png', alt: 'Comparison of arithmetic coding and asymmetric numeral systems.', caption: 'Arithmetic coding narrows a range, while ANS stores information in one probability-shaped integer state. (Source: Wikimedia Commons)'},
       ],
     },
     {

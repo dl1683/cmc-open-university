@@ -146,6 +146,7 @@ export const article = {
         'Each node carries a balance factor: bf = height(left subtree) - height(right subtree). A node highlighted as active is the freshly inserted value descending the tree by BST comparison. A node highlighted as swap has bf = +2 or -2 — the imbalanced ancestor that triggered a rotation.',
         'After the rotation fires, the repaired nodes appear as found. The height labels on each node let you verify the balance factor yourself: subtract the right child\'s height from the left child\'s height. If the result is outside {-1, 0, +1}, a rotation is due.',
         'Switch to the sorted-input option to watch the worst case for a plain BST. Every other insert triggers a rotation, yet the tree stays short. That is the entire point of AVL.',
+        {type: 'callout', text: 'AVL keeps lookup latency bounded by making every mutation repair shape before height debt can spread.'},
       ],
     },
     {
@@ -177,6 +178,7 @@ export const article = {
         'Right-Right (RR) case: the mirror of LL. The culprit has bf = -2 and its right child has bf <= 0. One left rotation lifts the right child and drops the culprit to the left.',
         'Left-Right (LR) case: the culprit has bf = +2, but its left child leans right (bf < 0). The heavy path bends: left then right. A single rotation cannot straighten a zigzag. First rotate the left child leftward to convert the bend into a straight LL path, then rotate the culprit rightward. Two rotations, still O(1).',
         'Right-Left (RL) case: the mirror of LR. The culprit has bf = -2 and its right child leans left. Rotate the right child rightward to straighten into RR, then rotate the culprit leftward.',
+        {type: 'image', src: 'https://visualgo.net/img/tree_rotation.png', alt: 'Right and left tree rotations used to rebalance AVL trees.', caption: 'A rotation preserves sorted order while changing subtree height, which is the whole repair move in AVL. (Source: visualgo.net)'},
         'Insertion needs at most one single or double rotation — fix the first imbalanced ancestor and everything above it falls back into range. Deletion can require O(log n) rotations because removing a node shortens a subtree and can expose imbalance at multiple ancestors on the way up.',
       ],
     },

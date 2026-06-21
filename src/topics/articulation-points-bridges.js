@@ -279,12 +279,14 @@ export const article = {
         'The graph is drawn with labeled nodes and undirected edges. DFS explores from a start node, and each visited node displays two numbers: d (discovery time, when DFS first reached it) and l (low-link, the earliest discovery time reachable from that node\'s subtree through back edges). These two numbers are the entire algorithm.',
         'Highlighted nodes are under active processing. Visited nodes are discovered but not currently expanding. When the algorithm finds a back edge, its target flashes to show that the current node has a shortcut to an ancestor. Articulation points glow as "found" once confirmed. Bridge edges are marked separately.',
         'The key inference: when DFS returns from child u to parent v, compare low[u] against disc[v]. If low[u] >= disc[v], no back edge from u\'s subtree escapes past v, so v is an articulation point. If the inequality is strict (low[u] > disc[v]), the tree edge v-u is a bridge. Watch the low values ripple upward as DFS unwinds.',
+        {type: 'callout', text: 'Disc and low values turn single-failure connectivity into a one-pass escape-route test.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'Every network has failure modes. A router dies, a cable is cut, a server crashes. Some failures are survivable: traffic reroutes and nobody notices. Others split the network in two. An articulation point (cut vertex) is a node whose removal disconnects the graph. A bridge (cut edge) is an edge whose removal does the same. Together, they map every single point of failure in the network.',
+        {type: 'image', src: 'https://he-s3.s3.amazonaws.com/media/uploads/64bb796.png', alt: 'Undirected graph with vertices 0 through 5 before removing cut vertices.', caption: 'This base graph shows the connectivity that articulation points and bridges threaten. (Source: he-s3.s3.amazonaws.com)'},
         'This matters anywhere connectivity matters. Internet backbone operators need to know which routers, if lost, partition the network. Power grid engineers need to know which substation failures island customers. Social scientists study which individuals hold communities together. Circuit designers need to verify that no signal path depends on a single irreplaceable trace. The question is always the same: where is redundancy missing?',
       ],
     },
@@ -292,6 +294,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Test each vertex by deleting it. Remove vertex v from the graph, run BFS or DFS on what remains, and count connected components. If the count increased, v is an articulation point. Do the same for every edge to find bridges.',
+        {type: 'image', src: 'https://he-s3.s3.amazonaws.com/media/uploads/f0f779f.png', alt: 'Graph split into components after removing an articulation vertex.', caption: 'Removing a cut vertex makes the failure mode concrete: one graph becomes disconnected components. (Source: he-s3.s3.amazonaws.com)'},
         'Each connectivity check costs O(V + E). There are V vertices and E edges to test. Total: O(V(V + E)) for articulation points, O(E(V + E)) for bridges. On a 100-node, 300-edge graph, that is about 4 million operations. Perfectly fine for homework.',
       ],
     },
@@ -307,6 +310,7 @@ export const article = {
       paragraphs: [
         'DFS on an undirected graph classifies every edge as either a tree edge (to an unvisited vertex) or a back edge (to an already-visited ancestor). No other type exists: an edge to an already-visited non-ancestor would have been traversed when that non-ancestor was on the stack. This classification is the foundation.',
         'Back edges are bypass routes. A back edge from descendant d up to ancestor a proves there is a path from a to d that avoids the tree edges between them. So the question "can u\'s subtree survive without parent v?" reduces to "does any back edge from u\'s subtree reach above v?" If yes, the subtree has an escape route and v is safe to remove. If no, removing v strands the subtree.',
+        {type: 'image', src: 'https://he-s3.s3.amazonaws.com/media/uploads/f448894.png', alt: 'DFS tree for the same graph with tree edges and back edges.', caption: 'The DFS tree separates tree edges from back edges, which is the structure low-link values summarize. (Source: he-s3.s3.amazonaws.com)'},
         'The low value captures this in one number. low[v] is the minimum discovery time reachable from v\'s subtree via back edges. If low[child] >= disc[parent], every back edge from the child\'s subtree lands on or below the parent. None escapes above, so the parent is an articulation point. If low[child] > disc[parent], the subtree cannot even reach the parent through a back edge, so the tree edge between them is the only connection: a bridge.',
       ],
     },

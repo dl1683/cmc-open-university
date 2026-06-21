@@ -219,6 +219,7 @@ export const article = {
         'A B-Epsilon tree exists because ordinary B-trees have a painful weakness: many small random updates. A B-tree is excellent when searches and range scans dominate. Its high fanout makes the tree shallow, and sorted leaves give clean ordered traversal. But an insert, delete, or update usually has to travel to the target leaf and modify a page near the bottom of the tree. On disk or flash, many independent leaf changes can become many small writes.',
         'The write-optimized question is direct: can an index keep the ordered search shape of a B-tree while batching random updates like a log-structured system? A B-Epsilon tree answers by putting buffers inside internal tree nodes. A user update becomes a message. The message may stop in an upper node, wait with other messages, and later flush downward in a batch.',
         'This is not just a faster implementation trick. It changes the contract of the tree. The logical state is no longer only the values stored at leaves. It includes pending messages stored along the search path. The tree remains ordered, but update application is delayed.',
+        {type: 'callout', text: 'A B-Epsilon tree keeps the search path ordered while turning small random writes into durable messages that move downward in batches.'},
       ],
     },
     {
@@ -243,12 +244,14 @@ export const article = {
         'Each internal node has two jobs. The first job is the familiar B-tree job: separator keys route a search to the correct child range. The second job is buffering: the node can store messages whose keys belong somewhere below that node. A message might mean insert key 52, delete key 17, increment a counter, replace a value, or apply an upsert function.',
         'A write begins at the root. Instead of immediately descending to the leaf, the tree can append the operation to the root buffer. When that buffer becomes large enough, the implementation chooses a child range and flushes all relevant messages for that child downward together. The child may store them in its own buffer or, if the child is a leaf, apply them to leaf entries. One I/O can move many logical updates.',
         'The parameter epsilon describes how node space is divided between pivots and buffers in the theoretical model. More buffer space gives larger batches and lower amortized write cost. More pivot space gives higher fanout and shorter search paths. The name B-Epsilon tree points at that tunable balance, not at one fixed layout.',
+        {type: 'image', src: 'https://image.blocksandfiles.com/116366.webp?format=jpg&height=466&imageId=116366&width=960', alt: 'B-Epsilon tree nodes divided between buffers and pivots.', caption: 'Internal nodes split space between routing pivots and message buffers, making delayed updates part of the tree shape. (Source: blocksandfiles.com)'},
       ],
     },
     {
       heading: 'Lookup and scan semantics',
       paragraphs: [
         'A lookup still follows separator keys from root to leaf, but it cannot trust the leaf alone. A newer message may be sitting in an ancestor buffer. The lookup must combine the base leaf value with messages encountered along the path in the correct order. If the leaf says k=31 has value A and an ancestor buffer contains delete k=31, the visible answer is absent. If a newer upsert is buffered, the answer must apply it.',
+        {type: 'image', src: 'https://gywn.net/img/2014/05/fractal_tree_message.png', alt: 'Fractal-tree style index with buffered update and delete messages.', caption: 'Buffered messages are logical state, so reads must reconcile leaf contents with pending operations on the path. (Source: gywn.net)'},
         'Range scans are also more subtle than in a plain B+ tree. The leaves can still be sorted and linked, which is valuable. But a scan over key range 20 through 80 must account for buffered messages above the leaves that affect keys in that range. Real systems use buffering rules, message ordering, and sometimes flush-before-scan choices to keep range results correct without destroying the write benefit.',
         'This is the central tradeoff: writes get cheaper because work is delayed and batched, but reads now include pending work. A B-Epsilon tree is powerful only if the workload and implementation can afford that reconciliation cost.',
       ],

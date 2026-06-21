@@ -131,6 +131,7 @@ export const article = {
       paragraphs: [
         `Attention exists because sequence models need a flexible way to move information between positions. In language, the useful context for a token is not always next to it. A pronoun may point back several words. A closing parenthesis may depend on an opening one far earlier. A code identifier may need a definition from a previous block.`,
         `A fixed window, convolution, or recurrent state can carry some of that information, but each has a wall. Fixed windows miss distant dependencies. Convolutions need many layers to connect far positions. Recurrent state compresses the past into one moving summary. Attention gives each token a direct, weighted lookup over visible tokens.`,
+        {type: 'callout', text: 'Attention replaces a single compressed past with a direct, weighted lookup over visible token states.'},
       ],
     },
     {
@@ -152,6 +153,7 @@ export const article = {
       paragraphs: [
         `The core insight is content-addressed lookup. Each token creates a query vector. Every visible token creates a key vector and a value vector. The query compares itself with keys, turns those scores into a probability distribution, and uses that distribution to mix values.`,
         `The attention matrix is the visible record of those probabilities. Rows are queries: the tokens doing the looking. Columns are keys: the tokens being looked at. Each row sums to 1 after softmax. In the 3D view, height is attention weight, so a peak shows where one token pulls information from.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png', alt: 'Scaled dot-product attention block with query, key, value, mask, softmax, and output.', caption: 'The block diagram follows the same pipeline the 3D view turns into a terrain: score, mask, normalize, then mix values. (Source: Wikimedia Commons)'},
       ],
     },
     {
@@ -201,6 +203,7 @@ export const article = {
       paragraphs: [
         `Start with the axes. A query row is the token doing the looking; a key column is the token being looked at; height is the attention weight. For any query, the visible row is a probability distribution, so peaks show where that token is pulling information from.`,
         `Read the three landmarks in order: the diagonal ridge is local context, the "it" to "cat" mountain is content lookup across distance, and the causal cliff is the future being masked to zero. The positional-head view is the caution: a different head can ignore meaning and track structure instead, so one attention map is evidence, not a full explanation.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Absolute_positional_encoding.png/250px-Absolute_positional_encoding.png', alt: 'Heatmap-like plot of sinusoidal positional encodings.', caption: 'Positional encoding shows why attention needs extra location signals before the landscape can distinguish order. (Source: Wikimedia Commons)'},
       ],
     },
     {
@@ -213,6 +216,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Attention is the engine of every modern language model: GPT, Claude, Gemini, Llama. It is also the backbone of vision transformers (ViT), where pixels attend to other pixels to build up visual understanding. In machine translation, source-language words attend to target-language words to decide which words translate where. Protein folding (AlphaFold) uses attention to relate amino acids across the sequence, learning which distant positions physically interact. Question-answering systems use attention to fetch relevant context: given a question and a document, attend to the document positions most relevant to answering the question. Any sequence-to-sequence task — transcription, summarization, code generation — runs on attention. Multi-Head Attention multiplies this power: dozens of heads run in parallel, each learning its own terrain. One specializes in syntax (the positional head you saw), one in semantics (the content head), others learn things we do not yet have names for. The model combines all terrains downstream, learning which head matters for which task.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/The-Transformer-model-architecture.png/250px-The-Transformer-model-architecture.png', alt: 'Original Transformer encoder-decoder architecture diagram.', caption: 'The original Transformer diagram places attention heads inside the full encoder-decoder stack. (Source: Wikimedia Commons)'},
       ],
     },
     {
