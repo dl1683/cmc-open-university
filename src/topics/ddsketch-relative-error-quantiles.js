@@ -215,6 +215,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "log buckets" view shows a single DDSketch ingesting latency values. Active nodes mark the current stage of the pipeline: a raw value enters, the logarithmic mapping assigns it a bucket index, and the bucket count increments. Found markers show the quantile answer after a rank walk.',
+        {type: 'callout', text: 'DDSketch turns latency percentiles into a mergeable log-bucket count problem, so p99 rollups can preserve value accuracy without storing raw samples.'},
         'The "merge distributions" view shows three service-level sketches combining into one fleet sketch. Active edges carry bucket counts from each source into the addition step. The found marker is the merged p99, computed from the combined distribution rather than averaged from per-service percentiles.',
         'In both views, compared nodes show state that is relevant context but not the current operation. Watch how bucket width grows with value in the first view, and how merge is just count addition in the second.',
       ],
@@ -224,6 +225,7 @@ export const article = {
       paragraphs: [
         'Monitoring systems need percentiles: p50 for the typical request, p95 for the bad-but-common case, p99 for the slow tail that drives user complaints and SLO breaches. Computing exact percentiles requires storing every observation in sorted order, which is impractical when thousands of hosts each report millions of latency samples per minute.',
         'Approximate quantile sketches solve the storage problem, but most of them (Greenwald-Khanna, KLL) promise rank accuracy: the returned value comes from a rank close to the one you asked for. That is a weaker promise than it sounds. If a distribution has a long tail, a value whose rank is close to p99 can still be far from the true p99 in milliseconds. An SLO that says "p99 latency is under 200 ms" cares about the value, not about whether the answer came from rank 0.989 or 0.991.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Discrete_probability_distribution_illustration.svg/250px-Discrete_probability_distribution_illustration.svg.png', alt: 'Cumulative distribution functions for discrete, continuous, and mixed distributions', caption: 'CDF curves make the rank-to-value translation visible: a tiny rank movement can land on a very different value when the curve is steep. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Discrete_probability_distribution_illustration.svg/250px-Discrete_probability_distribution_illustration.svg.png'},
         'DDSketch, introduced by Masson, Rim, and Lee at Datadog in 2019, changes the contract. It guarantees that the returned quantile value is within a configurable relative error of the true value. For latency monitoring, this is a better fit: the sketch promises "p99 is 204 ms, accurate to within 2%," not "the value at some rank near 0.99 is 204 ms."',
       ],
     },
@@ -246,6 +248,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'DDSketch rests on one structural choice: logarithmic bucket boundaries. Choose a relative accuracy parameter alpha (for example, 0.02 for 2% accuracy). The mapping function assigns each positive value v to bucket index floor(log(v) / log(gamma)), where gamma = (1 + alpha) / (1 - alpha). Every value in a bucket is within a factor of gamma of the bucket representative, which guarantees relative error at most alpha.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/Logarithmic_Scales-mkII.svg/500px-Logarithmic_Scales-mkII.svg.png', alt: 'Comparison of logarithmic and linear graph scales', caption: 'Logarithmic spacing is the geometry behind DDSketch buckets: equal visual steps represent multiplicative value changes. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/Logarithmic_Scales-mkII.svg/500px-Logarithmic_Scales-mkII.svg.png'},
         {
           type: 'diagram',
           label: 'Logarithmic bucket mapping',
@@ -301,6 +304,7 @@ export const article = {
           ],
         },
         'The value-error guarantee is what distinguishes DDSketch from rank-error sketches. When an SLO says "p99 under 200 ms," the operator wants to know the value is close to 200 ms, not that the rank is close to 0.99. DDSketch speaks the language of SLOs directly.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/CDF_plot_with_two_red_rectangles%2C_illustrating_%28-x%29F%28x%29_and_x%281-F%28x%29%29.png/250px-CDF_plot_with_two_red_rectangles%2C_illustrating_%28-x%29F%28x%29_and_x%281-F%28x%29%29.png', alt: 'CDF plot with highlighted rectangles near the tails', caption: 'Tail queries read values from the steep regions of a distribution, which is why the value-error contract matters. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/CDF_plot_with_two_red_rectangles%2C_illustrating_%28-x%29F%28x%29_and_x%281-F%28x%29%29.png/250px-CDF_plot_with_two_red_rectangles%2C_illustrating_%28-x%29F%28x%29_and_x%281-F%28x%29%29.png'},
         'Mergeability is also a strength. Unlike t-digest, which merges by combining centroids with heuristic weight limits, DDSketch merge is exact when sketches share the same mapping. No information is lost. This makes it safe for multi-level rollup: agent to collector to regional aggregator to global dashboard.',
       ],
     },

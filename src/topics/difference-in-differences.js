@@ -155,6 +155,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Difference-in-Differences. Subtract across time to kill place effects, subtract across places to kill time effects: a known policy effect recovered live, plus the parallel-trends bet..",
+        {type: "callout", text: "DiD is a causal design for borrowing a control group trend, not just an arithmetic trick with four averages."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -164,6 +165,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `Policy questions often arrive without random assignment. One state raises a minimum wage. One school district changes funding. One hospital adopts a protocol. One platform rolls out a rule to some users first. The analyst wants the causal effect, but the treated group was not chosen by a coin flip.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/Illustration_of_Difference_in_Differences.png/330px-Illustration_of_Difference_in_Differences.png`, alt: `Difference-in-differences plot with treated control and counterfactual lines`, caption: `The DiD estimand is the vertical gap between observed treated-after outcome and the parallel-trend counterfactual. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/Illustration_of_Difference_in_Differences.png/330px-Illustration_of_Difference_in_Differences.png`},
         `A raw before/after comparison is tempting because it follows the treated group over time. A raw treated/control comparison is tempting because it compares the treated group with an untreated group. Both can be badly wrong. The before/after comparison mixes the policy with everything else that changed over time. The treated/control comparison mixes the policy with permanent differences between places, firms, people, or markets.`,
         `Difference-in-differences, usually shortened to DiD, solves one common version of that problem. It uses two subtractions: one across time and one across groups. The first subtraction removes fixed group differences. The second subtraction removes shared time shocks. If the control group's untreated trend is a valid stand-in for the treated group's missing untreated trend, the remaining difference is the policy effect.`,
       ],
@@ -180,6 +182,7 @@ export const article = {
       heading: `The wall`,
       paragraphs: [
         `The wall is the missing counterfactual. We observe New Jersey after the policy. We do not observe New Jersey after the same date without the policy. Causal inference is the discipline of building a defensible replacement for that missing timeline.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/Parallel_Trend_Assumption.png/330px-Parallel_Trend_Assumption.png`, alt: `Parallel trend assumption diagram with observed and assumed counterfactual lines`, caption: `Parallel trends is the claim that the control slope can stand in for the unobserved treated-without-treatment slope. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/Parallel_Trend_Assumption.png/330px-Parallel_Trend_Assumption.png`},
         `A control group is useful only if it supplies the right missing change. DiD does not require the treated and control groups to have the same level. That is the important mental shift. Permanent differences can be large and still cancel. What DiD requires is that, without treatment, the treated group would have changed by the same amount as the control group. This is the parallel-trends assumption.`,
         `Parallel trends is untestable exactly where it matters because the untreated treated outcome after treatment is never observed. Pre-policy trends can make the assumption more credible. They cannot prove it. Every DiD design is an argument that the control group's slope deserves to be borrowed.`,
       ],
@@ -196,6 +199,7 @@ export const article = {
       heading: `Worked example`,
       paragraphs: [
         `The visualization uses a synthetic world shaped like the famous Card and Krueger minimum-wage study. New Jersey is treated. Pennsylvania is the control. New Jersey starts lower than Pennsylvania, so a simple cross-section would be misleading. Both states also face a shared soft economy, so a simple before/after comparison would be misleading.`,
+        {type: `image`, src: `https://finshots.in/images/blog/davidcard.jpg`, alt: `Portrait of economist David Card`, caption: `David Card shared the 2021 economics Nobel for empirical labor-economics work including natural-experiment designs. Source: https://finshots.in/images/blog/davidcard.jpg`},
         `In the synthetic numbers, New Jersey goes from 78 before to 77 after, a change of -1. Pennsylvania goes from 92 before to 88 after, a change of -4. The before/after estimate for New Jersey alone says employment fell by 1. That is not the policy effect in this synthetic world because the economy also moved. The after-only comparison says New Jersey is 11 below Pennsylvania. That is not the policy effect either because New Jersey started lower.`,
         `DiD compares the changes: (-1) - (-4) = +3. Pennsylvania's -4 stands in for the recession. New Jersey's -1 contains recession plus policy. Subtracting the Pennsylvania change removes the shared recession and leaves the policy effect built into the example. The line plot shows the same calculation visually: start at New Jersey's before value, apply Pennsylvania's slope to build the untreated New Jersey counterfactual, and measure the vertical gap to New Jersey's actual after value.`,
       ],

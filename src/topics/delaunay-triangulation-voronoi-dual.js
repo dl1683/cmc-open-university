@@ -225,7 +225,9 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A Delaunay triangulation connects planar points into triangles such that no input point lies strictly inside the circumcircle of any triangle. Its dual is the Voronoi diagram: each site owns the region of points closer to it than to any other site.',
+        {type: 'callout', text: 'Delaunay and Voronoi are the same neighborhood structure read from opposite sides: one as legal triangles, the other as nearest-site regions.'},
         'These structures exist because many spatial problems need a disciplined way to turn scattered points into local neighborhoods. Terrain models need triangles for interpolation. Mesh generators need triangles that do not become numerically awful. Nearest-site systems need a partition of space into regions. Delaunay and Voronoi are two linked answers to those needs.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/56/Delaunay_Voronoi.svg', alt: 'Delaunay triangulation overlaid with its Voronoi diagram', caption: 'Black Delaunay edges and red Voronoi boundaries expose the primal-dual relationship directly. Source: https://upload.wikimedia.org/wikipedia/commons/5/56/Delaunay_Voronoi.svg'},
         'The important point is that this is not just drawing pretty triangles. The triangulation becomes a topology: which points are neighbors, which triangles share an edge, which region a query point belongs to, and where local changes can be repaired without rebuilding the whole world.',
       ],
     },
@@ -233,6 +235,7 @@ export const article = {
       heading: 'The obvious approach and the wall',
       paragraphs: [
         'The obvious way to triangulate points is to connect non-crossing edges until the convex hull is filled. That produces a triangulation, but almost any point set has many possible triangulations. Some have long, skinny triangles that make interpolation unstable, finite-element meshes weak, and geometric predicates fragile.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1f/Delaunay_circumcircles_centers.svg', alt: 'Delaunay triangulation with circumcircles and circumcenters', caption: 'The circumcircle test is the local legality check that separates Delaunay topology from arbitrary triangulation. Source: https://upload.wikimedia.org/wikipedia/commons/1/1f/Delaunay_circumcircles_centers.svg'},
         'The wall is that triangle quality is not purely about one triangle. A triangle can look acceptable by itself while a neighboring point makes its circumcircle illegal. The Delaunay condition turns the vague desire for "good triangles" into a local geometric test that can be checked and repaired.',
         'For nearest-site regions, the obvious approach is to compare a query point against every site. That works for one query, but it throws away all preprocessing. A Voronoi diagram precomputes the regions where each site wins, so a point-location structure can answer nearest-site questions by finding the cell.',
       ],
@@ -284,6 +287,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'It wins in terrain models, surface interpolation, finite-element preprocessing, nearest-neighbor region sketches, geographic partitioning, game-map generation, and geometric cleanup where local neighborhoods matter. It is especially useful when you need both a triangle mesh and a meaningful adjacency graph.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d9/Voronoi_growth_euclidean.gif', alt: 'Animated Voronoi cells growing from seed points under Euclidean distance', caption: 'Voronoi cells can be read as simultaneous nearest-site growth, which makes the region ownership intuition concrete. Source: https://upload.wikimedia.org/wikipedia/commons/d/d9/Voronoi_growth_euclidean.gif'},
         'A terrain system is a clean case. Given elevation samples, it builds a triangulated irregular network. Delaunay avoids many skinny triangles, so interpolation across triangle faces behaves better. A derived Voronoi diagram can then explain which sample owns which region or support natural-neighbor interpolation.',
       ],
     },

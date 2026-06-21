@@ -208,6 +208,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'Multi-Head Latent Attention, or MLA, is the attention design highlighted in DeepSeek-V2. Instead of storing full per-head keys and values for every past token, the model stores a compact latent KV vector. Learned projections reconstruct the key and value information used by the attention heads when a new token is decoded.',
+        {type: 'callout', text: 'MLA makes the KV cache a learned compressed artifact, trading reconstruction compute for fewer resident bytes per token.'},
         'This topic belongs next to KV Cache because MLA changes the cache object itself. A normal multi-head attention cache stores many key and value vectors per token. MLA stores a lower-dimensional latent representation and spends extra projection work to recover attention inputs. The tradeoff is memory for computation and architectural complexity.',
       ],
     },
@@ -215,6 +216,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The obvious serving approach is to keep the exact KV cache produced by ordinary multi-head attention and optimize around it. Paged KV memory, quantized cache storage, continuous batching, and better kernels can all help without changing the model architecture.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Multiheaded_attention%2C_block_diagram.png', alt: 'Block diagram of multi-headed attention with separate key value and query projections', caption: 'Standard multi-head attention keeps separate projected views for each head, which is the baseline cache shape MLA compresses. Source: https://upload.wikimedia.org/wikipedia/commons/d/d2/Multiheaded_attention%2C_block_diagram.png'},
         'That approach eventually hits a memory wall. Long contexts and large batches make cache bandwidth and capacity dominate decode economics. Every generated token has to read attention state for prior tokens, so the cache becomes a first-class serving object rather than incidental model scratch space.',
       ],
     },
@@ -236,6 +238,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A hidden state is compressed through a down-projection into a latent KV vector. That latent vector is cached. At decode time, up-projections turn it into the key and value information needed by attention heads. The query path must also preserve position information, often with careful treatment of RoPE-related dimensions, because long-context attention cannot lose track of order.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png', alt: 'Transformer attention block diagram with scaled dot-product attention', caption: 'The attention block still consumes queries, keys, and values; MLA changes how cached key and value information is stored before that block runs. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png'},
         'The important data-structure idea is that the cache is no longer raw material. It is a compressed representation with a reconstruction contract. Like a B-tree page, a product-quantized vector, or an LSM compaction artifact, the format is chosen to make the downstream workload cheaper.',
       ],
     },
@@ -257,6 +260,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'MLA works when the learned latent space preserves the attention information that would otherwise be stored redundantly across heads. The projections learn how to recover head-specific key and value views from a shared compact state.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Absolute_positional_encoding.png/250px-Absolute_positional_encoding.png', alt: 'Heatmap of sinusoidal positional encoding dimensions', caption: 'Position information is not optional in long-context attention; compressed cache formats still need a route for order-sensitive signals. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Absolute_positional_encoding.png/250px-Absolute_positional_encoding.png'},
         'The design is plausible because serving does not need the cache to be human-readable or exact in the ordinary MHA format. It needs the cache to support the next-token computation well. If the learned representation supports that computation with fewer bytes, the architecture has changed the system bottleneck.',
       ],
     },

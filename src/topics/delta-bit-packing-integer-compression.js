@@ -237,6 +237,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Search engines, column stores, graph systems, and time-series databases move enormous integer arrays through CPU caches. Raw 32-bit or 64-bit values waste bandwidth when the values are sorted, nearby, or regularly spaced. Delta bit-packing exists to make those arrays smaller without making query-time decoding slow.',
+        {type: 'callout', text: 'Delta bit-packing wins by turning smooth integer runs into narrow local codes that fit the memory hierarchy better than raw machine words.'},
         'The central resource is memory bandwidth. If a query can read half as many bytes and decode them predictably, it may run faster even after paying CPU instructions for unpacking. Compression and execution are part of the same design.',
       ],
     },
@@ -244,6 +245,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The first approach stores each integer in a machine word. That is simple and supports direct indexing. It becomes wasteful for sorted document ids, timestamps, offsets, dictionary codes, and adjacency lists whose local gaps are much smaller than their absolute values.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Rotate_left_logically.svg/250px-Rotate_left_logically.svg.png', alt: 'Bit positions moving through a logical rotate operation', caption: 'Packed codecs live at the bit-position level: shifts, masks, and lane movement replace wasteful fixed-width storage. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Rotate_left_logically.svg/250px-Rotate_left_logically.svg.png'},
         'The opposite approach is to use a general compressor around the whole file. That may save space at rest, but it often forces large decompression units and does not give the query engine cheap access to the next block of ids or timestamps.',
       ],
     },
@@ -272,6 +274,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'For frame-of-reference, store a base such as the block minimum and replace x with x - base. If the largest offset is 14, every offset fits in 4 bits. For deltas, store the first value and then gaps. Patched schemes keep a small main width and store outlier positions plus extra bits separately.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg', alt: 'Row-major and column-major memory layout diagrams', caption: 'Memory layout matters because packed integer blocks are designed to be decoded in cache-friendly contiguous runs. Source: https://upload.wikimedia.org/wikipedia/commons/4/4c/Row_and_column_major_order.svg'},
         'The decoder reverses a tiny contract: decode codes at the block width, restore exceptions if the format has them, then add the base or compute the prefix sum. Search systems design that contract around the query path because decoded integers often feed intersections, filters, joins, or vectorized scans immediately.',
       ],
     },
@@ -279,6 +282,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'Sorted or locally smooth sequences have lower entropy after differencing or base subtraction. Bit-packing then removes unused high bits while preserving exact reconstruction: add the base back, or take the running sum of deltas. Exceptions keep one large value from forcing the whole block to a wasteful width.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/0...15_AND.svg/250px-0...15_AND.svg.png', alt: 'Bitwise AND operation over four-bit values from zero to fifteen', caption: 'Masks are the decoder counterpart to packing: they recover fixed-width fields from dense bit streams. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/0...15_AND.svg/250px-0...15_AND.svg.png'},
         'It also works with CPU architecture. Packed blocks use straight-line shifts and masks, often vectorized. The best implementations are designed so the decoder can run in tight loops with few unpredictable branches.',
       ],
     },

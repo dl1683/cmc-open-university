@@ -187,7 +187,9 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A renderer must decide which surface is visible at each pixel. In a 3D scene, triangles overlap constantly, and the order in which the CPU submits triangles is rarely the same as the visible order on screen.',
+        {type: 'callout', text: 'The depth buffer turns hidden-surface removal into a local per-pixel competition instead of a global sorting problem.'},
         'The depth buffer is the per-pixel data structure that makes this local. Instead of globally sorting every triangle, the GPU lets each fragment compete against the current stored depth at its pixel.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Z_buffer.svg/250px-Z_buffer.svg.png', alt: 'Z-buffer diagram showing nearest visible surfaces selected by depth', caption: 'A z-buffer keeps the nearest accepted depth at each pixel, so later fragments can be rejected locally. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Z_buffer.svg/250px-Z_buffer.svg.png'},
         'That turns hidden-surface removal into a simple repeated rule: if the candidate fragment is closer than the value already stored, it can become visible; otherwise it is hidden.',
       ],
     },
@@ -218,6 +220,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A render pipeline configures a depth/stencil format, a depth compare operation, and whether passing fragments write depth. A render pass attaches a depth texture. Rasterization generates fragments, each with a depth value in the chosen convention.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/e1/Cubic_Frame_Stucture_and_Floor_Depth_Map.jpg', alt: 'Cubic frame structure and floor beside a rendered depth map', caption: 'Depth maps expose the same scene as distances rather than colors, which is exactly the information the z-test consumes. Source: https://upload.wikimedia.org/wikipedia/commons/e/e1/Cubic_Frame_Stucture_and_Floor_Depth_Map.jpg'},
         'The GPU compares the fragment depth with the stored depth at the same sample. If the comparison passes, the fragment may write color and update depth. If it fails, it is hidden by a previously accepted fragment.',
         'Compare modes depend on projection convention. Normal depth often uses less or less-equal. Reversed-Z pipelines commonly use greater with floating-point depth to improve precision distribution.',
       ],
@@ -258,6 +261,7 @@ export const article = {
       heading: 'Debugging symptoms',
       paragraphs: [
         'If objects flicker where surfaces overlap, suspect z-fighting or poor depth precision. If everything disappears, check clear value, compare function, depth write enable, projection convention, and whether the depth attachment is actually bound. If transparent objects look wrong, check sorting and blend order before blaming the z-test.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/02/Cubic_Structure_and_Floor_Depth_Map_with_Front_and_Back_Delimitation.jpg', alt: 'Cubic structure depth map with front and back delimitation', caption: 'Visualizing front and back depth ranges makes precision and clipping mistakes easier to see than in the color buffer. Source: https://upload.wikimedia.org/wikipedia/commons/0/02/Cubic_Structure_and_Floor_Depth_Map_with_Front_and_Back_Delimitation.jpg'},
         'Depth visualization is one of the fastest debugging tools. Rendering depth as grayscale or linearized depth can reveal a bad near plane, reversed convention mismatch, or a pass that failed to write depth at all.',
       ],
     },

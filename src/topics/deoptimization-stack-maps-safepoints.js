@@ -139,6 +139,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Optimizing runtimes get speed by specializing code for what usually happens. A JavaScript JIT may assume a property load is monomorphic, a value is a small integer, a call target is stable, or an object allocation never escapes.',
+        {type: 'callout', text: 'Speculative optimized code is only safe when every exit point carries enough metadata to rebuild the lower-tier state.'},
         'Those assumptions are allowed only if the runtime can recover when they stop being true. Deoptimization is the recovery path: optimized code leaves the fast tier, reconstructs a lower-tier execution state, and continues with correct language semantics.',
         'Stack maps and safepoints are the metadata that make that recovery precise. They tell the runtime where live values and object references are at selected machine-code addresses.',
       ],
@@ -154,6 +155,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'Optimized machine code does not naturally preserve interpreter state. Register allocation moves values. Constant folding removes values. Inlining removes physical frames. Escape analysis can replace an object with a few scalar registers.',
+        {type: 'image', src: 'https://v8.dev/_img/turbofan-jit/example-graph.png', alt: 'TurboFan intermediate representation graph with control value and effect edges', caption: 'Optimizing compilers can reshape code into graph IR; deoptimization metadata is the map back from that optimized shape to runtime state. Source: https://v8.dev/_img/turbofan-jit/example-graph.png'},
         'A raw machine stack is therefore not enough. When a guard fails, the runtime needs compiler-generated metadata that says which logical values are still needed, where those values live, and how to rebuild the frame shape expected by the lower tier.',
         'Precise garbage collection has the same problem in another form. The collector must know which machine words are object references. It cannot safely guess from arbitrary register and stack contents.',
       ],
@@ -170,6 +172,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'During compilation, the optimizer inserts guards for assumptions. It also records deoptimization metadata at guard exits and other safepoints. The metadata maps the current machine program counter to logical values: registers, stack slots, constants, tagged pointers, or values that must be materialized.',
+        {type: 'image', src: 'https://v8.dev/_img/maglev/graph.svg', alt: 'Maglev SSA graph printed on the command line', caption: 'SSA values need concrete recovery locations before optimized code can safely bail out. Source: https://v8.dev/_img/maglev/graph.svg'},
         'When a guard fails, optimized code transfers control to runtime support. The runtime looks up the deopt id or safepoint entry, reads the live values from their recorded locations, reconstructs any inlined frames and eliminated objects, invalidates or patches optimized code if needed, and resumes in the interpreter or a baseline tier.',
         'For GC, a safepoint lets the collector scan roots precisely. The stack map says which registers and stack slots hold object references. Non-reference words are ignored instead of being treated as possible pointers.',
       ],
@@ -202,6 +205,7 @@ export const article = {
       heading: 'Cost and tradeoffs',
       paragraphs: [
         'The steady-state cost is metadata size, guard checks, safepoint placement constraints, compiler bookkeeping, and occasional runtime transitions. The uncommon path cost is larger: reconstruct frames, materialize objects, patch or discard optimized code, and resume in a lower tier.',
+        {type: 'image', src: 'https://v8.dev/_img/maglev/compile-time.svg', alt: 'Compile time comparison across V8 compilation tiers', caption: 'Tiered runtimes balance compile cost against optimized execution time, and deoptimization is the escape hatch that makes early promotion tolerable. Source: https://v8.dev/_img/maglev/compile-time.svg'},
         'When code behavior is stable, deoptimization metadata is insurance. It sits mostly unused while optimized code runs fast. When assumptions fail often, the program can thrash between tiers and spend real time rebuilding frames.',
         'The metadata grows with the number of safepoints and the number of live values that matter at each point. More precise maps improve GC and deopt correctness, but they increase code object size and make compiler pipelines more complex.',
         'Safepoint placement is a tradeoff. Too few safepoints can delay GC or make exits hard to express. Too many safepoints increase metadata and restrict optimization around calls, loops, and allocation points.',

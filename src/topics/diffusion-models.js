@@ -14,6 +14,7 @@ export const topic = {
   run,
 };
 
+
 function labelMatrix(title, rows, columns, labelsByRow) {
   const labels = [''];
   const codes = new Map([['', 0]]);
@@ -165,6 +166,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         `The forward-noising view starts with a clean 5x5 matrix representing an image -- a diamond pattern where high values form the shape and low values sit at the edges. Each frame adds more Gaussian noise. Active cells (highlighted) show where the noise perturbation is largest right now. Found cells mark values that still resemble the original pattern. Watch the diamond dissolve: that dissolution is the forward process, and the model's entire job is to learn how to reverse it.`,
+        {type: `callout`, text: `Diffusion turns generation into many supervised denoising steps, so the model learns the reverse path from noise back to data.`},
         `The reverse-denoising view starts from near-pure noise and runs backward. Active cells show where the denoiser is making its largest corrections. Found cells mark values that have converged close to the clean target. The training table highlights the denoiser and loss rows as found because those are the learned components; the input and timestep rows are active because they are given conditioning, not learned.`,
         `At each frame, ask two questions: how much original structure survives at this noise level, and what kind of prediction must the denoiser make -- fine texture cleanup (low noise) or coarse structure inference (high noise)?`,
       ],
@@ -173,6 +175,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Generating realistic images means sampling from a distribution over hundreds of thousands of pixel values where almost every possible combination is meaningless noise. The model must produce outputs that are both diverse (not memorized copies) and plausible (not blur or nonsense). Sohl-Dickstein et al. (2015) proposed a thermodynamic solution: destroy data gradually with a known noising process, then train a neural network to reverse the destruction one small step at a time. The idea languished because the original formulation was expensive and the results were modest.`,
+        {type: `image`, src: `https://lilianweng.github.io/posts/2021-07-11-diffusion-models/diffusion-example.png`, alt: `Forward and reverse diffusion examples showing data gradually becoming noise and being denoised`, caption: `The core picture is gradual corruption followed by a learned reverse path, not one-shot decoding from a latent vector. Source: https://lilianweng.github.io/posts/2021-07-11-diffusion-models/diffusion-example.png`},
         `Ho et al. (2020) made it practical with DDPM -- Denoising Diffusion Probabilistic Models. They showed that a U-Net trained with a simple mean-squared-error loss on predicted noise, conditioned on timestep, produces samples that rival GANs without adversarial training. Song et al. (2021) unified diffusion models with score-based generative modeling through stochastic differential equations (SDEs), revealing that DDPM, score matching, and Langevin dynamics are different views of the same underlying process: learning the score function -- the gradient of the log probability density, which points from any noisy location toward the nearest data.`,
       ],
     },
@@ -195,6 +198,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `Diffusion creates its own supervision. Take a real image x0. Pick a random timestep t. Add noise at the level prescribed by a fixed schedule to produce xt. Because training created the noisy example, it knows the exact noise that was added. The denoiser predicts that noise (epsilon-prediction), and the loss is the mean squared error between predicted and actual noise. Every training pair is synthetic, every gradient is local, and every noise level gets its own supervised task.`,
+        {type: `image`, src: `https://lilianweng.github.io/posts/2021-07-11-diffusion-models/DDPM.png`, alt: `DDPM graphical model showing forward noising and reverse denoising chains`, caption: `DDPM frames generation as a Markov chain with a fixed forward process and learned reverse transitions. Source: https://lilianweng.github.io/posts/2021-07-11-diffusion-models/DDPM.png`},
         `Generation becomes learned reverse thermodynamics: a known corruption path from data to noise (forward), and a learned path from noise back to data (reverse). The network learns the score function -- the gradient of the log data density, written as the nabla of log p(x). At any point in the noisy space, the score points toward higher-probability regions. Following the score iteratively moves a noisy sample toward the data manifold. Score matching (Hyvarinen 2005, Song and Ermon 2019) showed how to estimate this gradient without knowing the normalizing constant of p(x). DDPM's epsilon-prediction is equivalent to score estimation: predicting the noise epsilon is the same as estimating the score, up to a scaling factor that depends on the noise level.`,
       ],
     },
@@ -202,6 +206,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         `The forward process adds Gaussian noise over T timesteps. The noisy version at step t is x_t = sqrt(alpha_bar_t) * x0 + sqrt(1 - alpha_bar_t) * epsilon, where epsilon is standard Gaussian noise and alpha_bar_t is the cumulative product of the noise schedule. The reparameterization trick means any noise level can be reached in one jump from x0 -- no need to simulate each intermediate step during training.`,
+        {type: `image`, src: `https://lilianweng.github.io/posts/2021-07-11-diffusion-models/generative-overview.png`, alt: `Overview comparing generative modeling approaches including GAN VAE flow and diffusion`, caption: `Diffusion sits beside GANs, VAEs, and flows as a distinct generative path: iterative denoising rather than adversarial scoring or direct latent decoding. Source: https://lilianweng.github.io/posts/2021-07-11-diffusion-models/generative-overview.png`},
         `The noise schedule controls how fast information is destroyed. DDPM used a linear schedule where beta increases from 0.0001 to 0.02 across 1,000 steps; this destroys signal too quickly in early steps. Nichol and Dhariwal (2021) introduced a cosine schedule that spreads destruction more evenly and preserves useful structure longer. The schedule choice matters because it determines how much of each denoising step is fine detail work versus coarse structure inference.`,
         `Training: sample a random image x0, random timestep t, and random noise epsilon. Create x_t with the reparameterization formula. Feed (x_t, t) into a U-Net. Compute MSE between the predicted noise and the actual epsilon. No adversary, no reconstruction bottleneck. The model trains on millions of independent (x_t, t, epsilon) triples.`,
         `Sampling: start from pure Gaussian noise x_T. At each step, the U-Net predicts epsilon_theta(x_t, t). The sampler subtracts a scaled version of that prediction and optionally adds fresh noise to produce x_{t-1}. Repeat for T steps. The original DDPM sampler is stochastic and requires all 1,000 steps. Song et al. (2021) introduced DDIM, which reinterprets the same trained model as defining a deterministic ODE trajectory. Because the ODE is smooth, DDIM can skip timesteps and produce good samples in 20-50 steps. Same model, same weights -- only the sampler changes. DPM-Solver and consistency models push further toward single-step generation.`,
@@ -257,4 +262,3 @@ export const article = {
     },
   ],
 };
-
