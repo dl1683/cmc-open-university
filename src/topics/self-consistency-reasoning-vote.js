@@ -226,6 +226,7 @@ export const article = {
       paragraphs: [
         'A single chain-of-thought can sound confident while making an early mistake. If the model commits to one path, the whole answer inherits that path\'s arithmetic error, missing fact, or bad assumption.',
         'Self-consistency exists to make reasoning less brittle at decoding time. Instead of trusting one path, sample several paths and choose the final answer that appears most consistently.',
+        {type: 'callout', text: 'Self-consistency improves a decode by voting over final answers, but the vote is only useful when sampled errors are diverse.'},
       ],
     },
     {
@@ -246,6 +247,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Treat final answers as buckets and reasoning paths as noisy evidence. The implementation can be a hash map from normalized answer to count or weighted score.',
+        {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/2203.11171/assets/x1.png', alt: 'Self-consistency overview sampling multiple reasoning paths and marginalizing final answers', caption: 'The method samples diverse reasoning paths, then chooses the answer bucket with the strongest support. Source: ar5iv rendering of Wang et al., 2022.'},
         'If independent paths converge, the answer has more support than a single trace. If paths split, disagreement becomes a routing signal for verification, retrieval, a calculator, or human review.',
       ],
     },
@@ -275,6 +277,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         'The cost scales roughly with the number of samples. Answer normalization can be surprisingly important: 11, eleven, and "there are 11 balls" should map to the same bucket when the task allows it.',
+        {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/2203.11171/assets/x2.png', alt: 'Self-consistency accuracy rising with more sampled reasoning paths on MultiArith', caption: 'Sampling more paths can improve accuracy on some reasoning benchmarks, but every added sample spends more inference budget. Source: ar5iv rendering of Wang et al., 2022.'},
         'The biggest failure mode is correlated error. Self-consistency is evidence, not proof.',
       ],
     },

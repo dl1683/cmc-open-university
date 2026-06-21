@@ -249,12 +249,14 @@ export const article = {
         'The chmin update view walks through a range chmin(6) operation on a small tree. Each node displays four fields: sum, max1, max2 (strict second maximum), and max count. Active highlights mark the fields that decide whether the node can handle the update locally. Found highlights mark the sum field, which is the query output that must stay correct without opening children.',
         'Watch for the moment a node stops instead of recursing. That stop is the whole point of Beats: the cap lies between max1 and max2, so only the top-layer values change, and the node can compute the exact sum adjustment in O(1). If the cap is at or below max2, the highlight moves downward because the parent lacks enough information.',
         'The amortized view explains why expensive descents do not accumulate into bad total cost. When a descent happens, it collapses value layers inside children, which means future caps encounter less diversity and stop higher. The potential argument tracks total distinct-maximum changes across all nodes, not per-operation worst case.',
+        {type: 'callout', text: 'Beats is lazy propagation with a certificate: max2 proves when a conditional cap only touches the current top value layer.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'A lazy segment tree handles range add and range assign elegantly because every element in a covered segment changes the same way. One tag captures the whole transformation. Range chmin(x) -- replace each a[i] with min(a[i], x) -- breaks that uniformity. Values above x change. Values at or below x do not. Inside one covered segment, the update is selective.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d1/Segment_tree.svg', alt: 'Segment tree diagram with interval nodes arranged as a binary tree', caption: 'Beats keeps the segment-tree interval skeleton but adds max and second-max certificates to each node. Source: Wikimedia Commons, Cafce25, CC BY-SA 4.0.'},
         'Ji (2016) introduced the "Segment Tree Beats" technique (the name comes from the Chinese competitive programming community) to handle chmin and chmax alongside sum queries without descending to every leaf. The key idea: augment each node with enough metadata -- specifically the strict second maximum -- so the tree can recognize when a conditional cap affects only the current top value layer, and stop.',
         {
           type: 'quote',
@@ -339,13 +341,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Structure', 'Range chmin + sum', 'Amortized per op', 'Extra node fields', 'Implementation difficulty'],
-          rows: [
-            ['Lazy segment tree', 'Not supported', '--', 'lazy tag only', 'Low'],
-            ['Segment Tree Beats', 'Supported', 'O(log^2 n)', 'max1, max2, maxCount', 'High'],
-            ['Chtholly tree (ODT)', 'Supported (assign-heavy)', 'O(n) worst case, fast with random data', 'None (interval set)', 'Low'],
-            ['Brute force', 'Supported', 'O(n)', 'None', 'Trivial'],
+          type: 'bullets',
+          items: [
+            'Lazy segment tree: supports uniform updates cleanly, but range chmin plus sum is not supported with a simple tag.',
+            'Segment Tree Beats: supports range chmin plus sum with O(log^2 n) amortized work by storing max1, max2, and maxCount, at high implementation cost.',
+            'Chtholly tree or ODT: can support assign-heavy conditional updates with simple interval sets, but keeps an O(n) worst case and relies on favorable data.',
+            'Brute force: supports every update by visiting every affected value, but costs O(n) per large range update.',
           ],
         },
         'Space is O(n), same shape as any segment tree, but each node carries heavier metadata. The constant factor is roughly 3-4x a plain lazy tree in both memory and code volume. For the full variant supporting chmin + chmax + add + sum, each node stores max1, max2, maxCount, min1, min2, minCount, sum, and separate lazy tags for caps and additions.',
@@ -385,14 +386,13 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'Segment Tree with lazy propagation -- you must understand push/pull and tag composition before Beats adds a second tag layer'],
-            ['Prerequisite', 'Amortized analysis -- the potential method is essential to understanding why Beats is not O(n) per operation'],
-            ['Extension', 'Li Chao Tree -- another segment tree variant for a different problem shape (convex hull trick / line container)'],
-            ['Alternative', 'Chtholly Tree (ODT) -- interval-assign structure that handles assign-heavy workloads with simpler code but no worst-case guarantee'],
-            ['Practice', 'Historical maximum queries -- extend Beats with a second lazy tag layer to track all-time maxima'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Segment Tree with lazy propagation -- understand push, pull, and tag composition before Beats adds a second metadata layer.',
+            'Prerequisite: Amortized analysis -- the potential method explains why Beats is not O(n) per operation over a sequence.',
+            'Extension: Li Chao Tree -- another segment-tree variant for line containers and convex-hull-trick workloads.',
+            'Alternative: Chtholly Tree or ODT -- interval-assign structure for assign-heavy workloads with simpler code but no worst-case guarantee.',
+            'Practice: Historical maximum queries -- extend Beats with a second lazy-tag layer to track all-time maxima.',
           ],
         },
       ],

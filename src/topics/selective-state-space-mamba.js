@@ -227,6 +227,7 @@ export const article = {
       paragraphs: [
         'Selective State Space Models, popularized by Mamba, are sequence models that try to keep the long-context efficiency of recurrent systems while recovering some of the content-aware behavior that made Attention Mechanism powerful. Instead of storing every previous token in a KV Cache, an SSM maintains a compact hidden state. Each new token updates that state and produces an output.',
         'The Mamba contribution is selectivity: the state update parameters depend on the input token. That lets the model decide which information to preserve, overwrite, or ignore. The paper also introduces a hardware-aware selective scan so training can be efficient on accelerators even though the model has recurrent structure.',
+        {type: 'callout', text: 'Mamba treats memory as fixed-size state with input-controlled writes, so length grows linearly while recall becomes a compression problem.'},
       ],
     },
     {
@@ -240,6 +241,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is selectivity. A sequence model should not write every token into memory the same way. Some tokens should update long-lived state. Some should be ignored. Some should overwrite stale information. In Mamba, the parameters governing the state update are functions of the input, so the model gets a learned content-dependent memory policy.',
+        {type: 'image', src: 'https://arxiv.org/html/2312.00752/x1.png', alt: 'Mamba paper overview of selective state space computation and hardware-aware scan', caption: 'The Mamba overview ties the algorithmic move to the systems move: input-dependent state parameters need a scan that avoids materializing huge state tensors. Source: arXiv HTML for Gu and Dao, 2023.'},
         'The second insight is implementation. A recurrence that is elegant on paper can be slow on GPUs if it cannot be parallelized. Mamba uses a hardware-aware selective scan so the recurrent computation can be trained efficiently. The algorithmic idea and the kernel design belong together.',
       ],
     },
@@ -254,6 +256,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A classical state space layer has equations like state update and output projection: the current input changes the state, and the state produces the output. Structured State Space models made this efficient and stable for long sequences. Mamba changes the parameters of the recurrence as a function of the input, so different tokens can have different memory behavior.',
+        {type: 'image', src: 'https://arxiv.org/html/2312.00752/x3.png', alt: 'Mamba block architecture combining gated projections and a selective SSM branch', caption: 'The block diagram shows why Mamba is an architecture, not only a recurrence equation: projections, gates, SSM state, normalization, and residual flow all set the memory contract. Source: arXiv HTML for Gu and Dao, 2023.'},
         'This creates two useful execution views. During inference, the model can run recurrently with a fixed-size state, which is attractive for streaming and long contexts. During training, a scan algorithm parallelizes the recurrence enough to use accelerator hardware well. That dual view is why the topic belongs beside Transformer Inference Roofline and LLM Serving: PagedAttention.',
       ],
     },

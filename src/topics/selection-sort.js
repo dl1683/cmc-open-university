@@ -74,12 +74,14 @@ export const article = {
         'The array is divided by a moving boundary. Everything left of the boundary is sorted and final. Everything to the right is unsorted.',
         'Each round, a scan sweeps the unsorted zone from left to right. The highlighted element is the current minimum candidate. When the scan finds something smaller, the candidate marker jumps. After the scan finishes, one swap moves the winner to the boundary, and the boundary advances one position.',
         'Watch three things: the scan always visits every unsorted element (no early exit), each round produces at most one swap, and no element left of the boundary ever moves again.',
+        {type: 'callout', text: 'Selection sort trades adaptability for a hard write bound: every round proves one final slot with one scan and at most one swap.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'Sorting can be framed as repeated selection: which value belongs in position 0? Find it, place it, move on to position 1. Selection sort is the simplest algorithm built on that idea.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/94/Selection-Sort-Animation.gif', alt: 'Animated selection sort moving the smallest remaining value into the sorted prefix', caption: 'Selection sort makes the sorted prefix grow one confirmed value at a time. Source: Wikimedia Commons, Joestape89, CC BY-SA 3.0 and GFDL.'},
         'Its distinguishing property is write efficiency. Each round performs at most one swap, so an n-element array is sorted with at most n-1 swaps. That is the minimum number of swaps any sort can guarantee. When writes are expensive -- flash memory, EEPROM, large records on slow storage -- that matters.',
         'Selection sort also serves as the clearest teaching example for loop invariants. The sorted prefix is not just locally ordered; it contains the globally correct values in their final positions. That strong invariant makes correctness easy to prove and easy to see in the animation.',
       ],

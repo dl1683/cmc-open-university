@@ -233,6 +233,7 @@ export const article = {
           type: 'note',
           text: 'Watch the cost column in the DP table. When a larger subset is built, its cost is never recomputed from scratch -- it adds one join cost on top of already-memoized child costs. That reuse is the entire point of the dynamic program.',
         },
+        {type: 'callout', text: 'Selinger DP wins by making join order a subset problem: solve each relation set once, then reuse it in larger plans.'},
       ],
     },
     {
@@ -243,6 +244,7 @@ export const article = {
           text: 'Given a set of relations to be joined [...] the optimizer must choose the order of joins, the join method, and the access path for each relation.',
           attribution: 'P. Griffiths Selinger et al., "Access Path Selection in a Relational Database Management System", SIGMOD 1979',
         },
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/en/9/9e/SQLServer_QueryPlan.png', alt: 'SQL Server graphical query plan with scan, nested loops join, index seek, and sort operators', caption: 'A query plan is the physical tree produced after optimization; Selinger DP is one way to choose the join portion of that tree. Source: Wikipedia, Microsoft SQL Server Management Studio screenshot.'},
         'SQL is declarative: a query says which tables to join and what predicates to apply, but not the physical order of joins. The database engine must choose that order, and the choice matters enormously. Two logically equivalent join trees for the same five-table query can differ by 1,000x in intermediate row counts, memory consumption, and wall-clock time.',
         'The Selinger optimizer, introduced in IBM System R (1979), was the first to apply dynamic programming to this problem. It treats join ordering as a shortest-path search over the lattice of relation subsets, keeping the cheapest known plan for each subset and assembling larger plans from smaller winners.',
         {
@@ -257,14 +259,13 @@ export const article = {
         'The simplest strategy is to join tables in the order the SQL query lists them. FROM orders JOIN customers ON ... JOIN products ON ... becomes orders-then-customers-then-products. This is easy to implement -- just walk the FROM clause left to right, accumulating joins.',
         'A slightly better approach: try all n! permutations of the join order and pick the cheapest. For 3 tables that is 6 plans. For 5 tables, 120. Manageable so far.',
         {
-          type: 'table',
-          headers: ['Tables', 'Left-to-right plans', 'All permutations', 'All tree shapes (with bushy)'],
-          rows: [
-            ['3', '1', '6', '12'],
-            ['5', '1', '120', '1,680'],
-            ['8', '1', '40,320', '2,027,025'],
-            ['10', '1', '3,628,800', '~17.6 billion'],
-            ['15', '1', '~1.3 trillion', 'astronomical'],
+          type: 'bullets',
+          items: [
+            '3 tables: left-to-right has 1 plan, all permutations have 6, and bushy tree shapes reach 12 candidates.',
+            '5 tables: left-to-right has 1 plan, all permutations have 120, and bushy tree shapes reach 1,680 candidates.',
+            '8 tables: all permutations reach 40,320, and bushy tree shapes reach 2,027,025 candidates.',
+            '10 tables: all permutations reach 3,628,800, and bushy tree shapes reach roughly 17.6 billion candidates.',
+            '15 tables: all permutations are already around 1.3 trillion, and bushy enumeration becomes effectively astronomical.',
           ],
         },
         'Left-to-right ignores plan quality entirely. Exhaustive enumeration finds the best plan but the search space explodes factorially -- and that is before considering join methods (hash, merge, nested loop) and access paths (index scan, sequential scan) at each step.',
@@ -321,14 +322,13 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Metric', 'Selinger DP', 'Notes'],
-          rows: [
-            ['Time (general)', 'O(3^n)', 'Summing over all subsets and their sub-partitions gives Sum(C(n,k) * 2^k) = 3^n'],
-            ['Time (left-deep only)', 'O(n^2 * 2^n)', 'Each subset tries only n single-table extensions'],
-            ['Space', 'O(2^n)', 'One DP entry per subset (times number of interesting orders)'],
-            ['With p interesting orders', 'O(p * 2^n) space, O(p * 3^n) time', 'Each subset may store p non-dominated plans'],
-            ['Practical limit', '~12-15 tables', 'Beyond this, most optimizers switch to heuristic or genetic planners'],
+          type: 'bullets',
+          items: [
+            'General time: O(3^n). Summing over all subsets and their sub-partitions gives Sum(C(n,k) * 2^k) = 3^n.',
+            'Left-deep-only time: O(n^2 * 2^n), because each subset tries single-table extensions instead of every bushy split.',
+            'Space: O(2^n) for one DP entry per subset, multiplied by the number of interesting physical properties kept.',
+            'With p interesting orders: O(p * 2^n) space and O(p * 3^n) time when each subset may store p non-dominated plans.',
+            'Practical limit: roughly 12-15 tables before most optimizers switch to heuristic or genetic planners.',
           ],
         },
         'For 8 tables: 3^8 = 6,561 subset evaluations. For 12 tables: 3^12 = 531,441. For 20 tables: 3^20 = 3.5 billion. The exponential growth is why PostgreSQL switches from exhaustive DP to its GEQO (genetic query optimizer) at 12 tables by default.',
@@ -345,13 +345,12 @@ export const article = {
       paragraphs: [
         'Selinger DP is the right tool whenever the relation count is moderate (under ~15), the cost model is reasonably calibrated, and the query benefits from exploring join reordering.',
         {
-          type: 'table',
-          headers: ['Workload', 'Why Selinger DP fits', 'Key benefit'],
-          rows: [
-            ['OLTP with 3-5 table joins', 'Small subset count; planning is sub-millisecond', 'Finds optimal order without noticeable planning overhead'],
-            ['Star-schema analytics', 'Fact table + dimension tables; order determines intermediate size', 'Joins selective dimensions first, shrinking the fact table early'],
-            ['Ad-hoc reporting', 'Users write arbitrary joins; left-to-right order is unreliable', 'Compensates for non-expert SQL without manual tuning'],
-            ['Views and subquery flattening', 'Inlined views add tables; original order is meaningless', 'Re-derives the best order after flattening'],
+          type: 'bullets',
+          items: [
+            'OLTP with 3-5 table joins: small subset count keeps planning cheap while still finding the best order.',
+            'Star-schema analytics: joining selective dimensions early can shrink a large fact table before expensive joins.',
+            'Ad-hoc reporting: users write arbitrary join order, so the optimizer must compensate without manual tuning.',
+            'Views and subquery flattening: once views are inlined, the original written order is no longer a useful physical plan.',
           ],
         },
         'The real power is in what it prevents: without Selinger DP, a five-table dashboard query joining a 100M-row fact table could build a 100M-row intermediate in the first join. With it, the optimizer discovers that joining two small dimension tables first produces a 500-row intermediate that filters the fact table down to 10,000 rows before the expensive join.',
@@ -394,15 +393,14 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'Dynamic Programming (subset DP pattern, bitmask enumeration)'],
-            ['Prerequisite', 'SQL Join Algorithms Primer (hash join, merge join, nested loop)'],
-            ['Extension', 'Cascades Memo Query Optimizer (top-down generalization with rules and enforcers)'],
-            ['Extension', 'Cardinality Estimation Error Propagation (why wrong estimates cascade)'],
-            ['Production case', 'PostgreSQL Query Planner Case Study (Selinger DP in a real codebase)'],
-            ['Contrast', 'Volcano Iterator Query Execution (the execution model that consumes the plan Selinger produces)'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Dynamic Programming -- subset DP pattern and bitmask enumeration.',
+            'Prerequisite: SQL Join Algorithms Primer -- hash join, merge join, and nested loop.',
+            'Extension: Cascades Memo Query Optimizer -- top-down generalization with rules and enforcers.',
+            'Extension: Cardinality Estimation Error Propagation -- why wrong estimates cascade.',
+            'Production case: PostgreSQL Query Planner Case Study -- Selinger-style DP in a real codebase.',
+            'Contrast: Volcano Iterator Query Execution -- the execution model that consumes the plan Selinger produces.',
           ],
         },
       ],

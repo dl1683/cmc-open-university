@@ -211,7 +211,9 @@ export const article = {
       paragraphs: [
         'Seccomp-BPF exists because untrusted or semi-trusted code should not be able to ask the kernel for every service the kernel provides. A parser, plugin, test runner, browser process, container workload, or agent tool may need read, write, futex, mmap, and a small set of ordinary calls. It usually does not need mount, ptrace, keyctl, raw networking, or privilege-changing operations.',
         'The kernel boundary is one of the most important attack surfaces on a Linux system. If compromised code can call every syscall with arbitrary arguments, the attacker has a large menu of kernel behaviors to probe. Seccomp reduces that menu. It does not make the code trustworthy, but it narrows what the code can ask the host kernel to do.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5b/Linux_kernel_map.png', alt: 'Linux kernel map showing system interfaces, memory, storage, networking, and security layers', caption: 'The kernel exposes many service families; seccomp narrows which entry points a process can reach. Source: Wikimedia Commons, Constantine Shulyupin, CC BY-SA 3.0.'},
         'This distinction matters because people often use the word sandbox too loosely. Seccomp is an enforcement mechanism inside a sandbox architecture. It is strongest when combined with namespaces, cgroups, capabilities, filesystem rules, network controls, LSM policy, brokers, and logging. Alone, it is a syscall filter, not a complete isolation story.',
+        {type: 'callout', text: 'Seccomp is an attack-surface reducer, not an authority model: it filters kernel entry points while other layers control identity, files, network, and resources.'},
       ],
     },
     {
@@ -226,6 +228,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is that each isolation layer controls a different axis. Namespaces control what the process can see. Cgroups control how much resource it can consume. Capabilities control privileged operations. Filesystem policy controls paths and mutability. Network policy controls destinations. LSMs control label-based access. Seccomp controls which syscalls can reach the kernel.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/Simplified_Structure_of_the_Linux_Kernel.svg', alt: 'Simplified Linux kernel structure showing user space, system calls, virtual file system, drivers, and hardware', caption: 'Sandbox layers sit around a real kernel stack; seccomp only governs syscall entry, not every downstream authorization question. Source: Wikimedia Commons, ScotXW, CC BY-SA 4.0 or GFDL.'},
         'Because each layer controls a different axis, no single layer should be asked to do every job. Seccomp cannot decide whether reading a particular file is semantically allowed if read is on the allowlist. A mount namespace cannot stop an allowed syscall from exploiting a kernel bug. A cgroup cannot stop data exfiltration. The architecture works by reducing independent freedoms at the same time.',
         'The second insight is that return actions are policy. Allow, errno, kill, trap, trace, user notification, and log are not interchangeable. Returning errno can be correct for an expected denial. Killing the process can be correct for a syscall that should never appear. Logging can be useful during profile development. The action tells the runtime how seriously to treat the event.',
       ],

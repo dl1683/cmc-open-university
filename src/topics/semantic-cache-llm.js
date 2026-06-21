@@ -205,6 +205,7 @@ export const article = {
       paragraphs: [
         `LLM applications often pay repeatedly for the same intent. One user asks, "How do I reset my password?" Another asks, "I forgot my password. What should I do?" An exact string cache misses the second prompt even when the safe answer is identical. The result is extra latency, extra model cost, and extra load on a system that already has expensive tail behavior.`,
         `A semantic cache exists to recover those paraphrase hits. It embeds the incoming prompt, searches a vector index of previous prompts or prompt-response records, and reuses an answer only when the nearest candidate passes similarity and policy gates. RedisVL's SemanticCache documentation describes the same goal: use semantic similarity to retrieve cached responses instead of making redundant LLM calls.`,
+        {type: `callout`, text: `A semantic cache is safe only when approximate similarity proposes candidates and exact metadata gates decide reuse.`},
         `This is an application-level cache, not a transformer runtime cache. It stores prompts, embeddings, responses, metadata, admission decisions, eviction rules, TTLs, and invalidation contracts. It can skip a whole model call. It can also return a confident wrong answer if the cache treats approximate similarity as proof of equivalence.`,
       ],
     },
@@ -212,6 +213,7 @@ export const article = {
       heading: 'The obvious approach and the wall',
       paragraphs: [
         `The obvious first cache is an exact key-value cache. Hash the normalized prompt, model name, system prompt, and maybe a retrieval version. If the same request arrives again, return the stored answer. This is safe when the cache key captures the full contract, and it is useful for repeated API calls, retries, batch jobs, and deterministic FAQ flows.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg/3840px-Hash_table_5_0_1_1_1_1_1_LL.svg.png`, alt: `Hash table diagram mapping keys into buckets with collision chains`, caption: `Exact caching starts as key lookup: identical keys hit, paraphrases miss. Source: Wikimedia Commons, Jorge Stolfi, CC BY-SA 3.0.`},
         `The wall is wording. Natural-language users do not repeat the exact same bytes. They use synonyms, change word order, add politeness, or ask the same support question with a different sentence. Exact caching has high precision and low recall. It avoids many false hits, but it leaves most paraphrase savings unused.`,
         `A tempting second attempt is to trust vector distance alone. That is the dangerous wall on the other side. Similarity can find candidates, but it cannot decide tenant boundaries, permissions, freshness, tool access, system-prompt versions, or whether the answer type is cacheable. A nearby vector can still be the wrong answer for the user in front of the system.`,
       ],
@@ -228,6 +230,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         `A request enters the semantic cache before the expensive model call. The application normalizes fields that are meant to be semantic, embeds the prompt with a chosen embedding model, and queries an approximate nearest-neighbor index such as HNSW, IVF, or a managed vector-search backend. The index returns candidate records with distances or similarities.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with nodes connected by arrows`, caption: `Graph-style neighbor search is a useful mental model for ANN indexes: find nearby candidates first, then let policy decide whether any candidate can be reused. Source: Wikimedia Commons, David W., public domain.`},
         `The gate then applies exact checks. Distance must pass the threshold. Tenant and permission boundaries must match. The model behavior must be compatible. The system prompt, tool set, output schema, and retrieval corpus version must match the stored answer's assumptions. The record must not be expired. Domain rules may reject personalized decisions, regulated advice, secrets, or tool results that depended on short-lived state.`,
         `On a safe hit, the cached answer returns without calling the LLM. On a miss, the request follows the normal LLM path. The resulting answer is stored only if admission rules allow it. Normal cache mechanics still matter: TTL, byte limits, eviction policy, hit counters, negative caching, audit logs, and invalidation hooks. Semantic search changes the lookup; it does not remove cache engineering.`,
       ],

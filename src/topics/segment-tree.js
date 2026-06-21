@@ -177,6 +177,7 @@ export const article = {
         'Each node in the tree shows a range [lo..hi] and the aggregate (sum) for that slice of the array. The root covers the full array. Leaves cover single positions. Internal nodes split their range in half between two children.',
         'Highlighted nodes mark the recursion path. Found nodes are the canonical pieces the query collects. Visited nodes are ancestors the algorithm passed through without fully matching. Nodes the query skips entirely never appear highlighted at all; that skipped majority is where logarithmic cost comes from.',
         'In the lazy-propagation view, pushed nodes show a deferred tag being forced one level down because a later query needs honest child values. Remaining tagged nodes are intentionally stale: no operation has needed their descendants, so the tree saves the work.',
+        {type: 'callout', text: 'A segment tree is fast because every range becomes a small exact cover of stored intervals instead of a fresh scan.'},
       ],
     },
     {
@@ -204,6 +205,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Build a balanced binary tree over the array positions. Each leaf stores one element. Each internal node stores the aggregate of its two children. The root stores the aggregate of the entire array.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d1/Segment_tree.svg', alt: 'Segment tree diagram with nested interval ranges stored in a binary tree', caption: 'The tree stores aggregates for nested intervals, so a query can collect whole covered nodes. Source: Wikimedia Commons, Cafce25, CC BY-SA 4.0.'},
         'The key property: any contiguous range [l, r] can be decomposed into O(log n) non-overlapping node ranges that tile it exactly. A query visits only those nodes and combines their stored values. An update changes one leaf and recomputes only the O(log n) ancestors on the path to the root. Both operations touch a thin slice of the tree, not the whole structure.',
       ],
     },
@@ -256,6 +258,7 @@ export const article = {
       heading: 'Worked example',
       paragraphs: [
         'Array: [2, 1, 5, 3, 4], using 0-based indexing.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/e5/Segment_tree_instance.gif', alt: 'Small segment tree instance showing array intervals as tree nodes', caption: 'A concrete segment tree instance makes the interval-cover proof easier to trace on one small array. Source: Wikimedia Commons, Alfredo J. Herrera Lago, public domain.'},
         'Build the tree bottom-up. Leaves: node[0]=2, node[1]=1, node[2]=5, node[3]=3, node[4]=4. Internal nodes: [0..1] = 2+1 = 3, [2..3] = 5+3 = 8, [3..4] = 3+4 = 7 (only needed if the tree is built differently; in a standard layout, [0..2] covers the left half). Using a clean binary split: [0..2] has children [0..1]=3 and [2..2]=5, so [0..2]=8. [3..4]=7. Root [0..4] = 8+7 = 15. The root stores the total sum of the array.',
         'Query sum(1, 3): we want a[1] + a[2] + a[3] = 1 + 5 + 3 = 9. Start at root [0..4]. Partial overlap, recurse into both children. Left child [0..2]: partial overlap (we need indices 1 and 2 but not 0). Recurse: [0..1] partially overlaps, so recurse again. [0..0] is outside the range, return 0. [1..1] is fully inside, return 1. Back at [0..1]: result is 1. [2..2] is fully inside, return 5. [0..2] returns 1 + 5 = 6. Right child [3..4]: partial overlap. [3..3] is fully inside, return 3. [4..4] is outside, return 0. [3..4] returns 3. Total: 6 + 3 = 9. The query collected three canonical nodes: [1..1], [2..2], [3..3].',
         'Point update: change a[2] from 5 to 7 (delta = +2). Update leaf [2..2] to 7. Walk up: [0..2] = 3 + 7 = 10 (was 8). Root [0..4] = 10 + 7 = 17 (was 15). Two ancestor updates, O(log n).',
