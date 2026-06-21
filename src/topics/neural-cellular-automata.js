@@ -220,6 +220,7 @@ export const article = {
         'Neural cellular automata ask a sharper version of the cellular automata question: if local rules can create global patterns, can we learn the local rule instead of hand-writing it? The goal is not merely to generate an image. The goal is to learn a distributed process that grows, maintains, and sometimes repairs a target pattern through repeated local interaction.',
         'This matters because many real systems do not have a central artist drawing the final form. Biological development, tissue repair, swarm behavior, material growth, and distributed control all depend on many local units coordinating through nearby signals. NCA is a small, differentiable laboratory for studying that design shape.',
         'The topic is also a useful antidote to one-shot thinking in generative AI. A decoder can emit a final image directly, but it usually has no reason to keep the image stable after damage. NCA treats the image as a state of an ongoing dynamical system. The finished pattern is something the system keeps producing, not a file it wrote once.',
+        {type: 'callout', text: 'Neural cellular automata learn one local update rule, then ask repeated local interaction to create and repair the global form.'},
       ],
     },
     {
@@ -235,6 +236,7 @@ export const article = {
       paragraphs: [
         'The core insight is to separate visible state from hidden state. Visible channels produce the image or material the outside world sees. Hidden channels carry local memory, orientation, boundary signals, and repair cues. A cell can therefore act differently at an edge, inside a body, near a wound, or near a growth front without needing a global controller.',
         'The learned update rule is shared. The same tiny neural network is applied to every cell at every step, usually after a local perception operation such as a small convolution or Sobel-like neighborhood filter. The network predicts a delta to the cell state. Repeating that local rule over the grid creates the global behavior.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'The shared update rule is a small neural network reused at every cell and every step; weight sharing is what makes the local rule portable. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         'Training unrolls the automaton for many steps and backpropagates through the whole sequence. The loss is usually measured on visible channels after some number of updates, and the gradient teaches the local rule how earlier local decisions contributed to later global error. That is the hard part: the rule is local, but the training signal is global and delayed.',
       ],
     },
@@ -242,6 +244,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A typical NCA starts with a grid of state vectors. One cell or a small seed region is alive. Each update step computes local perception features from nearby cells, passes each cell through the shared neural network, and adds the predicted update to its state. Some implementations update cells stochastically so the rule cannot depend on a perfectly synchronized clock.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/CA-Moore.svg/250px-CA-Moore.svg.png', alt: 'Moore neighborhood diagram with the center cell and its eight neighbors', caption: 'A Moore neighborhood shows the local sensing window: each cell sees nearby state, not the whole target image. Source: Wikimedia Commons, Life of Riley, public domain.'},
         'Cells often carry an alpha or alive channel. Dead cells stay inactive unless neighboring live cells create the conditions for growth. That simple device prevents the entire grid from becoming active at once and gives the automaton a moving boundary. Hidden channels then let the boundary remember enough about local shape to grow the right structure.',
         'Training often uses a pool of partially grown samples instead of always starting from the same seed. The pool exposes the rule to many intermediate states, including damaged states. Damage training deliberately removes part of the pattern and asks the automaton to recover. Without that curriculum, a model may learn to grow once but fail to maintain or repair.',
       ],

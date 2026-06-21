@@ -175,6 +175,7 @@ export const article = {
         'Naive Bayes exists because classification often starts with weak pieces of evidence rather than one decisive feature. A spam filter sees words. A fraud system sees transaction attributes. A medical triage model sees symptoms. Each signal is imperfect, but together they can shift the odds.',
         'The model is deliberately small. It counts how often each feature appears in each class, starts from the base rate for each class, then multiplies in the evidence from the observed features. For text, that means asking which class better explains the words in the message.',
         'It is called naive because it assumes features are conditionally independent given the class. Words are not really independent. "Free" and "winner" often travel together. The surprise is that the classifier can still work well because the decision boundary often survives the wrong independence story.',
+        {type: 'callout', text: 'Naive Bayes wins by turning many weak likelihood ratios into one odds ledger, then accepting the independence tax.'},
       ],
     },
     {
@@ -191,6 +192,7 @@ export const article = {
         'The core insight is odds multiplication. Start with prior odds between classes, then multiply by each feature\'s likelihood ratio. If "free" is 15 times more common in spam than ham, it moves the odds toward spam. If "meeting" is 20 times more common in ham than spam, it moves the odds back.',
         'The model does not need to understand language in a deep way to be useful. It only needs many features whose likelihood ratios point in mostly useful directions. Evidence accumulates, and the final class is the one with the larger posterior score.',
         'This is why Naive Bayes is such a strong baseline. Training is counting. Prediction is adding log probabilities. The model is explainable as a ledger of which features pushed the decision toward which class.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c9/Bayes_theorem_visual_proof.svg', alt: 'Visual proof of Bayes theorem with overlapping events and probability formulas', caption: 'Bayes theorem converts priors and likelihoods into posterior odds; Naive Bayes repeats that update feature by feature. Source: Wikimedia Commons, CMG Lee, CC BY-SA 4.0.'},
       ],
     },
     {
@@ -200,8 +202,8 @@ export const article = {
         'At prediction time, compute one score per class: prior times the likelihood of each observed word under that class. For "free winner click," the spam score is prior spam multiplied by the spam likelihoods for free, winner, and click. The ham score uses the ham likelihoods. Normalize the two scores if a posterior probability is needed.',
         'Real implementations use log probabilities because raw products get tiny fast. Multiplying many small numbers can underflow to zero. Adding logs gives the same ranking while staying numerically stable.',
         'Real implementations also use smoothing. Laplace smoothing adds a small count to every word-class pair so unseen words remain possible. Without smoothing, a single token missing from training can wipe out a class score.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/99/Probability_tree.svg', alt: 'Probability tree with conditional branches and joint event leaves', caption: 'A probability tree makes the multiplication rule visible: each branch multiplies prior mass by conditional evidence. Source: Wikimedia Commons, Erzbischof, CC0 1.0.'},
       ],
     }
   ],
 };
-

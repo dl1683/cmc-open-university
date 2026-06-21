@@ -230,6 +230,7 @@ export const article = {
       paragraphs: [
         `Neural architecture search exists because model architecture is a design space, not a single decision. A human designer chooses operations, widths, depths, skip connections, attention blocks, convolution sizes, normalization placement, branching patterns, and hardware constraints. Those choices interact. A deeper model may need different regularization. A mobile model may trade accuracy for latency. A skip connection may improve trainability only when the surrounding block is shaped correctly.`,
         `NAS turns part of that design problem into an outer-loop optimization problem. Instead of committing to one graph by hand, the engineer defines a search space of possible graphs and an evaluator that scores candidates. A search algorithm proposes architectures, the evaluator returns feedback, and the search pressure shifts toward better designs. The promise is that compute can discover useful combinations humans would not try. The danger is that the search can exploit every weakness in the search space and evaluator.`,
+        {type: 'callout', text: `NAS is only as honest as its search space and evaluator; the algorithm optimizes exactly the game you define.`},
       ],
     },
     {
@@ -244,6 +245,7 @@ export const article = {
       paragraphs: [
         `A NAS system can only discover architectures that the search space can express. If the space contains only small convolutional cells, it will not discover a transformer. If every candidate is built from operations already chosen by the designer, the search is partly automated assembly of human priors. That is not a flaw by itself. A good search space encodes useful constraints. It becomes a flaw when a result is presented as open-ended discovery while most of the answer was already baked into the menu.`,
         `Search spaces can be macro-level or cell-level. A macro search changes whole-network depth, width, stage layout, and block placement. A cell search learns a repeated building block that is stacked into a larger model. Cell search is cheaper and easier to constrain, but it can overfit the benchmark style. Hardware-aware NAS adds latency, memory, power, or accelerator constraints directly into the objective. The more realistic the constraints, the more useful the final architecture, but the harder the search becomes.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: `A NAS search space is a directed graph of allowed operations and connections; anything absent from that graph cannot be discovered. Source: Wikimedia Commons, David W., public domain.`},
       ],
     },
     {
@@ -278,6 +280,7 @@ export const article = {
       heading: 'Production uses',
       paragraphs: [
         `NAS has been useful for image classifiers, object detection backbones, mobile networks, efficient convolutional blocks, recurrent cells, transformer variants, and hardware-aware model design. Its practical value is highest when the deployment constraints are clear and measurable. A phone model may need a strict latency limit. An edge device may need a memory cap. A datacenter model may need throughput per watt. NAS can encode those constraints and search for architectures that satisfy them.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: `NAS automates choices inside a neural-network design space, but the chosen layers and connections still have to train and run under real deployment constraints. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.`},
         `The broader lesson applies even when a team never runs a giant NAS job. Define the design space. Define the evaluator. Compare against simple baselines. Audit whether shortcuts change the ranking. Retrain the winner honestly. Those practices improve manual model design too. NAS is best understood as a disciplined design-and-evaluation protocol, not only as an expensive AutoML technique.`,
       ],
     },

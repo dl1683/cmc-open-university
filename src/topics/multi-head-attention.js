@@ -99,6 +99,7 @@ export const article = {
         "Each frame shows the same four tokens scored under independent attention heads. Rows are query tokens, columns are key tokens, and cell intensity shows attention weight. Every row sums to 100% because each head applies its own softmax.",
         "Head 1's highlights cluster near the diagonal: each token attends to its predecessor (a positional pattern). Head 2's highlights cluster on the 'cat' column: every token attends to the noun (a semantic pattern). The two heads see identical input but extract different relationships because they use different learned projections.",
         "The concatenation frame shows the output vector split into head slices. Left columns carry head 1's positional signal, right columns carry head 2's semantic signal. Compare the highlighted and comparison cells for the same token to see that one row encodes two independent kinds of evidence.",
+        {type: 'callout', text: "Multi-head attention buys independent softmax channels, so different relationships can stay sharp at the same token instead of sharing one probability budget."},
       ],
     },
     {
@@ -106,6 +107,7 @@ export const article = {
       paragraphs: [
         "A single attention head computes one softmax distribution per query token. That one distribution must express every relationship the token needs -- word order, subject agreement, coreference, copying -- as a single weighted average. When 'sat' needs to attend strongly to its predecessor 'cat' for local order AND to a distant noun for agreement, one softmax row cannot cleanly separate the two signals. Weight given to one target is weight taken from the other.",
         "Vaswani et al. (2017) introduced multi-head attention in 'Attention Is All You Need' to remove this bottleneck. Instead of one attention pattern per layer, the model runs h independent attention computations in parallel, each with its own learned W_Q, W_K, W_V projections. Each head is free to specialize in a different type of relationship -- syntax, position, coreference, rare-token detection -- without interfering with the others.",
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8f/The-Transformer-model-architecture.png', alt: "Transformer architecture diagram with multi-head attention blocks in the encoder and decoder", caption: "The Transformer block makes multi-head attention the communication layer before residual normalization and feed-forward work. Source: Wikimedia Commons, Yuening Jia, CC BY-SA 3.0, https://commons.wikimedia.org/wiki/File:The-Transformer-model-architecture.png."},
       ],
     },
     {
@@ -137,6 +139,7 @@ export const article = {
         "Start with token representations X of shape (n, d_model). For each head h, project: Q_h = X W_Qh, K_h = X W_Kh, V_h = X W_Vh, where each projection matrix is (d_model, d_k). Compute attention: A_h = softmax(Q_h K_h^T / sqrt(d_k)), yielding an (n, n) attention matrix. Multiply: O_h = A_h V_h, producing (n, d_k) output per head.",
         "Concatenate all head outputs: O = [O_1 ; O_2 ; ... ; O_h], shape (n, h * d_k) = (n, d_model). Apply the output projection: result = O W_O, where W_O is (d_model, d_model). The result enters the residual stream -- attention does not replace the token representation, it adds a communication update.",
         "The scaling factor 1/sqrt(d_k) prevents dot products from growing large as d_k increases, which would push softmax into saturation where gradients vanish. This is the same scaling used in single-head attention, applied per head in the smaller d_k space.",
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Matrix_multiplication_diagram.svg/250px-Matrix_multiplication_diagram.svg.png', alt: "Matrix multiplication diagram showing row and column products", caption: "Packed Q, K, and V projections are matrix multiplications; implementations exploit that regular layout instead of looping over tiny heads. Source: Wikiversity and Wikimedia Commons, CC BY-SA 3.0, https://fr.wikiversity.org/wiki/Matrice/Produit_matriciel."},
       ],
     },
     {
@@ -190,4 +193,3 @@ export const article = {
     },
   ],
 };
-

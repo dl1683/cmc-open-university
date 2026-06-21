@@ -157,6 +157,7 @@ export const article = {
       paragraphs: [
         `The "row versions & visibility" view shows one logical row stored as three physical tuples. Each tuple carries xmin (the transaction that created it) and xmax (the transaction that replaced it). The matrix highlights which version each reader sees based on the visibility rule. Found cells mark the single version each snapshot resolves to. Compare cells show the family resemblance between MVCC, Git, LSM trees, and versioned caches.`,
         `The "VACUUM and the bloat trap" view shows dead tuples accumulating after updates. Removed cells are tuples that are logically invisible but still physically present. Active cells mark the cleanup horizon and the configuration knobs that keep bloat under control. At each step, ask: which tuples are dead, which are reclaimable, and what is holding the horizon back.`,
+        {type: 'callout', text: `MVCC is append-first concurrency: preserve old versions for readers, then prove when the cleanup horizon makes them reclaimable.`},
       ],
     },
     {
@@ -164,6 +165,7 @@ export const article = {
       paragraphs: [
         `Databases must answer old questions while new facts are being written. A report scanning millions of rows should not freeze every checkout touching those rows. A checkout should not wait behind a slow analytical query that started before lunch. Readers and writers need to coexist without blocking each other and without seeing half-old, half-new data.`,
         `MVCC solves this by keeping old versions around. An UPDATE does not overwrite the row in place. It creates a new physical version and leaves the old one available for transactions that still need it. Each transaction sees a consistent snapshot of the database at its start time. The price is deferred cleanup: old versions persist until a maintenance process proves no active snapshot can still see them.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Relational_database_terms.svg', alt: 'Relational database diagram showing rows, columns, and table relationships', caption: `MVCC starts from an ordinary relation, but every logical row may have several physical tuple versions underneath. Source: Wikimedia Commons, Booyabazooka, public domain.`},
       ],
     },
     {
@@ -209,6 +211,7 @@ export const article = {
       paragraphs: [
         `PostgreSQL stores version chains directly in the heap and uses VACUUM for cleanup. Oracle stores the latest version in the data block and reconstructs older versions from undo segments on demand. MySQL InnoDB keeps the latest version in the clustered index and builds older versions from an undo log. CockroachDB, YugabyteDB, and Spanner use MVCC timestamps for distributed snapshot reads. Every major RDBMS uses some form of MVCC because the alternative is locking readers out during writes.`,
         `The same append-then-cleanup pattern appears outside databases. Git writes immutable objects and runs git gc. LSM trees append entries and compact later. Versioned caches publish a new key instead of mutating a value another client is reading. Copy-on-write B-trees (LMDB, btrfs) create new pages instead of mutating existing ones. The shared rule: never mutate what someone might still be reading.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Copy_On_Write_technique.png', alt: 'Copy-on-write diagram showing original blocks copied before update', caption: `Copy-on-write is the storage-level cousin of MVCC: keep the old block for readers, write a new block for changes, then reclaim later. Source: Wikimedia Commons, Qdrddr, CC BY-SA 4.0.`},
       ],
     },
     {
@@ -238,4 +241,3 @@ export const article = {
     },
   ],
 };
-

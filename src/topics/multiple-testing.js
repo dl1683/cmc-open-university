@@ -134,6 +134,7 @@ export const article = {
         'The first view builds a table of family-wise error rates for growing numbers of null tests. Active cells show the current computation. Removed cells (red) flag the rows where the false-positive risk has become unacceptable. The curve that follows plots the same formula continuously so you can see the shape: steep early, asymptotic to 100%.',
         'The second view applies Bonferroni and Benjamini-Hochberg to a concrete set of p-values. The BH threshold line rises with rank. Found markers (green) are discoveries that survive the correction. Removed markers (red) are results that a naive analysis would celebrate but the correction rejects. At each frame, ask: which error guarantee is this threshold enforcing, and what power is it costing?',
         'The dashboard frame between them shows a realistic experiment with twenty metrics and one false "win." That frame is the motivation for everything that follows.',
+        {type: 'callout', text: 'Multiplicity spends error budget every time the data gets another chance to produce a lucky-looking result.'},
       ],
     },
     {
@@ -141,6 +142,7 @@ export const article = {
       paragraphs: [
         'A single hypothesis test at alpha = 0.05 promises a 5% false-alarm rate when nothing is real. That contract is sound for one pre-declared question tested once. It breaks silently when a dashboard, notebook, or screening pipeline asks many questions and reports the best-looking answer.',
         'The practical settings are everywhere. A product team ships a button-color change and watches twenty metrics. A genomics study tests 20,000 genes. An ML engineer slices validation error by region, device, and cohort. Each individual test keeps its promise; the family of tests compounds false-positive risk until a fake discovery is nearly guaranteed.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density functions', caption: 'A single-test threshold cuts a tail from one null distribution; repeated tests keep taking tail chances until noise survives. Source: Wikimedia Commons, Inductiveload, public domain.'},
         {
           type: 'quote',
           text: 'The increased number of hypotheses to be tested, each at a prescribed level, inflates the probability of erroneously rejecting some of them beyond any reasonable bound. [...] We suggest controlling the expected proportion of falsely rejected hypotheses -- the false discovery rate.',
@@ -183,6 +185,7 @@ export const article = {
       paragraphs: [
         'Bonferroni works because the union bound caps total error. If each of k null tests can falsely reject with probability at most alpha/k, the probability that any of them rejects is at most k * (alpha/k) = alpha. The bound can overcount when tests are correlated, making it conservative, but conservatism is the point when any false positive triggers an expensive decision.',
         'Holm works by spending the same budget more carefully. Once the smallest p-value passes the strictest test (alpha/k), the worst-case first false positive has been handled. The remaining family is smaller, so the next threshold can relax to alpha/(k-1) without exceeding the original FWER budget. The step-down stop rule prevents later results from being interpreted after a weak earlier result.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg', alt: 'Normal distribution cumulative distribution functions', caption: 'The CDF view turns tail area into probability, which is the quantity multiple-testing corrections spend and protect. Source: Wikimedia Commons, Inductiveload, public domain.'},
         {
           type: 'diagram',
           label: 'P-value distribution under null vs alternative hypotheses',
@@ -247,4 +250,3 @@ export const article = {
     },
   ],
 };
-

@@ -209,6 +209,7 @@ export const article = {
       paragraphs: [
         `Muon is an optimizer idea for neural-network hidden layers. Its popular form keeps momentum for matrix-shaped weights, then approximately orthogonalizes that momentum before applying the update. That sentence is the whole point: Muon treats a weight matrix as a matrix. AdamW, SGD, and Lion can be applied to matrix weights, but their usual mental model is coordinate-level. Muon changes the geometry of the update itself.`,
         `The motivation is practical. Modern networks are packed with dense matrix weights: projection matrices in transformers, MLP layers, attention blocks, and other hidden transformations. These matrices do not merely contain unrelated scalar parameters. Their rows, columns, singular directions, and input-output geometry matter. Muon asks whether an optimizer can exploit that structure by making the update more balanced across matrix directions instead of letting a few directions dominate.`,
+        {type: 'callout', text: `Muon treats a hidden weight update as a matrix object, then spends cheap matmuls to balance its singular directions before stepping.`},
       ],
     },
     {
@@ -230,6 +231,7 @@ export const article = {
       paragraphs: [
         `For a hidden matrix weight W, Muon starts like a momentum optimizer. The training step computes the gradient for W. The optimizer updates a momentum buffer, usually an exponential moving average of recent gradients. Then Muon runs a small number of Newton-Schulz-style iterations on that momentum matrix to approximate a matrix sign or orthogonalized direction. The resulting balanced matrix becomes the update direction for W.`,
         `Newton-Schulz is the systems trick that makes the idea plausible. Exact orthogonalization would usually require decomposition machinery that is too slow and awkward for every training step. Newton-Schulz iterations use matrix multiplications, additions, and scaling. GPUs are built for matrix multiplication. A few iterations can produce an approximation that is good enough for optimization, even if it is not a perfect mathematical projection. In training, exactness is often less valuable than a cheap bias in the right direction.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Matrix_multiplication_diagram.svg/250px-Matrix_multiplication_diagram.svg.png', alt: 'Matrix multiplication diagram showing row and column products', caption: 'Newton-Schulz makes Muon practical because the extra optimizer work is built from matrix multiplications, the operation accelerators are designed to run quickly. Source: Wikiversity and Wikimedia Commons, CC BY-SA 3.0, https://fr.wikiversity.org/wiki/Matrice/Produit_matriciel.'},
       ],
     },
     {
@@ -265,6 +267,7 @@ export const article = {
       paragraphs: [
         `Muon's visible cost is the Newton-Schulz work. A few matrix multiplications per selected parameter group may be acceptable on GPUs, but it still competes with the rest of the training step. The cost depends on matrix shape, batch size, model architecture, precision, compiler behavior, and distributed training setup. A method that looks cheap on one GPU can become awkward when parameters are sharded or when the optimizer step adds synchronization pressure.`,
         `The hidden cost is complexity. Muon adds parameter grouping, matrix-shape handling, normalization choices, iteration counts, coefficient choices, learning-rate interactions, and fallback optimizer choices. It also makes profiling more important. A lower loss curve at the same number of steps is not enough if each step is much slower. Conversely, a slightly slower step can be worth it if the model reaches the target quality with many fewer tokens or less total compute.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Rosenbrock function surface with curved valley', caption: 'Optimization geometry matters when gradients point across a valley instead of along it; Muon is one matrix-aware attempt to reshape the update direction. Source: Wikimedia Commons, Oleg Alexandrov, public domain.'},
       ],
     },
     {

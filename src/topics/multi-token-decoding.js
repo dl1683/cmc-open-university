@@ -225,6 +225,7 @@ export const article = {
           label: 'The draft-verify pipeline: propose many, verify once, accept the longest match',
         },
         'At each frame, ask: how many tokens did this step propose, how many survived verification, and what determined the acceptance boundary?',
+        {type: 'callout', text: 'Multi-token decoding is exact only when speculation stays provisional until the target model verifies the prefix.'},
       ],
     },
     {
@@ -264,6 +265,7 @@ export const article = {
         },
         'In speculative decoding (Leviathan et al. 2023, Chen et al. 2023), a small draft model runs K autoregressive steps cheaply, then the large target model verifies all K tokens in one forward pass. The draft model is 10-100x smaller, so its K steps cost less wall time than one target-model step. If all K tokens match, the system advances by K+1 positions (K verified plus one bonus token from the verification pass). If the first mismatch is at position j, the system accepts j tokens, resamples position j from a corrected distribution, and discards the rest.',
         'Medusa (Cai et al. 2024) eliminates the draft model by adding lightweight MLP heads to the backbone. Each head predicts a token at a different future offset from the same hidden state. The predictions form a candidate tree -- multiple alternatives at each offset -- and tree attention verifies all branches in one masked forward pass. Medusa-1 freezes the backbone and trains only the heads; Medusa-2 fine-tunes the backbone jointly for higher acceptance at the cost of more invasive training.',
+        {type: 'image', src: 'https://vllm.ai/blog-assets/figures/spec-decode/figure2.png', alt: 'Speculative decoding diagram with a draft model proposing tokens and a target model verifying them', caption: 'Draft-model speculative decoding splits proposal from verification so the large model can check several future tokens in one pass. Source: vLLM blog, https://vllm.ai/blog/2024-10-17-spec-decode.'},
         'EAGLE (Li et al. 2024) takes a different approach: it trains a lightweight autoregressive draft head that operates on the feature level rather than the token level. Instead of predicting token probabilities directly, the draft head predicts the next hidden state, which is then projected to vocabulary space. This produces higher-quality drafts than Medusa because the draft head captures sequential dependencies between future positions rather than predicting each offset independently.',
       ],
     },
@@ -306,6 +308,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Multi-token decoding is strongest when decode length dominates latency and the generation is moderately predictable. The ideal workloads are chat APIs, code completion, structured JSON emission, analytical responses, and tool-calling agents -- tasks where the model frequently emits predictable spans (punctuation, formatting, common phrases, syntactic boilerplate) interspersed with genuinely uncertain tokens.',
+        {type: 'image', src: 'https://vllm.ai/blog-assets/figures/spec-decode/figure9.png', alt: 'vLLM speculative decoding architecture with scheduler, draft worker, target worker, scoring, and acceptance', caption: 'Serving systems need scheduler, draft-worker, target-worker, and acceptance plumbing; speculative decoding is an engine feature, not a prompt trick. Source: vLLM blog, https://vllm.ai/blog/2024-10-17-spec-decode.'},
         {
           type: 'bullets',
           items: [

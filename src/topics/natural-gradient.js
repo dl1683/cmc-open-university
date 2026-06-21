@@ -185,12 +185,14 @@ export const article = {
           label: 'KL balls shrink in coordinates as sigma shrinks',
         },
         '"Found" markers highlight the natural gradient path. "Visited" markers highlight the plain GD path. The matrix view shows the Fisher information entries and their interpretation. At each frame, ask: how much did the distribution actually change, and does the step size reflect that?',
+        {type: 'callout', text: 'Natural gradient changes the ruler: the step is measured by distribution distance, not by raw coordinate movement.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'Gradient descent computes the steepest direction for a loss function -- but "steepest" requires a definition of distance. Ordinary GD silently uses Euclidean distance in parameter coordinates: the direction that decreases the loss most per unit of coordinate displacement. When the parameters represent a probability distribution, coordinate displacement is the wrong unit. A step of 0.3 in mu at sigma = 0.1 reshapes the entire distribution; the same step at sigma = 10 is invisible. The optimizer treats both as the same size move.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg', alt: 'Normal distribution probability density functions with different means and variances', caption: 'Gaussian curves make the coordinate problem visible: the same parameter move can be tiny or huge depending on local distribution shape. Source: Wikimedia Commons, Inductiveload, public domain.'},
         {
           type: 'quote',
           text: 'The ordinary gradient of a function depends on the coordinate system used, while the natural gradient is coordinate-invariant. The space of probability distributions has a Riemannian structure given by the Fisher information matrix, and the steepest descent direction in this space is the natural gradient.',
@@ -211,6 +213,7 @@ export const article = {
       paragraphs: [
         'The wall is coordinate dependence. Run gradient descent on the same Gaussian fitting problem twice, once parameterized by (mu, sigma) and once by (mu, log sigma), with the same learning rate and the same start. You get two different paths with different step counts. Nothing about the distributions changed -- only the notation. An optimizer whose answer depends on how you write the model is broken in a way that no learning rate schedule can fix.',
         'The deeper failure is explosive sensitivity near sharp distributions. At sigma = 0.12, the gradient dL/dmu = (mu - mu*) / sigma^2 amplifies a small mean error by a factor of nearly 70. A learning rate that was safe at sigma = 3 catapults mu to an absurd value and blows the distribution apart. The animation shows this live: from start (2.5, 0.12), GD with lr = 0.2 launches mu past 9 on the first step and never recovers. No single learning rate can be simultaneously safe for sigma = 0.12 and efficient for sigma = 3, because the Euclidean metric treats both regimes identically.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg', alt: 'Rosenbrock function surface with curved valley', caption: 'Curved loss geometry exposes why a coordinate ruler can send descent across the valley instead of along the stable direction. Source: Wikimedia Commons, Oleg Alexandrov, public domain.'},
         {
           type: 'note',
           text: 'This is not a quirk of Gaussians. Any parameterized distribution family has regions where Fisher information entries span orders of magnitude. Neural network policies in RL hit this wall routinely: a small logit change near a near-deterministic policy flips the action distribution entirely, while the same logit change near a uniform policy does almost nothing.',
@@ -306,4 +309,3 @@ export const article = {
     },
   ],
 };
-

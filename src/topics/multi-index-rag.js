@@ -244,6 +244,7 @@ export const article = {
         'The "hybrid retrieval" view shows a query fanning out to four parallel indexes: BM25 (lexical), SPLADE (learned sparse), vector ANN (dense), and metadata filters with optional graph hops. Active nodes are the retrievers currently executing. The edges carry what each retriever receives from the query and what it sends to fusion. Follow the fanout to see that no single path carries the full answer.',
         'The "fusion and rerank" view zooms into what happens after retrieval. Three ranked lists arrive with different orderings. Reciprocal Rank Fusion merges them by rank position, not raw score. The reranker then spends heavier compute on the fused pool. Found markers indicate documents that survived into the final prompt context.',
         'At each frame, read the matrix labels. The rows are query types or pipeline stages; the columns show which index wins and where each index fails. The invariant at the bottom of key frames states the contract that frame is proving.',
+        {type: 'callout', text: 'Multi-index RAG is a recall contract: each index exists only when it rescues a failure mode the others miss.'},
       ],
     },
     {
@@ -264,6 +265,7 @@ export const article = {
         'The natural first attempt is pure dense retrieval: embed every chunk with a sentence transformer, embed the user query, retrieve the top-k nearest neighbors by cosine similarity, and stuff them into the prompt. It is simple, impressive in demos, and wrong often enough to matter.',
         'Dense-only retrieval works when every query is a semantic paraphrase of the answer passage. That covers a surprising range of questions, which is why the approach survives so long. Teams ship it, see good results on common questions, and assume retrieval is solved.',
         'The approach also scales cleanly. One embedding model, one vector index, one query path. No index synchronization, no fusion logic, no rank merging. The operational simplicity is real, not imaginary, and that is precisely why teams stay on it too long.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Dense retrieval starts with learned embeddings, so the retrieval stack inherits both the strength and the blind spots of neural representation. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
       ],
     },
     {
@@ -310,6 +312,7 @@ export const article = {
         },
         'Query planning turns one user query into several retrieval requests. The raw text goes to BM25. Expanded or learned sparse representations go to SPLADE. An embedding goes to HNSW or another ANN index. Extracted entities trigger graph expansion. Metadata becomes a pre-filter for tenant, timestamp, document type, or access policy. The plan also decides what to skip: a simple exact-match question may not need graph expansion; a private HR question must apply permissions before any semantic search runs.',
         'Parallel retrieval executes the planned requests. Each retriever returns a ranked list scored on its own scale -- BM25 term-frequency scores, cosine similarities, graph distances, sparse activation scores. These scales are incompatible, which is why fusion works on ranks, not raw scores.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Graph hops protect relationships that no flat chunk embedding can express, such as person-to-team-to-permission paths. Source: Wikimedia Commons, David W., public domain.'},
       ],
     },
     {
@@ -428,4 +431,3 @@ export const article = {
     },
   ],
 };
-
