@@ -159,6 +159,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A compiler cannot optimize real code safely from a flat list of instructions. Branches, loops, early returns, exceptions, switches, and short-circuit expressions mean textual order is not the same as possible execution order. Before the compiler can move code, merge values, remove dead work, or reason about loops, it needs a graph of control.',
+        {type: 'callout', text: 'A CFG records where execution may go, while dominance records which blocks every path must pass before a use is safe.'},
         'The control-flow graph answers the may-flow question: where can execution go next? The dominator tree answers the must-pass question: which block is unavoidable before another block? Together they are the skeleton for SSA construction, loop detection, code motion, dead-code elimination, profiling, symbolic execution, and register allocation.',
         'This is one of the places where graph theory becomes ordinary engineering. A bug in CFG construction or dominance maintenance can make an optimizer move code above a required check, place a phi node in the wrong block, or prove a fact on a path where it is not true.',
         'The idea also explains why compilers keep rebuilding facts that seem redundant to a human reader. Humans see an if statement, a loop, and an early return. The optimizer sees blocks, edges, reachability, dominance, and invalidation boundaries. That lower-level view is what lets many independent passes share the same proof language.',
@@ -176,6 +177,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Break the program into basic blocks and make control transfers explicit edges. A block A dominates block B if every path from entry to B passes through A. The immediate dominator is the nearest strict dominator, and those links form a tree.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Some_types_of_control_flow_graphs.svg/250px-Some_types_of_control_flow_graphs.svg.png', alt: 'Four example control flow graphs showing branches loops reducible control flow and irreducible control flow', caption: 'Different CFG shapes expose the cases a compiler analysis must distinguish: branch, loop, natural loop, and irreducible flow. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Some_types_of_control_flow_graphs.svg.'},
         'Dominance is a proof about availability. If a definition is in a block that dominates a use, every execution reaching the use has passed the definition. If it does not dominate the use, the compiler must treat the value as path-dependent.',
         'Dominance frontiers add the complementary idea: where does a definition stop dominating all incoming paths? That boundary is where SSA phi nodes are usually needed. Loops add another key pattern: a backedge to a dominator marks a natural loop header, giving optimizers a structured region to analyze.',
       ],
@@ -192,6 +194,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A compiler first cuts instructions into basic blocks. A basic block has one entry, one exit, and no internal branch target. The terminator instruction at the end of each block creates outgoing CFG edges to successors. Predecessor lists are the inverse edges.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with labeled nodes connected by arrows', caption: 'CFG analysis starts from a directed graph: every edge is a possible control transfer that later facts must respect. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Dominators can be computed iteratively as sets: entry dominates itself, and every other block initially has all blocks as possible dominators. Repeatedly intersect predecessor dominator sets and add the block itself until the sets stop changing. Production compilers use faster algorithms, but the fixed-point idea is the same: a dominator is what survives all incoming paths.',
         'Immediate dominators compress the relation into a tree. Dominance frontiers are computed from join points and dominator relationships. Loop analysis looks for backedges from a block to a dominator and collects the natural loop by walking predecessors back to the header.',
       ],

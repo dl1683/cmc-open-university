@@ -217,6 +217,7 @@ export const article = {
       heading: 'Why it exists',
       paragraphs: [
         'Contract Net exists because a central planner often cannot know enough to assign every task well. In a multi-agent system, workers have private state: current load, tool access, local context, skill fit, expected cost, and recent failures. A static route table throws away that information.',
+        {type: 'callout', text: 'Contract Net turns assignment into an auditable negotiation where bids expose local knowledge before the manager commits.'},
         'The protocol turns allocation into a small market. A manager announces work, capable agents bid, the manager awards the task, and the winner reports success or failure. Reid G. Smith introduced the idea for distributed problem solving in 1980, where loosely coupled nodes needed a way to share tasks without shared memory or perfect global knowledge.',
       ],
     },
@@ -239,6 +240,7 @@ export const article = {
       paragraphs: [
         'The manager begins with a task envelope. It includes the task id, inputs, required capabilities, deadline, budget, acceptance criteria, allowed tools, and scoring rule. The call for proposals is published to candidate agents or a topic where candidates can discover it.',
         'Each candidate evaluates the envelope against local state. It can refuse or submit a proposal with estimated cost, time, confidence, dependencies, and evidence plan. The manager ranks proposals, sends an award to the selected worker, sends rejections to the rest, and waits for an inform or failure report. A failed report can close, retry, split, or escalate the task.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f8/CNP.svg/500px-CNP.svg.png', alt: 'AUML sequence diagram of the Contract Net Protocol from call for proposals through award and inform', caption: 'The AUML sequence diagram shows the protocol as message order, not informal agent conversation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:CNP.svg.'},
       ],
     },
     {
@@ -273,6 +275,7 @@ export const article = {
       heading: 'Costs and tradeoffs',
       paragraphs: [
         'Negotiation is not free. It adds messages, latency, state, and failure cases. A tiny task may not deserve an auction. A task with one obvious safe owner may be better handled by a direct queue. The protocol is most useful when tasks are valuable enough, workers differ enough, and bad assignment is expensive enough.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Icnp.svg/500px-Icnp.svg.png', alt: 'AUML sequence diagram of the iterated Contract Net Protocol', caption: 'The iterated version makes the cost visible: better fit can require another proposal round. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Icnp.svg.'},
         'The manager also becomes a policy point. Bad scoring can starve long-term work, overvalue short tasks, underweight verification, or route risky work to cheap workers. If every bid is self-reported and never checked, the market rewards confident claims. Contract Net needs measurement, calibration, and guardrails.',
       ],
     },

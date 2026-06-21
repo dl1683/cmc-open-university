@@ -233,6 +233,7 @@ export const article = {
       heading: 'Why this topic exists',
       paragraphs: [
         `Deep vision models used to depend heavily on labeled datasets. Labels are expensive, slow, inconsistent, and often too narrow. A hospital may have millions of scans but only a small number with expert annotations. A retailer may have product photos but no clean taxonomy. A robot may collect frames continuously while only a small fraction receive task labels. The question behind SimCLR is simple: can the model learn useful visual features before humans label the data?`,
+        {type: `callout`, text: `SimCLR learns useful visual features by making two augmented views agree while the rest of the batch supplies contrast.`},
         `Contrastive self-supervision answers yes by creating a training signal from the data itself. SimCLR does not ask a human to name the object. It takes one image, creates two distorted views, and trains the model to recognize that those views came from the same source. At the same time, it pushes views from other images away. The result is an encoder that can be reused for classification, retrieval, clustering, detection, or fine-tuning with fewer labels.`,
       ],
     },
@@ -247,6 +248,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `The core insight is that augmentations define identity. If two random crops, color distortions, and blurs come from the same image, SimCLR treats them as a positive pair. The model is trained to keep them close in representation space. Other images in the same batch become negatives, and the model is trained to keep them farther away. The task forces the encoder to keep information that survives the augmentations and ignore information that the augmentations deliberately disturb.`,
+        {type: `image`, src: `https://lilianweng.github.io/posts/2021-05-31-contrastive/SimCLR.png`, alt: `SimCLR framework diagram with two augmented views encoded and projected before maximizing agreement`, caption: `The SimCLR diagram makes the positive-pair contract explicit: two transforms from one image should agree in projection space. Source: Lilian Weng, https://lilianweng.github.io/posts/2021-05-31-contrastive/.`},
         `This is why augmentation is not decoration in SimCLR. It is the curriculum. A weak augmentation pipeline makes the task trivial because the two views are nearly identical. The model can win by matching pixels. An overly destructive pipeline makes the task noisy because the two views may no longer preserve the same semantic object. The useful middle is domain-specific: strong enough to prevent shortcuts, but not so strong that it changes the meaning of the example.`,
       ],
     },
@@ -255,6 +257,7 @@ export const article = {
       paragraphs: [
         `A training step starts with a minibatch of N images. Each image is augmented twice, producing 2N views. The two views from the same source image are the positive pair. Every other view in the batch is treated as a negative for that anchor. Both views pass through the same encoder, often a convolutional network, so the encoder weights are shared. The encoder output then passes through a projection head, usually a small MLP, to produce the vector used by the contrastive loss.`,
         `The loss used in SimCLR is commonly called NT-Xent: normalized temperature-scaled cross entropy. For one anchor view, the loss computes similarity between the anchor and its positive, then compares that score with similarities to all negatives in the batch. A softmax turns those similarities into a probability distribution. Temperature controls how sharply the model reacts to similarity differences. Low temperature makes the competition sharper; high temperature smooths it.`,
+        {type: `image`, src: `https://lilianweng.github.io/posts/2021-05-31-contrastive/SimCLR-algo.png`, alt: `SimCLR algorithm pseudocode showing two augmentations per sample, encoder, projector, pairwise similarity, and contrastive loss`, caption: `The algorithm view shows that every batch creates 2N views, pairwise similarities, and two symmetric losses per original image. Source: Lilian Weng, https://lilianweng.github.io/posts/2021-05-31-contrastive/.`},
         `After pretraining, the projection head is often discarded. The representation before the projection head is kept as the general-purpose embedding. Researchers evaluate it with a linear probe, where the encoder is frozen and only a linear classifier is trained, or they fine-tune the encoder on a labeled downstream task. This separation matters. The projection head can specialize for the contrastive objective while the encoder learns features that transfer better.`,
       ],
     },

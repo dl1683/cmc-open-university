@@ -107,6 +107,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The circle is the hash ring -- a continuous space from 0 to 2^32 (shown here as 0 to 359 degrees for clarity). Server nodes sit at fixed positions on the ring. Keys also hash onto the ring, and each key belongs to the first server found by walking clockwise from the key\'s position. The label on each key shows its current owner.',
+        {type: 'callout', text: 'Consistent hashing makes membership churn local by naming ownership as clockwise intervals on a stable ring.'},
         'When a server is added, watch which keys change labels. Only keys sitting between the new server and its counter-clockwise neighbor move. Every other key still finds the same first-clockwise server. When a server is removed, only that server\'s keys continue clockwise to the next live node. The animation makes the local-movement property visible: ring changes are neighborhood events, not global reshuffles.',
       ],
     },
@@ -114,6 +115,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Distributed caches and storage clusters need a deterministic rule for "which server owns this key?" The rule must survive topology changes -- servers join, crash, and scale out routinely. Karger, Lehman, Leighton, and colleagues at MIT introduced consistent hashing in 1997 to solve this for Akamai\'s web caching layer. The core guarantee: when a server joins or leaves, only K/N keys need to move (K total keys, N servers), not all of them.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/Consistent_Hashing_Sample_Illustration.png/250px-Consistent_Hashing_Sample_Illustration.png', alt: 'Consistent hashing ring with servers placed around a circle and a key assigned clockwise', caption: 'The ring turns key ownership into a clockwise successor query instead of a modulo bucket number. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Consistent_Hashing_Sample_Illustration.png.'},
       ],
     },
     {
@@ -155,6 +157,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Amazon Dynamo (2007) built its key-value storage on consistent hashing with vnodes. The ring determines primary ownership and replica placement; adding capacity means assigning new token ranges, not reshuffling the cluster. Apache Cassandra adopted the same model -- each node owns a token range and replicates to the next N-1 distinct clockwise nodes.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/Chord_network.png/250px-Chord_network.png', alt: 'Chord distributed hash table ring with nodes and shortcut links', caption: 'Chord shows the same circular identifier-space idea extended into a peer-to-peer lookup overlay. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Chord_network.png.'},
         'Memcached client libraries use the ketama algorithm (from Last.fm): each server gets 100-200 points on a 32-bit ring, and clients binary-search locally to route keys. Adding a server to a 10-node pool moves roughly 10% of keys, not 90%. CDN edge routing works the same way -- Akamai, co-founded by Karger, used consistent hashing from the start to assign URLs to edge caches.',
         'The pattern fits any system where clients can compute ownership locally given shared ring metadata: load balancers, distributed locks, sharded queues, and Chord-style DHTs.',
       ],

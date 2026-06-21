@@ -120,6 +120,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation displays a 6 by 6 brightness grid and a 3 by 3 kernel (filter). Highlighted cells are the current window: the kernel is laid over those nine pixels. Each step multiplies each pixel by the kernel weight at the same position, sums the nine products, and writes one number into the output feature map.',
+        {type: 'callout', text: 'Convolution works because one small learned pattern is reused at every spatial location to build a feature map.'},
         'The feature map is a smaller grid (4 by 4 with valid padding) where each cell records how strongly the kernel pattern matched at that position. When the edge-detector kernel straddles the dim-bright boundary, the output value jumps. When it sits inside a flat region, the output is near zero. The same nine weights produce every cell in the feature map. That reuse is weight sharing.',
         'Max-pooling, shown in deeper CNN diagrams, highlights a small window (typically 2 by 2) and keeps only the largest value, halving spatial dimensions while preserving the strongest activation.',
       ],
@@ -129,6 +130,7 @@ export const article = {
       paragraphs: [
         'Images have spatial structure. Neighboring pixels form edges, textures, and shapes. The same edge can appear anywhere in the frame. A recognition system needs to detect local patterns and reuse those detectors across the entire image.',
         'LeCun, Bottou, Bengio and Haffner showed in 1998 (LeNet-5) that a network built from small, sliding filters could learn to read handwritten digits without hand-designed feature extractors. Each filter scans the whole image, so the network uses far fewer parameters than a fully connected layer and automatically gains translation sensitivity: the same detector fires wherever its pattern appears.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Typical_cnn.png/500px-Typical_cnn.png', alt: 'Typical convolutional neural network architecture showing input, feature maps, convolutions, subsampling, and fully connected output', caption: 'A CNN stacks local convolution and downsampling stages so early feature maps become inputs to deeper detectors. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Typical_cnn.png.'},
       ],
     },
     {
@@ -150,6 +152,7 @@ export const article = {
         'A convolutional layer slides a small filter (typically 3 by 3) across the input. At each position, it performs element-wise multiplication between the filter weights and the pixel values under it, then sums the nine products into one output value. That output is one cell of the feature map.',
         'Stride controls how far the filter jumps between positions. Stride 1 moves one pixel at a time. Stride 2 skips every other position, halving the output dimensions. Padding adds border values (usually zeros) so the output can keep the same spatial size as the input (same padding) or shrink naturally (valid padding, no border added).',
         'Pooling follows convolution. Max-pooling takes a small window (commonly 2 by 2), keeps the largest value, and discards the rest, halving height and width. Average-pooling keeps the mean instead. Pooling reduces computation for the next layer and provides a degree of local translation invariance: if a feature shifts by one pixel, the maximum in the window often stays the same.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Convolutional_neural_network%2C_maxpooling.png/330px-Convolutional_neural_network%2C_maxpooling.png', alt: 'Worked max pooling example with a single-channel image split into 2 by 2 pooling windows', caption: 'Max pooling keeps the strongest activation in each local window, shrinking the feature map while preserving high responses. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Convolutional_neural_network,_maxpooling.png.'},
         'Channels extend the idea to color and depth. An RGB image has 3 input channels. A 3 by 3 filter on RGB input actually has 3 times 3 times 3 = 27 weights (plus one bias). A layer with 64 such filters produces 64 output channels, one feature map per filter. The next layer treats those 64 maps as its input channels, combining simple features into richer ones.',
         'Parameter sharing is the key efficiency. One 3 by 3 filter has 9 weights (per input channel) regardless of whether the image is 32 by 32 or 1024 by 1024. A fully connected layer to the same output would need millions of weights that grow with image size.',
         'A typical CNN architecture stacks these operations: Conv, ReLU activation, Conv, ReLU, Pool, repeated several times to build a hierarchy of features, then flattens the final feature maps into a vector and passes it through one or two fully connected layers to a softmax classifier.',
@@ -217,4 +220,3 @@ export const article = {
     },
   ],
 };
-

@@ -198,6 +198,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each dot is a 2D point. Edges connect consecutive hull vertices to form the boundary polygon. In the stack-scan view, the algorithm processes points left to right. When a point is pushed, it becomes a candidate hull vertex. When a point is popped, the cross-product turn test has proved it bends inward -- a straighter edge bypasses it.',
+        {type: 'callout', text: 'Monotone chain turns the global hull boundary into two local stack scans after sorting points by x.'},
         'Active points sit on the stack right now. Removed points were popped because a later candidate exposed them as interior. The matrix view shows the stack contents and the turn-test verdict at each step. In the geometry-uses view, the finished hull is the outer polygon; interior points are marked removed.',
       ],
     },
@@ -205,6 +206,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Given a set of points in the plane, find the smallest convex polygon that contains all of them. Imagine hammering nails at each point and stretching a rubber band around the outside -- the shape the band snaps to is the convex hull.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/ConvexHull.svg/250px-ConvexHull.svg.png', alt: 'Scattered points with a blue convex hull polygon enclosing them', caption: 'The hull keeps only the outer fence; interior points cannot become vertices of the minimal convex enclosure. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:ConvexHull.svg.'},
         'Collision-detection engines need a tight outer boundary for fast overlap rejection. GIS systems need region envelopes around GPS traces and sensor clusters. Image-processing pipelines need contour approximations of object silhouettes. Mesh generators need the outer boundary before they can triangulate the interior. All of these start with the convex hull because it strips away interior clutter and keeps only the extreme shape.',
       ],
     },
@@ -227,6 +229,7 @@ export const article = {
       paragraphs: [
         'Sort the points by x-coordinate. Now the global boundary problem becomes a local stack problem. Walk the sorted points left to right, maintaining a stack. At each candidate, check whether the last three points (the top two on the stack plus the new candidate) make a clockwise turn. If they do, the middle point is provably interior and gets popped. One cross product decides.',
         'The invariant: after processing the first i sorted points, the stack holds the convex chain for exactly those i points. Every pop restores the invariant. Every push extends it. Because points arrive in monotonic x-order, a popped point can never become useful again -- anything farther right only makes its inward bend worse.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Extreme_points.svg/250px-Extreme_points.svg.png', alt: 'Convex set with red extreme arcs highlighted around a blue region', caption: 'Convex hull algorithms are really searching for extreme boundary points and proving the rest are inside. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Extreme_points.svg.'},
       ],
     },
     {

@@ -209,6 +209,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Backup, sync, and content-addressed storage systems are full of repeated bytes. A VM image is renamed. A database file changes a few pages. A log archive gets a small header at the front. Storing every new snapshot as complete files wastes bandwidth and storage, while storing only whole changed files misses reuse inside large files.`,
+        {type: `callout`, text: `Content-defined chunking preserves deduplication by making boundaries follow local byte patterns instead of absolute offsets.`},
         `Content-defined chunking exists to make reuse survive ordinary edits. It splits a byte stream into variable-size chunks whose boundaries are selected by the bytes near the boundary, not by absolute file offsets. Each chunk is then identified by a strong content hash. If a later version contains the same chunk bytes, the storage system can reuse the existing chunk and record another manifest entry instead of uploading or storing the bytes again.`,
         `The topic matters because deduplication is not compression. Compression reduces redundancy inside one byte stream. Deduplication avoids storing the same content across files, users, snapshots, or machines. CDC is the boundary-selection layer that decides whether "same content" remains visible after inserts and deletes shift the surrounding bytes.`,
       ],
@@ -218,6 +219,7 @@ export const article = {
       paragraphs: [
         `The obvious approach is fixed-size blocking. Split every file into 4 KiB, 64 KiB, or 1 MiB pieces, hash each piece, and store chunks whose hashes are new. This is simple, fast, easy to parallelize, and works well when edits preserve block alignment. Disk images, database pages, and protocols with fixed records can fit this model.`,
         `The wall is boundary shift. Insert one byte near the front of a file and every later fixed-size boundary moves by one byte. The content may be almost identical, but the chunk hashes change because each block now contains a different slice. A backup system sees a wave of misses after a tiny edit.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/Deduplication.png/250px-Deduplication.png`, alt: `Diagram showing repeated data blocks reduced to one copy of each unique block`, caption: `Deduplication only saves space when repeated chunks keep the same identity across versions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Deduplication.png.`},
         `Trying smaller fixed blocks only trades one problem for another. Smaller blocks resynchronize less badly and improve dedup granularity, but they multiply hash work, index entries, metadata, and random reads during restore. The missing invariant is stable boundaries. The system needs chunk boundaries that are functions of local content, so unchanged regions can find the same cuts again after nearby edits.`,
       ],
     },
@@ -234,6 +236,7 @@ export const article = {
       paragraphs: [
         `The pipeline is cut, hash, lookup, and manifest. The chunker reads bytes in order and maintains the rolling fingerprint. When the boundary rule fires, it emits the chunk from the previous boundary to the current position. A strong digest is computed over the chunk bytes. The chunk index checks whether that digest already exists. If the digest is new, the bytes are stored. If it is old, the system reuses the existing chunk reference.`,
         `A file snapshot becomes an ordered manifest: chunk id A, chunk id B, chunk id C, plus metadata such as mode, path, size, timestamps, encryption metadata, and sometimes compression choices. Restore does the reverse. It reads the manifest, fetches chunks by id, verifies or decrypts them as needed, and concatenates the chunk payloads in order.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Hash_Tree.svg/500px-Hash_Tree.svg.png`, alt: `Hash tree with data blocks at leaves and hashes combined upward to a root hash`, caption: `Chunk manifests often feed a larger content-addressed structure where hashes compose into roots. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_Tree.svg.`},
         `The dedup store is therefore two data structures working together. The chunk index maps content ids to stored objects. The manifest maps a logical file or snapshot to an ordered list of content ids. Losing chunks loses data. Losing manifests loses the recipe for files. Production systems spend as much effort on indexes, integrity, encryption, and compaction as on the boundary rule.`,
       ],
     },

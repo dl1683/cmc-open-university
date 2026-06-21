@@ -181,6 +181,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Ordinary storage names data by location or mutable path: a filename, URL, bucket key, database row, or server address. That is convenient until the same bytes appear in many places, a cache serves stale data, a mirror is untrusted, or a build needs to prove exactly which inputs produced an artifact. Location names answer where to ask. They do not prove what was returned.',
+        {type: 'callout', text: 'A content-addressed Merkle DAG makes the root name a cryptographic commitment to every reachable block.'},
         'A content-addressed Merkle DAG object store names immutable blocks by cryptographic identifiers derived from their bytes and encoding metadata. Blocks can link to other blocks by identifier, so a root identifier names the whole reachable graph. Git, IPFS, IPLD, package lockfiles, container manifests, backup systems, and reproducible build stores all use versions of this pattern.',
       ],
     },
@@ -196,6 +197,7 @@ export const article = {
       paragraphs: [
         'The core insight is to make the name a commitment to the content. If the bytes or codec change, the identifier changes. If two parties use the same serialization and hashing rules for the same content, they get the same identifier. A CID in IPFS is more than a raw hash: it carries information such as the multihash, multicodec, and string encoding needed to interpret the block identity.',
         'Merkle links make this commitment recursive. A parent node stores child identifiers. Hashing the parent commits to its local payload and to the exact children it names. The root identifier therefore commits to every reachable block. A small root can name a large object graph without listing every byte in the root itself.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Hash_Tree.svg/500px-Hash_Tree.svg.png', alt: 'Merkle hash tree with data blocks at leaves and hashes combined upward to a top hash', caption: 'A hash tree shows recursive commitment: parent hashes commit to child hashes, and the root commits to the full reachable structure. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_Tree.svg.'},
       ],
     },
     {
@@ -209,6 +211,7 @@ export const article = {
       heading: 'What the visual proves',
       paragraphs: [
         'The CID graph view shows compositional identity. Payload blocks become CIDs. CIDs become links inside a parent node. The parent becomes a new CID. The root CID names the reachable graph, not only the root block. The important fact is that a parent does not merely point to children; it commits to the exact child identities.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A Merkle DAG is still a directed graph; content addressing changes what an edge means by making each link a verified identifier. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'The fetch-and-GC view separates integrity, availability, caching, traversal, and retention. A block can arrive from an untrusted peer and still be verified. A cache can skip repeat fetches because the same CID means the same block under the same settings. Garbage collection can delete blocks not reachable from retained roots because immutable children cannot be changed behind the root.',
       ],
     },

@@ -145,6 +145,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation draws iso-lines -- curves of equal value -- on a two-basin loss surface viewed from directly above. In the "reading the map" view, contour rings appear at seven fixed loss levels, from 0.60 near the basin floor to 3.00 on the outer slopes. Active highlighting marks the curve under discussion. In the "optimizer paths" view, gradient descent and momentum traces overlay the same rings so you can watch each optimizer cross, follow, or get trapped by the contour structure.',
+        {type: 'callout', text: 'A contour map turns height into topology: rings show basins, pinches show saddles, and spacing shows slope.'},
         'Nested ring families correspond to basins; their centers are local minima. The highlighted figure-eight curve marks the saddle level where two ring families almost merge. Tight ring spacing means steep terrain; wide spacing means a gentle slope. When an optimizer path appears, its angle relative to the rings encodes whether it follows pure gradient (perpendicular crossing) or carries momentum (angled crossing).',
         {
           type: 'note',
@@ -184,6 +185,7 @@ export const article = {
         'A contour at level L is the set {w : f(w) = L} -- every parameter configuration whose loss equals exactly L. For a 2D parameter space, each contour is a curve. The algorithm to extract contours from a scalar field depends on how the field is represented.',
         'When the field has a closed form (as on this page), contours can be computed analytically. For the teaching surface, fixing loss level L and solving for y gives y = +/- sqrt((L - g(x)) / 1.5) wherever g(x) <= L. Sweep x, compute y, and the contour traces itself exactly. No grid, no interpolation, no ambiguity.',
         'When the field is sampled on a grid (as in real neural network landscapes), the standard algorithm is marching squares (2D) or marching cubes (3D). The grid divides the domain into cells. For each cell, classify each corner as above or below the threshold L. The pattern of above/below corners determines which edges the contour crosses. Interpolate along those edges to find the crossing points, then connect them.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0d/Marching_squares_algorithm_schematic.svg/960px-Marching_squares_algorithm_schematic.svg.png', alt: 'Marching squares schematic showing grid cells, threshold bits, and generated contour segments', caption: 'Marching squares converts sampled scalar values into contour segments cell by cell. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Marching_squares_algorithm_schematic.svg.'},
         {
           type: 'diagram',
           label: 'Marching squares: the 16 cell cases',
@@ -274,6 +276,7 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         'The deepest failure is dimensionality. A contour plot of a neural network loss landscape shows a 2D slice through a space that may have millions of dimensions. A saddle in the slice may not be the relevant saddle in the full space. A basin that looks isolated may connect to other basins through directions not shown. Dauphin et al. (2014) showed that in high dimensions, most critical points are saddle points with many escape directions -- but a 2D slice typically shows only one or two. The contour map is a cross-section, not a summary.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Marching_squares_isolines.svg/960px-Marching_squares_isolines.svg.png', alt: 'Marching squares isoline cases showing the possible ways a contour crosses a square cell', caption: 'The isoline cases show why saddle cells are ambiguous: the same corner signs can support different connections. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Marching_squares_isolines.svg.'},
         'Ambiguity in grid-based extraction is a practical failure. Marching squares has four saddle cases (cases 5, 6, 9, 10 in the 16-case table) where two valid contour routings exist. Choosing wrong creates contour lines that cross or connect regions that should be separate. Marching cubes in 3D has analogous ambiguities among its 256 cases, and naive implementations can produce surfaces with holes. Dual contouring resolves this by using gradient (Hermite) data at edge crossings, but it requires that gradient information be available.',
         'Projection-choice bias is the silent failure. If the two directions used to slice the loss landscape happen to align with flat directions, the plot shows a featureless plain even if the surface is highly curved in other directions. Li et al. (2018) introduced filter-normalized directions to mitigate this, but no 2D projection can guarantee that it captures the most informative cross-section of an arbitrary high-dimensional surface. A flat contour plot is not evidence of a flat landscape -- it may be evidence of a bad slice.',
       ],
@@ -295,4 +298,3 @@ export const article = {
     },
   ],
 };
-

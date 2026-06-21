@@ -233,6 +233,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Constrained Decoding. Guarantee JSON, regex, or grammar structure by masking invalid next tokens during generation..",
+        {type: "callout", text: "Constrained decoding works by splitting generation into model scoring and grammar legality, then sampling only tokens that preserve a valid prefix."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -256,6 +257,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is to separate scoring from legality. The language model is good at ranking plausible continuations. The grammar engine is good at deciding which continuations preserve structure. Constrained decoding combines them by masking logits. Illegal tokens receive probability zero. Legal tokens keep their model scores and compete with each other. The result is still model-generated text, but it is generated inside a formal language boundary.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/Finite_state_machine_example_with_comments.svg/250px-Finite_state_machine_example_with_comments.svg.png', alt: 'Annotated finite state machine with states, transitions, and transition conditions', caption: 'A finite-state machine makes the legality boundary visible: current state determines which transitions are allowed next. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Finite_state_machine_example_with_comments.svg.'},
         'This distinction matters because structure and meaning are different problems. A JSON schema can require a field named "city" and a string value. It cannot prove that the city exists, that it was extracted from the source, or that it is safe to pass into a tool. Constrained decoding guarantees shape. Semantic validation, authorization, grounding, and business rules still have to run after the object is produced.',
       ],
     },
@@ -264,6 +266,7 @@ export const article = {
       paragraphs: [
         'A schema or grammar is compiled into a stateful acceptor. For a regular expression, that may be a finite-state machine. For nested JSON or a context-free grammar, it may be a parser state with a stack. At any point, the acceptor represents all valid ways the partial output can continue. The decoder asks this acceptor which token byte strings are legal next steps from the current state.',
         'The vocabulary makes this harder than it sounds. Models do not emit characters one by one. A token can contain a brace, a quote, a comma, a whole word, whitespace, or a partial string fragment. Efficient engines therefore compile constraints over token byte strings, often using a vocabulary trie, precomputed transitions, cached parser states, and special handling for strings and escapes. At each step the runtime computes a mask, applies it to model logits, renormalizes with softmax, samples or selects a token, and advances the parser state.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Transformer%2C_attention_block_diagram.png/250px-Transformer%2C_attention_block_diagram.png', alt: 'Transformer attention block diagram with query key value mask softmax and output', caption: 'The model still produces token scores; constrained decoding adds a legality mask before sampling. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Transformer,_attention_block_diagram.png.'},
       ],
     },
     {
