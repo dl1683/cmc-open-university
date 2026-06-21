@@ -205,6 +205,7 @@ export const article = {
       paragraphs: [
         'The base-128 varint view traces an unsigned integer through four stages: splitting into 7-bit payload groups, attaching the continuation bit to each group, emitting the final byte sequence, and reversing the process to decode. Active highlights mark the stage currently executing. Found highlights mark values that have been fully resolved. Compare highlights contrast byte counts across value ranges.',
         'The ZigZag signed-integer view adds a preliminary stage: mapping a signed integer to an unsigned integer before the varint pipeline runs. Active highlights mark the ZigZag mapping or the varint encoding. Found highlights mark the final wire bytes. The matrix frames show the signed-to-unsigned correspondence and the byte cost for each mapping.',
+        {type: 'callout', text: 'Varints make byte count follow value magnitude, and ZigZag makes signed magnitude visible before the varint stage.'},
         {
           type: 'diagram',
           text: 'Unsigned path:\n  value --> split into 7-bit groups --> attach continuation bits --> emit bytes\n    300 -->        [44, 2]          -->      [0xac, 0x02]      --> ac 02\n\nSigned path (ZigZag first):\n  signed --> ZigZag map --> unsigned --> varint encode --> emit bytes\n    -2   -->     3      -->    3     -->     [0x03]    --> 03',

@@ -169,6 +169,7 @@ export const article = {
         'The board is an n×n matrix. ♛ marks a placed queen. ✕ marks a cell the algorithm just tested and rejected because of a column or diagonal conflict. ? marks a cell being tried. — marks cells in a row where every option has been exhausted, triggering a backtrack.',
         'Active highlights show the cell currently being tested. Found highlights mark queens that are safely placed so far. Removed highlights mark queens being taken off the board during a backtrack.',
         'Watch the algorithm work row by row, left to right within each row. When it places a queen and moves down, the search tree is going deeper. When it removes a queen and tries the next column, it is backtracking. The node count in each step shows how much work pruning saved compared to brute force.',
+        {type: 'callout', text: 'Backtracking is depth-first search over partial assignments where every failed constraint deletes an entire subtree.'},
       ],
     },
     {

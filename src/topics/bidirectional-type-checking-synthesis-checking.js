@@ -140,6 +140,7 @@ export const article = {
         'A type checker has two jobs that pull in opposite directions. Programmers want to omit obvious type annotations, but they also want precise errors, fast editor feedback, and language features that make types more expressive than the terms alone.',
         'Full inference works well for small ML-style cores, but modern languages often include subtyping, overloaded operations, higher-rank functions, typed holes, effects, gradual dynamic values, or dependent function types. In those languages, guessing every missing type globally can become expensive, unpredictable, or impossible to explain.',
         'Bidirectional type checking exists to make the flow of type information explicit. Some expressions produce a type from syntax and the environment. Other expressions are checked against a type that the surrounding context already knows.',
+        {type: 'callout', text: 'Bidirectional checking makes type information flow where it is available instead of forcing a global solver to guess missing intent.'},
       ],
     },
     {

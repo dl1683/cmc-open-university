@@ -233,6 +233,7 @@ export const article = {
       paragraphs: [
         'Benchmark variance is the reason model comparison is harder than reading one score from one table. A training run is not a pure measurement of an algorithm. It is the result of data sampling, train/test split, initialization, minibatch order, augmentation, nondeterministic kernels, early stopping, hyperparameter search, metric implementation, and sometimes evaluator or judge noise. The same method can score differently across those choices even when the code is correct.',
         'The practical problem is decision risk. A team wants to know whether model A is better than model B, whether a new training recipe deserves more compute, or whether an offline benchmark justifies a production rollout. A single lucky run can make an ordinary method look strong. A single unlucky run can make a strong method look weak. Benchmark variance turns model selection into an estimation problem, not a screenshot problem.',
+        {type: 'callout', text: 'A benchmark result is a sampled measurement process, so model selection must estimate the distribution that produced the score.'},
       ],
     },
     {

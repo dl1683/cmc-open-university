@@ -216,6 +216,7 @@ export const article = {
         'A membership filter answers a narrow question: can this key be absent without checking the expensive source of truth? Bloom filters made that idea practical. Xor filters made static filters smaller and faster. Binary fuse filters push the static-filter branch further.',
         'The setting is usually huge and immutable: SSTables, object manifests, published asset sets, genomic k-mer snapshots, or read-only indexes. At that scale, one extra bit per key can mean gigabytes of memory and worse cache behavior.',
         'Binary fuse filters exist to keep the xor-filter query shape, a few table reads and xor operations, while improving space and construction behavior for static sets.',
+        {type: 'callout', text: 'A binary fuse filter moves work to a static build so each query becomes a few deterministic reads and xor checks.'},
       ],
     },
     {

@@ -149,6 +149,7 @@ export const article = {
         'Green highlights mark a successful relaxation: the edge produced a cheaper path, so the destination\'s distance dropped. Blue highlights mark an edge that was checked but could not improve the current best distance.',
         'The pass number appears at the top of each scan. After V−1 passes, a final check pass runs. If any edge still reduces a distance on that extra pass, a negative cycle exists and the affected shortest paths are undefined.',
         'Pay special attention to edge B→C with weight −2. This negative edge is why the algorithm exists. Watch how it reduces C\'s distance below the direct A→C path of cost 4, producing a final distance of −1 for C. Dijkstra would finalize C at 4 and never reconsider it.',
+        {type: 'callout', text: 'Bellman-Ford replaces greedy finalization with repeated relaxation so negative edges can revise earlier distance beliefs.'},
       ],
     },
     {
@@ -189,6 +190,7 @@ export const article = {
         'Base case (k = 0): dist[source] = 0, all others infinity. The only 0-edge path is the source to itself, which has weight 0. Correct.',
         'Inductive step: assume the claim holds after pass k−1. Take any shortest path from source to v using at most k edges, and let its last edge be (u, v). By hypothesis, dist[u] already holds a value at most equal to the shortest (k−1)-edge path to u. During pass k, edge (u, v) is scanned, so dist[v] gets updated to at most dist[u] + w(u, v), which is at most the shortest k-edge path to v.',
         'After V−1 passes, the claim covers paths using up to V−1 edges. A shortest path in a graph without negative cycles never visits a node twice — removing a non-negative cycle from the path cannot increase its weight. So every shortest path uses at most V−1 edges, and the distances are exact.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/85/Bellman-Ford_worst-case_example.svg/250px-Bellman-Ford_worst-case_example.svg.png', alt: 'Bellman-Ford worst-case example requiring multiple passes', caption: 'Worst-case edge order shows why distance information may advance only one edge per pass. Source: Wikimedia Commons.'},
         'The V-th pass exploits this bound. If any relaxation succeeds on pass V, some "shortest path" needs V or more edges, which means it passes through a node twice — only possible if a negative cycle exists.',
       ],
     },

@@ -64,6 +64,7 @@ export const article = {
         'The animation plots four growth curves on the same axes: log n, n, n log n, and n². The horizontal axis is input size n. The vertical axis is operations. Each frame adds one curve so you can watch the gaps open.',
         'The active curve (highlighted) is the one just added. Previously drawn curves are dimmed. The invariant line below each frame shows the exact values at the current max n, so you can compare numbers instead of guessing from the chart.',
         'Watch the gaps, not the absolute heights. At n = 12 the curves look similar. At n = 48 they are already separating. At real production sizes the separation is the difference between instant, slow, and impossible. The chart is small on purpose: even modest n exposes the shape.',
+        {type: 'callout', text: 'Big-O is the shape of work growth, so the right curve matters more than a small benchmark number.'},
       ],
     },
     {

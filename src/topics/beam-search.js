@@ -118,6 +118,7 @@ export const article = {
         "Each node is a partial sentence. The percentage on a node is the joint probability of the entire prefix up to that point — not the probability of the last token alone. Highlighted nodes are the active beam: the hypotheses the decoder is still considering. Faded nodes were expanded, scored, and pruned because a higher-scoring prefix existed.",
         "Toggle between greedy and beam (k=2) to see the difference. Greedy keeps exactly one active node per depth level. Beam search keeps two. At the first expansion, greedy commits to 'sat' (50%) and discards 'ran' (30%). Beam search keeps both. By depth three, 'ran away home' reaches 24% total probability while greedy's path through 'sat' lands at 10%.",
         "The returning path at the end traces the winner back to the root. The gap between greedy's result and beam's result is the price of committing too early to a locally dominant token.",
+        {type: "callout", text: "Beam search spends fixed memory to keep several plausible prefixes alive until cumulative probability can outrank the locally best token."},
       ],
     },
     {

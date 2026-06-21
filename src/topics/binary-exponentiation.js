@@ -87,6 +87,7 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: "callout", text: "Binary exponentiation treats each exponent bit as one square and each 1-bit as one multiply, turning exponent value into exponent length."},
       ],
     },
     {
@@ -158,6 +159,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         `Modular exponentiation powers RSA decryption and signatures, classic Diffie-Hellman key exchange, primality testing routines, and many number-theory protocols. The whole point is that exponents can be very large while the loop stays tied to their bit length.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/DiffieHellman.png/500px-DiffieHellman.png`, alt: `Diffie-Hellman key exchange with modular exponentiation steps`, caption: `Diffie-Hellman shows modular exponentiation as the workhorse behind shared secret agreement. Source: Wikimedia Commons.`},
         `Outside cryptography, it is a standard tool for fast recurrence computation, graph walk counts through adjacency-matrix powers, Markov Chains & Steady States, PageRank-style transition powers, and repeated transformation composition. The same pattern also teaches why binary representation is an algorithmic tool, not just a storage format.`,
       ],
     },

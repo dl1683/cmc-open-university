@@ -235,6 +235,7 @@ export const article = {
       paragraphs: [
         'Batch-size scaling exists because modern training is limited by two different clocks. One clock is statistical: how many optimizer updates are needed to reach a target validation quality? The other clock is physical: how fast can accelerators process examples, exchange gradients, and apply updates? A small minibatch gives many noisy updates and often trains well, but it may leave a large cluster underused. A very large minibatch keeps many devices busy, but it reduces update count and changes the path taken by optimization.',
         'The topic matters because "more GPUs" is not a training algorithm. If batch size grows without changing the learning-rate schedule, regularization, synchronization strategy, and validation discipline, the run can become faster in examples per second and worse in the metric that matters. Large-batch training became credible because work such as the ImageNet-in-1-hour result showed a controlled recipe: synchronous data parallelism, linear learning-rate scaling, warmup, and an honest comparison to the small-batch baseline.',
+        {type: 'callout', text: 'Batch size is useful only while statistical progress, optimizer stability, and hardware throughput improve the same target metric.'},
       ],
     },
     {
