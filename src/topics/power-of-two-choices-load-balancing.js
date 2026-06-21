@@ -288,6 +288,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The two-sampled-queues view shows one routing decision. A request arrives, the balancer samples two backends, reads their active-request counts, and sends the request to the shorter queue. Green highlights mark the chosen server; blue marks the rejected candidate. The comparison node is the entire algorithm: not a full scan, not blind random, just one comparison between two random samples.',
+        {type: 'callout', text: 'Two choices add one comparison, but they create negative feedback: a busy server becomes less likely to receive the next request.'},
         'The balls-into-bins view replays the same fixed request stream under one-choice (blind random) and two-choice routing side by side. Watch the "effect" column: "relieved" means two choices placed fewer jobs on that server than random did. The production-caveats view adds the operational wrapper: health checks, weights, stale counters, zone locality, and fallback behavior that surround the simple core in any real deployment.',
       ],
     },
@@ -295,6 +296,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A load balancer makes the same small decision thousands of times per second: which backend gets the next request? Send too much work to one server and its queue grows, latency rises, retries cascade, and tail behavior degrades for bystander requests. Spend too much effort finding the globally optimal server and the selection logic itself becomes a bottleneck.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Elasticsearch_Cluster_August_2014.png/250px-Elasticsearch_Cluster_August_2014.png', alt: 'Load balancer distributing user requests across several server groups', caption: 'Load balancing spreads incoming work across a backend pool; two-choice routing changes how the next backend is selected. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Elasticsearch_Cluster_August_2014.png.'},
         'In 1994, Azar, Broder, Karlin, and Upfal proved a startling result about balls into bins (published at STOC 1994, journal version in SIAM J. Computing 1999). If you throw n balls into n bins by picking one bin uniformly at random, the fullest bin holds about log n / log log n balls with high probability. If instead you pick two bins at random and place the ball in the less full one, the maximum drops to log log n / log 2 + O(1). One extra probe produces an exponential improvement in the worst-case load. Mitzenmacher independently developed the same result in his 1996 PhD thesis and later wrote the definitive survey, "The Power of Two Choices in Randomized Load Balancing" (2001). The idea is now a standard building block in production load balancers.',
       ],
     },

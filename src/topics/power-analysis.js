@@ -143,6 +143,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "The coin-flip experiment" sets up a scenario where the treatment genuinely works -- a 10% relative lift on a 5% baseline -- then computes the probability that a standard A/B test at n = 2,000 per arm actually detects it. Active cells mark the current calculation. Removed cells mark outcomes the experiment throws away. Compare cells highlight the probability you should be watching.',
+        {type: 'callout', text: 'Power is a design-time probability: it says how often this experiment would detect the effect size you claim to care about.'},
         '"Sizing the experiment, live" sweeps sample size and draws the power curve. The removed marker is the underpowered starting point; the found marker is the 80% convention. The lift table shows how required n scales with effect size. At each frame, read the number first, then the explanation -- the number is the claim, the explanation is the proof.',
         {
           type: 'note',
@@ -175,11 +176,12 @@ export const article = {
       paragraphs: [
         'The wall is the inverse-square law of experiments. The standard error of a difference shrinks as 1/sqrt(n), so to detect half the effect you need roughly four times the sample. A 50% relative lift on a 5% baseline needs about 1,500 users per arm; a 5% relative lift needs about 122,000. Most teams discover this only after collecting data, when the confidence interval is embarrassingly wide.',
         {
-          type: 'table',
-          headers: ['', 'Effect is real', 'Effect is absent'],
-          rows: [
-            ['Test says significant', 'True positive (power = 1 - beta)', 'False positive (Type I error, rate = alpha)'],
-            ['Test says not significant', 'False negative (Type II error, rate = beta)', 'True negative (correct non-rejection)'],
+          type: 'bullets',
+          items: [
+            'Significant when the effect is real: true positive, counted by power = 1 - beta.',
+            'Significant when the effect is absent: false positive, controlled by alpha.',
+            'Not significant when the effect is real: false negative, counted by beta.',
+            'Not significant when the effect is absent: true negative, a correct non-rejection.',
           ],
         },
         'Alpha (the false-positive rate) gets all the cultural attention because p < 0.05 is the threshold everyone memorizes. Beta (the false-negative rate) is equally dangerous but invisible: when power is 10%, the experiment discards 90% of real improvements. Worse, the rare significant results from underpowered tests are systematically inflated -- the winner\'s curse -- because only lucky overestimates clear the significance bar. This is a primary driver of the replication crisis in science and the "exciting result that melts on relaunch" pattern in product experimentation.',
@@ -189,6 +191,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Power analysis connects four quantities: alpha (false-alarm rate), power (1 - beta, the detection rate), effect size (the smallest difference worth finding), and sample size n. Fix any three and the fourth is determined. The standard workflow is: set alpha = 0.05 by convention, set power = 0.80 by convention, choose the minimum detectable effect as a business decision, and solve for n.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg', alt: 'Normal curve with standard deviation bands marked around the mean', caption: 'Power analysis is a signal-to-noise calculation over sampling distributions; more sample size narrows uncertainty slowly. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Standard_deviation_diagram.svg.'},
         'For a two-sample test of proportions with baseline p1 and treatment p2, the required n per arm is approximately ((z_alpha + z_beta)^2 * (p1(1-p1) + p2(1-p2))) / (p2 - p1)^2, where z_alpha = 1.96 for two-sided 5% and z_beta = 0.8416 for 80% power. The module computes this live.',
         {
           type: 'code',
@@ -216,13 +219,12 @@ export const article = {
       paragraphs: [
         'The computation itself is trivial -- a closed-form expression evaluated in microseconds. The real cost is the sample size it demands. Detecting a 10% relative lift on a 5% conversion baseline at 80% power requires roughly 31,000 users per arm -- 62,000 total. For a site with 1,000 daily visitors, that is two months of traffic on a single binary experiment.',
         {
-          type: 'table',
-          headers: ['Relative lift', 'Absolute delta', 'n per arm (80% power)', 'Total users'],
-          rows: [
-            ['50%', '2.5 pp', '~1,500', '~3,000'],
-            ['20%', '1.0 pp', '~8,000', '~16,000'],
-            ['10%', '0.5 pp', '~31,000', '~62,000'],
-            ['5%', '0.25 pp', '~122,000', '~244,000'],
+          type: 'bullets',
+          items: [
+            '50 percent relative lift: about 2.5 percentage points, roughly 1,500 users per arm and 3,000 total.',
+            '20 percent relative lift: about 1.0 percentage point, roughly 8,000 users per arm and 16,000 total.',
+            '10 percent relative lift: about 0.5 percentage points, roughly 31,000 users per arm and 62,000 total.',
+            '5 percent relative lift: about 0.25 percentage points, roughly 122,000 users per arm and 244,000 total.',
           ],
         },
         'The second cost is commitment. A power calculation forces you to declare a primary metric, a minimum effect, and a stopping rule before launch. That discipline feels restrictive but is the cure for peeking and p-hacking. The pre-registered n defines when the experiment ends, removing the temptation to stop on a lucky day.',
@@ -273,4 +275,3 @@ export const article = {
     },
   ],
 };
-

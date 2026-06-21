@@ -235,6 +235,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Pipeline parallelism exists because a deep model has two different scaling problems. The parameters and activations may not fit on one accelerator, and a single accelerator may not provide enough throughput even when the model fits. Data parallelism copies the whole model to every worker, so it helps batch throughput but does not solve model depth. Tensor parallelism splits individual layers, which helps very wide matrix operations, but it adds collectives inside almost every block. Pipeline parallelism makes a different cut: it assigns consecutive layer ranges to stages and streams micro-batches through those stages.`,
+        {type: `callout`, text: `Pipeline parallelism treats model depth as an assembly line: correctness preserves layer order, while throughput comes from keeping different stages busy on different micro-batches.`},
         `PyTorch's pipeline runtime describes the same contract: split model execution into stages, split batches into micro-batches, and schedule those micro-batches so different devices execute different stages at the same time. GPipe made that idea practical for large sequential networks by treating the model like an assembly line and using batch splitting to reduce idle devices. The article below focuses on the data-structure view of that assembly line: a schedule matrix whose blank cells are lost work and whose filled cells are useful stage execution.`,
       ],
     },
@@ -250,6 +251,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         `The core insight is that a training batch can be split into micro-batches without changing the model graph. Each micro-batch still runs through every layer in order, but different micro-batches can occupy different stages at the same time. The model becomes an assembly line: stage 0 processes micro-batch 4 while stage 1 processes micro-batch 3, stage 2 processes micro-batch 2, and stage 3 processes micro-batch 1.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg`, alt: `Layered neural network diagram with multiple colored layers`, caption: `Pipeline splits follow consecutive layer ranges in a network like this, then schedule micro-batches through those ranges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.`},
         `That insight separates correctness from scheduling. Correctness comes from preserving the forward and backward dependencies for every micro-batch and applying the optimizer step only after the intended gradients are accumulated. Performance comes from choosing a schedule that keeps the stage matrix dense. The algorithm does not make a layer faster; it hides stage latency by keeping other layers busy on other micro-batches.`,
       ],
     },

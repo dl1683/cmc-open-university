@@ -159,6 +159,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Expression syntax looks simple until a language has precedence, associativity, unary operators, calls, indexing, grouping, and good error messages. The flat token stream a + b * c does not say which operation owns b and c. The parser must recover that structure.',
+        {type: 'callout', text: 'A Pratt parser makes precedence a data lookup and a stop condition, so expression structure comes from binding power instead of parser nesting.'},
         'A Pratt parser solves the expression part with a small loop and token-specific parse functions. It turns a token stream into an AST or bytecode while keeping precedence and associativity in data tables rather than in a tall stack of grammar functions.',
       ],
     },
@@ -187,6 +188,7 @@ export const article = {
       heading: 'How the visual model teaches it',
       paragraphs: [
         'In the binding-power view, treat the table as the main data structure. Prefix parselets build the first expression, infix parselets extend a left expression, and the binding-power comparison decides whether the loop continues or returns control to the caller.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Abstract_syntax_tree_for_Euclidean_algorithm.svg/500px-Abstract_syntax_tree_for_Euclidean_algorithm.svg.png', alt: 'Abstract syntax tree diagram with statement, branch, comparison, assignment, and binary operation nodes', caption: 'An AST records ownership and nesting that the token stream alone does not expose. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Abstract_syntax_tree_for_Euclidean_algorithm.svg.'},
         'In the AST-construction view, watch when the root changes. The token stream stays flat, but the tree records ownership. The important moment is that * binds b and c before + completes, so the right child of + becomes the subtree *(b, c).',
       ],
     },

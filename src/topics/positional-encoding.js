@@ -77,6 +77,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The matrix is a sinusoidal position table. Each row is a sequence position (0, 1, 2, ...). Each column is one dimension of the encoding vector, running at a different frequency. Highlighted cells mark the row or column currently under inspection.',
+        {type: 'callout', text: 'Position encoding breaks attention symmetry by giving the same token different vectors at different sequence locations.'},
         'When a full row lights up, you see that position\'s fingerprint -- the vector that gets added to the token embedding. The numbers are all between -1 and 1. When a full column lights up, you see one frequency across every position: left columns oscillate fast (nearby positions look very different), right columns oscillate slowly (distant positions are still distinguishable).',
         'The comparison view highlights a fast column and a slow column side by side so you can see the multi-scale structure directly. Found markers on the first few rows show positions that have been merged with token embeddings via element-wise addition.',
         'The invariant: every cell stays in [-1, 1]. Position information never overwhelms the content it joins.',
@@ -86,6 +87,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Attention is permutation-invariant. Feed it the tokens ["the", "cat", "sat"] or ["sat", "the", "cat"] and it produces identical attention scores -- the same set of content vectors yields the same dot products regardless of order. "The cat sat on the mat" and "sat mat the the on cat" are indistinguishable. Language, code, music, and DNA all depend on order. Without an explicit signal, the model is working with a bag of words.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Absolute_positional_encoding.png/250px-Absolute_positional_encoding.png', alt: 'Heatmap of sinusoidal absolute positional encodings', caption: 'Sinusoidal encodings turn each row position into a multi-frequency fingerprint. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Absolute_positional_encoding.png.'},
         'Vaswani et al. (2017) fixed this in the original Transformer by adding a position-dependent vector to each token embedding before the first attention layer. That addition breaks permutation symmetry: the same word at position 3 and position 7 now has a different representation. Every subsequent scheme -- learned embeddings, RoPE, ALiBi -- solves the same root problem: attention must know where tokens sit, not just what they say.',
       ],
     },

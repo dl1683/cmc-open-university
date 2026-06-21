@@ -92,6 +92,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Precision, Recall & the Confusion Matrix. Accuracy lies on imbalanced data — meet the four cells and two ratios that tell the truth..",
+        {type: 'callout', text: 'Precision and recall force the evaluation to name which positive-class mistake matters: false alarms or missed positives.'},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -109,6 +110,7 @@ export const article = {
       heading: `The four-cell ledger`,
       paragraphs: [
         `The confusion matrix has four cells. True positives are positive cases correctly flagged. False negatives are positive cases missed. False positives are negative cases incorrectly flagged. True negatives are negative cases correctly ignored. Every example in a labeled evaluation set lands in exactly one cell, and every metric in this family is arithmetic over those cells.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/1/11/Confusion_Matrix_Metrics.png`, alt: `Confusion matrix metrics showing accuracy, precision, recall, and specificity`, caption: `Precision and recall use different denominators inside the same four-cell ledger. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Confusion_Matrix_Metrics.png.`},
         `Precision is TP / (TP + FP). It asks: of the things the model flagged, how many were actually positive? High precision means the alert queue is clean. In spam filtering, a false positive may bury a job offer or invoice, so precision matters. In fraud review, low precision means analysts waste time on innocent transactions.`,
         `Recall is TP / (TP + FN). It asks: of all real positives, how many did the model find? High recall means the system misses fewer target cases. In medical screening, a false negative can be much more serious than a false alarm, so recall often matters more. In security monitoring, recall measures how much of the real threat stream is being caught.`,
         `The threshold 0.5 classifier in the demo has TP = 40, FN = 10, FP = 30, and TN = 920. Accuracy is 96 percent, barely above the lazy 95 percent, but precision is 40 / (40 + 30), or 57.1 percent, and recall is 40 / (40 + 10), or 80 percent. Those two ratios reveal a model that catches most spam but creates a noisy flagged queue.`,

@@ -212,6 +212,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Piece Table Text Buffer. A text-editor buffer: keep the original file immutable, append all inserted text to an add buffer, and render through ordered piece descriptors..",
+        {type: 'callout', text: 'A piece table makes editing structural: old bytes stay fixed while descriptors decide which slices are visible.'},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -245,6 +246,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'In the "insert pieces" view, focus on the split. Inserting "brave " into "hello world" does not rewrite "hello world". The original piece is split into "hello " and "world", the inserted text is appended to the add buffer, and a new piece points at that add-buffer slice.',
+        {type: 'image', src: 'https://code.visualstudio.com/assets/blogs/2018/03/23/piece-tree.gif', alt: 'Animation of a piece tree walking original and added text buffers through piece descriptors', caption: 'VS Code uses a piece tree to index piece descriptors and line metadata for editor workloads. Source: Visual Studio Code blog, https://code.visualstudio.com/blogs/2018/03/23/text-buffer-reimplementation.'},
         'The piece tree frame shows why a real editor does not stop at a linked list. A long editing session can create many pieces. A balanced tree with lengths and line counts keeps random access, line navigation, and viewport rendering from degrading into full-list scans.',
         'In the "undo and indexing" view, notice that undo restores descriptor state, not erased bytes. The bytes are retained in the original and add buffers, so undo and redo mostly change which slices are visible.',
       ],

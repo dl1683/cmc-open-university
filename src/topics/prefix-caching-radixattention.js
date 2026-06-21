@@ -285,8 +285,11 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'LLM serving spends a large part of its time in prefill: reading the prompt tokens, computing attention keys and values for every layer, and producing the KV cache that decode will reuse. Many applications repeat long prompt prefixes: system prompts, tool schemas, policy text, examples, retrieved documents, and conversation history.',
+        {type: 'callout', text: 'Prefix caching is correct only for exact token prefixes under the same model contract; semantic similarity is not enough to reuse KV state.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie diagram showing words sharing prefix paths', caption: 'A trie stores shared prefixes once; RadixAttention applies the same shape to reusable token-prefix KV segments. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Trie_example.svg.'},
         'Prefix caching exists because recomputing identical prefixes is waste. If two requests begin with the exact same token sequence under the same model and execution contract, the server can reuse the KV state for that prefix and only prefill the suffix. RadixAttention is the SGLang design that organizes this reuse with a radix tree over token prefixes.',
       ],
-    }
+    },
+    ...legacyArticle.sections.slice(1),
   ],
 };
