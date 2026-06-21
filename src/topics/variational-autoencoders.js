@@ -213,6 +213,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The reparameterization view traces a single input through the VAE dataflow graph. Highlighted nodes mark the active stage: input x enters the encoder, the encoder forks into two output heads (mu and sigma), noise epsilon arrives from outside the learned pathway, and z is assembled as mu + sigma * epsilon. The decoder then maps z back to a reconstruction x-hat. The critical thing to notice: epsilon has no incoming edge from the encoder. That separation is what makes gradients possible.',
+        {
+          type: 'callout',
+          text: 'A VAE is trainable because randomness is sampled outside the encoder path while the latent sample remains differentiable with respect to mu and sigma.',
+        },
         'The latent space view shows encoded inputs as scattered points in a two-dimensional latent plane. Without KL regularization, clusters drift into isolated islands with dead zones between them. With KL, clusters overlap near the origin, filling the space so that interpolation between known points and random sampling from the prior both produce coherent decoder outputs. The prior marker at (0, 0) shows where N(0, I) sits; a well-trained VAE surrounds it.',
       ],
     },
@@ -241,6 +245,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The encoder takes input x and outputs two vectors: a mean mu and a log-variance logvar (log-variance rather than variance because it is numerically stable and can represent any positive variance after exponentiation). From these, sigma = exp(0.5 * logvar). The encoder does not output a single code; it describes a Gaussian cloud around where x should live in latent space.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/11/Reparameterized_Variational_Autoencoder.png', alt: 'Variational autoencoder dataflow after the reparameterization trick', caption: 'The reparameterized VAE separates probabilistic encoder outputs from external noise before the decoder reconstructs x. Source: Wikimedia Commons, Agustinus Kristiadi, CC BY-SA 4.0.'},
         'The reparameterization trick makes this trainable. Instead of sampling z directly from the learned distribution (which blocks gradient flow), the model draws epsilon from a fixed N(0, I) and computes z = mu + sigma * epsilon. Randomness stays in the forward pass, but z is now a deterministic function of mu, sigma, and epsilon. The partial derivatives are clean: dz/dmu = 1, dz/dsigma = epsilon. Backpropagation flows through mu and sigma to the encoder weights.',
         'The decoder takes z and predicts the original input. For images, it might output Bernoulli probabilities per pixel (binary cross-entropy loss) or Gaussian means (MSE loss). The total loss is the Evidence Lower Bound (ELBO), which has two terms: Loss = reconstruction_error + KL(q(z|x) || p(z)). The reconstruction term rewards accurate outputs. The KL term measures how far the encoder distribution q(z|x) drifts from the prior p(z) = N(0, I). For Gaussian q and Gaussian prior, KL has a closed form per latent dimension j: KL_j = 0.5 * (sigma_j^2 + mu_j^2 - 1 - ln(sigma_j^2)). Sum across dimensions, average across the batch.',
         'A denoising autoencoder variant corrupts the input (adding noise, masking pixels, dropping features) and trains the decoder to reconstruct the clean original. This forces the encoder to learn robust features rather than memorizing surface patterns. The corruption acts as implicit regularization without a KL term.',
@@ -298,4 +303,3 @@ export const article = {
     },
   ],
 };
-

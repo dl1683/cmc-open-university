@@ -214,6 +214,10 @@ export const article = {
       paragraphs: [
         'The animation has two views. "Witness shape" traces the data flow from a block through its witness, vector commitment, and trusted root to a stateless client. "Tradeoff map" lays out the design levers, client responsibilities, tree comparisons, and common misreadings.',
         {
+          type: 'callout',
+          text: 'Verkle trees keep the authenticated-state guarantee but replace sibling-hash bundles with compact vector-commitment openings.',
+        },
+        {
           type: 'bullets',
           items: [
             'Active (highlighted) nodes mark the current proof mechanism under inspection -- the witness or commitment being verified.',
@@ -245,6 +249,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Use Merkle proofs. For every key the block accesses, send the path from the leaf to the root, including the sibling hashes needed to recompute each parent. This is simple, battle-tested, and easy to audit.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt: 'Binary Merkle tree with leaf hashes and a top hash', caption: 'Merkle trees anchor each leaf under a root hash, but a proof must carry sibling hashes along the path. Source: Wikimedia Commons, David Goehring, public domain.'},
         {
           type: 'diagram',
           label: 'Merkle proof for one key in a binary tree of depth d',
@@ -272,13 +277,12 @@ export const article = {
       paragraphs: [
         'The wall appears at block scale. A block does not access one key -- it accesses hundreds or thousands. Each access carries its own path of sibling hashes. Paths overlap (shared prefixes), but the sibling material at each divergence point is still sent separately.',
         {
-          type: 'table',
-          headers: ['Scenario', 'State accesses', 'Approx. MPT witness size', 'Problem'],
-          rows: [
-            ['Single read', '1', '~3-5 KB', 'Manageable'],
-            ['Simple transfer', '~10', '~30-50 KB', 'Acceptable'],
-            ['DeFi transaction', '~50-100', '~200-500 KB', 'Growing fast'],
-            ['Full block', '~1000+', '~800 KB - 1.5 MB', 'Exceeds block payload'],
+          type: 'bullets',
+          items: [
+            'Single read: 1 state access, about 3-5 KB of MPT witness data. Manageable.',
+            'Simple transfer: about 10 state accesses, about 30-50 KB. Acceptable but no longer tiny.',
+            'DeFi transaction: about 50-100 state accesses, about 200-500 KB. Witness bytes grow fast.',
+            'Full block: 1000+ state accesses, about 800 KB to 1.5 MB. Witnesses can exceed the block payload.',
           ],
         },
         'The growth is roughly linear in the number of accesses because sibling hashes do not compress well across unrelated paths. For the hexary Merkle-Patricia Trie, each proof node is an RLP-encoded list of 17 items (16 children plus value), making the per-access cost worse than a clean binary tree.',
@@ -360,15 +364,14 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Merkle (binary)', 'MPT (hexary)', 'Verkle (width 256)'],
-          rows: [
-            ['Tree depth for 2^30 keys', '30', '~8', '~4'],
-            ['Proof size per key', '30 * 32 B = 960 B', '~3-5 KB (RLP nodes)', '~130-150 B (opening)'],
-            ['Block witness (1000 keys)', '~500-800 KB', '~800 KB - 1.5 MB', '~150-200 KB (batched)'],
-            ['Verification cost', 'Hashing (fast)', 'Hashing + RLP decode', 'Elliptic curve ops (slower per op)'],
-            ['Update cost (one leaf)', 'Rehash path', 'Re-encode path nodes', 'Recompute commitments on path'],
-            ['Commitment update', 'N/A', 'N/A', '~4 group multiplications per level'],
+          type: 'bullets',
+          items: [
+            'Tree depth for 2^30 keys: binary Merkle about 30 levels, hexary MPT about 8, width-256 Verkle about 4.',
+            'Proof size per key: binary Merkle about 960 B, MPT about 3-5 KB of RLP nodes, Verkle about 130-150 B per opening before batching.',
+            'Block witness for 1000 keys: binary Merkle about 500-800 KB, MPT about 800 KB to 1.5 MB, Verkle about 150-200 KB when batched.',
+            'Verification cost shifts from fast hashing to hash decoding plus elliptic-curve operations. Verkle spends more CPU to save bandwidth.',
+            'Update cost shifts from rehashing or re-encoding path nodes to recomputing commitments on the changed path.',
+            'Commitment update is not free: the Verkle path needs group operations at each level, roughly four group multiplications per level in the cited design.',
           ],
         },
         'The savings come from batching. A single Verkle opening is not dramatically smaller than a Merkle path in a binary tree. The win is that a multiproof covering 1000 openings across shared tree structure compresses into a proof roughly the size of a few dozen openings, while 1000 Merkle proofs remain 1000 separate paths.',
@@ -403,15 +406,14 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Failure mode', 'Explanation'],
-          rows: [
-            ['Not magic compression', 'The state still exists and must be stored somewhere. Verkle trees reduce witness size, not state size. Full nodes still hold the entire database.'],
-            ['Root trust is still required', 'A valid witness proves values relative to a root. It says nothing about whether the root is canonical. Consensus and header verification are still mandatory.'],
-            ['Prover cost is real', 'Block builders must compute witnesses for every state access. If proving latency exceeds the block time budget, the system fails at the builder, not the verifier.'],
-            ['Cryptographic complexity', 'Verkle proofs require elliptic curve libraries, trusted setup or transparent setup depending on the scheme, and careful constant-time implementations. The attack surface is larger than hash-based proofs.'],
-            ['Migration burden', 'Converting a live chain from MPT to Verkle requires a state migration -- either a hard cutover (risky) or an overlay period (complex). Both require extensive testing.'],
-            ['Scattered access patterns', 'When a block touches keys with no shared prefixes, each access hits a distinct subtree. The multiproof still helps, but the compression ratio drops toward the single-proof case.'],
+          type: 'bullets',
+          items: [
+            'Not magic compression: the state still exists and must be stored somewhere. Verkle trees reduce witness size, not state size.',
+            'Root trust is still required: a valid witness proves values relative to a root, not whether the root is canonical.',
+            'Prover cost is real: block builders must compute witnesses for every state access, and proving latency must fit the block-time budget.',
+            'Cryptographic complexity grows: elliptic-curve libraries, setup assumptions, and constant-time implementation details create more attack surface than hash-only proofs.',
+            'Migration burden is large: converting live state from MPT to Verkle needs either a risky hard cutover or a complex overlay period.',
+            'Scattered access patterns reduce compression: if keys share few prefixes, the multiproof drops toward the single-proof case.',
           ],
         },
         'Verkle trees are also the wrong tool when implementation maturity and auditability matter more than witness size. Hash-based Merkle proofs are understood by every engineer, implemented in every language, and built on conservative cryptographic assumptions (collision-resistant hashing). Verkle proofs depend on newer, more complex algebraic primitives.',
@@ -430,15 +432,14 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic', 'Why'],
-          rows: [
-            ['Prerequisite', 'Merkle Tree', 'The base authenticated-proof idea that Verkle trees generalize'],
-            ['Prerequisite', 'KZG Polynomial Commitment Opening', 'Vector commitment intuition -- how a commitment binds to a vector and supports efficient openings'],
-            ['Context', 'Ethereum Merkle-Patricia Trie', 'The current authenticated state structure that Verkle trees would replace'],
-            ['Context', 'PATRICIA Trie', 'Path compression technique used in both MPT and Verkle stem-extension nodes'],
-            ['Extension', 'Sparse Merkle Tree Non-Membership', 'Absence proofs in authenticated trees -- a complementary proof type'],
-            ['Foundation', 'Byzantine Generals', 'The consensus layer that makes the state root trustworthy in the first place'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Merkle Tree, the base authenticated-proof idea that Verkle trees generalize.',
+            'Prerequisite: KZG Polynomial Commitment Opening, the vector-commitment intuition behind compact openings.',
+            'Context: Ethereum Merkle-Patricia Trie, the current authenticated state structure that Verkle trees would replace.',
+            'Context: PATRICIA Trie, the path-compression technique used in both MPT and Verkle stem-extension nodes.',
+            'Extension: Sparse Merkle Tree Non-Membership, the absence-proof complement to authenticated membership.',
+            'Foundation: Byzantine Generals, the consensus layer that makes the state root trustworthy.',
           ],
         },
       ],

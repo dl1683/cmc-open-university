@@ -220,6 +220,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The shape-transitions view shows a transition tree. Each node is a hidden class (V8 calls them Maps). Edges are property additions: Map0 is the empty object, Map1 adds x, Map2 adds y. The main chain is the happy path; the side branch (MapA) shows what happens when properties arrive in a different order. The descriptor table shows the fixed offsets that make the fast path possible.',
+        {
+          type: 'callout',
+          text: 'A dynamic property access becomes fast only after the engine can guard it with a stable shape and a cached offset.',
+        },
         'The inline-cache view shows one property access site (obj.x) and the three IC states it can reach. Monomorphic: the site has seen exactly one Map, so the fast path is a single pointer comparison plus an offset read. Polymorphic: two to four Maps, each with its own handler stub. Megamorphic: too many Maps, so the site falls back to generic dictionary lookup.',
         'Watch which nodes light up. Active nodes are the current execution path. Compared nodes are the slower alternative the optimization avoids.',
       ],
@@ -250,16 +254,17 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Make the offset assumption conditional on shape. A hidden class records which named properties exist and at which offsets their values live. Objects that receive the same properties in the same order share the same hidden class and the same descriptor metadata.',
-        'An inline cache is shape feedback attached to one access site. At obj.x in a particular function, the IC records the last Map it saw and the offset for x on that Map. The fast path is: compare the object\'s Map pointer to the cached Map; if they match, read the cached offset directly. If they do not match, fall back or update.',
+        {type: 'image', src: 'https://v8.dev/_img/fast-properties/adding-properties.png', alt: 'V8 hidden class transition tree while adding object properties', caption: 'The transition tree shows why property order matters: the same additions in the same order share one final hidden class. Source: V8 blog, Fast properties in V8, CC BY 3.0.'},
+        'An inline cache is shape feedback attached to one access site. At obj.x in a particular function, the IC records the last Map it saw and the offset for x on that Map. The fast path is: compare the object Map pointer to the cached Map; if they match, read the cached offset directly. If they do not match, fall back or update.',
         'The key move is that shapes form a deterministic transition tree. Adding x, then y always produces the same sequence of Maps. This makes the transition predictable, the descriptor shareable, and the IC check cheap.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'An object starts with an initial Map (the empty shape). Adding property x transitions to Map1. Adding y transitions to Map2. Any other object that adds x then y walks the same transitions and arrives at Map2, sharing its descriptor array. The descriptors record each property\'s name, offset, and attributes.',
+        'An object starts with an initial Map (the empty shape). Adding property x transitions to Map1. Adding y transitions to Map2. Any other object that adds x then y walks the same transitions and arrives at Map2, sharing its descriptor array. The descriptors record each property name, offset, and attributes.',
         'Some properties are stored in-object (slots allocated directly inside the object). Others overflow into a backing store. Very dynamic objects -- those that suffer deletions or receive many late additions -- can be demoted to dictionary mode, where the Map is abandoned and each object carries its own property table.',
-        'At each property access site, the inline cache starts uninitialized. The first execution observes the object\'s Map, looks up the property in the descriptor array, and caches the Map-offset pair. On the next call with the same Map, the IC skips the lookup entirely. A monomorphic IC has cached one Map (fastest). A polymorphic IC has cached two to four Maps, each with its own handler stub. A megamorphic IC has seen too many Maps and falls back to a generic lookup that checks the full descriptor chain.',
+        'At each property access site, the inline cache starts uninitialized. The first execution observes the object Map, looks up the property in the descriptor array, and caches the Map-offset pair. On the next call with the same Map, the IC skips the lookup entirely. A monomorphic IC has cached one Map (fastest). A polymorphic IC has cached two to four Maps, each with its own handler stub. A megamorphic IC has seen too many Maps and falls back to a generic lookup that checks the full descriptor chain.',
         'Array elements follow a parallel system. V8 tracks elements kinds: packed SMI (small integers), packed doubles, packed objects, and holey variants of each. Transitions go from specific to general and never reverse: storing a double in a SMI array widens it permanently.',
       ],
     },
@@ -309,7 +314,7 @@ export const article = {
       paragraphs: [
         'The hidden-class idea descends from the Self language: Chambers, Ungar, and Lee, "An Efficient Implementation of SELF, a Dynamically-Typed Object-Oriented Language Based on Prototypes" (1989), introduced Maps as a way to share layout metadata across prototype-based objects. V8 adapted the same concept for JavaScript.',
         'Primary sources: V8 blog "Fast Properties in V8" (https://v8.dev/blog/fast-properties), V8 blog "Elements Kinds in V8" (https://v8.dev/blog/elements-kinds), Mathias Bynens and Benedikt Meurer "JavaScript Engine Fundamentals: Shapes and Inline Caches" (https://mathiasbynens.be/notes/shapes-ics), and the V8 source code (https://github.com/nicolevanderhoeven/v8).',
-        'Study next: V8 Array Elements Kinds for the parallel optimization on indexed storage. V8 Ignition Bytecode Pipeline for how feedback flows between interpreter and JIT tiers. Deoptimization Stack Maps & Safepoints for what happens when the JIT\'s shape assumptions break. Hash Table for the generic lookup path that hidden classes replace. Cache Invalidation & Versioning for the broader pattern of guarded cached assumptions.',
+        'Study next: V8 Array Elements Kinds for the parallel optimization on indexed storage. V8 Ignition Bytecode Pipeline for how feedback flows between interpreter and JIT tiers. Deoptimization Stack Maps & Safepoints for what happens when JIT shape assumptions break. Hash Table for the generic lookup path that hidden classes replace. Cache Invalidation & Versioning for the broader pattern of guarded cached assumptions.',
       ],
     },
   ],

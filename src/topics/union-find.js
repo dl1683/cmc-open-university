@@ -114,7 +114,11 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each circle is an element. Arrows point from child to parent. A node whose arrow points to itself is a root -- the name of its component. The number in parentheses at a root is the component size. What you see is a forest of parent-pointer trees, not the original graph.',
-        'During a union, highlighted nodes trace the find paths from both arguments up to their roots. If the two roots differ, the smaller tree\'s root gets attached under the larger tree\'s root -- that edge flashes as "found." If the roots match, the elements were already connected and nothing changes.',
+        {
+          type: 'callout',
+          text: 'Union-Find is fast because component identity is a root pointer, and tree shape can change without changing the partition.',
+        },
+        'During a union, highlighted nodes trace the find paths from both arguments up to their roots. If the two roots differ, the smaller-tree root gets attached under the larger-tree root -- that edge flashes as "found." If the roots match, the elements were already connected and nothing changes.',
         'When path compression fires after a find, every node on the walked path gets its arrow repointed straight to the root. Watch how the tree flattens: future finds on any of those nodes will cost a single hop instead of retracing the whole path.',
       ],
     },
@@ -122,14 +126,14 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A surprising number of problems boil down to one question: are these two things in the same group? Roads connect towns. Wires connect terminals. Edges connect vertices. Type constraints connect variables. Each new connection merges two groups. No connection ever splits a group apart.',
-        'Galler and Fischer formalized this in 1964: maintain a partition of n elements that supports two operations -- union (merge two groups) and find (return the group name). The structure they proposed uses parent-pointer trees and a size heuristic. Kruskal\'s MST algorithm, published a decade earlier, needed exactly this: process edges in weight order and ask "would this edge create a cycle?" -- which is the same as "are the endpoints already in the same component?"',
+        'Galler and Fischer formalized this in 1964: maintain a partition of n elements that supports two operations -- union (merge two groups) and find (return the group name). The structure they proposed uses parent-pointer trees and a size heuristic. The MST algorithm from Kruskal, published a decade earlier, needed exactly this: process edges in weight order and ask "would this edge create a cycle?" -- which is the same as "are the endpoints already in the same component?"',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
         'Store the graph as an adjacency list. To check whether A and B are connected, run BFS or DFS from A. If the search reaches B, they share a component. Correct and simple. Cost: O(V + E) per query, where V is the vertex count and E is the number of edges added so far.',
-        'Alternative: assign every element a component ID in a flat array. Queries cost O(1) -- compare two array entries. But merging two components means rewriting every member of one component to the other\'s ID. If the smaller component is always rewritten into the larger, total rewrite work across n merges is O(n log n). Better, but each individual merge can still touch a large fraction of the array.',
+        'Alternative: assign every element a component ID in a flat array. Queries cost O(1) -- compare two array entries. But merging two components means rewriting every member of one component to the ID of the other. If the smaller component is always rewritten into the larger, total rewrite work across n merges is O(n log n). Better, but each individual merge can still touch a large fraction of the array.',
       ],
     },
     {
@@ -142,7 +146,8 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
-        'Represent each component as a rooted tree made of parent pointers. A root r has parent[r] = r. Every other node x has parent[x] pointing one step closer to the root. Two elements are in the same component exactly when following parent pointers from both leads to the same root. The root is the component\'s name.',
+        'Represent each component as a rooted tree made of parent pointers. A root r has parent[r] = r. Every other node x has parent[x] pointing one step closer to the root. Two elements are in the same component exactly when following parent pointers from both leads to the same root. The root is the component name.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Dsu_disjoint_sets_final.svg', alt: 'Disjoint-set forest after several union operations', caption: 'The forest view shows that connectivity lives in parent-pointer trees, not in the original graph edges. Source: Wikimedia Commons, David Eppstein, CC BY-SA 3.0.'},
         'The key freedom: the tree shape does not matter -- only the partition does. Two trees with different shapes but the same root-to-element mapping encode identical connectivity. This means the structure can reshape its trees at will to speed up future operations, without changing any answer. Path compression exploits exactly this freedom.',
       ],
     },
@@ -151,7 +156,7 @@ export const article = {
       paragraphs: [
         'The entire structure is two arrays. parent[0..n-1]: every element points to its parent; roots point to themselves. rank[0..n-1]: an upper bound on subtree height, stored at roots. Initially parent[i] = i and rank[i] = 0 for every element.',
         'find(x): chase parent pointers from x until you hit a root r (where parent[r] = r). That root is the component name. Path compression: on the way back, repoint every node you visited directly to r. The next find on any of those nodes costs one step.',
-        'union(a, b): compute rootA = find(a) and rootB = find(b). If they match, a and b are already connected -- done. Otherwise, attach the root with smaller rank under the root with larger rank (union by rank). If ranks are equal, pick one as child and increment the winner\'s rank. This keeps trees shallow.',
+        'union(a, b): compute rootA = find(a) and rootB = find(b). If they match, a and b are already connected -- done. Otherwise, attach the root with smaller rank under the root with larger rank (union by rank). If ranks are equal, pick one as child and increment the winning root rank. This keeps trees shallow.',
         'The two heuristics -- path compression and union by rank -- reinforce each other. Path compression flattens trees as a side effect of ordinary queries. Union by rank prevents tall trees from forming in the first place. Together they achieve amortized O(alpha(n)) per operation.',
       ],
     },
@@ -160,7 +165,7 @@ export const article = {
       paragraphs: [
         'Correctness: two elements share a component if and only if their find paths reach the same root. Union preserves this because it only links one root under another. Every node that reached the old root still reaches it, and that old root now reaches the new root, so all nodes in both components converge on the surviving root. No outside component gains a pointer into this tree.',
         'Path compression preserves the invariant. Every node on a find path already reaches the root. Repointing each node directly to the root shortens the path but does not change which root is reached. The partition is unchanged.',
-        'Union by rank keeps trees shallow through a doubling argument. A node\'s depth increases only when its tree merges under a tree of equal or greater rank. For that to happen, the merged tree must be at least as large, so the component at least doubles. A component of n elements can double at most log2(n) times, bounding tree height at log2(n) even without compression.',
+        'Union by rank keeps trees shallow through a doubling argument. Node depth increases only when its tree merges under a tree of equal or greater rank. For that to happen, the merged tree must be at least as large, so the component at least doubles. A component of n elements can double at most log2(n) times, bounding tree height at log2(n) even without compression.',
       ],
     },
     {
@@ -175,7 +180,7 @@ export const article = {
     {
       heading: 'Where it wins',
       paragraphs: [
-        'Kruskal\'s MST: sort edges by weight, then process each edge (u, v). If find(u) != find(v), accept the edge and union the endpoints. If roots match, the edge would close a cycle -- skip it. Union-Find makes this cycle check nearly free, so Kruskal\'s total cost is dominated by the edge sort: O(E log E).',
+        'Kruskal MST: sort edges by weight, then process each edge (u, v). If find(u) != find(v), accept the edge and union the endpoints. If roots match, the edge would close a cycle -- skip it. Union-Find makes this cycle check nearly free, so the total cost of Kruskal is dominated by the edge sort: O(E log E).',
         'Online connected components: as edges arrive one at a time, union their endpoints. At any moment, find(a) == find(b) answers "are a and b connected?" in O(alpha(n)). No graph traversal needed.',
         'Image segmentation: treat each pixel as an element. Merge adjacent pixels whose colors are similar enough. The resulting components are the segments. Union-Find handles millions of pixels without breaking a sweat because each merge is effectively constant time.',
         'Hindley-Milner type inference: unification merges type variables that must be equal. Each type constraint is a union. Checking whether two types are already unified is a find. Compilers for ML, Haskell, and Rust rely on this.',
@@ -206,7 +211,7 @@ export const article = {
       heading: 'Sources and study next',
       paragraphs: [
         'Galler and Fischer, "An Improved Equivalence Algorithm" (1964) -- the original union-find paper, introducing parent-pointer trees with weighted union. Tarjan, "Efficiency of a Good but Not Linear Set Union Algorithm" (1975) -- proved the inverse Ackermann amortized bound for path compression. Tarjan and van Leeuwen, "Worst-Case Analysis of Set Union Algorithms" (1984) -- tightened the bound and analyzed variants including path splitting and path halving.',
-        'Study next: Kruskal\'s MST algorithm (Union-Find\'s primary client -- provides the cycle check that makes sorted-edge processing work), graph BFS/DFS (the O(V+E)-per-query alternative that Union-Find replaces for connectivity), percolation (the probabilistic application that makes Union-Find\'s constant-time merges essential at scale), and link-cut trees (the fully dynamic connectivity structure for problems that need edge deletion).',
+        'Study next: Kruskal MST algorithm (the primary Union-Find client -- provides the cycle check that makes sorted-edge processing work), graph BFS/DFS (the O(V+E)-per-query alternative that Union-Find replaces for connectivity), percolation (the probabilistic application that makes near-constant-time Union-Find merges essential at scale), and link-cut trees (the fully dynamic connectivity structure for problems that need edge deletion).',
       ],
     },
   ],

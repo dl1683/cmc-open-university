@@ -232,6 +232,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The trace schema view shows the lifecycle of a single agent trajectory from task intake to curated training set. Active highlights mark the current pipeline stage. Found highlights mark data that has been verified by the oracle. Compare highlights mark the final training set, which is always smaller than the raw rollout count.',
+        {
+          type: 'callout',
+          text: 'A verified trajectory store treats an agent run as evidence only when the task, environment, actions, patch, and oracle can be replayed together.',
+        },
         'The verifier factory view zooms out to the production pipeline: snapshotting repos, building environments, running agents, checking oracles, deduplicating results, and releasing datasets. Watch how the pipeline narrows at each stage. The plot shows the gap between raw rollouts and usable, novel examples after verification and dedupe.',
         'In both views, pay attention to what gets dropped and why. The interesting story is not that good trajectories enter the store. It is that bad, flaky, duplicate, and leaked trajectories are caught before they corrupt a training run or an evaluation claim.',
       ],
@@ -254,12 +258,11 @@ export const article = {
       paragraphs: [
         'The obvious approach is to save successful transcripts. Keep the prompt, the model messages, maybe the tool calls, the final patch, and a pass/fail flag from the test suite. For a demo or a one-off experiment, this works. A person can skim the run, see that the agent made progress, and move on.',
         {
-          type: 'table',
-          headers: ['Approach', 'What it stores', 'Replay?', 'Dedupe?', 'Audit?', 'Scales to'],
-          rows: [
-            ['Log files', 'Raw text dump of stdout/stderr', 'No -- no structure', 'No', 'No', 'Debugging one run'],
-            ['Structured traces', 'Typed events with IDs and timestamps', 'Partially -- missing environment', 'Hash-based', 'Partially', 'Analytics, search'],
-            ['Verified store', 'Events + environment + oracle + proof + provenance', 'Yes -- pinned world', 'Family-aware', 'Full chain', 'Training, eval, audit'],
+          type: 'bullets',
+          items: [
+            'Log files store raw stdout and stderr. They help debug one run, but they do not preserve enough structure for replay, dedupe, or audit.',
+            'Structured traces store typed events with IDs and timestamps. They support analytics and search, but replay is partial if the environment and oracle are missing.',
+            'A verified store keeps events, environment, oracle, proof, and provenance together. It scales to training, evaluation, and audit because every inclusion decision has evidence.',
           ],
         },
         'Log files are the cheapest option and the first thing teams build. Structured traces add schema and searchability. But neither answers the questions that matter for data quality: Was the bug real? Did the environment match? Is this a duplicate? Can the result be reproduced? A verified store is the layer that makes those answers first-class records rather than after-the-fact guesses.',
@@ -313,6 +316,7 @@ export const article = {
             '                                              [replay anytime]',
           ].join('\n'),
         },
+        {type: 'image', src: 'https://langsmith.langchain.ac.cn/assets/images/swebench_evaluation-4086f0af70875bc21fa5e2b9ce7044e0.png', alt: 'SWE-bench evaluation flow from candidate patch to validation tests', caption: 'SWE-bench style evaluation makes the oracle boundary concrete: candidate patch, runnable environment, and validation tests decide whether a trace is evidence. Source: LangSmith docs, SWE-bench evaluation guide.'},
         'The pipeline starts by pinning the world. A repository is snapshotted at a specific commit. An environment is built into a container image with a stable digest that records every dependency version, test command, resource limit, and network policy. The task -- an issue, a synthetic mutation, a benchmark item -- is recorded with its source and split family. Before the agent runs, the oracle proves the target test fails in the unpatched environment. This pre-patch failure is the baseline that makes later success meaningful.',
         'The agent then runs against the pinned world, and every step is appended to a structured event log. Each turn records an operation ID, parent ID, tool call, raw payload, observation, stdout, stderr, exit code, elapsed time, files read, files written, and redaction state. The parent ID matters because agent work is not a flat transcript -- the agent may branch into retries, fallback strategies, or diagnostic detours. The event log captures the full tree.',
         'When the agent produces a candidate patch, the oracle checks it. A strong oracle proves that the target test failed before the patch and passes after. It may also run hidden tests, lint, type checks, or human review, but each check is named separately. The store does not say "verified" when it only knows one visible test passed. The proof record then links task, environment, event log, candidate, and oracle result into a single inclusion decision with a provenance chain that can be rerun, invalidated, or audited.',
@@ -330,14 +334,13 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Cost', 'What drives it', 'Mitigation'],
-          rows: [
-            ['Storage', 'Raw event logs are 10-100x larger than final patches', 'Tiered storage: hot proofs, warm events, cold artifacts'],
-            ['Compute', 'Building pinned environments per task, running oracles twice (pre + post)', 'Cache container layers; batch oracle runs'],
-            ['Ingestion latency', 'Every event needs a schema; every proof needs a link', 'Append-only writes; defer derived labels'],
-            ['Schema rigidity', 'Store assumes one shell, one editor, one patch format', 'Record concrete tool use + abstract operation layer'],
-            ['Compliance', 'Trajectories contain source code, credentials, proprietary data', 'Redaction pipeline, access control, retention policy'],
+          type: 'bullets',
+          items: [
+            'Storage cost comes from raw event logs, which can be 10-100x larger than final patches. Mitigation: tier hot proofs, warm events, and cold artifacts.',
+            'Compute cost comes from building pinned environments and running oracles before and after patches. Mitigation: cache container layers and batch oracle runs.',
+            'Ingestion latency comes from schema checks and proof links on every event. Mitigation: append quickly and compute derived labels later.',
+            'Schema rigidity appears when the store assumes one shell, editor, or patch format. Mitigation: record concrete tool use plus an abstract operation layer.',
+            'Compliance cost comes from source code, credentials, and proprietary data inside traces. Mitigation: redact, control access, and set retention policy.',
           ],
         },
         'The overhead is substantial. Containers and test artifacts are expensive to store. Ingestion is slower because every event needs a typed schema and every proof needs a verifiable link. Redaction, access control, and retention policy are mandatory because trajectories may capture credentials, proprietary code, or user content that cannot legally be retained.',
@@ -382,4 +385,3 @@ export const article = {
     },
   ],
 };
-

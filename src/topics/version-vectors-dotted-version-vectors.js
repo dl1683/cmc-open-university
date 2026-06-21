@@ -233,6 +233,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Replicated key-value stores need to know whether a new value replaces an old value or conflicts with it. Physical timestamps are not enough. Two clients can update different replicas at nearly the same time, clocks can skew, and last-write-wins can silently delete real work.',
+        {
+          type: 'callout',
+          text: 'Version vectors make replacement a causality question instead of a clock-sorting guess.',
+        },
         'Version vectors attach causal metadata to values. They let the store answer a precise question: did this update observe and descend from that update, or are the two concurrent? Dotted version vectors refine the answer when a small set of servers accepts writes for many clients and several sibling values exist for one key.',
       ],
     },
@@ -247,6 +251,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'A version vector is a map from actor id to counter. Each actor increments its own counter when it creates a new event. To compare two vectors, check every actor component. If A is less than or equal to B in every component and smaller in at least one, A happened before B. If each vector is larger in some component, the updates are concurrent.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/55/Vector_Clock.svg', alt: 'Vector clock diagram showing causal and independent events across processes', caption: 'The vector-clock picture shows the same partial-order idea used by version vectors: some events dominate, while independent events remain concurrent. Source: Wikimedia Commons, Schoreck, CC BY-SA 3.0.'},
         'A dotted version vector separates the causal past from the exact event dot that created a value. The context can summarize many observed events, while the dot names this specific write, such as replica a event 4. That distinction lets the store replace exactly the sibling a client observed while preserving siblings it did not observe.',
       ],
     },

@@ -81,6 +81,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A URL shortener looks like a toy service: accept a long URL, return a short code, and redirect clicks. It is useful because it compresses long links for messages, QR codes, campaigns, internal tools, and analytics.',
+        {
+          type: 'callout',
+          text: 'A short URL is an indirection handle: the code stays small while the row behind it carries ownership, policy, and analytics.',
+        },
         'The reason it is a classic system-design problem is that the small product surface hides many core distributed-systems choices: id generation, encoding, storage, caching, redirect semantics, rate limiting, analytics queues, abuse prevention, and sharding.',
         'The product also has an asymmetric workload. Writes create short links. Reads are clicks. Popular links can receive many orders of magnitude more reads than writes, so the read path and cache strategy dominate user experience and cost.',
       ],
@@ -105,6 +109,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'On creation, validate the destination, apply abuse and rate-limit checks, allocate an id, encode it in base 62, store the mapping, and return the short URL. At scale, id allocators can hand ranges to application servers so link creation does not require a single hot counter on every request.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/QR_code_for_QRpedia.png', alt: 'QR code that resolves to a shortened QRpedia URL', caption: 'Short links often end up inside QR codes, where every saved character lowers printed density. Source: Wikimedia Commons, Terence Eden and Roger Bamkin, MIT License.'},
         'On click, parse the code, check cache, fall back to the database on miss, verify link status, and return the configured redirect. Hot links follow a power-law distribution, so an LRU or similar cache can absorb a large share of redirect traffic.',
         'Analytics should be decoupled. The redirect service emits a click event containing code, timestamp, coarse geography, referrer, user agent, and fraud signals. A queue lets analytics consumers aggregate clicks without delaying the redirect response.',
         'Large deployments shard by code, id range, owner, or hash, depending on operational needs. Replication and regional routing matter because redirect latency is user-visible, while link creation can tolerate slightly more coordination.',

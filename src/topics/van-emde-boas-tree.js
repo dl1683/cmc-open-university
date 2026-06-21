@@ -213,6 +213,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Ordered sets need more than membership. A scheduler wants the next timestamp. A simulator wants the next event time. A database index may need predecessor and successor, not just exact lookup. Balanced search trees solve this for arbitrary comparable keys, but they pay O(log n) comparisons because they only learn order by comparing against stored keys.`,
+        {
+          type: 'callout',
+          text: 'A van Emde Boas tree wins by treating an integer key as geography: high bits choose the region, low bits choose the local position.',
+        },
         `A van Emde Boas tree exists for a narrower problem: keys are integers drawn from a fixed universe U, usually 0 through U - 1. That extra structure changes the game. Integers have bits. The universe can be split. Empty ranges can be skipped by arithmetic on key parts instead of by comparisons against many stored keys.`,
         `The famous result is O(log log U) time for membership, insert, delete, predecessor, and successor, with minimum and maximum available directly. The bound is universe-sensitive, not n-sensitive. That makes vEB trees a landmark in integer predecessor data structures, even though their classic layout is often too memory-heavy for everyday code.`,
       ],
@@ -229,6 +233,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `The core insight is recursive universe decomposition. For a universe of size U, split each key x into high(x) and low(x), each drawn from a universe of about sqrt(U). The high part chooses a cluster. The low part is the key inside that cluster. A summary structure records which clusters are nonempty. The summary is itself a smaller vEB tree.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6b/VebDiagram.svg', alt: 'Example van Emde Boas tree with clusters and auxiliary structure', caption: 'The diagram shows the recursive split: a root stores min and max, clusters store local keys, and aux tracks nonempty clusters. Source: Wikimedia Commons, Dcoetzee, public domain.'},
         `Each node stores its global minimum and maximum directly. That makes empty and one-element nodes cheap, gives O(1) min and max at the current node, and avoids storing the minimum redundantly inside a cluster. The recursive machinery handles the rest.`,
         `The operation depth comes from shrinking U to sqrt(U) at each recursive step. Taking square roots repeatedly halves the number of bits. A 64-bit universe becomes 32 bits, then 16, then 8, then 4, then 2. That is why the time is O(log log U): the recursion follows bit-length, not number of stored keys.`,
       ],

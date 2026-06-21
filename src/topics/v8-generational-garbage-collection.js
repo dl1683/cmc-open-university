@@ -202,6 +202,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The mark-and-sweep view shows a heap graph with roots, live objects (A through D), and one unreachable object (E). Active nodes are the current marking frontier. Found nodes are confirmed live. Removed nodes are reclaimed garbage.',
+        {
+          type: 'callout',
+          text: 'Garbage collection is a reachability proof plus a scheduling problem: the collector must be right and it must avoid long pauses.',
+        },
         'Gray in the tri-color table is the worklist frontier. When a node turns black, all its children have been discovered. Any node still white when the worklist empties is unreachable and will be swept.',
         'The generational view shows the object lifecycle: allocation into young space, minor GC scavenging, promotion to old space, and the write barrier that records old-to-young pointers. The pause plot contrasts stop-the-world collection against incremental slicing.',
         'At each frame, ask: which objects are proven live, which are still unvisited, and what invariant lets the collector skip work safely.',
@@ -219,7 +223,7 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first obvious approach is manual memory management. C and C++ programmers call malloc and free (or new and delete). This works, but it demands that the programmer prove every object\'s lifetime. Use-after-free, double-free, and memory leaks are the cost of getting that proof wrong. JavaScript chose not to impose that burden.',
+        'The first obvious approach is manual memory management. C and C++ programmers call malloc and free (or new and delete). This works, but it demands that the programmer prove every object lifetime. Use-after-free, double-free, and memory leaks are the cost of getting that proof wrong. JavaScript chose not to impose that burden.',
         'The second obvious approach is reference counting. Each object tracks how many incoming references it has. When the count drops to zero, the object is freed immediately. Reference counting has real strengths: reclamation is prompt, pauses are small and predictable, and the mechanism is easy to understand. CPython, Objective-C (with ARC), and Swift use reference counting as a primary strategy.',
         'Reference counting works well for trees and acyclic graphs. It fails on cycles. If object A points to B and B points back to A, both counts stay at 1 even after every external reference is gone. JavaScript object graphs create cycles easily through closures, DOM parent-child links, Map entries, and mutual references in application data structures. A pure reference counter leaks every cycle.',
         'Cycle collectors (like the one Firefox pairs with its reference counter for DOM objects) can detect and break cycles, but they add a secondary tracing pass, which partly negates the simplicity advantage. V8 chose full tracing from the start.',
@@ -228,7 +232,7 @@ export const article = {
     {
       heading: 'The wall',
       paragraphs: [
-        'A single stop-the-world tracing pass is correct but brutal. McCarthy\'s original collector paused the entire program, traced every reachable cell, swept everything else, and then resumed. For a small Lisp environment that was fine. For a modern JavaScript heap that can be hundreds of megabytes, a full pause can take tens or hundreds of milliseconds.',
+        'A single stop-the-world tracing pass is correct but brutal. The original collector from McCarthy paused the entire program, traced every reachable cell, swept everything else, and then resumed. For a small Lisp environment that was fine. For a modern JavaScript heap that can be hundreds of megabytes, a full pause can take tens or hundreds of milliseconds.',
         'A 100ms pause drops six animation frames. A 200ms pause is perceptible as a stutter in scrolling, typing, or audio playback. Server-side, a long GC pause stalls every in-flight request. The wall is not correctness; mark-and-sweep is correct. The wall is latency.',
         'The problem compounds with heap size. Tracing visits every live object. Sweeping inspects every dead region. Doubling the heap roughly doubles the pause. Applications that need large heaps and low latency cannot afford a naive stop-the-world collector.',
       ],
@@ -238,6 +242,7 @@ export const article = {
       paragraphs: [
         'The core insight is reachability, not reference counting. The heap is a directed graph. Roots come from stacks, globals, handles, registers, and engine internals. An object is live if and only if some root can reach it by following references. Unreachable objects are garbage, even if they form cycles among themselves.',
         'The tracing invariant: after marking finishes, every reachable object is marked and every unmarked object is unreachable. Tri-color marking maintains that invariant with three states. White means unseen. Gray means seen but children not fully scanned. Black means fully scanned. The gray set is the frontier of a graph traversal. When it empties, every reachable object is black.',
+        {type: 'image', src: 'https://v8.dev/_img/trash-talk/02.svg', alt: 'V8 heap generations showing objects moving through nursery, intermediate, and old generation spaces', caption: 'V8s generational heap makes object age visible: survivors move from nursery to intermediate space and then to old space. Source: V8 blog, Trash talk: the Orinoco garbage collector, CC BY 3.0.'},
         'The strong tri-color invariant states: no black object may point directly to a white object. If a black object could hide a white child, the collector would never discover that child and would incorrectly reclaim it. Write barriers enforce this invariant when the mutator (running JavaScript) modifies references during concurrent or incremental marking.',
         'The generational insight is a scheduling optimization built on the generational hypothesis: most objects die young. Empirically, in languages like Java, JavaScript, ML, and Haskell, 80-95% of newly allocated objects become unreachable before the next collection. If the collector partitions the heap by age and collects the young partition frequently, it reclaims most garbage cheaply without scanning long-lived objects every time.',
       ],
