@@ -207,6 +207,8 @@ export const article = {
           ],
         },
         'One safe inference rule: if an edge labeled "proposal" reaches a majority of followers and they acknowledge, the write is committed. No future leader can undo it. That is the Zab safety guarantee made visible.',
+        {type: 'callout', text: 'ZooKeeper works by keeping the server primitive and ordered while pushing coordination recipes and their edge cases into clients.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/7/77/Apache_ZooKeeper_logo.svg', alt: 'Apache ZooKeeper logo with a zookeeper figure and project name', caption: 'Apache ZooKeeper logo. Attribution: The Apache Software Foundation, vectorised by Vulphere, via Wikimedia Commons; Apache License 2.0.'},
       ],
     },
     {

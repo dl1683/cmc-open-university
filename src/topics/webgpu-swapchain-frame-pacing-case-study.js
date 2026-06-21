@@ -208,6 +208,7 @@ export const article = {
       paragraphs: [
         'WebGPU frame pacing exists because rendering is not just drawing as fast as possible. The browser, GPU, display refresh, command submission, swapchain texture, and JavaScript event loop all have to line up well enough that frames arrive steadily.',
         'A page can have high average FPS and still feel bad if frame times stutter. Frame pacing is about consistent delivery: acquire the current texture, encode work, submit commands, present, and return to the next frame without building an unstable backlog.',
+        {type: 'callout', text: 'Frame pacing is the ownership contract between browser time, GPU queue time, and the one presentable texture for the current frame.'},
       ],
     },
     {

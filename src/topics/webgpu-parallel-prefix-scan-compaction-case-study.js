@@ -358,6 +358,7 @@ export const article = {
           text: 'Active nodes are the current computation stage. Found nodes are outputs whose values are now final. Compared nodes show a reference path (like CPU readback) that exists but is not the fast path. If a downstream node is not yet active, data has not reached it.',
         },
         'At each frame, identify which buffer is being read and which is being written. The scan is correct only if every write depends on fully completed reads from the previous tree level or previous pass. That sequencing -- barriers within a workgroup, command ordering across passes -- is the entire correctness story.',
+        {type: 'callout', text: 'Prefix scan turns independent flags into stable global positions by making ordering a parallel dataflow problem instead of a shared counter.'},
       ],
     },
     {

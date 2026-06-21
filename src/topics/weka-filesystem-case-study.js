@@ -215,6 +215,7 @@ export const article = {
         'Weka is a useful AI-infrastructure case study because it changes the role of storage. In older mental models, storage is where datasets and checkpoints rest before or after computation. In modern AI systems, storage can sit on the hot path: training jobs stream massive samples, inference systems reload state, RAG systems scan corpora, and agent systems accumulate long-lived artifacts.',
         'The economic pressure is simple. GPUs are expensive, and idle GPUs waste money quickly. If a model server evicts reusable state and has to recompute it, the miss is not just a storage miss; it can become seconds of GPU prefill. If a training job cannot stream data fast enough, accelerators wait for bytes. Storage design becomes part of compute efficiency.',
         'This does not mean storage becomes GPU memory. HBM is still the active compute tier. The educational point is subtler: a fast, shared, reliable state tier can reduce recomputation, improve placement flexibility, and keep expensive compute fed when the workload reuses state often enough.',
+        {type: 'callout', text: 'AI storage becomes architecture when reusable state is expensive enough that fetching it beats making GPUs recompute it.'},
       ],
     },
     {

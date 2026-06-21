@@ -241,6 +241,7 @@ export const article = {
       paragraphs: [
         'The "struct store" view traces the hidden data path behind a collaborative edit: from the shared type API (Y.Text) through Item structs, the struct store organized by client ID, the state vector and delete set summaries, and finally the binary update that carries everything to a peer. Active nodes are the current stage of the data flow. Found nodes are durable state already committed to the store. Compare nodes are pending or downstream participants.',
         'The "update sync" view traces the provider boundary: how binary updates are encoded, diffed against state vectors, and delivered through transport-agnostic providers. Active nodes are the encoding pipeline. Found nodes are the wire artifacts. Compare nodes are peers waiting to apply.',
+        {type: 'callout', text: 'Yjs makes collaboration converge by replacing unstable positions with permanent client-clock identities and mergeable binary updates.'},
         {
           type: 'note',
           text: 'The safe inference at each frame: if a node is active and its incoming edge is highlighted, data has reached that stage. If a downstream node is not yet active, no peer can observe that data there. The graph is not a class diagram -- it is a data-flow trace through one sync cycle.',

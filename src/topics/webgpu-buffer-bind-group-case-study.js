@@ -217,6 +217,8 @@ export const article = {
       paragraphs: [
         'The "resource binding" view traces data from a JavaScript TypedArray through GPUBuffer creation, bind group layout declaration, bind group instantiation, pipeline attachment, and queue submission. Active nodes are the current stage of the resource pipeline. Found nodes are resources whose state is now committed. Compare nodes are participants waiting for their turn in the chain.',
         'The "compute pass" view traces a GPU compute workload end to end: input storage buffers feed a bind group, the WGSL kernel executes across dispatched workgroups, output lands in a storage buffer, and readback copies results into CPU-mappable memory.',
+        {type: 'callout', text: 'WebGPU turns GPU work into explicit byte layout and binding contracts, so validation can replace implicit driver state.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2f/WebGPU_logo.svg', alt: 'WebGPU blue geometric logo', caption: 'WebGPU logo. Attribution: W3C, via Wikimedia Commons; public-domain text logo.'},
         {
           type: 'note',
           text: 'The safe inference at each frame: if a node is active and the edge leading to it is highlighted, that stage has received or produced data. If a downstream node is not yet active, the data has not crossed that boundary and no shader or JavaScript code can observe it there.',

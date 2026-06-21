@@ -254,6 +254,7 @@ export const article = {
       paragraphs: [
         'A zk-SNARK is useful when a verifier needs confidence that a computation was done correctly, but the prover should not reveal the private inputs and the verifier should not rerun the whole computation. The public statement might be "this transaction is valid", "this committed balance is nonnegative", or "I know a preimage of this hash."',
         'Proof systems do not verify source code directly. They verify algebra. Arithmetization is the translation from program intent into finite-field constraints, witness columns, public inputs, fixed tables, and polynomial relations.',
+        {type: 'callout', text: 'Arithmetization is the security boundary where a human program claim becomes finite-field constraints that the proof system can actually check.'},
       ],
     },
     {
