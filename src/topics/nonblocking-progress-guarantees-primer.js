@@ -245,6 +245,8 @@ export const article = {
       paragraphs: [
         'Concurrent code can be safe and still stop moving. A mutex-protected queue may preserve FIFO perfectly, but if the lock owner is paused, every other thread can wait behind it.',
         'The naive question is "is it thread-safe?" That is only a safety question. Progress guarantees answer a different question: under pauses, contention, or unlucky schedules, who is still guaranteed to finish?',
+        {type: 'callout', text: 'Safety asks whether the result is legal; progress asks whether some thread can still reach a result under pauses and contention.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state diagram with running waiting and blocked states', caption: 'Process-state transitions make the stress case visible: runnable hardware does not help if the needed owner is blocked or paused. Source: Wikimedia Commons, CC BY-SA 3.0.'},
       ],
     },
     {
@@ -258,6 +260,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'Progress terms are liveness contracts, not speed claims. Obstruction-free code completes if a thread eventually runs alone. Lock-free code guarantees system-wide progress: some operation completes. Wait-free code guarantees per-thread progress: every operation completes in a finite number of its own steps.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Processor die where atomic instructions execute in hardware', caption: 'CAS and other atomic primitives are hardware contracts, but the progress guarantee comes from the whole algorithm around them. Source: Wikimedia Commons, KL and Intel, public domain.'},
         'A CAS increment loop is the small example. Each successful CAS completes one increment, so the object is lock-free. A particular caller can keep losing the race and retrying, so the loop is not wait-free by itself.',
         'This vocabulary prevents vague claims. "Nonblocking" is a family. "Lock-free" does not mean no retries. "Wait-free" does not mean fastest. Each word says which thread, under which schedule, is guaranteed to finish.',
       ],
@@ -328,6 +331,7 @@ export const article = {
       heading: 'Case study',
       paragraphs: [
         'A telemetry library wants many threads to enqueue metrics without letting one paused thread block the process. A lock-free multi-producer queue is attractive because the system can keep accepting metrics even if one producer stalls mid-operation.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/b7/Circular_buffer.svg', alt: 'Circular buffer ring divided into slots', caption: 'A bounded ring buffer is a common shape for real-time paths because capacity and per-operation work can be fixed in advance. Source: Wikimedia Commons, Cburnett, CC BY-SA 3.0 or GFDL.'},
         'A real-time audio callback has a stricter need. It cannot spin for an unbounded number of CAS retries, allocate memory, or wait on a paused helper. That path usually wants a bounded wait-free single-producer/single-consumer ring or another design whose operation count is known in advance.',
       ],
     },

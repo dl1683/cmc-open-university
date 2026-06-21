@@ -228,6 +228,8 @@ export const article = {
       paragraphs: [
         'Three-dimensional data gets large faster than intuition expects. A 2D image with width and height grows by four times when both dimensions double. A 3D voxel grid grows by eight times when x, y, and z resolution double. A dense grid is easy to address, but it charges memory for every cell whether that cell contains smoke, a surface, a point, or empty air.',
         'Real 3D workloads are often sparse. A medical scan contains a body inside a bounding box. A robot occupancy map contains walls and obstacles but also unknown or empty space. A game or renderer may have detailed geometry in a few regions and nothing in most of the world. A LiDAR point cloud samples surfaces, not every cubic millimeter of volume. The octree exists to stop paying dense-grid prices for empty or uniform regions.',
+        {type: 'callout', text: 'An octree is a proof that most of a 3D volume is irrelevant: each empty or uniform cube removes all smaller cells beneath it.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/20/Octree2.svg', alt: 'Recursive cube subdivision beside the corresponding octree', caption: 'Cube subdivision and tree structure side by side show the octree invariant: each internal region splits into eight smaller regions. Source: Wikimedia Commons, public domain.'},
       ],
     },
     {
@@ -248,6 +250,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Construction starts with a root cube that covers the coordinate domain. The builder classifies that cube. If it contains no occupied voxels or points, it can be absent or marked empty. If it contains one material, one value class, or an acceptable aggregate, it becomes a leaf. If it contains mixed data and depth remains, it splits into eight octants and repeats the classification.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt: 'Simple tree diagram with parent and child nodes', caption: 'The diagram is binary, but the lesson transfers: traversal follows a hierarchy of regions and skips whole subtrees once a region is irrelevant. Source: Wikimedia Commons, Derrick Coetzee, public domain.'},
         'A child can be identified by three bits: one bit for low or high x, one for low or high y, and one for low or high z. A path from the root is a sequence of those octant codes. Packed together, the path resembles a 3D version of a quadkey and is closely related to Morton codes and Z-order curves. Pointer octrees store child references. Linear octrees store keys in sorted arrays or maps. Sparse voxel structures often add dense leaf blocks so local operations remain fast once traversal reaches an active region.',
         'Queries are bounding-volume tests plus recursion. A point lookup chooses one child at each level. A box query visits children whose cubes intersect the box. A ray traversal visits cubes along the ray and skips cubes that the ray never enters. A nearest-neighbor search uses distance bounds to avoid subtrees that cannot contain a better candidate. In every case the tree is a broad-phase filter before exact work on voxels, points, or primitives.',
       ],
@@ -286,6 +289,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Octrees win when the domain is large, 3D, and sparse or locally uniform. Sparse volumes, occupancy grids, voxel terrain, LiDAR point clouds, collision broad phases, visibility tests, and level-of-detail systems are natural fits. The tree lets the system spend detail only where the data or query requires detail.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png', alt: 'Sparse matrix pattern with black nonzero entries on a mostly empty grid', caption: 'Sparse patterns make the same economic point as sparse voxels: store and traverse the active regions, not the full dense universe. Source: Wikimedia Commons, Oleg Alexandrov and Vojtak, public domain.'},
         'OpenVDB is a production example of the idea adapted for visual effects and scientific volumes. It uses a hierarchical sparse tree with dense leaf buffers, so smoke, fire, clouds, level sets, and other volumes can be mostly empty while active regions still support fast local access. Point-cloud libraries use octrees for another payload: group points into cubes, accelerate neighbor search, detect changes between scans, and produce candidates for exact geometry checks.',
       ],
     },

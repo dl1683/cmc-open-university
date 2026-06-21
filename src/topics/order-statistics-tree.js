@@ -192,12 +192,15 @@ export const article = {
       paragraphs: [
         'A normal search tree answers key questions: is 50 present, what is the next key after 50, what is the smallest key. Many systems also need position questions: what is the 5th smallest key, what rank does this score have, what is the current median after thousands of updates.',
         'Those position questions are easy on a sorted array and awkward on a plain balanced tree. The array knows positions but moves many elements on update. The tree updates cheaply but does not know how many keys sit inside each subtree.',
+        {type: 'callout', text: 'Order statistics add one count to each balanced-tree node so whole subtrees become rank-sized blocks.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt: 'Binary tree diagram with parent and child nodes', caption: 'A search tree becomes rank-aware when each node also stores the size of its left and right subtrees. Source: Wikimedia Commons, Derrick Coetzee, public domain.'},
       ],
     },
     {
       heading: 'The naive tools break on different sides',
       paragraphs: [
         'A sorted array gives select(k) by indexing and rank(x) by binary search. Its update cost is the problem: inserting near the front may shift almost every element. When the set changes continuously, the cheap query is bought with expensive maintenance.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/69/Min-heap.png', alt: 'Complete binary min heap with the smallest value at the root', caption: 'A heap exposes the extreme item efficiently, but its shape does not encode the full sorted rank order needed for select(k). Source: Wikimedia Commons, Vikingstad, public domain.'},
         'A heap gives the minimum or maximum quickly, but it has no sorted order for the middle. Finding the 500th item in a heap is not a heap operation. A plain balanced search tree keeps updates and lookups logarithmic, but without counts it cannot skip a subtree by rank.',
       ],
     },
@@ -257,6 +260,7 @@ export const article = {
       heading: 'Where it is not the right tool',
       paragraphs: [
         'If keys are dense small integers, a Fenwick tree or segment tree over frequencies may be simpler and faster. If the data is mostly static, a sorted array gives excellent locality and trivial select. If the only query is top-k, a heap or partial selection structure may be enough.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree diagram with grouped keys in nodes', caption: 'For disk-backed sorted data, a wide B-tree may beat a binary order-statistics tree because it spends fewer page reads per level. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
         'It is also a poor fit when the team cannot afford custom tree maintenance risk. Many languages do not ship order-statistics trees in the standard library. A library tree with a proven augmentation is safer than a clever local implementation used in a money path.',
       ],
     },

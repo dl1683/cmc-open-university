@@ -186,6 +186,8 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: "callout", text: "OPA turns authorization into a replayable data query: input, data, rules, decision, and enforcement all have named boundaries."},
+        {type: "image", src: "https://developer.gs.com/blog/blog-posts/scaling-opa-through-oces/oces_1_v2.png", alt: "Open Policy Agent policy decision point in a service request path", caption: "OPA separates the policy decision point from the application code that enforces the result. Source: Goldman Sachs Developer Blog."},
       ],
     },
     {
@@ -213,6 +215,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         "The core insight is that a policy decision is a query over structured data. The input document describes the current request: subject, action, resource, environment, and relevant metadata. Data documents describe slower-changing facts: roles, group membership, trusted builders, approved registries, risk tiers, namespace settings, or service ownership.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg", alt: "Directed graph with nodes connected by arrows", caption: "A directed graph is the right mental model for policy evaluation: input facts feed derived facts, and derived facts feed decisions. Source: Wikimedia Commons, David W., public domain."},
         "Rego rules define derived facts and decision values over those documents. The useful mental model is a decision graph. Input and data flow into rules. Rules feed an evaluation query. The query produces a structured decision. The enforcement point applies that decision. Explain traces and decision logs preserve enough of the graph to debug it later.",
       ],
     },
@@ -259,6 +262,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         "OPA wins when many components need shared, reviewable policy. Common uses include Kubernetes admission control, API authorization, infrastructure-as-code checks, CI gates, software supply-chain policy, data filtering, feature gates, service-mesh authorization, and model-action guardrails.",
+        {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png", alt: "Decision tree diagram with branch conditions and outcomes", caption: "A decision tree is not Rego, but it makes the policy shape visible: branch over facts, produce a constrained outcome, then enforce it. Source: Wikimedia Commons, CC BY-SA 4.0."},
         "It is strongest when policies are declarative, input schemas are explicit, rule modules are small enough to review, data freshness is known, and tests cover both allow and deny behavior. It also helps organizations that need explainability: a denial can point to policy version, rule, input field, and reason instead of a buried branch in one service.",
       ],
     },

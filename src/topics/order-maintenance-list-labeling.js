@@ -215,6 +215,8 @@ export const article = {
       paragraphs: [
         'In the label-comparisons view, each node displays its integer label as a note. A, B, X, and C sit in list order, but the order query never walks links. It compares two labels: 20 < 25 proves B precedes X in one operation. The insert path shows why gaps between labels matter -- X slips between B=20 and C=30 by taking label 25, with no other node touched.',
         'In the relabel-windows view, the matrix shows old labels on the left and new labels on the right. The highlighted window is not being reordered; it is being renamed. Elements keep their relative sequence, but their labels spread apart so future inserts find room again. Watch the "before" column shrink to consecutive integers, then the "after" column restore wide gaps.',
+        {type: 'callout', text: 'Order maintenance separates identity from position: nodes keep their links, while labels carry the fast order proof.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Linked list structure with nodes connected by pointers', caption: 'The physical list gives cheap local insertion, but labels provide the global order comparison that links alone cannot answer quickly. Source: Wikimedia Commons, Lasindi, public domain.'},
       ],
     },
     {
@@ -245,6 +247,7 @@ export const article = {
       paragraphs: [
         'The Dietz-Sleator solution uses two levels of indirection. The list is split into small groups of O(log n) consecutive elements. Each group gets a tag from a top-level tag structure that labels groups in a universe of size O(n^2). Within each group, elements carry local labels in a universe of size O(log^2 n).',
         'An order query compares group tags first. If two elements share a group, it compares local labels. Both comparisons are single integer checks -- O(1) total. Insertion places the new element in the predecessor\'s group and assigns a local label between the predecessor and successor. If the local label space is exhausted, the group splits into two groups, each getting a new top-level tag.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/86/Skip_list.svg', alt: 'Skip list with ordered nodes connected across multiple levels', caption: 'The skip-list picture is a useful contrast: both structures keep sequence order but add metadata so operations avoid a full linear walk. Source: Wikimedia Commons, Wojciech Mula, public domain.'},
         {
           type: 'diagram',
           label: 'Two-level indirection',
@@ -265,12 +268,11 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Approach', 'Order query', 'Insert', 'Delete', 'Space'],
-          rows: [
-            ['Linked list + linear scan', 'O(n)', 'O(1) with pointer', 'O(1) with pointer', 'O(n)'],
-            ['Tag-based (single level)', 'O(1)', 'O(n) amortized relabel', 'O(1)', 'O(n) + tag bits'],
-            ['Two-level indirection (Dietz-Sleator)', 'O(1)', 'O(1) amortized', 'O(1) amortized', 'O(n) + O(n) tags'],
+          type: 'bullets',
+          items: [
+            'Linked list plus linear scan: order query O(n), insert and delete O(1) with a pointer, space O(n).',
+            'Single-level tags: order query O(1), insert O(n) amortized relabel, delete O(1), space O(n) plus tag bits.',
+            'Two-level Dietz-Sleator tags: order query O(1), insert and delete O(1) amortized, space O(n) plus O(n) tags.',
           ],
         },
         'The Dietz-Sleator structure achieves O(1) amortized time for all three operations. The order query is a constant-time comparison of two integers (or two pairs of integers in the two-level scheme). Insertion is O(1) amortized: most inserts just pick a midpoint label, and the occasional relabel of a window of size k is paid for by k prior cheap inserts.',
@@ -282,6 +284,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Order maintenance is the backbone of Euler tour trees, which maintain dynamic forests by storing tree edges as elements in an ordered list. Each link-cut or subtree-size query reduces to an order comparison between tour positions. Without O(1) order queries, Euler tour trees lose their advantage over heavier dynamic tree structures.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Dynamic graph algorithms often reduce local graph edits to order comparisons over maintained sequences. Source: Wikimedia Commons, David W., public domain.'},
         'Incremental computation frameworks use order maintenance to track dependencies. When a cell changes, the system must determine which downstream cells need recomputation, and in what order. Labeling the dependency graph with order-maintenance tags lets the scheduler compare priorities in O(1) instead of searching the graph.',
         'Product systems use the same idea under different names. LexoRank (Jira) and fractional indexing assign string labels between neighbors for drag-and-drop reordering. Database "sort_order" columns with periodic renumbering are ad hoc order maintenance. XML labeling schemes assign interval tags to nodes so ancestor queries are range checks.',
       ],

@@ -109,11 +109,13 @@ export const article = {
         'The animation traces a single forward pass through a 2-3-1 network: two inputs, three hidden neurons, one output. Each frame shows one stage of the computation: the weight matrix, the weighted sums (pre-activations), the ReLU activation, the output, and then the full end-to-end summary.',
         'Active (highlighted) cells are the values being computed right now. When a neuron\'s pre-activation is negative, ReLU silences it to zero and the animation marks it as removed -- that neuron contributes nothing to the output for this particular input. Different inputs activate different subsets of neurons; watch how changing the inputs in the control box reshapes which neurons fire.',
         'The key inference at each frame: the weighted sum is pure linear algebra (rotation, scaling, shifting). The ReLU bend is what makes the network more than a single matrix multiply. Without that bend, every layer would collapse into one.',
+        {type: 'callout', text: 'A forward pass is repeated affine mixing plus nonlinear gating; depth only helps because the gates prevent the layers from collapsing into one matrix.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored input hidden and output nodes', caption: 'A layered network makes the forward path concrete: values move from inputs through hidden units to an output. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         'In 1943, Warren McCulloch and Walter Pitts published the first mathematical model of a neuron: a binary threshold unit that fires when the weighted sum of its inputs exceeds a threshold. It was a logic gate, not a learning machine, but it proved that networks of simple units could compute any Boolean function. The question shifted from "can a machine compute?" to "can a machine learn which computation to perform?"',
         'Frank Rosenblatt answered in 1958 with the Perceptron: a single-layer network with a learning rule that adjusted weights from labeled examples. The Perceptron could learn any linearly separable function -- and it came with a convergence proof. If a separating hyperplane exists, the algorithm finds it in finite steps. For a few years, connectionism looked like the path to artificial intelligence.',
         'Then in 1969, Marvin Minsky and Seymour Papert published Perceptrons, proving that a single-layer perceptron cannot learn XOR. The four points (0,0)=0, (0,1)=1, (1,0)=1, (1,1)=0 are not linearly separable -- no single line in 2D divides the 0-class from the 1-class. This was not a flaw in the learning rule. It was a representational limit: one layer of weights can only carve linear boundaries. The book chilled neural network research for over a decade.',
@@ -131,6 +133,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'Stacking linear layers does not help. If layer 1 computes h = W1*x + b1 and layer 2 computes y = W2*h + b2, substitution gives y = W2*(W1*x + b1) + b2 = (W2*W1)*x + (W2*b1 + b2). The composition of two affine transforms is still one affine transform. Ten layers of linear maps collapse into a single matrix multiply. Depth without nonlinearity is an illusion.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6c/Rectifier_and_softplus_functions.svg', alt: 'Rectifier and softplus activation curves', caption: 'The ReLU curve is the bend that stops stacked affine maps from reducing to one affine map. Source: Wikimedia Commons, Dan Stowell, CC0 1.0.'},
         'The fix is simple: insert a nonlinear activation between layers. ReLU(z) = max(0, z) is the most common choice. After the linear mix, ReLU zeros out negative values and passes positive values unchanged. This piecewise-linear bend means the composition of two layers is no longer reducible to one. Each layer can carve the input space into regions and build features that the next layer recombines. The forward pass alternates: linear transform, nonlinear activation, linear transform, nonlinear activation.',
       ],
     },
@@ -162,6 +165,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         'A single dense layer with M inputs and N outputs costs O(M*N) multiplications plus N additions for bias. The demo\'s 2-3-1 network does 6 multiplies in layer 1 and 3 in layer 2 -- trivial. For GPT-scale models with hidden dimension 12,288 and 96 layers, each feed-forward block runs two matmuls of size 12,288 by 49,152, totaling roughly 2.4 billion multiplies per layer per token.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'Processor die showing dense compute units', caption: 'Large forward passes are scheduled onto hardware where arithmetic density and memory movement decide throughput. Source: Wikimedia Commons, KL and Intel, public domain.'},
         'Memory follows the same pattern. Inference stores activations for the current layer plus weight tensors. Training stores activations from every layer because backpropagation needs them for gradient computation. Doubling hidden dimension quadruples weight count per dense layer and doubles activation memory per layer. Doubling depth doubles both compute and activation memory linearly.',
         'On GPUs, the dominant cost is usually memory bandwidth for reading weight matrices, not arithmetic. Small batch sizes underuse the hardware because the GPU finishes the math before the next weight tile arrives from memory. Larger batches amortize the weight-read cost across more examples, improving throughput until memory limits hit.',
       ],
@@ -230,4 +234,3 @@ export const article = {
     },
   ],
 };
-

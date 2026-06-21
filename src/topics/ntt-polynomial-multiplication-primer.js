@@ -216,6 +216,8 @@ export const article = {
         `Modern lattice cryptography does a large amount of polynomial arithmetic. ML-KEM, the NIST-standardized key-encapsulation mechanism derived from CRYSTALS-Kyber, works with vectors of polynomials over a modular ring. Signing schemes in the same family also spend much of their time moving between compact byte strings, coefficient arrays, and modular polynomial products.`,
         `A polynomial product is a convolution. Each output coefficient receives contributions from many pairs of input coefficients. If the implementation multiplies every pair directly, the work grows quadratically. That is easy to understand but expensive when the protocol repeats the operation many times with fixed-size polynomials.`,
         `The number theoretic transform, or NTT, exists to make those products fast without leaving exact modular arithmetic. It is the FFT idea rebuilt over a finite modular ring. Instead of using floating-point complex roots and then worrying about rounding, it uses roots of unity modulo a carefully chosen integer q.`,
+        {type: `callout`, text: `The NTT wins by changing representation: convolution is wide mixing in coefficient space and pointwise multiplication in modular evaluation space.`},
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/a/a4/Clock_group.svg`, alt: `Clock faces showing arithmetic wrapping around a fixed modulus`, caption: `The clock-face view of modular arithmetic shows why values wrap instead of rounding; NTT arithmetic uses the same exact wraparound discipline in a larger ring. Source: Wikimedia Commons, public domain.`},
       ],
     },
     {
@@ -238,6 +240,7 @@ export const article = {
       heading: 'The core mechanism',
       paragraphs: [
         `Multiplication is hard in coefficient form because every output position mixes many input pairs. It is easy in evaluation form because if C(x) = A(x)B(x), then C(r) = A(r)B(r) at each point r. The transform moves a polynomial from coefficients to evaluations at powers of a modular root of unity.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/7/78/DIT-FFT-butterfly.svg`, alt: `Decimation in time FFT butterfly signal flow graph`, caption: `The butterfly dataflow is the reusable schedule: combine pairs, apply public twiddle factors, and repeat by stages. The NTT keeps that schedule but changes the arithmetic to modular integers. Source: Wikimedia Commons, public domain.`},
         `After both inputs are transformed, the middle step is simple: multiply matching coordinates modulo q. Then the inverse transform returns to coefficient representation. The NTT is useful because the forward and inverse transforms can be computed in O(n log n) time by reusing a butterfly schedule instead of evaluating the polynomial from scratch at every point.`,
         `A butterfly takes two values, combines them with a twiddle factor, and writes two new values. Across stages, the span doubles and different twiddle factors are used. This is the same dataflow shape as the FFT, but every add, subtract, multiply, and reduction happens modulo q.`,
       ],
@@ -270,6 +273,7 @@ export const article = {
       heading: 'Cost and implementation behavior',
       paragraphs: [
         `The headline improvement is O(n log n) rather than O(n^2), but real performance is decided by constants. Modular multiplication, reduction strategy, table locality, cache behavior, register pressure, vectorization, and in-place writes determine whether the transform is actually fast on a target platform.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg`, alt: `Processor die with dense arithmetic and memory structures`, caption: `The NTT is asymptotically better, but target hardware still decides which reduction strategy, table layout, and vector path are fastest. Source: Wikimedia Commons, KL and Intel, public domain.`},
         `Reduction is a major design choice. Implementations may use Montgomery reduction, Barrett reduction, or scheme-specific bounds that postpone full reduction while keeping values safe from overflow. These choices must be proved against the maximum intermediate values, not just tested on random inputs.`,
         `Constant-time discipline is part of the algorithm in cryptographic settings. The transform loops should not branch on secret coefficients. Table access patterns should be public and fixed by the schedule. Error handling should not reveal secret-dependent paths. A fast transform that leaks through timing can weaken the system it was meant to accelerate.`,
       ],

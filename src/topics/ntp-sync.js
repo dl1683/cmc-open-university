@@ -190,6 +190,8 @@ export const article = {
       paragraphs: [
         'Distributed systems need clocks even though clocks are unreliable. Logs need timestamps. TLS certificates expire. Databases enforce leases. Schedulers fire timers. Tracing systems merge events from many machines. Humans want one timeline, but each computer has a quartz oscillator that drifts, a kernel that may pause work, and a network path with variable delay. The hard problem is not merely asking a trusted server for the time. The hard problem is learning how far your local clock is from that server while the message itself spent an unknown amount of time in flight.',
         'NTP, the Network Time Protocol, is the classic answer for internet and LAN synchronization. PTP, the Precision Time Protocol, is the answer when microseconds or nanoseconds matter enough to buy hardware support. Both protocols should be understood as measurement systems under uncertainty. They estimate offset, bound error, reject bad samples, and discipline the local clock gradually. They do not create perfect simultaneity. They provide an operationally useful approximation whose failure modes have to be included in the design of the distributed system above them.',
+        {type: 'callout', text: 'Clock sync is a bounded measurement problem: the protocol estimates offset and uncertainty, and software above it must respect both.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/45/Usno-amc.jpg', alt: 'Rack of reference clock equipment at the U.S. Naval Observatory', caption: 'A reference clock is only the top of the measurement chain; every client still has to estimate delay and uncertainty. Source: Wikimedia Commons, U.S. Naval Observatory, public domain.'},
       ],
     },
     {
@@ -210,6 +212,7 @@ export const article = {
       heading: 'The four-timestamp mechanism',
       paragraphs: [
         'NTP uses four timestamps. The client records t1 when it sends a request. The server records t2 when it receives that request and t3 when it sends the reply. The client records t4 when the reply arrives. Timestamps t1 and t4 are on the client clock; t2 and t3 are on the server clock. From those four numbers, NTP estimates offset as ((t2 - t1) + (t3 - t4)) / 2. It estimates delay as (t4 - t1) - (t3 - t2), which is the round trip minus the time the server held the packet.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/8d/NTP-Algorithm.svg', alt: 'NTP round trip delay and offset diagram', caption: 'The NTP algorithm diagram shows why the client needs both request and response timestamps to estimate delay and offset. Source: Wikimedia Commons, public domain.'},
         'The algebra is elegant because, with symmetric one-way delays, the unknown delay cancels out. The outbound leg sees delay plus offset. The return leg sees delay minus offset. Averaging those two expressions isolates offset. The protocol also subtracts server processing time because the server supplies both receive and transmit timestamps. That is the reason four timestamps are enough: the client can separate network flight time, server hold time, and relative clock position under the symmetric-path assumption.',
       ],
     },
@@ -224,6 +227,7 @@ export const article = {
       heading: 'NTP defenses',
       paragraphs: [
         'Because NTP cannot directly observe asymmetry, it uses hierarchy, filtering, and voting. Stratum 0 devices are reference clocks such as GPS receivers or atomic clocks. Stratum 1 servers are attached to those references. Lower strata synchronize through the hierarchy, keeping most clients close to a stable source rather than sending every laptop to one global clock. Multiple servers give the client a way to reject falsetickers and prefer sources that agree.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c9/Network_Time_Protocol_servers_and_clients.svg', alt: 'NTP stratum hierarchy of servers and clients', caption: 'The stratum hierarchy reduces blast radius by spreading time through layered sources instead of one universal server. Source: Wikimedia Commons, public domain.'},
         'The clock filter is especially important. Among recent exchanges, the lowest-delay samples are usually trusted more because they had less room for queueing and asymmetry. This is not naive averaging. A packet that round-tripped in 8 ms is not automatically correct, but it is less exposed to variable congestion than a packet that took 80 ms. Poll intervals also adapt as the local oscillator proves stable or unstable. The result is often millisecond-level accuracy on a LAN and worse but still useful accuracy over the open internet.',
       ],
     },

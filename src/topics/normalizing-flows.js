@@ -206,6 +206,8 @@ export const article = {
       paragraphs: [
         `A normalizing flow is a generative model that turns a simple probability distribution into a complex one through a chain of invertible transformations. Start with something easy, usually a standard Gaussian. Pass samples through learned invertible layers. The output distribution can bend around real data. Because every step is reversible, any data point can be mapped back to one base point, and the model can compute its exact likelihood through the change-of-variables formula.`,
         `Flows exist because many generative models make a trade. GANs can produce sharp samples but do not give a usable likelihood. Variational autoencoders have latent variables and likelihood terms, but training optimizes a lower bound rather than the exact marginal likelihood. Diffusion models can produce excellent samples but usually require iterative denoising. Normalizing flows keep density estimation explicit. They are built for the case where you care not only about generating samples, but also about knowing how much probability the model assigns to an observation.`,
+        {type: `callout`, text: `A normalizing flow is useful because every generated point keeps a reversible path back to a base density and an exact volume correction.`},
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg`, alt: `Normal distribution probability density functions`, caption: `The base distribution is intentionally simple; the learned flow spends its capacity on the reversible map from that base space into data space. Source: Wikimedia Commons, Inductiveload, public domain.`},
       ],
     },
     {
@@ -219,6 +221,7 @@ export const article = {
       heading: 'Core Insight',
       paragraphs: [
         `The core insight is the change-of-variables formula. If z comes from a simple base density and x is produced by an invertible function f(z), then the density of x can be computed by going backward: find z = f inverse of x, evaluate the base density at z, and correct for how much the transform stretched or compressed volume. In log form, the correction becomes a log absolute determinant of the Jacobian.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/9/96/Jacobian_determinant_and_distortion.svg`, alt: `Nonlinear map distorting a square into a curved parallelogram`, caption: `The Jacobian determinant measures local area change, which is the exact density correction flows add to the base log probability. Source: Wikimedia Commons, public domain.`},
         `That volume correction is the heart of the model. If a transformation expands a small patch of space into a larger region, the density over that region must go down. If it compresses a larger region into a smaller one, density must go up. The determinant measures this local volume change. A flow is therefore not just a generator. It is a learned coordinate system where the model knows exactly how volume changes from base space to data space.`,
       ],
     },
@@ -226,6 +229,7 @@ export const article = {
       heading: 'Mechanism',
       paragraphs: [
         `A flow is a composition of invertible functions: f = f_k composed with ... composed with f_2 composed with f_1. Sampling runs forward. Draw z from the base distribution, apply the layers, and get x. Likelihood evaluation usually runs backward. Given x, invert each layer to recover z, add the base log density, and add all the log-determinant corrections. Because log determinants add across composed transformations, the model can accumulate exact likelihood one layer at a time.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg`, alt: `Directed graph with nodes connected by arrows`, caption: `A flow is easiest to audit as a directed chain of reversible maps; every edge must have an inverse and an accounting term. Source: Wikimedia Commons, David W., public domain.`},
         `Coupling layers are a common design because they make the inverse and determinant cheap. Split the input vector into two parts. Copy one part through unchanged. Use the copied part as input to a neural network that predicts scale and shift values for the other part. The changed part can be inverted because the copied part is still known. The Jacobian is triangular, so its determinant is just the product of diagonal terms, or the sum of log scales in log space. Stacking many such layers with masks or permutations creates expressiveness.`,
       ],
     },
