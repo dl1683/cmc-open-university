@@ -228,6 +228,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Archetype ECS Column Store. Group entities by exact component set, store each group in packed column chunks, and move rows when components are added or removed..",
+        {type: 'callout', text: 'Archetype ECS makes component composition a storage location, so stable queries become column scans and structural changes become row moves.'},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -239,6 +240,7 @@ export const article = {
         'Game engines and simulation systems spend much of their time doing the same operation to many similar things. A movement system updates positions from velocities. A visibility system reads transforms and bounds. A physics system reads colliders, masses, and transforms. The work is simple, but the data volume is large enough that memory layout can decide whether a frame fits its budget.',
         'The object-oriented version looks natural at first. Each entity is an object, and each object owns fields or pointers to components. That design is easy to explain, but it scatters hot data across the heap. A loop over moving entities may touch object headers, unrelated fields, missing components, and pointers before it reaches the two arrays it really needs: Position and Velocity.',
         'An archetype ECS exists to make the hot loop look like a data scan instead of a pile of object questions. It groups entities by exact component set, then stores each component type as a dense column inside chunks. Once a system has found chunks containing Position and Velocity, it can stream those columns in row order and ignore every entity with the wrong shape.',
+        {type: 'image', src: 'https://rams3s.github.io/assets/img/blog/ecs_deep_dive/4.png', alt: 'ECS archetype layout diagram grouping entities by component signature.', caption: 'Archetype storage groups entities by shape so hot systems scan matching rows. (Source: rams3s.github.io)'},
       ],
     },
     {
@@ -254,6 +256,7 @@ export const article = {
       paragraphs: [
         'The core insight is that component composition can be encoded by storage location. An entity with Position and Velocity belongs in the Position+Velocity archetype. An entity with Position, Velocity, and Health belongs in a different archetype. The archetype is not a tag stored beside the row; it is the table shape that owns the row.',
         'Inside an archetype, data is stored in chunks. A chunk contains one dense array per component type plus entity ids and metadata. Row 12 of the Position column, row 12 of the Velocity column, and row 12 of the Entity column describe the same entity. That row alignment is the invariant that turns a query into a linear scan.',
+        {type: 'image', src: 'https://rams3s.github.io/assets/img/blog/ecs_deep_dive/8.png', alt: 'ECS chunk layout diagram with component columns.', caption: 'Chunk columns make Position, Velocity, and entity ids line up by row. (Source: rams3s.github.io)'},
         'This is why archetype ECS feels like a column store. Analytical databases group values by column so scans touch only the fields a query needs. Archetype ECS uses the same memory instinct, but the rows are live simulation entities that can move between tables when their component set changes.',
       ],
     },
@@ -262,6 +265,7 @@ export const article = {
       paragraphs: [
         'The storage hierarchy is world, archetype, chunk, column, row. The world owns an entity-location index that maps each entity id to its current archetype, chunk, and row. Each archetype owns chunks for one exact component signature. Each chunk owns fixed-capacity arrays for the components in that signature.',
         'A query for Position and Velocity first finds archetypes whose signatures contain both component types. It does this using cached archetype metadata, not by asking every entity. Then it iterates the matching chunks. Inside each chunk, Position and Velocity are read by row index. If the system writes Position, it writes the Position column in the same row order.',
+        {type: 'image', src: 'https://rams3s.github.io/assets/img/blog/ecs_deep_dive/6.png', alt: 'ECS storage diagram showing archetypes and chunks.', caption: 'The world to archetype to chunk hierarchy explains why queries avoid per-entity membership checks. (Source: rams3s.github.io)'},
         'The structural-change path is the price of this layout. Adding Health to an entity is not a field assignment inside its old row. The entity no longer belongs in Position+Velocity, so the ECS allocates a row in Position+Velocity+Health, copies retained component bytes, initializes Health, removes the old row, and updates the entity-location index. Removing a component performs the same move in the other direction.',
       ],
     },

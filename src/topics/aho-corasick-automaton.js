@@ -224,6 +224,7 @@ export const article = {
       paragraphs: [
         'The graph is the Aho-Corasick automaton built from a small dictionary. Each node is a trie state labeled with the prefix it represents. Solid directed edges are goto transitions: consuming a matching character moves one level deeper. Dashed edges labeled "fail" are failure links (also called suffix links): they point to the longest proper suffix of the current prefix that is itself a prefix in the trie. The edge labeled "fail/output" from "she" to "he" is both a failure link and an output link, because "he" is a complete pattern that happens to be the suffix target.',
         'Nodes annotated "output" are match states. When the automaton enters one, it emits that pattern. Output links chain additional shorter patterns that also end at the same text position. In the "stream matches" view, watch the text pointer: it advances exactly once per character, never rewinds. Active highlights show the current automaton state. Found highlights show which patterns have been reported.',
+        {type: 'callout', text: 'Aho-Corasick turns many keyword searches into one automaton by preserving the longest useful suffix after every mismatch.'},
       ],
     },
     {
@@ -251,6 +252,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Compile all patterns into a single finite-state machine. A trie merges shared prefixes: "he", "her", "hers" share the path root -> h -> he. That handles prefix sharing. Failure links handle suffix sharing: when the automaton is in state "she" and the next character has no goto edge, the failure link jumps to "he" (the longest suffix of "she" that is also a trie prefix). This is KMP\'s failure function, generalized from a single string to an entire trie.',
+        {type: 'image', src: 'https://iq.opengenus.org/content/images/2018/11/trie.png', alt: 'Trie structure used as the base of Aho-Corasick matching.', caption: 'The trie merges shared prefixes before failure links add suffix recovery. (Source: iq.opengenus.org)'},
         'Output links handle overlapping completions. The node "she" carries an output link to "he" because "he" is both a complete pattern and the suffix target. When "she" matches, the automaton walks the output chain and reports "he" at the same position. One character advance per text position, all matches collected.',
       ],
     },
@@ -261,6 +263,7 @@ export const article = {
         'Phase 2, failure link construction: process nodes in BFS order (level by level from root). Every depth-1 node gets a failure link to root, since a single character has no proper suffix in the trie. For a deeper node u reached by character c from parent p: follow p\'s failure link to f(p). If f(p) has a child on c, then f(u) is that child. If not, follow f(p)\'s failure link and repeat until a match or root. BFS order guarantees that f(p) is already computed before any of p\'s children need it. Example: sh fails to h (root has a child on "h"), so she fails to he (h has a child on "e").',
         'Phase 3, output link construction: if a node\'s failure target is itself an output node, set the output link to point there. Otherwise, copy the failure target\'s output link. This chains every suffix pattern reachable from any state. For "she", the failure target "he" is an output node, so "she" gets an output link to "he".',
         'Search: start at root. For each text character c, attempt the goto transition on c. If it exists, move to that child. If not, follow the failure link and try again, repeating until a transition exists or root is reached (root always either has a child on c or stays at root). After settling into a state, walk the output link chain and report every pattern found. The text pointer advances once per character and never rewinds.',
+        {type: 'image', src: 'https://bs-uploads.toptal.io/blackfish-uploads/uploaded_file/file/191788/image-1582328549102-447a1375d0c3be19c4d8039d8ba0d7a1.png', alt: 'Aho-Corasick automaton diagram with trie transitions and failure links.', caption: 'Failure links turn the trie into a stream automaton that avoids rescanning text. (Source: bs-uploads.toptal.io)'},
       ],
     },
     {

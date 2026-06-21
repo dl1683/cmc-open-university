@@ -214,6 +214,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Agent Tool Permission Lattice. A control-plane data structure for AI agents: order tool calls by effect, scope, resource, approval, expiry, sandbox profile, and audit requirement..",
+        {type: "callout", text: "A permission lattice keeps model intent separate from authority by ranking each proposed effect before execution."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -245,6 +246,7 @@ export const article = {
       paragraphs: [
         'Execution starts with a proposed tool call. The runtime validates the argument shape, but that is only the first gate. It then binds the proposal to a real identity: the user, workspace, service account, delegated OAuth token, or narrow capability that the platform recognizes. Next it resolves the target resource and requested effect. The same tool can require different authority depending on whether it reads a public issue, edits a private file, sends a message outside the organization, or touches production infrastructure.',
         'Policy evaluation computes the required lattice element and compares it with the current grant. The result can be allow, deny, downgrade, ask for approval, require a dry run, or change the sandbox profile. A file edit might be allowed only as a patch preview. A shell command might run with a read-only mount, no network, and a temporary filesystem. An email send might require confirmation after showing recipients and body. Every decision should produce an audit event that names the proposal, policy version, grant, result, and evidence.',
+        {type: 'image', src: 'https://developer.gs.com/blog/blog-posts/scaling-opa-through-oces/oces_1_v2.png', alt: 'Open Policy Agent policy decision point in a service request path.', caption: 'OPA separates policy decisions from application code and gives the runtime a policy gate. (Source: developer.gs.com)'},
       ],
     },
     {
@@ -266,6 +268,7 @@ export const article = {
       paragraphs: [
         'The cost is friction and policy maintenance. A lattice that asks for approval on every small action will make the agent feel useless. A lattice with dozens of vague risk levels will be impossible to reason about. The useful version has a small effect taxonomy, clear resource scopes, short-lived grants, and predictable escalation paths. Users should learn the pattern: read can proceed, drafts can be previewed, external sends need confirmation, destructive actions are rare and heavily gated.',
         'There is also engineering cost. Tool manifests must declare effects honestly. Scopes must be enforced at the tool server, not only in the UI. Sandboxes must match the actual risk of code execution, filesystem access, and network egress. Audit logs must be durable enough for review without storing sensitive data carelessly. The lattice does not remove the need for OAuth, capability security, row-level ACLs, policy engines, or operating-system isolation. It coordinates them.',
+        {type: 'image', src: 'https://www.docker.com/app/uploads/2026/04/image9.png', alt: 'Docker diagram comparing sandboxing approaches for AI agents.', caption: 'Agent sandboxes matter because shell, file, and network effects need runtime containment. (Source: docker.com)'},
       ],
     },
     {
@@ -286,6 +289,7 @@ export const article = {
       heading: 'Study next',
       paragraphs: [
         'Study capability security and attenuation first. The strongest mental model is that authority should be an explicit, narrow object that can be passed, reduced, expired, and audited. Then study OAuth scopes, MCP authorization, protected resources, policy engines such as OPA, and operating-system sandboxing such as seccomp, containers, and egress allowlists. Those layers provide the mechanics that the lattice organizes.',
+        {type: 'image', src: 'https://docs.oracle.com/en/cloud/paas/integration-cloud/rest-api-fs/images/oauth-flow.png', alt: 'OAuth authorization code flow with client, resource owner, authorization server, and resource server.', caption: 'OAuth flow shows how scoped authority should be issued before resource access. (Source: docs.oracle.com)'},
         'After that, study prompt injection threat models, guardrail policy engines, audit log design, approval UX, and incident review. The mature agent platform does not trust the model less because it is weak; it trusts the runtime more because the runtime has the right job. The model proposes. The permission lattice decides how much of that proposal may become an effect.',
       ],
     },

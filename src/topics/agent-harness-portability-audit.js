@@ -194,6 +194,7 @@ export const article = {
       paragraphs: [
         `A coding-agent result is never just a model result. The evaluation environment decides what the agent can see, how it edits files, how commands run, how errors are surfaced, how retries are budgeted, and which tests count as success. A model can look strong because the surrounding interface quietly removes hard parts of software work.`,
         `The portability audit asks a narrower question than a leaderboard: does the behavior survive when the interface changes? It keeps the task family as stable as possible while changing the evaluation environment, tools, edit format, shell, language, scaffold, timeout, or retry budget. A sharp score drop is not just lower performance. It is evidence that the agent depended on the old environment.`,
+        {type: 'callout', text: 'A portability audit treats the harness as part of the system under test, then changes one interface axis at a time to expose environment overfit.'},
       ],
     },
     {
@@ -208,6 +209,7 @@ export const article = {
       paragraphs: [
         `Treat the model and evaluation environment as a coupled system, then deliberately perturb the interface. The invariant is matched work under controlled interface shifts. If the task distribution stays comparable and only the edit API changes, the delta says something specific about edit portability. If only the shell changes, the delta says something specific about command portability.`,
         `This is why the audit pairs scores with trace diffs. A score says that the final patch passed or failed. A trace diff says where the run diverged: search, file selection, tool binding, edit application, command parsing, test choice, retry loop, or stop decision.`,
+        {type: 'image', src: 'https://www.anthropic.com/_next/image?url=https%3A%2F%2Fstorage.googleapis.com%2Fanthropic-website%2F4zrzovbb%2Fwebsite%2F190af9f3e10181e47f55c6e5f6c4b9d12c7b72ca-2401x1000.png&w=3840&q=75', alt: 'Anthropic diagram of an augmented language model with retrieval, tools, and memory.', caption: 'Harness audits should separate model ability from the tools and context wrapped around it. (Source: anthropic.com)'},
       ],
     },
     {
@@ -223,6 +225,7 @@ export const article = {
       paragraphs: [
         `First, run the native configuration and save more than pass/fail. Keep the prompt, tool schemas, tool calls, file reads, edits, shell commands, test results, retry count, and final patch. The trace is the evidence needed to explain a later drop.`,
         `Second, perturb one axis at a time. Replace the ACI, remove a helper, switch from structured patch edits to whole-file edits, change bash to PowerShell, move from Python tasks to JavaScript tasks, reduce the turn budget, or change the test oracle. Matched tasks make the comparison meaningful. Unmatched tasks turn the audit into a new benchmark.`,
+        {type: 'image', src: 'https://sambanova.ai/hs-fs/hubfs/mini-swe-agent%20framework.jpg?height=900&name=mini-swe-agent+framework.jpg&width=1600', alt: 'Mini SWE-agent framework showing agent, model, environment, and validation loop.', caption: 'A coding-agent scaffold makes the harness boundary concrete: task, model, tools, environment, and validation. (Source: sambanova.ai)'},
         `Third, classify the divergence. Planning failures pick the wrong area of the repo. Binding failures know the right operation but cannot express it through the local tool. Semantic failures misunderstand program behavior. Oracle failures optimize for tests that do not match the real task. Budget failures need more retries than the product can afford.`,
       ],
     },
@@ -266,6 +269,7 @@ export const article = {
       paragraphs: [
         `The common failure is confounding. If the audit changes language, repository size, hidden tests, shell, tool schemas, and budget at once, the trace diff cannot explain the drop. Another failure is audit overfitting: teams tune prompts and training data against the portability suite until it becomes another native environment.`,
         `A subtler failure is oracle trust. SWE-bench and SWE-bench Verified are useful because they ground software tasks in real repositories, but current benchmark history also shows the limits of public test-based scoring: task ambiguity, too-narrow tests, too-wide tests, environment drift, and contamination can all mislead pass rates. The audit should include oracle review when a result changes a public claim or a deployment decision.`,
+        {type: 'image', src: 'https://langsmith.langchain.ac.cn/assets/images/swebench_evaluation-4086f0af70875bc21fa5e2b9ce7044e0.png', alt: 'SWE-bench evaluation flow from candidate patch to test validation.', caption: 'Public software-agent scores depend on the evaluation runner, patch path, and validation oracle. (Source: langsmith.langchain.ac.cn)'},
       ],
     },
     {

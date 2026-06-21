@@ -243,6 +243,7 @@ export const article = {
       paragraphs: [
         `AnglE-optimized text embeddings exist because vector search depends on geometry. A sentence embedding model turns text into a vector, and downstream systems compare vectors to retrieve documents, cluster issues, detect duplicates, route support tickets, or feed a RAG pipeline. If the training loss shapes that geometry poorly, the retrieval system can look good in a demo and fail on the distinctions users actually care about.`,
         `The specific problem is cosine saturation. Cosine similarity is the standard comparison for normalized embeddings. It is simple, fast, and compatible with many vector indexes. But the cosine curve is flat near very small angles and very large angles. That means the gradient can become weak when two vectors are already close or already far. Those zones still matter. A duplicate should outrank a loose paraphrase. A hard negative should be separated from an obvious negative. AnglE asks whether the loss can optimize angular relationships more directly.`,
+        {type: 'callout', text: 'AnglE shows that embedding quality depends on loss geometry, not just encoder size or vector dimension.'},
       ],
     },
     {
@@ -250,6 +251,7 @@ export const article = {
       paragraphs: [
         `The naive embedding recipe is familiar. Choose a transformer encoder, pool its token states into one vector, train on sentence-pair labels, and use cosine similarity at inference time. Positives are pulled together. Negatives are pushed apart. Then the model is evaluated on semantic textual similarity or retrieval benchmarks. This baseline works well enough that many teams stop there.`,
         `The failure is not that cosine is useless. The failure is treating cosine as if it supplies equally strong training signal everywhere. The derivative of cosine with respect to angle is largest near 90 degrees and small near 0 and 180 degrees. When training examples live near those ends, the loss can become quiet exactly when the model still needs ordering precision. More data or a larger encoder can help, but they do not remove the geometric issue.`,
+        {type: 'image', src: 'https://arxiv.org/html/2309.12871/x1.png', alt: 'AnglE paper figure showing cosine saturation zones.', caption: 'Cosine saturation weakens learning signal near the close and far ends of angular space. (Source: arxiv.org)'},
         `A second naive move is to judge embeddings only by an average benchmark score. That hides domain failure. A model that ranks short paraphrases well may retrieve the wrong long issue thread. A model that works for FAQ search may fail on legal chunks, code search, or customer-specific vocabulary. The geometry must be evaluated where it will be used.`,
       ],
     },
@@ -258,6 +260,7 @@ export const article = {
       paragraphs: [
         `The core insight is to optimize angle as a first-class training object. AnglE introduces angle optimization in a complex space so the loss can work with phase-like differences rather than relying only on the raw cosine curve. The model still produces ordinary text embeddings that can be searched, clustered, or reranked. The change is in how training pressures the representation.`,
         `Complex space is a practical representation trick, not mysticism. Coordinates can be arranged into real and imaginary parts. That lets the loss compute angular relationships with phase information. If two pieces of text should be semantically close, their angular relationship should move in one direction. If they should be far, it should move in another. The goal is to keep the learning signal useful in regions where cosine alone can saturate.`,
+        {type: 'image', src: 'https://arxiv.org/html/2309.12871/x2.png', alt: 'AnglE paper figure illustrating angle optimization in complex space.', caption: 'AnglE uses complex-space angle information to shape embedding geometry during training. (Source: arxiv.org)'},
         `This also reframes embedding work as metric design. An embedding is not good because it is a vector. It is good when the training data, loss geometry, negative sampling, pooling method, index metric, and evaluation task all line up. AnglE teaches that a small change in geometric objective can change how the whole retrieval stack behaves.`,
       ],
     },

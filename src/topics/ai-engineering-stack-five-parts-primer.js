@@ -284,6 +284,7 @@ export const article = {
       paragraphs: [
         'AI systems are easy to discuss as if the model is the system. That hides most engineering failures. Stale labels, bad joins, weak evals, GPU memory pressure, p99 latency, serving cost, and rollback gaps can dominate model choice.',
         'The five-part AI engineering stack is a diagnostic map: data, model, compute, evaluation, and serving. It exists to force the right question: which part is actually constraining progress?',
+        {type: 'callout', text: 'The five-part stack prevents teams from solving data, eval, compute, or serving failures with a bigger model.'},
       ],
     },
     {
@@ -298,6 +299,7 @@ export const article = {
       paragraphs: [
         'Data is rows, labels, sources, timestamps, ownership, and leakage boundaries. Model is function family, loss, weights, calibration, and failure slices. Compute is training time, memory, accelerators, kernels, batching, and budget. Evaluation is the proxy trusted before launch: held-out sets, golden cases, rubrics, confidence intervals, and human audit. Serving is the runtime path: API, p99, cache, feature lookups, rollback, cost, monitoring, and feedback into future data.',
         'The loop matters. Serving decisions change user behavior and future data. Evaluation cases can get overfit. Compute limits push smaller models or better features. Data quality can dominate architecture. A mature team moves around the loop intentionally instead of treating training as the whole job.',
+        {type: 'image', src: 'https://www.tensorflow.org/static/tfx/guide/images/prog_fin.png', alt: 'TFX pipeline diagram from example generation through validation and serving.', caption: 'TFX makes the ML system visible as a pipeline rather than a standalone model file. (Source: tensorflow.org)'},
       ],
     },
     {
@@ -349,6 +351,7 @@ export const article = {
         'For data, track freshness, coverage, join correctness, leakage checks, label delay, and slice balance. For models, track baseline deltas, calibration, failure clusters, and regression slices. For compute, track cost per run, memory headroom, utilization, and iteration time.',
         'For evaluation, track benchmark age, human disagreement, confidence intervals, and production correlation. For serving, track p99, error rate, cost per task, rollback time, cache hit rate, feature freshness, and drift by traffic slice. These signals make the five-part map measurable instead of decorative.',
         'Governance also belongs here. Each part needs an owner, an artifact, and a rollback story. Data has lineage and contracts. Models have checkpoints and cards. Compute has budgets. Evaluation has score packets. Serving has deploy records and incidents. Without ownership, the five-part map becomes a diagram nobody can execute.',
+        {type: 'image', src: 'https://www.tensorflow.org/static/tfx/guide/images/libraries_components.png', alt: 'TensorFlow Extended component and library architecture.', caption: 'Production ML depends on reusable data, validation, training, evaluation, and serving components. (Source: tensorflow.org)'},
       ],
     },
     {

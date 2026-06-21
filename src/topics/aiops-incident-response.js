@@ -218,6 +218,7 @@ export const article = {
       paragraphs: [
         'AIOps incident response exists because modern systems produce more operational evidence than humans can sort during an outage. A single customer-visible failure may create metric alerts, log errors, trace slowdowns, deployment events, infrastructure warnings, queue-depth changes, and downstream symptoms across many services.',
         'The goal is not to replace observability or on-call judgment. The goal is to turn a flood of weak signals into one useful incident: grouped symptoms, user-impact context, likely owners, recent changes, evidence links, and safe next actions. A good AIOps system reduces search time. It does not pretend uncertainty has disappeared.',
+        {type: 'callout', text: 'AIOps is evidence compression: preserve user impact and actionability while reducing alert noise.'},
         'OpenTelemetry defines the core signal families as traces, metrics, logs, baggage, and emerging profiles/events: https://opentelemetry.io/docs/concepts/signals/. Google SRE frames monitoring as collecting, processing, aggregating, and displaying real-time data about a system, while alerting should interrupt humans only for issues that deserve human response: https://sre.google/sre-book/monitoring-distributed-systems/. AIOps sits on top of that foundation; without clean telemetry, it has no stable input.',
       ],
     },
@@ -242,6 +243,7 @@ export const article = {
       paragraphs: [
         'The pipeline has five jobs. First, collect telemetry from services, infrastructure, deployments, and user-facing SLIs. Second, normalize labels so service names, regions, versions, endpoints, and trace identifiers mean the same thing everywhere. Third, detect anomalies or SLO burn. Fourth, correlate related events using time proximity, service topology, trace paths, dependency edges, and recent changes. Fifth, route a single incident with evidence and recommended actions to the right owner.',
         'Feature quality usually beats exotic modeling. Time co-occurrence says which signals changed together. Topology shows whether one service is upstream of another. Deployment metadata tells whether a new version or config landed before the symptom. Trace context links slow spans and failing requests. Ownership maps tell who can act.',
+        {type: 'image', src: 'https://opentelemetry.io/docs/specs/otel/metrics/img/model-layers.png', alt: 'OpenTelemetry metrics model layers from event stream to timeseries.', caption: 'Telemetry needs a shared data model before correlation can be reliable. (Source: opentelemetry.io)'},
         'The feedback loop matters. After the incident, responders should confirm or reject the grouping, record the actual cause, mark useful and useless evidence, and note which action fixed or mitigated the issue. That turns the system from a one-shot classifier into an operational learning loop.',
       ],
     },
@@ -266,6 +268,7 @@ export const article = {
       paragraphs: [
         'The expensive part is usually data quality, not the model. Services emit inconsistent labels. Logs omit trace IDs. Dashboards measure internal symptoms instead of user-facing SLIs. Deploy metadata lives in a separate system. Ownership maps are stale. Incident outcomes are often written in prose that no training loop can use.',
         'There is a precision-recall tradeoff. Suppress too aggressively and you hide real incidents. Page too eagerly and responders ignore the tool. Google SRE alerting guidance emphasizes precision, recall, detection time, and reset time, and recommends burn-rate style alerting when defending an SLO: https://sre.google/workbook/alerting-on-slos/. AIOps should improve that operating loop, not bypass it.',
+        {type: 'image', src: 'https://docs.honeycomb.io/assets/images/health-tab-time-remaining-chart-93c729292768488f9240eaf88b1671e6.png', alt: 'SLO time remaining chart showing error-budget burn pressure.', caption: 'Burn-rate views connect alert urgency to user-visible reliability pressure. (Source: docs.honeycomb.io)'},
         'Automation adds risk. Restarting a process, scaling a worker pool, or rolling back a canary may be safe under guardrails. Changing data, deleting resources, or mutating customer-visible state needs much stronger proof. A bad automated action can turn a partial outage into a larger one.',
       ],
     },
@@ -274,6 +277,7 @@ export const article = {
       paragraphs: [
         'The strongest use cases are alert deduplication, change correlation, topology-aware grouping, noisy alert suppression, runbook recommendation, anomaly surfacing, SLO-aware routing, and post-incident learning.',
         'For example, a deploy to checkout version 42, rising p99 latency, elevated 5xx errors, and traces showing database timeouts should become one incident with the deploy linked as a candidate cause. The responder should see dashboards, traces, logs, recent changes, owner, SLO burn, and rollback or runbook options in one place.',
+        {type: 'image', src: 'https://docs.honeycomb.io/assets/images/health-tab-budget-burndown-2c386a8fed99e40402d42af3715486e5.png', alt: 'SLO budget burndown chart.', caption: 'Budget burndown helps route incidents by impact rather than raw anomaly score. (Source: docs.honeycomb.io)'},
         'AIOps is especially useful in large organizations where no one responder holds the whole dependency graph in memory. The system can keep ownership, topology, recent changes, and incident history close to the evidence instead of forcing the on-call engineer to search five tools during the outage.',
       ],
     },

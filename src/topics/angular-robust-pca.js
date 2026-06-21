@@ -218,6 +218,7 @@ export const article = {
       paragraphs: [
         `Principal Component Analysis finds low-dimensional structure by looking for directions of high variance. When the data is mostly clean, this is one of the best tools in applied linear algebra: it compresses correlated features, reveals dominant directions, denoises measurements, and gives a simple basis for downstream models. The problem is that PCA trusts squared distance from the mean. A point that is ten times farther away can have roughly one hundred times the influence on the covariance objective.`,
         `That influence is dangerous when a data set contains corrupted images, sensor spikes, bad rows, mislabeled examples, adversarial points, or rare ingestion failures. A few large outliers can rotate the first principal component away from the structure shared by most observations. Angular robust PCA is a response to that outlier-influence problem. It asks whether the data agree in direction after scale has been removed, then uses that directional consensus to recover a more stable subspace.`,
+        {type: 'callout', text: 'Angular robust PCA limits outlier leverage by letting each centered row vote by direction before magnitude can dominate.'},
       ],
     },
     {
@@ -231,6 +232,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         `The angular insight is to separate direction from magnitude. After centering, each observation can be projected onto the unit sphere by dividing by its norm. Once that happens, a far-away point no longer gets unlimited voting power merely because it is far away. It still contributes a direction, but it does not dominate the objective through raw length. The method then looks for angular density: many observations pointing in compatible directions.`,
+        {type: 'image', src: 'https://arxiv.org/html/2011.11013/x1.png', alt: 'Angular robust PCA figure showing direction-based robustness against outliers.', caption: 'Angular normalization changes the outlier problem from raw distance to directional agreement. (Source: arxiv.org)'},
         `This does not mean magnitude is always noise. In many applications, length is meaningful. But when the main threat is gross contamination, directional agreement can be more trustworthy than squared residual size. The robust method changes the influence function. A corrupted sample can disagree, and a cluster of corrupted samples can still cause trouble, but a single large point has less ability to hijack the first component.`,
       ],
     },
@@ -246,6 +248,7 @@ export const article = {
       paragraphs: [
         `The first animation view starts with clean points along a diagonal. Ordinary PCA is appropriate there: the first component runs through the inlier cloud and captures the main direction of variation. Then two far points are added. The clean component still describes the majority pattern, but the covariance component rotates because the outliers have outsized influence. The picture is deliberately small so the failure is visible.`,
         `The unit-circle frame shows the angular move. Every point is converted to a direction with length one. The inliers still cluster around a shared direction, while the outliers point elsewhere. They can still be noticed, but they cannot dominate merely through distance. The second view turns that intuition into a recipe: center, normalize, estimate angular density, trim weak votes, and fit the subspace. The comparison curve shows the usual trade: a small cost on clean data, slower degradation under contamination.`,
+        {type: 'image', src: 'https://arxiv.org/html/2011.11013/x2.png', alt: 'Angular robust PCA comparison figure for contaminated data.', caption: 'Robust PCA should be judged by how the recovered subspace changes under contamination. (Source: arxiv.org)'},
       ],
     },
     {

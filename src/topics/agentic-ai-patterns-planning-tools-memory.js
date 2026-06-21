@@ -221,6 +221,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Agentic AI Patterns: Planning, Tools, Memory. How production agentic systems combine planners, tool calls, observations, memory, evaluators, and workflow boundaries..",
+        {type: "callout", text: "An agentic system is a bounded observe-act loop, not a larger prompt with more autonomy."},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -231,6 +232,7 @@ export const article = {
       paragraphs: [
         `Agentic AI is not a magic product category. It is a system pattern where a model is allowed to choose actions, observe the results, update state, and continue toward a goal. The useful definition is operational: an agent is a controlled loop over planning, tool use, observation, memory, evaluation, and stopping. The loop may last two turns or many hours, but the engineering problem is the same.`,
         `This distinction matters because many useful AI systems are not agents. A deterministic workflow can classify a request, retrieve documents, summarize them, validate the result, and respond along a mostly fixed path. An agent is needed when the path cannot be fully known ahead of time because the next step depends on what tools reveal. The goal is not more autonomy by default. The goal is the right amount of autonomy for uncertain work.`,
+        {type: `image`, src: `https://www.anthropic.com/_next/image?url=https%3A%2F%2Fstorage.googleapis.com%2Fanthropic-website%2F4zrzovbb%2Fwebsite%2F190af9f3e10181e47f55c6e5f6c4b9d12c7b72ca-2401x1000.png&w=3840&q=75`, alt: `Augmented LLM diagram with retrieval, tools, and memory.`, caption: `Agentic behavior starts when the model can use external capabilities through a controlled system wrapper. (Source: anthropic.com)`},
       ],
     },
     {
@@ -245,6 +247,7 @@ export const article = {
       paragraphs: [
         `A production loop starts with a task and a context object. The context contains user intent, known facts, retrieved material, permissions, budgets, previous observations, and any constraints on allowed actions. The planner chooses the next bounded action. The tool layer executes that action: search, code execution, database lookup, browser navigation, calculator call, file edit, ticket update, or another function call with a typed schema.`,
         `The observation returns to the loop as data, not as vague intuition. The memory layer records what should survive the step. The evaluator turns the observation into a decision: answer now, plan another action, reject unsafe output, ask a person, retry with a different tool, or stop because the budget is exhausted. The control-loop view in the topic is a cycle, not a one-pass pipeline. The important edge is from evaluation back to planning, because that is where feedback changes the next action.`,
+        {type: `image`, src: `https://www.anthropic.com/_next/image?url=https%3A%2F%2Fstorage.googleapis.com%2Fanthropic-website%2F4zrzovbb%2Fwebsite%2F5b9c0a01e12394af32de92f2e36011ac8c0d4f94-2401x1000.png&w=3840&q=75`, alt: `Autonomous agent loop with environment feedback.`, caption: `The agent loop depends on repeated action, observation, and replanning rather than one-pass generation. (Source: anthropic.com)`},
       ],
     },
     {
@@ -280,6 +283,7 @@ export const article = {
       paragraphs: [
         `An agent without a stop rule is just an expensive loop. Evaluation starts with simple checks: did the tool call parse, did the requested file exist, did the command succeed, did retrieval return enough evidence, did the answer cite the sources it used, did the patch pass the relevant check? Higher-level evaluators compare the result with the original objective, policy constraints, and quality bar.`,
         `Good systems use layered evaluators instead of one all-purpose judge. Parseability tests catch malformed calls. Permission checks catch forbidden actions. Unit or integration checks catch behavioral regressions. Retrieval tests catch missing evidence. Cost monitors catch runaway loops. Human review handles high-impact ambiguity. The evaluator is the stop/go switch: continue only when another action is likely to improve the result enough to justify its cost.`,
+        {type: `image`, src: `https://www.anthropic.com/_next/image?url=https%3A%2F%2Fstorage.googleapis.com%2Fanthropic-website%2F4zrzovbb%2Fwebsite%2F8985fc683fae4780fb34eab1365ab78c7e51bc8e-2401x1000.png&w=3840&q=75`, alt: `Evaluator-optimizer workflow diagram.`, caption: `Evaluator loops make stopping and revision explicit instead of letting the agent drift. (Source: anthropic.com)`},
       ],
     },
     {

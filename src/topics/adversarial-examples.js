@@ -142,6 +142,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Adversarial Examples & FGSM. Point the gradient at the input instead of the weights: one deliberate nudge turns 97% spam into 14%..",
+        {type: 'callout', text: 'An adversarial example is a geometry failure: the model can stay confident while a tiny input move crosses the boundary.'},
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -152,6 +153,7 @@ export const article = {
       paragraphs: [
         `Adversarial examples exist because model features are not the same as human meaning. A spam filter may represent an email through counts, tokens, phrases, and learned weights. A vision model may represent an image through millions of pixel-derived activations. Those features can change in ways that preserve the human-level object: the scam is still a scam, the stop sign is still a stop sign, the panda is still a panda. The model can still cross its decision boundary.`,
         `This matters because a confidence score is not a robustness guarantee. A classifier can assign 97 percent spam to a message and still be only two small edits from sending it to the inbox. The model is confident at the observed point, but an attacker chooses the direction of movement. The security question is not just "How accurate is the model on normal data?" It is "How close is a harmful input to an allowed input under the attacker's edit budget?"`,
+        {type: 'image', src: 'https://blog.keras.io/img/limitations-of-dl/adversarial_example.png', alt: 'Panda adversarial example classified as gibbon after a tiny perturbation.', caption: 'Classic adversarial image example showing human-stable meaning and model-unstable prediction. (Source: blog.keras.io)'},
       ],
     },
     {
@@ -166,6 +168,7 @@ export const article = {
       paragraphs: [
         `The same calculus used for training can be aimed at the input. During training, backpropagation asks how weights should change to reduce loss. During an attack, the question changes: how should the input change to increase a target loss, lower a spam score, or force a chosen class? For a linear model, the input gradient is especially visible because the weights themselves describe how each feature pushes the score.`,
         `FGSM, the Fast Gradient Sign Method, turns that idea into a cheap attack. Compute the gradient of loss with respect to the input, keep only the sign of each component, and move each allowed feature by epsilon in the harmful direction. The sign step is crude, but it is fast and coordinated. In many dimensions, many tiny movements can add into a large logit shift even when each individual movement is small.`,
+        {type: 'image', src: 'https://docs.pytorch.org/tutorials/_images/fgsm_panda_image.png', alt: 'FGSM panda example showing original image, perturbation, and adversarial result.', caption: 'FGSM uses the input gradient to build a coordinated perturbation. (Source: docs.pytorch.org)'},
       ],
     },
     {
@@ -193,6 +196,7 @@ export const article = {
       heading: `Tradeoffs and defenses`,
       paragraphs: [
         `FGSM is cheap: one forward pass, one backward pass, and one sign step. Stronger attacks iterate, tune step sizes, project back into an allowed perturbation set, or optimize for a targeted class. Defenses are more expensive. Adversarial training generates attacked examples during training and teaches the model to classify them correctly, often trading clean accuracy and compute for robustness. Randomized smoothing can certify small radii but does not make large edit budgets safe.`,
+        {type: 'image', src: 'https://docs.pytorch.org/tutorials/_images/sphx_glr_fgsm_tutorial_001.png', alt: 'Accuracy decreases as adversarial epsilon increases.', caption: 'The epsilon curve makes the robustness tradeoff visible as perturbation budget grows. (Source: docs.pytorch.org)'},
         `Gradient masking is the classic trap. If a defense only makes gradients look useless, attackers may route around it with transfer attacks, gradient-free probes, or a differentiable substitute. Uncertainty detection, ensembles, rate limits, and human review can reduce harm, but adaptive attackers can target the detector too. Robustness has to be evaluated against the attacker's allowed actions, feedback, and budget, not against a single canned perturbation.`,
       ],
     },
