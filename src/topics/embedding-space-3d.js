@@ -15,6 +15,7 @@ export const topic = {
   run,
 };
 
+
 // A 3-D slice of an embedding space: clusters + a clean analogy parallelogram.
 const WORDS = [
   { id: 'cat', label: 'cat', cluster: 'animals', x: 1.4, y: 6.2, z: 2.1 },
@@ -95,6 +96,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for The Embedding Space, in 3D. Words as floating points, meaning as distance — and king âˆ’ man + woman walked as an arrow through 3D space..",
+        {
+          type: 'callout',
+          text: "Embedding spaces turn similarity into neighborhoods and relationships into reusable directions.",
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -126,6 +131,12 @@ export const article = {
       heading: `The core insight`,
       paragraphs: [
         `Read the point cloud before the equations. Nearby points share context, colors mark rough semantic neighborhoods, and empty space is meaningful separation. The 3D view is only a slice of a much larger space, but the rule is the same: similarity search is distance search over learned coordinates.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Vector_space_model.jpg/250px-Vector_space_model.jpg',
+          alt: `Vectors for documents and a query separated by angles in a vector space model`,
+          caption: `Vector-space retrieval compares directions and distances between embedded items. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Vector_space_model.jpg`,
+        },
         `Then read the arrows as relationships. Parallel arrows mean the same kind of change appears in different neighborhoods. The king - man + woman step is nearest-neighbor arithmetic, not symbolic reasoning. It is powerful because the training data organized relationships geometrically, and risky because the same geometry can encode social bias.`,
       ],
     },
@@ -168,6 +179,12 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         `One-hot encoding: represent each word as a vector of size V (vocabulary) with a single 1. "cat" = [0,0,1,0,...,0], "dog" = [0,0,0,1,...,0]. The representation is unambiguous and trivial to build — assign each word an index, set that position to 1, leave the rest at 0.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/One_hot_encoding.png/330px-One_hot_encoding.png',
+          alt: `One hot encoded categorical values represented as sparse binary columns`,
+          caption: `One-hot encoding preserves identity but gives no geometric notion of semantic neighborhood. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:One_hot_encoding.png`,
+        },
         `Three problems kill it. (1) Vectors are huge — V=50,000 means 50,000-dimensional vectors, almost entirely zeros. (2) All pairs are equidistant — cos("cat","dog") = 0, the same as cos("cat","democracy"). No notion of similarity survives. (3) No generalization — the model cannot use what it learns about "cat" to help with "kitten," because the two vectors share no structure.`,
         `Embeddings (Bengio et al. 2003, Word2Vec by Mikolov et al. 2013) replace this with a dense vector of size d (typically 100-300) for each word, where similar words have similar vectors. Training: predict a word from its context (CBOW) or context from a word (Skip-gram). The result: "king" - "man" + "woman" approximates "queen" — the geometry encodes semantic relationships. Modern systems learn embeddings end-to-end as the first layer of every language model, not as a separate step.`,
       ],
@@ -222,4 +239,3 @@ export const article = {
     },
 ],
 };
-

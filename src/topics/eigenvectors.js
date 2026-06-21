@@ -15,6 +15,7 @@ export const topic = {
   run,
 };
 
+
 // A = [[2,1],[1,2]] — symmetric, eigenvalues 3 and 1,
 // eigenvectors along (1,1) and (1,âˆ’1).
 const A = [[2, 1], [1, 2]];
@@ -156,6 +157,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The first view shows four arrows: two input vectors and two outputs after multiplying by A = [[2,1],[1,2]]. Visited arrows are directions that got rotated -- they are not eigenvectors. Found arrows are directions that stayed on their original line -- those are eigenvectors, and their stretch factor is the eigenvalue.',
+        {
+          type: 'callout',
+          text: 'An eigenvector is a direction the matrix can stretch, shrink, or flip, but not turn.',
+        },
         'The power-iteration view shows a fan of arrows. Each arrow is the result of one more multiply-and-normalize step. The fan converges toward 45 degrees because the dominant eigenvalue (3) amplifies its component faster than the subdominant (1). The final arrow, marked found, is the dominant eigenvector.',
         'The five-fields view shows a table. Each row is the same equation Av = lambda v wearing a different costume: web ranking, statistics, deep learning, graph clustering, physics. Read it as a census of where eigenvectors appear, not as separate algorithms.',
       ],
@@ -164,6 +169,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A matrix is a rule that moves vectors. It may stretch, rotate, shear, or reflect them. Reading the entries of the matrix does not reveal which directions the transformation cares about. Two matrices with different entries can have the same eigenvectors and differ only in how hard they stretch each one.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Eigenvalue_equation.svg/250px-Eigenvalue_equation.svg.png',
+          alt: 'Eigenvalue equation showing a transformed vector staying on the same line',
+          caption: 'The eigenvalue equation isolates transformations that leave a vector on its own line. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Eigenvalue_equation.svg',
+        },
         'Eigenvectors are the directions a matrix refuses to rotate. Along an eigenvector, the matrix acts as multiplication by a single number -- the eigenvalue. The equation is Av = lambda v: input direction equals output direction, scaled by lambda.',
         'Euler studied these invariant directions for rotations of rigid bodies in the 1750s. Cauchy gave the first general theory of the characteristic equation in 1829, proving that every real symmetric matrix has real eigenvalues. Hilbert extended the idea to infinite-dimensional operators in 1904, opening the door to quantum mechanics and functional analysis. The word "eigen" is German for "own" or "characteristic" -- these are the matrix\'s own directions.',
       ],
@@ -211,6 +222,12 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         'PCA computes the top k eigenvectors of a data covariance matrix. Each eigenvector is a direction of maximum remaining variance; the eigenvalue is the variance explained. Projecting data onto k eigenvectors compresses n features to k while losing the least information in a squared-error sense.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/GaussianScatterPCA.svg/330px-GaussianScatterPCA.svg.png',
+          alt: 'PCA axes drawn through a two dimensional Gaussian scatter plot',
+          caption: 'PCA chooses eigenvector directions that explain the most variance in the data cloud. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:GaussianScatterPCA.svg',
+        },
         'Google PageRank is the dominant eigenvector of the web\'s link matrix (with damping). Importance flows along links; power iteration runs until the scores stabilize. The stationary distribution of any ergodic Markov chain is an eigenvector of its transition matrix with eigenvalue 1.',
         'Quantum mechanics postulates that measurable quantities (energy, momentum, spin) are eigenvalues of Hermitian operators. The hydrogen atom\'s energy levels are eigenvalues of the Hamiltonian. Measurement collapses the state onto the corresponding eigenvector.',
         'Vibration analysis models a bridge or building as a mass-spring system. The natural frequencies are square roots of the eigenvalues of the stiffness-over-mass matrix. Engineers keep these frequencies away from earthquake or wind frequencies to prevent resonance.',
@@ -244,4 +261,3 @@ export const article = {
     },
   ],
 };
-

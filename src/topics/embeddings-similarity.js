@@ -15,6 +15,7 @@ export const topic = {
   run,
 };
 
+
 // A hand-made 2D embedding space. Real embeddings have hundreds or
 // thousands of dimensions and are LEARNED — but distance works the same.
 const WORDS = [
@@ -81,6 +82,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each dot is a word placed at coordinates in a 2D embedding space. The position is the representation: words that mean similar things land near each other, forming visible clusters (animals top-left, foods top-right, vehicles bottom). Nobody hand-labeled these groups. They emerge because the training process pushes words that appear in similar contexts toward similar coordinates.',
+        {
+          type: 'callout',
+          text: 'Embedding search works because the model moved meaning into geometry before the query ever arrives.',
+        },
         'The highlighted dot is the query word. The system measures the distance from the query to every other point and returns the closest ones as "found" neighbors. The visited dot marks the farthest word. The gap between nearest and farthest is the signal: the space has captured meaningful structure, and "similar" has become "nearby."',
       ],
     },
@@ -95,6 +100,12 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Represent each word as a one-hot vector: a vector of length V (vocabulary size) with a 1 in that word\'s position and 0 everywhere else. "cat" = [0,0,0,1,0,...,0]. This gives every word a unique identity and works for table lookups.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/One_hot_encoding.png/330px-One_hot_encoding.png',
+          alt: 'One hot encoded categorical values represented as sparse binary columns',
+          caption: 'One-hot vectors encode identity but make distinct tokens orthogonal by construction. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:One_hot_encoding.png',
+        },
       ],
     },
     {
@@ -108,6 +119,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Words that appear in similar contexts should get similar vectors. "Cat" and "kitten" both appear near "pet," "fur," "purr," and "litter." "Cat" and "mortgage" almost never share context. A model that learns to predict context words from a target word (or vice versa) is forced to assign similar vectors to words that substitute for each other in sentences. Meaning becomes geometry not because someone defined similarity by hand, but because co-occurrence statistics encode it implicitly.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/ff/Vector_space_model.jpg/250px-Vector_space_model.jpg',
+          alt: 'Vector space model showing document vectors and query vector angles',
+          caption: 'Embedding retrieval inherits the vector-space idea: compare points or directions after text becomes coordinates. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Vector_space_model.jpg',
+        },
       ],
     },
     {
@@ -170,4 +187,3 @@ export const article = {
     },
   ],
 };
-

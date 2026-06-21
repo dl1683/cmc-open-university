@@ -15,6 +15,7 @@ export const topic = {
   run,
 };
 
+
 const log2 = (x) => Math.log(x) / Math.LN2;
 const entropy = (dist) => dist.reduce((h, p) => (p > 0 ? h - p * log2(p) : h), 0);
 const crossEntropy = (p, q) => p.reduce((h, pi, i) => (pi > 0 ? h - pi * log2(q[i]) : h), 0);
@@ -118,6 +119,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The surprise curve plots -log2(p) against probability. Watch how the curve explodes as p approaches zero: that is the penalty for confident wrong predictions made visible. A coin flip at p = 0.5 costs 1 bit of surprise. A rare event at p = 0.01 costs 6.6 bits. The shape of this curve is the entire engine behind cross-entropy loss.',
+        {
+          type: 'callout',
+          text: 'Entropy is expected surprise: the least average number of bits needed when the probabilities are true.',
+        },
         'The entropy table shows three distributions over four weather outcomes and their entropies. Active cells highlight H, the average surprise. Certain distributions have H = 0 because nothing is unknown. Uniform distributions have maximal H because every outcome is equally surprising. The skewed distribution lands between, because common outcomes contribute little surprise while rare ones contribute a lot.',
         'The cross-entropy frame compares reality p against a model q. The gap between H(p, q) and H(p) is KL divergence: the bits wasted because the model is wrong. When the animation replaces weather labels with tokens, the same table becomes language-model training loss.',
       ],
@@ -126,6 +131,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A loss function collapses every prediction a model makes into a single number: how wrong is it? Gradient descent needs this number to be differentiable so it can compute a direction to improve. Without a loss function, there is no gradient, and without a gradient, there is no learning.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/2/22/Binary_entropy_plot.svg',
+          alt: 'Binary entropy curve peaking at probability one half',
+          caption: 'Binary entropy is highest when the two outcomes are equally likely and falls to zero at certainty. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_entropy_plot.svg',
+        },
         'Entropy and cross-entropy solve the specific problem of measuring wrongness for probability distributions. A classifier outputs probabilities over classes. A language model outputs probabilities over tokens. The loss must say not just "right or wrong" but "how far from right," and it must do so in a way that gradient descent can act on. Cross-entropy is the standard answer for classification, and the reason traces back to Shannon 1948: it measures the cost, in bits, of believing the wrong distribution.',
       ],
     },
@@ -148,6 +159,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'For regression, mean squared error replaces accuracy: L = (1/n) * sum((y_i - y_hat_i)^2). Squaring makes the function differentiable everywhere, and the gradient dL/dy_hat = -2(y - y_hat)/n is proportional to the error. Large errors produce large gradients; small errors produce small gradients. The optimizer naturally focuses effort where the model is most wrong.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/8/82/Huffman_tree_2.svg',
+          alt: 'Huffman coding tree assigning shorter codes to more likely symbols',
+          caption: 'Huffman coding is the constructive side of entropy: common events get short codes and rare events get long codes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Huffman_tree_2.svg',
+        },
         'For classification, cross-entropy replaces accuracy. Given C classes, the true label is a one-hot vector y and the model outputs a probability distribution y_hat (typically via softmax). The loss is: L = -sum(y_c * log(y_hat_c)) for c = 1 to C. With one-hot labels, this simplifies to L = -log(y_hat_correct), the negative log of the probability assigned to the true class.',
         'Binary cross-entropy handles the two-class case directly: L = -[y * log(p) + (1 - y) * log(1 - p)]. When y = 1, only the -log(p) term survives. When y = 0, only the -log(1 - p) term survives. The logarithm is the key: -log(0.9) = 0.105, a small penalty for being right. -log(0.1) = 2.303, a harsh penalty for being wrong. -log(0.01) = 4.605, catastrophic. The log curve makes confident wrong predictions orders of magnitude more expensive than uncertain ones.',
         'Softmax converts raw logits z into probabilities: p_c = exp(z_c) / sum(exp(z_j)). In practice, softmax and cross-entropy are computed together for numerical stability. The combined gradient has a clean form: dL/dz_c = p_c - y_c. For the correct class, this is (p_correct - 1), pushing the logit up. For wrong classes, this is p_wrong, pushing them down. The gradient vanishes only when p_correct = 1 and all others are 0, which is the perfect prediction.',
@@ -205,4 +222,3 @@ export const article = {
     },
   ],
 };
-

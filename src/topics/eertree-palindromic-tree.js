@@ -255,6 +255,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has three views. "Online insertions" shows the eertree growing character by character: each row is one append, and the columns show which new palindrome was created, which existing node it extended from, and how many distinct palindromes exist so far. "Roots and suffix links" draws the full node-and-edge graph after construction, separating extension edges (which build longer palindromes) from suffix links (which chain palindromic suffixes). "Palindrome analytics" traces the streaming pipeline from character input to query output.',
+        {
+          type: 'callout',
+          text: 'The eertree works because a new character can create only one new distinct palindrome: the longest new palindromic suffix.',
+        },
         'Active highlights mark the node or link the algorithm is currently testing. Found highlights mark a node that has just been created or a query that has been answered. Compare highlights show a parallel structure worth contrasting, such as the suffix-link chain alongside the extension-edge chain.',
         'Follow the suffix-link arrows carefully. They are the fallback mechanism: when the current longest palindromic suffix cannot be extended by a new character, the algorithm walks suffix links to shorter candidates. This is the same idea as failure links in KMP and Aho-Corasick, applied to palindromes.',
       ],
@@ -263,6 +267,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Palindromes appear in string problems constantly: longest palindromic substring, counting distinct palindromic substrings, palindromic factorization, detecting symmetry in DNA sequences, and competitive-programming queries that ask "how many palindromes end at position i?" These are not exotic questions. They come up in bioinformatics, text analytics, and contest problem sets every year.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Enigmatic_inscription_of_St_Peter_ad_Oratorium_400.jpg/250px-Enigmatic_inscription_of_St_Peter_ad_Oratorium_400.jpg',
+          alt: 'Ancient square palindrome inscription carved in stone',
+          caption: 'Historical palindromes show why symmetry in strings became a recurring object of study. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Enigmatic_inscription_of_St_Peter_ad_Oratorium_400.jpg',
+        },
         'General substring structures like suffix trees, suffix arrays, and suffix automata can answer palindrome queries, but palindromes are not first-class citizens in those structures. You need extra work to extract them. The eertree (palindromic tree), introduced by Rubinchik and Shur in 2015, flips the priority: every node is a distinct palindromic substring, every edge extends a palindrome, and every suffix link connects palindromic suffixes. The structure you build is the answer.',
         'The name "eertree" is itself a palindrome. The structure contains at most n + 2 nodes for a string of length n (n real palindromes plus two sentinel roots), so it is always linear in size. It builds online, one character at a time, which means it works on streams and can answer queries after every append.',
       ],
@@ -297,6 +307,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The eertree has two sentinel roots. The odd root has length -1 and is a trick: when you wrap it with a character c, you get c + (nothing) + c = c, a single-character palindrome of length 1. The even root has length 0 and represents the empty string, anchoring even-length palindromes. Every real palindrome node has a length, outgoing character-extension edges, and a suffix link to its longest proper palindromic suffix.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/c2/Palindrome_Tree_TACOCAT_Example.png',
+          alt: 'Palindrome tree example for the word TACOCAT',
+          caption: 'A palindromic tree stores each distinct palindrome as a node and connects suffix structure explicitly. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Palindrome_Tree_TACOCAT_Example.png',
+        },
         {
           type: 'diagram',
           label: 'Eertree root structure and suffix links for "ababa"',

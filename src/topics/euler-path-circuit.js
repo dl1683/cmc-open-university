@@ -211,6 +211,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each vertex shows its remaining unused degree. The active vertex (highlighted) is where the algorithm is currently standing. When it follows an edge, that edge moves to the visited set and cannot be used again.',
+        {
+          type: 'callout',
+          text: 'Euler traversal is a degree-parity problem before it is a path-construction problem.',
+        },
         'Watch for the moment the algorithm gets stuck — no unused edges leave the current vertex. It pops that vertex onto the final path and backtracks up the stack. This backtracking is where sub-tour splicing happens: the algorithm revisits a vertex that still has unused edges, extends from there, and weaves the new sub-tour into the result.',
         'In circuit mode, every vertex has even degree, so the walk ends where it started. In path mode, exactly two vertices have odd degree; the walk starts at one and finishes at the other. The final step shows the complete edge sequence.',
       ],
@@ -219,6 +223,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'In 1736, Leonhard Euler proved that no walk through the city of Königsberg could cross each of its seven bridges exactly once — because more than two landmasses had an odd number of bridges. This was the first theorem in graph theory, and it turned a puzzle into mathematics. Euler showed that traversing every edge exactly once depends on vertex degrees, not on the specific shape of the graph.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/5/5d/Konigsberg_bridges.png',
+          alt: 'Historical diagram of the Konigsberg bridges problem',
+          caption: 'The Konigsberg bridge puzzle became graph theory once landmasses were vertices and bridges were edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Konigsberg_bridges.png',
+        },
         'Carl Hierholzer published an efficient construction in 1873 (posthumously). Rather than checking permutations, his method builds the walk greedily and splices sub-tours, finishing in linear time. The algorithm matters today in DNA sequence assembly (walking a de Bruijn graph), circuit board testing (probing every trace), network routing (visiting every link), and generating de Bruijn sequences for combinatorics.',
       ],
     },
@@ -240,6 +250,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Existence check (Euler\'s theorem): a connected graph has an Euler circuit if and only if every vertex has even degree. It has an Euler path (but not a circuit) if and only if exactly two vertices have odd degree — the path runs between those two vertices. If more than two vertices have odd degree, no Euler path or circuit exists.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/5/55/Seven_bridges.svg',
+          alt: 'Graph abstraction of the seven bridges of Konigsberg',
+          caption: 'The graph abstraction exposes the odd-degree vertices that make the original bridge walk impossible. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Seven_bridges.svg',
+        },
         'Hierholzer\'s algorithm (constructive): start at any vertex (for a circuit) or an odd-degree vertex (for a path). Follow unused edges greedily, marking each as used. When you reach a vertex with no unused edges, you are stuck — pop this vertex onto the output and backtrack along the stack. Eventually you reach a vertex that still has unused edges; continue from there, building a sub-tour that gets spliced into the result during backtracking.',
         'Implementation detail: maintain a stack of vertices (the current trail) and a pointer into each vertex\'s adjacency list so you skip already-used edges in O(1). When you get stuck, pop to the output. When the stack empties, the output (reversed) is the Euler circuit or path.',
         'This iterative stack-based version avoids deep recursion on large graphs. The classic recursive formulation does the same work but risks stack overflow when E is large.',

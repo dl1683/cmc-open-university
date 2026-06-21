@@ -220,6 +220,10 @@ export const article = {
       paragraphs: [
         'The animation has two views. The encode view splits a sorted integer list into a low-bit array and a high bitvector. The query view shows how select1, access, and predecessor search recover values from the compressed layout.',
         {
+          type: 'callout',
+          text: 'Elias-Fano keeps sorted order visible: high bits become a searchable marker vector while low bits stay directly addressable.',
+        },
+        {
           type: 'diagram',
           label: 'Color semantics across both views',
           text: 'Active (blue)   -- the element or bit currently being processed\nFound (green)    -- a recovered or matched value\nCompare (orange) -- structures being contrasted (low array vs. high bitvector)',
@@ -283,6 +287,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Split each value into low bits and high bits. The parameter l (number of low bits) controls the split.',
+        {
+          type: 'image',
+          src: 'https://www.antoniomallia.it/uploads/Elias-Fano.png',
+          alt: 'Diagram of an Elias Fano split into lower bits and upper bitvector',
+          caption: 'The split layout stores low bits densely while upper bits become a navigable bitvector. Source: Antonio Mallia, https://www.antoniomallia.it/sorted-integers-compression-with-elias-fano-encoding.html',
+        },
         {
           type: 'code',
           language: 'text',
@@ -349,6 +359,12 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Elias-Fano wins on large, immutable, sorted integer sequences where both compression and navigation matter.',
+        {
+          type: 'image',
+          src: 'https://iq.opengenus.org/content/images/2020/11/untitled--3--ink.png',
+          alt: 'Inverted index diagram with terms pointing to document id lists',
+          caption: 'Inverted-index postings lists are a natural home for monotone integer compression. Source: OpenGenus IQ, https://iq.opengenus.org/inverted-index/',
+        },
         {
           type: 'bullets',
           items: [

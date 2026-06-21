@@ -14,6 +14,7 @@ export const topic = {
   run,
 };
 
+
 function labelMatrix(title, rows, columns, labelsByRow) {
   const labels = [''];
   const codes = new Map([['', 0]]);
@@ -138,6 +139,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "No escape object" traces how the compiler builds a use graph for an allocation, checks each edge for escape, and replaces the object with scalar fields when no edge leaks identity. "Deopt recovery" shows the second half: how the runtime rebuilds eliminated objects when optimized code falls back to the interpreter.',
+        {
+          type: 'callout',
+          text: 'Scalar replacement is legal only when the object identity is unobservable and every field use can be represented by scalars.',
+        },
         'Active nodes are the current analysis step. Compared nodes (dimmed) mark paths that would force allocation if reached. Found nodes mark facts the compiler has established. The decision matrix maps each use category to its ruling: no-escape uses become scalar replacements; escaping uses force heap allocation.',
         {
           type: 'note',
@@ -194,6 +199,12 @@ export const article = {
       paragraphs: [
         'The compiler builds a connection graph (Choi et al. 1999) that tracks how object references flow through the program. Each allocation site is a node. Edges represent assignments, field stores, returns, and calls. The analysis classifies each reference into one of three escape states: NoEscape (local to the method and its inlined callees), ArgEscape (passed as an argument but not stored globally), and GlobalEscape (reachable from a global, returned, or passed to unknown code). Only NoEscape objects are candidates for scalar replacement.',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Control_flow_graph.svg',
+          alt: 'Control flow graph showing branches and merges between basic blocks',
+          caption: 'Escape proofs are attached to compiler IR, where control-flow edges determine which uses can observe an allocation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Control_flow_graph.svg',
+        },
+        {
           type: 'diagram',
           label: 'Connection graph and escape determination',
           text: [
@@ -240,6 +251,12 @@ export const article = {
       paragraphs: [
         'The correctness argument is observational equivalence. If every use of the object can be rewritten as a use of its fields, and no program operation can detect the missing identity, the optimized program has the same behavior as the source. Field reads see the same values. Field writes update the next scalar version. Dead fields remain unobserved. The object header, address, and allocation event were implementation details, not source-level facts.',
         'SSA form makes the rewrite tractable. Each field version has a clear definition and a set of uses. At control-flow joins, phi nodes represent which scalar value reaches the merge. If a field feeds arithmetic, arithmetic gets the scalar directly. The invariant: every path that would have reached a field load now reaches the scalar value that the field would contain on that path.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/9/94/Static_single_assignment_form.svg',
+          alt: 'Static single assignment form graph with phi nodes at a merge',
+          caption: 'SSA makes scalar replacement practical because each field version has explicit definitions and uses. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Static_single_assignment_form.svg',
+        },
         'Partial escape analysis (Stadler et al., GraalVM) extends this to paths. An object may escape only on a rare branch -- say, an exception handler. A path-sensitive optimizer keeps the common path scalarized and sinks the allocation into the branch that actually publishes the object. The allocation happens only when observation becomes possible, and is absent everywhere else.',
         {
           type: 'note',
@@ -319,4 +336,3 @@ export const article = {
     },
   ],
 };
-

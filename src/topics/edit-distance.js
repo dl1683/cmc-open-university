@@ -15,6 +15,7 @@ export const topic = {
   run,
 };
 
+
 const PAIRS = {
   'kitten â†’ sitting': ['kitten', 'sitting'],
   'sunday â†’ saturday': ['sunday', 'saturday'],
@@ -113,6 +114,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The grid has one row per character of the source string plus a row for the empty prefix, and one column per character of the target string plus a column for the empty prefix. Cell (i, j) holds the minimum number of edits needed to turn the first i source characters into the first j target characters.',
+        {
+          type: 'callout',
+          text: 'The table is not bookkeeping; each cell is a proof that one prefix pair has already been solved optimally.',
+        },
         'Active cells (highlighted) are the row currently being filled. Visited cells (dimmer) mark the three neighbors the active cell depends on: the cell above (a deletion), the cell to the left (an insertion), and the diagonal cell (a match or substitution). When a row finishes, every cell in it is final -- its value will never change.',
         'At the end, the found marker lands on the bottom-right corner: the answer for the full strings. The traceback path then lights up, walking backward from that corner to the origin. Each diagonal step with no cost increase is a character match. Each diagonal step with a cost increase is a substitution. A vertical step is a deletion; a horizontal step is an insertion. The path is the edit script.',
       ],
@@ -142,6 +147,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Label every prefix pair as its own subproblem. Let dp[i][j] be the minimum edit distance between the first i characters of the source and the first j characters of the target. The full answer is dp[m][n].',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/d/d1/Levenshtein_distance_animation.gif',
+          alt: 'Animated Levenshtein distance matrix being filled across two words',
+          caption: 'The same dynamic-programming grid fills one prefix pair at a time. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Levenshtein_distance_animation.gif',
+        },
         'The recurrence relation follows from asking: what was the last operation?',
         {
           type: 'bullets',
@@ -185,6 +196,12 @@ export const article = {
       paragraphs: [
         'Spell checking: rank correction candidates by edit distance. "recieve" is distance 1 from "receive" and distance 2 from "relieve," so "receive" ranks first. Production spell checkers use BK-trees or Levenshtein automata to avoid computing the full table against every dictionary word.',
         'DNA sequence alignment: Needleman-Wunsch (1970) is the same recurrence with a substitution scoring matrix (like BLOSUM62 for amino acids) and affine gap penalties instead of unit costs. BLAST pre-filters with k-mer seeds before running full DP because genomes run billions of bases long.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Needleman-Wunsch_pairwise_sequence_alignment.png/250px-Needleman-Wunsch_pairwise_sequence_alignment.png',
+          alt: 'Needleman Wunsch pairwise sequence alignment matrix',
+          caption: 'Sequence alignment uses the same grid shape with biological scoring rules. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Needleman-Wunsch_pairwise_sequence_alignment.png',
+        },
         'Diff tools: git diff and Unix diff use longest common subsequence on lines -- edit distance restricted to insert and delete, no substitution. The Myers diff algorithm (1986) runs in O(nd) time where d is the number of differences, which is fast when files are mostly identical.',
         'Fuzzy search and record linkage: Elasticsearch and Lucene match user queries against indexed terms within a configurable edit-distance threshold. Deduplication pipelines compare names, addresses, and identifiers across databases. OCR post-processing corrects recognition errors by finding the nearest dictionary word.',
       ],
@@ -230,4 +247,3 @@ export const article = {
     },
   ],
 };
-

@@ -143,6 +143,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Optimizers are full of choices that look local but are not. Simplify an expression now and you may erase the shape a later vectorizer needed. Reassociate floating-point math and you may break a numerical contract. Lower a tensor operation too early and you may hide a fusion opportunity. The name for this pain is phase ordering: the result depends on which rewrite pass happened to run first.`,
+        {
+          type: 'callout',
+          text: `Equality saturation separates discovery from choice: collect equivalent forms first, then let a cost model pick.`,
+        },
         `Equality saturation exists to stop early choices from destroying later options. Instead of rewriting expression A into expression B and forgetting A, an e-graph records that A and B are equivalent. It keeps many forms alive at once, runs more rewrites over the shared space, and delays the final decision until a cost model extracts the best representative for the target.`,
       ],
     },
@@ -157,6 +161,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `The core move is to store equivalence directly. An e-node is an operator applied to children, such as add(a, b). An e-class is a set of e-nodes known to compute the same value. The children of an e-node are not single expressions; they are e-classes. That means one compact graph can represent a huge family of equivalent expressions.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg',
+          alt: `Directed acyclic graph with shared structure between nodes`,
+          caption: `A shared graph is the right mental model for compactly representing many related expressions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_acyclic_graph.svg`,
+        },
         `When two e-classes merge, equality propagates upward through congruence closure. If a equals b, then f(a) and f(b) are also equal under the same operator and equal surrounding structure. This is the data-structure advantage over a plain rewrite log. The e-graph is not just collecting strings. It is maintaining a shared quotient of the expression space where equivalent subexpressions collapse together.`,
       ],
     },
@@ -164,6 +174,12 @@ export const article = {
       heading: 'Mechanism and algorithm',
       paragraphs: [
         `Equality saturation starts by inserting the input expression into the e-graph. Rewrite rules then search for matching patterns. When a rule matches, the engine adds the rewritten form to the graph and records the equality instead of replacing the old form. After many rules fire, the rebuild step repairs congruence information so equivalent parents can merge.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Abstract_syntax_tree_for_Euclidean_algorithm.svg',
+          alt: `Abstract syntax tree for a small Euclidean algorithm program`,
+          caption: `Rewrite systems search over syntax-tree patterns before merging equivalent expression classes. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Abstract_syntax_tree_for_Euclidean_algorithm.svg`,
+        },
         `Saturation does not have to mean mathematical completion. Practical systems stop when no useful rules fire, when a node limit is reached, when a time budget expires, or when the rule schedule says enough evidence has been collected. Extraction then solves a cost problem over the e-graph. The extractor chooses one representative expression from each relevant e-class according to latency, code size, energy, numerical safety, portability, or another target-specific objective.`,
       ],
     },
