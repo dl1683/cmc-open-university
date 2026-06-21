@@ -74,6 +74,7 @@ const quantizationArticleSections = [
     heading: 'How to read the animation',
     paragraphs: [
       'The animation walks a weight tensor through four stages. Frame 1 shows the original FP32 weights -- the ground truth. Frame 2 shows the quantized integers at your chosen bit width, with the computed scale factor. Frame 3 shows the dequantized (reconstructed) weights -- what the model actually sees at inference. Frame 4 shows the absolute error at each cell, with darker shading for larger errors.',
+      {type: 'callout', text: 'Quantization is useful when the saved memory bandwidth is worth the controlled numeric error.'},
       'The final frame states the compression ratio and mean error side by side. Use the bit-width selector to compare 8-bit, 4-bit, and 2-bit quantization on the same weights. Watch how the outlier value (0.91) forces the scale factor wider, which increases relative error for small values near zero.',
     ],
   },
@@ -81,6 +82,7 @@ const quantizationArticleSections = [
     heading: 'Why this exists',
     paragraphs: [
       'Large neural networks store every parameter as a 32-bit or 16-bit floating-point number. A 7-billion-parameter model at FP32 is 28 GB; at FP16 it is 14 GB. LLaMA 70B at FP16 is 140 GB. These numbers are larger than most consumer GPUs (typically 8--24 GB of VRAM), so the model simply does not fit.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Quantization starts from ordinary layer weights; the compression question is how many bits each stored value really needs. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
       'Inference speed is memory-bandwidth bound, not compute bound. A GPU can multiply numbers far faster than it can load them from VRAM. Moving 140 GB through a memory bus that delivers 1 TB/s takes 140 ms per token -- and that is before any computation. Cutting the bytes per parameter directly cuts that latency.',
       'Quantization replaces 32-bit or 16-bit floats with smaller integers -- 8-bit, 4-bit, even 2-bit. FP16 is 2x smaller than FP32. INT8 is 4x smaller. INT4 is 8x smaller. A 70B model at INT4 fits in 35 GB -- one high-end consumer GPU instead of two datacenter GPUs.',
     ],
@@ -105,6 +107,7 @@ const quantizationArticleSections = [
     paragraphs: [
       'Quantization maps a continuous range of float values to a finite set of integer levels. The two key numbers are the scale factor and the zero point. Scale determines the step size between adjacent integers. Zero point shifts the range so asymmetric distributions (all positive, or skewed) map cleanly.',
       'Symmetric quantization sets zero_point = 0 and computes scale = max(|w|) / (2^(bits-1) - 1). Every weight becomes q = round(w / scale), and dequantization reconstructs w_hat = q * scale. This is what the animation uses.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Matrix_multiplication_diagram.svg/250px-Matrix_multiplication_diagram.svg.png', alt: 'Matrix multiplication diagram showing rows and columns combining', caption: 'Quantized inference still serves matrix operations; the storage format changes the bytes read before the multiply-add work. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Matrix_multiplication_diagram.svg.'},
       'Asymmetric quantization handles ranges that are not centered on zero. Scale = (w_max - w_min) / (2^bits - 1). Zero_point = round(-w_min / scale). This wastes fewer integer levels when weights are skewed.',
       'Granularity matters. Per-tensor quantization uses one scale for the entire weight matrix -- simple but the outlier problem is severe. Per-channel quantization computes a separate scale for each output channel, reducing outlier damage. Per-group quantization (e.g., groups of 128 weights) is finer still and is standard in modern 4-bit methods.',
       'Post-training quantization (PTQ) quantizes a trained model without retraining. Run a small calibration dataset through the model, observe the weight and activation ranges, compute scales, round, done. Fast -- a few GPU-hours -- but quality can drop at low bit widths.',
@@ -145,6 +148,7 @@ const quantizationArticleSections = [
     heading: 'Where it fails',
     paragraphs: [
       'Outlier channels break naive per-tensor quantization. A single weight value of 20.0 in a tensor where everything else is between -1 and 1 forces the scale to cover the full [-20, 20] range. The 255 integer levels (for INT8) now have a step size of 0.157 instead of 0.008, and every small weight loses resolution. Per-channel or per-group quantization mitigates this, but adds storage overhead for extra scale factors.',
+      {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt: 'Nvidia GV100 GPU die with repeated compute and memory structures', caption: 'The hardware payoff is memory residency and bandwidth: fewer model bytes can keep more of the workload near accelerator compute. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Nvidia_GV100_GPU.png.'},
       'Small models degrade faster than large ones. A 1B-parameter model at INT4 loses more quality than a 70B model at INT4, because each parameter in the smaller model carries more unique information. Redundancy enables quantization; less redundancy means less room for error.',
       'Fine-grained tasks suffer more. Math reasoning (GSM8K), code generation (HumanEval), and structured extraction lose disproportionate quality at INT4 compared to general chat or summarization. These tasks depend on precise numerical relationships that rounding disrupts.',
       'Activation quantization is harder than weight quantization. Weights are fixed after training, so you calibrate once. Activations change with every input, and their ranges can shift dramatically. Dynamic quantization handles this but adds runtime overhead.',

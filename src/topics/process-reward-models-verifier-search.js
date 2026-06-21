@@ -221,6 +221,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `Multi-step reasoning fails in a way ordinary final-answer grading hides. A model can make a false algebra move, cancel the wrong term, invent a lemma, or misread a condition, then still land on the correct answer by luck. It can also write a beautiful trace that ends with a wrong answer because one early step poisoned the rest. If the only label is "final answer correct," the training signal cannot say where the reasoning changed from valid to invalid.`,
+        {type: 'callout', text: 'A process reward model turns reasoning into a scored path, so search can reject a branch before the final answer hides the error.'},
         `Process reward models exist to put feedback at the same granularity as reasoning. An outcome reward model asks whether the destination is right. A process reward model asks whether each step is locally valid, relevant, and consistent with the previous steps. OpenAI's Let's Verify Step by Step paper compared these two supervision styles on mathematical reasoning and released PRM800K, a dataset of 800,000 step-level correctness labels for model-generated MATH solutions: https://arxiv.org/abs/2305.20050 and https://github.com/openai/prm800k.`,
       ],
     },
@@ -235,6 +236,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `The core insight is that reasoning traces are search paths, not just strings. If each intermediate step can be judged, the search procedure can prune a bad branch when the error appears, rerank several plausible paths by their weakest or average steps, and spend more compute on branches that still preserve the problem's constraints. The verifier becomes the scoring function for a tree of partial solutions.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'A reasoning trace can be read as a directed path through partial states, with verifier scores deciding which edges survive. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         `That turns "generate one chain of thought" into a proposal-and-selection system. The generator proposes candidate steps. The process reward model estimates whether the current path remains valid. The selector chooses whether to continue, repair, branch, or stop. This is the same broad idea behind self-consistency, Tree of Thoughts, Monte Carlo search, and executable verification in code, but the PRM supplies a learned step-level score when no exact programmatic oracle exists.`,
       ],
     },
@@ -242,6 +244,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         `A PRM training pipeline starts by defining what counts as a step. That sounds administrative, but it is a real modeling choice. A step might be one equation transformation, one natural-language claim, one code edit, or one theorem application. If steps are too small, annotation becomes noisy and expensive. If steps are too large, the label again hides the exact error.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'A learned verifier is still a model, so calibration and holdout slices matter as much as architecture. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
         `Next, a data engine collects solution traces and labels their steps. Humans can label them directly. A symbolic checker can validate some algebra. Unit tests can score code. A stronger model can assist, but then the dataset needs independent audits because model judges import their own biases. The PRM learns a function from problem, previous context, and candidate step to a score such as correct, incorrect, or uncertain. At inference time, the server samples one or more candidate traces, evaluates steps with the PRM, and uses those scores to choose the final answer or allocate more search budget.`,
         `The OpenAI paper also makes active learning part of the mechanism. Step labels are expensive, so the system should not spend humans on obvious easy examples forever. It should route uncertain, high-impact, or disagreement-heavy steps to labelers. That is why the plot view compares random labeling with active learning: the data structure around the verifier matters as much as the neural scoring model.`,
       ],
@@ -271,6 +274,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         `PRMs fit domains where partial work has visible structure but exact final verification is incomplete. Math proofs, symbolic derivations, tutoring, theorem-style explanations, code reasoning before execution, and agent plans all have intermediate claims that can be checked for consistency. They are also useful for evaluation: a failed final answer with a mostly sound path is a different model error from a hallucinated path that happens to end in the right number.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/MCTS_Algorithm.png/250px-MCTS_Algorithm.png', alt: 'Monte Carlo tree search phases of selection expansion simulation and backpropagation', caption: 'Verifier-guided reasoning borrows the same search intuition as tree search: propose branches, score evidence, then spend more work where it can change the choice. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:MCTS_Algorithm.png.'},
         `They also connect naturally to retrieval and tool systems. Self-RAG-style systems judge relevance and support before answering. Code agents can use tests as executable verifiers and learned models for parts tests do not cover. In a verifier-guided inference control plane, a PRM can decide which requests deserve more samples, which branches should be repaired, and which outputs should be escalated to a stronger checker.`,
       ],
     },

@@ -88,6 +88,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation runs Prim\'s algorithm on the same seven-node weighted graph used in Kruskal\'s topic. You pick a start node (A or D) and watch one tree grow outward.',
+        {type: 'callout', text: 'Prim is safe because every accepted edge is the cheapest bridge across the current tree boundary.'},
         'Green nodes and edges are already in the growing tree. Highlighted edges are the current frontier: every edge with one endpoint inside the tree and one outside. The active edge is the cheapest frontier edge being accepted. When a new node joins, its edges to outside nodes enter the frontier, and any edge now fully internal silently drops out.',
         'Watch the frontier shrink and shift as the tree expands. Each acceptance is justified by the cut property: the cheapest edge crossing the inside/outside boundary belongs to some MST. The final tree has V minus 1 edges and the same minimum total cost regardless of which start node you pick.',
       ],
@@ -96,6 +97,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Connect every node in a weighted graph at minimum total edge cost. The answer is a minimum spanning tree: V minus 1 edges, no cycles, total weight as low as possible.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d2/Minimum_spanning_tree.svg/330px-Minimum_spanning_tree.svg.png', alt: 'Planar weighted graph with the minimum spanning tree highlighted', caption: 'A minimum spanning tree keeps only the edges needed to connect every vertex at minimum total cost. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Minimum_spanning_tree.svg.'},
         'MST algorithms are among the oldest in graph theory. Boruvka published the first one in 1926 for an electrical network in Moravia. Jarnik described the grow-one-tree approach in 1930. Prim rediscovered it at Bell Labs in 1957 while designing telephone networks. Dijkstra independently found the same idea in 1959.',
         'Where Kruskal sorts all edges globally and merges scattered fragments, Prim grows one connected tree outward from a chosen start vertex. At each step, the frontier is every edge with one endpoint inside the tree and one outside. Prim takes the cheapest frontier edge, adds the new vertex, and repeats. No Union-Find is needed because the tree is always one connected component; the only data structure required is a priority queue.',
       ],
@@ -127,6 +129,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'The cut property: split the vertices into the current tree and everything else. The cheapest edge crossing that split belongs to some MST.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'Queue diagram showing data entering and leaving an ordered structure', caption: 'A priority queue is the frontier container in efficient Prim implementations, though it removes by minimum key rather than arrival order. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Data_Queue.svg.'},
         'Proof. Suppose an MST T does not contain the cheapest crossing edge e. Adding e to T creates exactly one cycle. That cycle must include another edge f that also crosses the same cut (otherwise the cycle stays on one side and cannot close). Since weight(e) is at most weight(f), replacing f with e yields a spanning tree no heavier than T. So some MST contains e.',
         'Prim applies this at every step. The tree side and the outside side define a cut. The priority queue delivers the cheapest crossing edge. By the cut property, accepting it is safe. After V minus 1 acceptances, the tree spans all vertices and is itself an MST.',
         'The exchange argument is why a local frontier choice is globally optimal. Prim is not guessing from the start node outward; it is repeatedly taking an edge that some minimum spanning tree must contain.',
@@ -145,6 +148,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Cable routing. Connect campus buildings, data-center racks, or cell towers with minimum total fiber. Prim is natural here because the construction crew starts at one building and extends outward, matching the algorithm\'s single-tree growth.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Network design starts from graph structure even when the final MST itself is undirected. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Circuit design. VLSI layout approximates minimum interconnect for nets of pins. The rectilinear MST (Manhattan distances) gives a lower bound on total wire length. Chip routers refine from there, but the MST sets the budget.',
         'Network backbone planning. ISPs and power utilities use MSTs as a first pass for minimum-cost topology. The pure tree is then augmented with redundant links for fault tolerance, but the minimum connected cost sets the baseline.',
         'Image segmentation. Build an MST over pixels weighted by color difference. Cut the heaviest edges and the remaining components are segments (Felzenszwalb-Huttenlocher method).',

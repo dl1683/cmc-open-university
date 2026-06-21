@@ -252,6 +252,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Prompt injection is a security problem created by putting language models inside applications that read text and act. The vulnerable pattern is simple: text that should be treated as data changes the model behavior as if it were an instruction. OWASP lists prompt injection as LLM01 in its 2025 LLM risk taxonomy: https://genai.owasp.org/llmrisk/llm01-prompt-injection/.',
+        {type: 'callout', text: 'Prompt injection is a boundary failure: untrusted text reaches a model that can speak with application authority.'},
         'The dangerous part is not a magic jailbreak phrase. The dangerous part is boundary collapse. The application knows the difference between system policy, user request, retrieved document, tool output, private data, and approval state. The model receives all of it as tokens. Once an app adds retrieval, memory, browser access, email, code execution, or business tools, an attacker can plant instructions in content the model later consumes.',
       ],
     },
@@ -266,6 +267,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is to treat the model as an untrusted reasoner, not as the authority boundary. It can propose, summarize, classify, and draft actions, but deterministic systems should decide what text enters context, what private data is exposed, what tools can run, and whether a proposed side effect is authorized.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A prompt-injection review is a data-flow problem: track untrusted source nodes to privileged action sinks. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'This is a confused-deputy problem. The attacker may not have direct access to the privileged tool. Instead, the attacker places text in a web page, issue comment, email, PDF, ticket, or tool response. The application retrieves that content. The model interprets it. If the model then leaks private context or invokes a tool, the attacker has borrowed the application authority.',
       ],
     },
@@ -281,6 +283,7 @@ export const article = {
       heading: 'Why layered defense works',
       paragraphs: [
         'Layered defense works because it moves authority out of the model. Retrieval filters enforce access control before content is added. Trust labels preserve provenance. Context builders minimize private data. Schemas make output parseable. Policy engines decide authorization. Approval gates handle high-impact actions. Logs make attacks reproducible.',
+        {type: 'image', src: 'https://docs.oracle.com/en/cloud/paas/integration-cloud/rest-api-fs/images/oauth-flow.png', alt: 'OAuth authorization flow showing client resource owner authorization server and resource server', caption: 'Authorization flows separate request intent from resource authority, the same separation agent tool gates need. Source: Oracle documentation, https://docs.oracle.com/en/cloud/paas/integration-cloud/rest-api-fs/oauth-auth-code-credentials.html.'},
         'No single layer is enough. A schema can prove that a tool call is valid JSON, but it cannot prove that sending the email is allowed. A system prompt can express policy, but it cannot prove the model followed it. A classifier can flag suspicious text, but attackers adapt. Defense improves when each layer reduces one concrete permission, data exposure, or action path.',
       ],
     },
@@ -303,6 +306,7 @@ export const article = {
       heading: 'Implementation guidance',
       paragraphs: [
         'Start with a trust map. Mark each text source as user, system, retrieved, tool observation, memory, private record, or external public content. Then build a permission table for each tool: who can call it, what arguments are allowed, what approval is required, and what data it may read.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree diagram with branch and leaf decisions', caption: 'Policy review should branch on source trust, requested authority, data class, and side effect before any tool call runs. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Decision_tree_model.png.'},
         'Use least privilege at runtime. Retrieval should filter by ACL before ranking. Tools should run with scoped credentials. High-impact actions should require human approval or a deterministic policy engine. The model output should be treated as a proposal that passes through schema checks, semantic checks, authorization checks, and audit logging.',
       ],
     },
@@ -327,87 +331,6 @@ export const article = {
         'Study Agent Tool Permission Lattice, Seccomp BPF Sandbox Policy, Taint Analysis Source-to-Sink Case Study, Data-Flow Worklist Analysis, Agentic AI Patterns: Planning, Tools, Memory, RAG Pipeline, Constrained Decoding, Zanzibar Authorization Case Study, Capability Security and Attenuation, OPA Rego Policy Decision Graph, and Distributed Tracing next.',
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
-        "If there is a nontrivial corner case, name it explicitly.",
-        "When correctness is explicit, readers can transfer the method to new inputs.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Prompt Injection Threat Model moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
 ],
 };
 

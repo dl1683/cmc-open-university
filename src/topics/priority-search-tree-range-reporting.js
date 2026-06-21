@@ -250,6 +250,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A three-sided range query asks for points whose x value lies inside an interval and whose y value passes one threshold, such as x in [2, 8] and y <= 4. This shape appears in computational geometry, interval stabbing transformations, viewport queries, and scheduling problems where one dimension is an ordered range and the other is a priority cutoff.',
+        {type: 'callout', text: 'A priority search tree is useful because one subtree certificate answers the y question for many x-ordered points at once.'},
         'A priority search tree exists because neither a plain search tree nor a plain heap sees both constraints. The query needs x-order to avoid scanning unrelated columns, and it needs y-priority to stop descending into subtrees that cannot contain answers.',
       ],
     },
@@ -264,6 +265,7 @@ export const article = {
       heading: 'The core idea',
       paragraphs: [
         'Every subtree carries two meanings. Its x structure describes an interval of x values, and its priority point gives the minimum y value inside that subtree. The x side tells the query where to look. The y side tells the query when looking is pointless.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree with internal separator keys and child nodes', caption: 'The search-tree half of the structure uses separator logic like other ordered trees, but each region also carries a priority witness. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:B-tree.svg.'},
         'The invariant is the whole data structure: x-order supports splitting into canonical subtrees, and y-heap order puts the best y witness for each subtree at the top. If the best witness fails y <= Y, every point below it fails too.',
         'Textbook implementations often separate split keys from stored priority points. The visualization uses a compact node-per-point picture because it is easier to read, but the lesson is the same: each explored region needs an x interval and a minimum-y certificate.',
       ],
@@ -280,6 +282,7 @@ export const article = {
       heading: 'Mechanics',
       paragraphs: [
         'For a query [x1, x2] by y <= Y, first use the search-tree side to find the split region for the two x boundaries. This produces search paths and canonical subtrees whose x ranges lie fully inside the query interval.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/54/Euclidean_Voronoi_diagram.svg', alt: 'Colored Voronoi cells partitioning a plane around points', caption: 'Orthogonal range structures and nearest-cell diagrams solve different problems, but both make spatial pruning visible. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Euclidean_Voronoi_diagram.svg.'},
         'Then use the heap side inside those canonical subtrees. If the subtree minimum y is greater than Y, stop. If it passes, report the stored point when its x is in range, then continue into children that might contain more passing points.',
         'This is output-sensitive reporting. The query pays for the boundary search and for the points it reports, not for every point in the original set.',
       ],
@@ -303,6 +306,7 @@ export const article = {
       heading: 'Cost and tradeoffs',
       paragraphs: [
         'The classic static structure uses O(n) space and answers three-sided reporting queries in O(log n + k), where k is the number of reported points. Construction is often O(n log n), with faster builds possible when the needed orderings are already available.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Data_Queue.svg/250px-Data_Queue.svg.png', alt: 'Queue diagram with input and output ends', caption: 'The priority side is not an ordinary FIFO queue, but the image helps separate container policy from the x-search skeleton. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Data_Queue.svg.'},
         'The tradeoff is specialization. A priority search tree is strong because the rectangle is missing one side. Add both lower and upper y bounds, and the direct structure no longer answers the full query by one heap threshold. Range trees, layered range trees, or other spatial indexes may be a better fit.',
         'Dynamic updates are possible but more complex than the static teaching version. If the point set changes constantly, a simpler interval tree, balanced range tree, R-tree, or rebuild-in-batches strategy may be easier to operate.',
       ],

@@ -187,6 +187,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A quantum circuit describes operations on amplitudes, not ordinary bits. A classical simulator therefore needs a data structure for the whole wavefunction, including phase and interference. A per-qubit record is not enough once qubits become entangled.',
+        {type: 'callout', text: 'A statevector simulator buys exactness by storing every joint basis amplitude, so each extra qubit doubles the array.'},
         'The statevector is the direct representation: one complex amplitude for each computational basis state. It is simple, exact, and brutally expensive as qubit count increases.',
         'The obvious classical shortcut is to store one state per qubit. That works only while the state is separable. Entanglement is the wall. After an H gate and a controlled operation create a Bell state, the two qubits no longer have independent local descriptions. The simulator needs amplitudes for joint bitstrings such as 00 and 11.',
       ],
@@ -195,6 +196,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The array index is a bitstring. For n qubits there are 2^n indexes. The value at each index is a complex amplitude. Squared magnitude gives measurement probability, while phase affects interference when later gates combine amplitudes.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6e/Riemann_Spin2States.jpg/330px-Riemann_Spin2States.jpg', alt: 'Bloch sphere representation of a two-state quantum system', caption: 'The Bloch sphere is a useful one-qubit picture, but a statevector must scale to joint basis states once qubits interact. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Riemann_Spin2States.jpg.'},
         'After entanglement, the simulator usually cannot store one independent value per qubit. It needs the joint state. That is why the vector grows exponentially.',
       ],
     },
@@ -209,6 +211,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A single-qubit gate updates amplitude pairs whose indexes differ in the target bit. A two-qubit gate updates four-amplitude blocks. Measurement samples basis states from the final probability distribution.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Matrix_multiplication_diagram.svg/250px-Matrix_multiplication_diagram.svg.png', alt: 'Matrix multiplication diagram showing rows and columns combining', caption: 'Gate application is structured matrix-vector multiplication; simulators exploit the local gate pattern instead of building the full dense matrix. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Matrix_multiplication_diagram.svg.'},
         'A Bell circuit shows the shape. Apply H to one qubit to create superposition. Apply CX to correlate the second qubit with the first. The final state has amplitude on 00 and 11, not on 01 and 10.',
         'Implementation is mostly careful indexing. For a target qubit q, the simulator walks the flat array in blocks and pairs entries whose indexes differ by bit q. It loads the old pair, applies the 2-by-2 gate matrix, and writes the new pair back. Two-qubit gates use four related entries. The flat array never stores gates; it stores the current state after applying them.',
       ],
@@ -285,6 +288,7 @@ export const article = {
       heading: 'Choosing another simulator',
       paragraphs: [
         'Use a stabilizer simulator when the circuit is mostly Clifford gates and measurements. It can handle far more qubits because it tracks a compact algebraic description instead of every amplitude.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with connected nodes and arrows', caption: 'Circuit simulators choose representations by structure: gate graph, entanglement shape, and the measurements the user needs. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Use tensor networks when the circuit has limited entanglement or a geometry that contracts cheaply. They can be excellent for shallow circuits, one-dimensional layouts, and cases where only a few amplitudes or probabilities are needed.',
         'Use a statevector when the circuit is small enough and you want the full wavefunction. It is the most direct baseline, the clearest teaching representation, and the easiest reference for checking more specialized methods.',
       ],

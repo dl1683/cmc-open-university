@@ -226,6 +226,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Quality Diversity exists because one best score is often too narrow. A robot may need several gaits for different terrain. A game generator may need many playable styles. A molecule search may need different shapes with similar binding quality. A self-organizing system may need fallback behaviors when conditions change. In these settings, the output should be a repertoire, not one champion.',
+        {type: 'callout', text: 'MAP-Elites makes diversity a storage address and quality a local replacement rule.'},
         'MAP-Elites is the canonical Quality Diversity algorithm. It builds an archive indexed by behavior descriptors, then stores the best solution found so far in each cell. Diversity is not a post-processing chart. It is represented directly by the data structure that guides search.',
       ],
     },
@@ -241,6 +242,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core insight is to split quality from behavior. Behavior descriptors choose the address in the archive. Fitness chooses the winner inside that address. A candidate that is fast and low-height goes to one cell. A candidate that is slow and high-height goes to another. They are not forced to compete as if they solved the same problem.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/54/Euclidean_Voronoi_diagram.svg', alt: 'Colored Voronoi cells partitioning a plane around points', caption: 'A descriptor archive is a designed partition of behavior space; this Voronoi diagram gives the same visual intuition of regions owning candidates. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Euclidean_Voronoi_diagram.svg.'},
         'This turns diversity into an index. First choose descriptors and divide them into bins. Then generate candidates, evaluate fitness, compute descriptors, and place each candidate into the matching archive cell. If the cell is empty, insert it. If the cell already has an elite, replace it only if the candidate has higher fitness.',
       ],
     },
@@ -248,6 +250,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A MAP-Elites run starts with an archive, usually a grid or sparse map over descriptor bins. The initial archive may be empty or seeded with random candidates. The loop then selects an existing elite, mutates or recombines it, evaluates the child, computes the child behavior descriptor, and maps that descriptor to a cell.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/MCTS_Algorithm.png/250px-MCTS_Algorithm.png', alt: 'Monte Carlo tree search phases of selection expansion simulation and backpropagation', caption: 'Quality-diversity search is not MCTS, but both make search pressure visible as a loop over selection, evaluation, and update. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:MCTS_Algorithm.png.'},
         'The update rule is simple. Empty cell means insert. Filled cell means compare fitness against the current elite in that cell. If the child is better, replace the elite. If not, discard the child. Selection can be uniform over filled cells, biased toward high performers, biased toward underexplored regions, or combined with more advanced variation operators.',
         'The descriptor is the main design lever. For robot locomotion it might be final position, gait pattern, contact timing, or body height. For generated levels it might be difficulty and style. For molecule or material design it might be shape, charge, stability, or manufacturability. For self-organizing systems it might be size, symmetry, persistence, or repair ability. If the descriptor is meaningless, the archive preserves meaningless diversity.',
       ],
@@ -278,6 +281,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Quality Diversity is useful when deployment is varied, users need options, or a single objective hides important behavioral differences. Robotics is the classic case: a repertoire of gaits can support adaptation after damage or terrain change. Procedural content generation can use an archive of levels across difficulty and style. Engineering design can search many feasible shapes rather than one peak design.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Learned controllers and generative systems often need many viable behaviors, not one isolated optimum. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Colored_neural_network.svg.'},
         'The local self-organizing AI connection is natural. NCA-like systems trained for one target may learn one path to one shape. A QD archive can search for many stable, repairable, or symmetric outcomes before deployment. That matters when the environment changes or when the researcher wants to study the space of possible behaviors rather than one trained endpoint.',
       ],
     },

@@ -201,6 +201,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'Product Quantization is a vector-compression method for approximate nearest-neighbor search. It takes a high-dimensional embedding, splits it into smaller subvectors, and replaces each subvector with the id of a learned centroid. The stored representation is no longer a list of floating-point coordinates. It is a short code made of several codebook ids. Search estimates distance by looking up the query-to-centroid distances for those ids and summing them.',
+        {type: 'callout', text: 'PQ makes billion-scale vector search practical by replacing full coordinates with codebook addresses plus fast lookup-table distance sums.'},
         'The reason this matters is memory. A single 768-dimensional float32 embedding uses 3,072 bytes before metadata, ids, graph links, or index overhead. A billion such vectors require terabytes. Many retrieval systems are limited less by arithmetic than by memory bandwidth and resident set size. PQ trades exact coordinates for compact codes, making it possible to keep much larger vector indexes hot, scan more candidates per second, or fit a billion-scale search system onto realistic hardware.',
       ],
     },
@@ -215,6 +216,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'The core insight is to approximate a large vector as the Cartesian product of several smaller codebooks. Split a vector into m subspaces. For each subspace, learn k centroids from training vectors, often with k-means. A database vector is encoded by choosing the nearest centroid in each subspace. If k is 256, each centroid id fits in one byte. A vector with 96 subspaces can be stored as 96 bytes plus shared codebooks, rather than thousands of bytes of coordinates.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/54/Euclidean_Voronoi_diagram.svg', alt: 'Colored Voronoi cells around nearest seed points', caption: 'A codebook partitions a subspace into nearest-centroid regions, the same geometric idea visible in a Voronoi diagram. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Euclidean_Voronoi_diagram.svg.'},
         'The word product comes from the combination of choices. Each subspace has its own codebook, and the final approximate vector is formed by the product of those independent choices. This creates an enormous implicit codebook without storing every full-dimensional centroid. With 96 subspaces and 256 choices per subspace, the number of possible reconstructed vectors is astronomically large, but storage for one database item is only 96 one-byte codes. That is the compression advantage.',
       ],
     },
@@ -222,6 +224,7 @@ export const article = {
       heading: 'Mechanism and data structures',
       paragraphs: [
         'Training builds the codebooks. Take a sample of embeddings, split each embedding into the same subspaces, and run k-means inside each subspace. The result is a table of centroids for subspace 1, another for subspace 2, and so on. Encoding a database vector means splitting it and storing the nearest centroid id for each subspace. The index stores item ids, compressed PQ codes, optional coarse-list assignments, and sometimes residual information if the system uses residual or optimized variants.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Matrix_multiplication_diagram.svg/250px-Matrix_multiplication_diagram.svg.png', alt: 'Matrix multiplication diagram showing rows and columns combining', caption: 'Vector retrieval systems are built from regular numeric layouts; PQ changes which numbers must be read for each candidate score. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Matrix_multiplication_diagram.svg.'},
         'Search usually uses asymmetric distance computation. The query remains exact. For each query subvector, compute its distance to every centroid in the corresponding subspace. This creates a small lookup table per subspace. To score a compressed database vector, read its centroid id for each subspace, fetch the precomputed distance from the table, and sum the values. The database vector is never fully decompressed for the approximate scoring pass. A top-k heap tracks the best candidates, and exact reranking can read full vectors for the final shortlist if they are available.',
       ],
     },
@@ -229,6 +232,7 @@ export const article = {
       heading: 'IVF plus PQ',
       paragraphs: [
         'PQ is often paired with an inverted file index. A coarse quantizer clusters the full vector space into large cells, also called lists. Each database vector is assigned to a coarse list and then stored inside that list as PQ codes, often for the residual between the vector and the coarse centroid. At query time, the system finds the nearest coarse centroids, probes only those lists, and uses PQ lookup tables to score compressed candidates inside them. This is the familiar IVF-PQ pattern in FAISS-style systems.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes and arrows', caption: 'IVF-PQ is a staged retrieval graph: coarse routing first, compressed scoring second, exact reranking last. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'The two-stage structure exposes important knobs. More coarse lists can reduce list length but increase training and assignment sensitivity. More probes increase recall but scan more compressed vectors. More subquantizers or more bits per subquantizer reduce distortion but use more memory. Exact reranking improves final precision but requires access to full vectors or a better stored representation. A production IVF-PQ system is therefore not one algorithm setting; it is a tuned memory, latency, and recall frontier.',
       ],
     },
