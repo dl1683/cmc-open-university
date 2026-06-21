@@ -45,54 +45,56 @@
       <p class="error-box" data-error hidden></p>
 
       <section class="learn-grid">
-        <!-- The explanation sits ABOVE the animation on purpose: people read
-             it while the picture below moves. Education first. -->
-        <aside class="explain-panel">
+        <div class="vis-stage">
+          <div class="vis-explanation">
+            <p class="explanation" data-explanation aria-live="polite"></p>
+            <p class="invariant" data-invariant hidden></p>
+          </div>
+          <div class="vis-panel" data-visualization aria-live="off"></div>
+        </div>
+        <div class="player-bar">
+          <div class="player-controls" data-player-controls>
+            <button class="btn" data-action="reset" aria-label="Back to first step">⏮ Reset</button>
+            <button class="btn" data-action="prev" aria-label="Previous step">◀ Prev</button>
+            <button class="btn btn-primary" data-action="toggle" aria-pressed="false">▶ Play</button>
+            <button class="btn" data-action="next" aria-label="Next step">Next ▶</button>
+            <label class="speed-label">Speed
+              <select data-speed>
+                <option value="0.5">0.5× (slowest)</option>
+                <option value="1" selected>1× (reading pace)</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+                <option value="8">8× (skim)</option>
+              </select>
+            </label>
+          </div>
+          <div class="progress-area">
+            <p class="progress-text" data-progress-text>Step 1</p>
+            <input class="step-slider" type="range" min="0" max="0" value="0" data-slider aria-label="Step position">
+          </div>
+          <div class="export-area">
+            <label class="speed-label">Export at
+              <select data-export-speed>
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+              </select>
+            </label>
+            <button class="btn" data-action="export">⬇ Export video</button>
+          </div>
+        </div>
+        <aside class="frame-log-panel">
           <div class="learn-tools">
             <label class="study-control">
               <input type="checkbox" data-auto-compact-notes checked />
               <span>Auto compact study notes</span>
             </label>
           </div>
-          <p class="explanation" data-explanation aria-live="polite"></p>
-          <p class="invariant" data-invariant hidden></p>
           <section class="frame-log" aria-live="polite">
             <h2 class="frame-log-title">Frame log</h2>
             <ul class="frame-log-list" data-frame-log></ul>
           </section>
-          <div class="player-bar">
-            <div class="player-controls" data-player-controls>
-              <button class="btn" data-action="reset" aria-label="Back to first step">⏮ Reset</button>
-              <button class="btn" data-action="prev" aria-label="Previous step">◀ Prev</button>
-              <button class="btn btn-primary" data-action="toggle" aria-pressed="false">▶ Play</button>
-              <button class="btn" data-action="next" aria-label="Next step">Next ▶</button>
-              <label class="speed-label">Speed
-                <select data-speed>
-                  <option value="0.5">0.5× (slowest)</option>
-                  <option value="1" selected>1× (reading pace)</option>
-                  <option value="2">2×</option>
-                  <option value="4">4×</option>
-                  <option value="8">8× (skim)</option>
-                </select>
-              </label>
-            </div>
-            <div class="progress-area">
-              <p class="progress-text" data-progress-text>Step 1</p>
-              <input class="step-slider" type="range" min="0" max="0" value="0" data-slider aria-label="Step position">
-            </div>
-            <div class="export-area">
-              <label class="speed-label">Export at
-                <select data-export-speed>
-                  <option value="1" selected>1×</option>
-                  <option value="2">2×</option>
-                  <option value="4">4×</option>
-                </select>
-              </label>
-              <button class="btn" data-action="export">⬇ Export video</button>
-            </div>
-          </div>
         </aside>
-        <div class="vis-panel" data-visualization aria-live="off"></div>
         <p class="fine-print">Keyboard: ←/→ step, space plays.</p>
       </section>
 

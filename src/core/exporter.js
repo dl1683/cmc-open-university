@@ -128,19 +128,33 @@ function drawFrame(ctx, step, image, index, total, title) {
   ctx.font = '700 22px system-ui, sans-serif';
   ctx.fillText(WATERMARK, W - 40, 54);
 
-  // explanation block
+  // explanation block: measure first, then draw bg, then text
+  const exY0 = 72;
   ctx.textAlign = 'left';
+  ctx.font = '24px system-ui, sans-serif';
+  let y = measureWrapText(ctx, step.explanation, W - 112, 34, 4, exY0 + 32);
+  if (step.invariant) {
+    ctx.font = 'italic 20px system-ui, sans-serif';
+    y = measureWrapText(ctx, `Invariant: ${step.invariant}`, W - 112, 26, 2, y + 6);
+  }
+  const exH = y - exY0 + 12;
+  ctx.fillStyle = '#e8f0fb';
+  ctx.strokeStyle = C.line;
+  ctx.lineWidth = 1;
+  roundRect(ctx, 40, exY0, W - 80, exH, 10);
+  ctx.fill();
+  ctx.stroke();
   ctx.fillStyle = C.text;
-  ctx.font = '26px system-ui, sans-serif';
-  let y = wrapText(ctx, step.explanation, 40, 104, W - 80, 36, 4);
+  ctx.font = '24px system-ui, sans-serif';
+  y = wrapText(ctx, step.explanation, 56, exY0 + 32, W - 112, 34, 4);
   if (step.invariant) {
     ctx.fillStyle = C.accent;
-    ctx.font = 'italic 21px system-ui, sans-serif';
-    y = wrapText(ctx, `Invariant: ${step.invariant}`, 40, y + 8, W - 80, 28, 2);
+    ctx.font = 'italic 20px system-ui, sans-serif';
+    y = wrapText(ctx, `Invariant: ${step.invariant}`, 56, y + 6, W - 112, 26, 2);
   }
 
   // visualization panel
-  const panelTop = Math.max(y + 14, 252);
+  const panelTop = Math.max(y + 18, 252);
   const panel = { x: 40, y: panelTop, w: W - 80, h: H - panelTop - 56 };
   ctx.fillStyle = C.panel;
   ctx.strokeStyle = C.line;
@@ -166,6 +180,26 @@ function drawFrame(ctx, step, image, index, total, title) {
   ctx.textAlign = 'right';
   ctx.fillText(SITE_URL, W - 40, H - 22);
   ctx.textAlign = 'left';
+}
+
+function measureWrapText(ctx, text, maxWidth, lineHeight, maxLines, startY) {
+  const words = text.split(' ');
+  let line = '';
+  let lines = 0;
+  let y = startY;
+  for (let i = 0; i < words.length; i += 1) {
+    const attempt = line ? `${line} ${words[i]}` : words[i];
+    if (ctx.measureText(attempt).width > maxWidth && line) {
+      lines += 1;
+      if (lines === maxLines) return y + lineHeight;
+      y += lineHeight;
+      line = words[i];
+    } else {
+      line = attempt;
+    }
+  }
+  if (line) y += lineHeight;
+  return y;
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {

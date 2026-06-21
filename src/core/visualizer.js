@@ -40,6 +40,79 @@ function highlightClassesFor(id, highlight) {
   return classes;
 }
 
+const ANNOTATION_LABELS = {
+  compare: 'comparing',
+  swap: 'swapped!',
+  found: 'found!',
+  active: 'current',
+  pivot: 'pivot',
+  removed: 'removed',
+  collision: 'collision',
+  enqueue: 'enqueue',
+  dequeue: 'dequeue',
+  push: 'push',
+  pop: 'pop',
+  insert: 'insert',
+  delete: 'delete',
+  visit: 'visiting',
+  merge: 'merging',
+  split: 'splitting',
+  probe: 'probing',
+  returning: 'returned',
+};
+
+function addAnnotations(svgEl, highlight) {
+  if (!svgEl || !highlight) return;
+  const tagged = svgEl.querySelectorAll('[data-id]');
+  if (tagged.length === 0) return;
+
+  const viewBox = svgEl.getAttribute('viewBox');
+  if (!viewBox) return;
+  const vb = viewBox.split(' ').map(Number);
+
+  const positions = new Map();
+  for (const el of tagged) {
+    try {
+      const rect = el.getBBox();
+      if (rect.width === 0 && rect.height === 0) continue;
+      positions.set(el.dataset.id, { cx: rect.x + rect.width / 2, top: rect.y, bottom: rect.y + rect.height });
+    } catch (_) { /* getBBox can throw if element is not rendered */ }
+  }
+
+  let needsExpand = false;
+  const annotations = [];
+
+  for (const [key, ids] of Object.entries(highlight)) {
+    const label = ANNOTATION_LABELS[key];
+    if (!label || !ids || ids.length === 0) continue;
+    const targets = ids.length <= 3 ? ids : [ids[0]];
+    for (const id of targets) {
+      const pos = positions.get(id);
+      if (!pos) continue;
+      const tw = label.length * 7 + 12;
+      const ty = pos.top - 4;
+      if (ty - 18 < vb[1]) needsExpand = true;
+      annotations.push({ key, label, cx: pos.cx, ty, tw });
+    }
+  }
+
+  if (annotations.length === 0) return;
+  if (needsExpand) {
+    vb[1] -= 24;
+    vb[3] += 24;
+    svgEl.setAttribute('viewBox', vb.join(' '));
+  }
+
+  for (const a of annotations) {
+    const g = svg('g', { class: `anno-${a.key}` }, svgEl);
+    svg('rect', {
+      x: a.cx - a.tw / 2, y: a.ty - 16,
+      width: a.tw, height: 18, class: 'svg-anno-bg',
+    }, g);
+    svgText(g, a.cx, a.ty - 7, a.label, 'svg-annotation svg-center');
+  }
+}
+
 function emptyMessage(container, message) {
   const el = makeSvg(container, 320, 90);
   svgText(el, 160, 50, message, 'svg-muted svg-center');
@@ -447,6 +520,8 @@ function flipPlay(container, before) {
 export function renderStep(container, step) {
   const before = flipPositions(container);
   RENDERERS[step.state.kind](container, step);
+  const svgEl = container.querySelector('svg');
+  if (svgEl) addAnnotations(svgEl, step.highlight);
   flipPlay(container, before);
 }
 

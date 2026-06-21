@@ -563,17 +563,24 @@ html { scroll-behavior: smooth; }
   margin: 0 0 10px;
 }
 
-/* Explanation ABOVE the animation: read the sentence, watch it happen. */
+/* Unified animation stage: explanation text + SVG in one card. */
 .learn-grid { display: flex; flex-direction: column; gap: 12px; }
 
-.vis-panel {
-  background:
-    radial-gradient(ellipse at 50% 0%, var(--accent-soft) 0%, transparent 55%),
-    var(--panel);
+.vis-stage {
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+  overflow: hidden;
+}
+.vis-explanation {
+  padding: 18px 22px 10px;
+  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, var(--accent-soft) 0%, transparent 100%);
+}
+.vis-panel {
   padding: 14px;
-  min-height: 260px;
+  min-height: 240px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -581,17 +588,17 @@ html { scroll-behavior: smooth; }
 .vis-panel svg {
   width: min(100%, 860px);
   height: auto;
-  max-height: 50vh;
+  max-height: 54vh;
 }
 .vis-panel [data-id] {
   animation: viz-reveal 260ms ease-out both;
 }
 
-.explain-panel {
+.frame-log-panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px 20px;
+  padding: 12px 16px;
 }
 .learn-tools {
   display: flex;
@@ -613,7 +620,7 @@ html { scroll-behavior: smooth; }
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
-  margin: 10px 0 8px;
+  margin: 4px 0 0;
 }
 .frame-log-title {
   margin: 0 0 8px;
@@ -640,8 +647,8 @@ html { scroll-behavior: smooth; }
 .explanation {
   font-size: 1.12rem;
   line-height: 1.6;
-  min-height: 3.3em; /* keeps the animation from jumping as text length changes */
-  margin: 0 0 8px;
+  min-height: 2.4em;
+  margin: 0 0 6px;
   max-width: 85ch;
 }
 .invariant {
@@ -650,9 +657,34 @@ html { scroll-behavior: smooth; }
   background: var(--accent-soft);
   border-radius: 8px;
   padding: 8px 12px;
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   max-width: fit-content;
 }
+
+/* SVG annotation badges rendered on highlighted elements */
+.svg-annotation {
+  font-size: 11px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.svg-anno-bg {
+  rx: 4;
+  ry: 4;
+}
+.anno-compare .svg-anno-bg { fill: var(--warn); }
+.anno-compare .svg-annotation { fill: #fff; }
+.anno-swap .svg-anno-bg { fill: var(--bad); }
+.anno-swap .svg-annotation { fill: #fff; }
+.anno-found .svg-anno-bg { fill: var(--good); }
+.anno-found .svg-annotation { fill: #fff; }
+.anno-active .svg-anno-bg { fill: var(--accent); }
+.anno-active .svg-annotation { fill: #fff; }
+.anno-sorted .svg-anno-bg { fill: var(--good-soft); stroke: var(--good); stroke-width: 1; }
+.anno-sorted .svg-annotation { fill: var(--good); }
+.anno-pivot .svg-anno-bg { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; }
+.anno-pivot .svg-annotation { fill: var(--accent); }
 .player-bar {
   display: flex;
   flex-wrap: wrap;
@@ -943,8 +975,8 @@ html { scroll-behavior: smooth; }
   }
   .explanation,
   .invariant {
-    width: 322px;
-    max-width: 322px;
+    width: 100%;
+    max-width: 100%;
     white-space: normal;
     word-break: break-word;
   }
@@ -967,8 +999,9 @@ html { scroll-behavior: smooth; }
   }
   .controls,
   .topic-context,
-  .explain-panel,
+  .vis-stage,
   .vis-panel,
+  .frame-log-panel,
   .study {
     width: 100%;
     min-width: 0;
@@ -1226,7 +1259,7 @@ svg text {
 /* Print: students should be able to print study notes cleanly */
 @media print {
   .site-header, .site-footer, .topic-nav, .controls,
-  .player-bar, .vis-panel, .search-box, .frame-log,
+  .player-bar, .vis-stage, .search-box, .frame-log-panel,
   .track-actions, .export-area, .skip-link { display: none !important; }
   .topic-layout { display: block; }
   .topic-main { padding: 0; }
