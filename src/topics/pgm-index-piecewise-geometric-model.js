@@ -218,6 +218,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `A learned index is only useful in a database if its guesses come with a repair budget. The PGM-index exists to make that budget explicit. It compresses a sorted key array into line segments, and every segment promises that its predicted rank is within epsilon of the true rank.`,
+        {type: 'callout', text: `PGM is useful because its model is approximate but its correction window is guaranteed.`},
         `The result is not a neural network pretending to be an index. It is a geometric data structure. It observes that a sorted array already defines a function from key to rank, approximates that function with bounded error, and then uses ordinary comparison to finish the query exactly.`,
       ],
     },
@@ -225,6 +226,12 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         `The standard solution is a B-tree, a B+ tree, or a sorted array with binary search. These are robust because comparisons decide routing. They handle arbitrary key distributions and do not require a model of the data.`,
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg',
+          alt: `Small B-tree diagram with grouped keys in internal nodes`,
+          caption: `A B-tree stores explicit separators; PGM replaces many separators with error-bounded line segments over sorted keys. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.`,
+        },
         `They can also store more routing information than the distribution deserves. If keys rise almost linearly with rank, many separators are just a verbose way to describe a line. A page directory, fanout tree, or binary-search structure spends memory and cache misses even when the key-to-rank relationship is simple.`,
       ],
     },

@@ -93,6 +93,13 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'Each node is a web page. The number on it is its current PageRank score. Directed edges are hyperlinks. At each iteration, every page splits its score among its outgoing links, a teleport share is added, and scores update simultaneously.',
+        { type: 'callout', text: 'PageRank turns link structure into a probability distribution, then uses repeated redistribution to find the stable scores.' },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/f/fb/PageRanks-Example.svg',
+          alt: 'Directed PageRank graph with node size proportional to score',
+          caption: 'A PageRank graph makes the fixed-point idea visible: authority concentrates where important links point. Source: Wikimedia Commons, 345Kai and Stannered, public domain.',
+        },
         'The highlighted node is the current leader. Watch how leadership can shift as authority flows through hubs. When scores stop changing visibly between frames, the algorithm has converged to its fixed point.',
         'The key inference rule: if a node has high score and few outgoing links, each of its targets receives a large share. One link from a high-authority page transfers more rank than many links from low-authority pages.',
       ],

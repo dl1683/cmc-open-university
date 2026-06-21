@@ -236,6 +236,13 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A normal segment tree answers range queries over the current array. Many systems also need a previous array, the state before an edit, or the prefix version at a specific time.',
+        { type: 'callout', text: 'Persistence turns a segment tree update into a new root plus a copied path, while untouched subtrees stay shared.' },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/d/d1/Segment_tree.svg',
+          alt: 'Segment tree diagram with interval nodes above leaf segments',
+          caption: 'A segment tree is already a hierarchy of intervals; persistence reuses the unchanged intervals across versions. Source: Wikimedia Commons.',
+        },
         'A persistent segment tree exists to make old versions queryable without copying the whole tree after every update. It turns a range-query structure into a timeline of immutable roots.',
       ],
     },

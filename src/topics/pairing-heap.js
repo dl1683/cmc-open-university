@@ -197,6 +197,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A priority queue is easy when the workload is only insert and remove the minimum. An array binary heap is compact, fast, and simple. The trouble starts when priority queues need to be merged, or when items already inside the queue need their priority lowered.',
+        { type: 'callout', text: 'A pairing heap makes merge cheap by reducing every merge to one root comparison and one child link.' },
         'Meld shows up in event simulation, multi-queue scheduling, graph algorithms, and systems that combine work from independent sources. With a binary heap, merging two heaps usually means moving many elements or rebuilding the array. That can be the wrong cost when merge is a normal operation rather than a rare maintenance step.',
         'Pairing heaps exist as a practical answer. They keep the heap-order rule, make meld a root comparison, and postpone most cleanup until delete-min. They were proposed as a simpler alternative to Fibonacci heaps: less theory-friendly in some details, but much easier to implement and often fast in real workloads.',
       ],
@@ -205,6 +206,12 @@ export const article = {
       heading: 'The baseline and the wall',
       paragraphs: [
         'The baseline is the array binary heap. It stores items contiguously, uses parent and child indexes, and has excellent constants. If the application inserts tasks and repeatedly pops the next task, the binary heap is hard to beat. It uses memory well and is easy to audit.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/d/d2/Heap-as-array.svg',
+          alt: 'Binary heap stored as an array with parent and child index positions',
+          caption: 'Array heaps are compact because tree shape is implicit in indexes; pairing heaps give up that locality to make meld cheap. Source: Wikimedia Commons, public domain.',
+        },
         'The wall is structural. A binary heap is not naturally meldable. Combining heap A and heap B while preserving heap order usually means rebuilding or reinserting. If B has m items, repeated insertions cost O(m log(n + m)). That is acceptable for rare merges and painful for frequent merges.',
         'Fibonacci heaps attack this wall with strong amortized bounds, especially for decrease-key. They also bring a larger object model: circular linked lists, marks, degrees, consolidation tables, and cascading cuts. Pairing heaps take the opposite bet. Use a tiny primitive, let the tree self-adjust, and accept that the analysis is subtler than the code.',
       ],

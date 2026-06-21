@@ -234,6 +234,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Gapped inserts" shows a sorted array with deliberate empty slots, then walks through inserting a value into a nearby gap. "Density rebalance" shows what happens when a local region fills up and the PMA climbs to a larger window to redistribute values.',
+        { type: 'callout', text: 'The PMA buys update speed by treating empty slots as planned capacity, not as accidental fragmentation.' },
         {
           type: 'bullets',
           items: [
@@ -254,6 +255,12 @@ export const article = {
         'A sorted array is the best layout for ordered reads. Binary search costs O(log n), range scans are sequential, and the CPU prefetcher has a trivial job. The problem is updates: inserting a value near the front of a dense array of n elements shifts up to n - 1 values one slot to the right.',
         'Trees solve this by putting slack at the node level. A B-tree insert touches one leaf or splits a bounded-size node, and range queries walk leaf pointers. But in-memory trees pay for pointers, node headers, allocator fragmentation, and less predictable cache behavior.',
         {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg',
+          alt: 'Small B-tree diagram with grouped keys in internal nodes',
+          caption: 'A B-tree keeps slack inside wide nodes; the PMA keeps slack inside a flat sorted array instead. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.',
+        },
+        {
           type: 'quote',
           text: 'The packed-memory array maintains elements in sorted order in a contiguous region of memory, but with gaps interspersed among the elements to facilitate fast insertions.',
           attribution: 'Bender and Hu, "An Adaptive Packed-Memory Array," TODS 2007',
@@ -267,12 +274,11 @@ export const article = {
         'Attempt 1: a dense sorted array. Binary-search for the insertion point, shift the suffix right, write the new value. For small arrays or append-only workloads, this is hard to beat -- almost no metadata, scans as good as they get.',
         'Attempt 2: a balanced search tree or B-tree. Predictable O(log n) updates, no long suffix shifts. The right answer when updates dominate, disk pages matter, or concurrent modification and crash recovery are first-class requirements.',
         {
-          type: 'table',
-          headers: ['Approach', 'Insert', 'Range scan', 'Cache behavior'],
-          rows: [
-            ['Dense sorted array', 'O(n) shift', 'Sequential, optimal', 'Excellent -- no gaps, no pointers'],
-            ['B-tree', 'O(log n)', 'Leaf-to-leaf pointer chase', 'Good on disk, pointer-heavy in RAM'],
-            ['PMA', 'Amortized O(log^2 n) moves', 'Near-sequential with gap skips', 'Good -- mostly contiguous, some blanks'],
+          type: 'bullets',
+          items: [
+            'Dense sorted array: middle insert shifts O(n) values; range scans are optimal and cache behavior is excellent.',
+            'B-tree: updates cost O(log n) and page splits are bounded; range scans pay leaf-to-leaf pointer traversal and node metadata.',
+            'PMA: updates copy only local runs most of the time; range scans stay near sequential while paying for gap skips.',
           ],
         },
         'Neither baseline is silly. The PMA is useful only when the workload wants both properties at once: ordered range scans with array-like locality and middle updates that do not routinely move half the structure.',
@@ -339,13 +345,12 @@ export const article = {
         },
         'Delete is the mirror: remove the value, leave a gap. If a region becomes too sparse, compact a larger region so the array does not decay into mostly blanks.',
         {
-          type: 'table',
-          headers: ['Step', 'When it fires', 'Cost'],
-          rows: [
-            ['Binary search', 'Every insert/delete', 'O(log n) comparisons, skipping gaps'],
-            ['Local shift', 'Nearby gap exists', 'O(1) to O(segment size) moves'],
-            ['Hierarchy climb', 'Segment too dense', 'O(log log n) density checks'],
-            ['Redistribute', 'Found acceptable region', 'O(region size) moves, creates fresh gaps'],
+          type: 'bullets',
+          items: [
+            'Binary search fires on every insert or delete: O(log n) comparisons, plus metadata work to skip blanks.',
+            'Local shift fires when a nearby gap exists: O(1) to O(segment size) moves.',
+            'Hierarchy climb fires when a segment is too dense: only density summaries are checked while climbing.',
+            'Redistribute fires once an acceptable window is found: O(region size) moves that create fresh gaps.',
           ],
         },
       ],
@@ -383,14 +388,13 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Cost', 'What drives it'],
-          rows: [
-            ['Search', 'O(log n)', 'Binary search over physical slots, skipping gaps'],
-            ['Insert (amortized)', 'O(log^2 n) moves', 'Rare redistributions spread over many cheap local inserts'],
-            ['Delete (amortized)', 'O(log^2 n) moves', 'Symmetric to insert -- compact when too sparse'],
-            ['Range scan of S items', 'O(S / (1 - epsilon))', 'Near-sequential; pay for crossing gaps'],
-            ['Space', 'O(n)', 'Array of size ~(1 + epsilon) * n'],
+          type: 'bullets',
+          items: [
+            'Search: O(log n), driven by binary search over physical slots plus gap-skipping metadata.',
+            'Insert: amortized O(log^2 n) moves in the standard model, driven by rare redistributions spread over cheap local inserts.',
+            'Delete: amortized O(log^2 n) moves, symmetric to insert with compaction when regions are too sparse.',
+            'Range scan of S live items: near sequential, with extra bandwidth proportional to the gap budget.',
+            'Space: O(n), because the array holds live values plus linear slack.',
           ],
         },
         'When n doubles, the array roughly doubles and the hierarchy gains one level. The amortized insert cost grows by a log factor, not by n. This is the key improvement over a dense sorted array where every middle insert is O(n).',
@@ -426,14 +430,13 @@ export const article = {
       heading: 'Where it fails',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Weakness', 'Why it hurts', 'Better alternative'],
-          rows: [
-            ['Disk-page workloads', 'Redistribution moves values across pages; B-tree splits are page-local', 'B-tree or LSM-tree'],
-            ['High-concurrency updates', 'Rebalance locks a contiguous region; trees lock individual nodes', 'Concurrent B-tree or skip list'],
-            ['Adversarial insert patterns', 'Repeated inserts into one key range force cascading redistributions up the hierarchy', 'Adaptive PMA, or fall back to tree'],
-            ['Large records', 'Redistribution copies entire records; cost grows with record size', 'B-tree with pointer-based leaves'],
-            ['Strict per-operation latency', 'Worst-case single insert can trigger O(n) redistribution', 'Red-black tree or B-tree'],
+          type: 'bullets',
+          items: [
+            'Disk-page workloads: redistribution can move values across pages, while B-tree splits are page-local. Prefer B-trees or LSM-trees.',
+            'High-concurrency updates: a rebalance touches a contiguous region, while trees can often lock smaller units. Prefer concurrent B-trees or skip lists.',
+            'Adversarial insert patterns: repeated inserts into one key range force cascading redistributions. Use adaptive thresholds or fall back to a tree.',
+            'Large records: redistribution copies records unless the PMA stores pointers. Pointer-based leaves may be better.',
+            'Strict per-operation latency: one insert can trigger a large redistribution. Use structures with tighter worst-case update bounds.',
           ],
         },
         'Hot spots deserve special attention. Repeated inserts into a narrow key range keep forcing redistributions up the hierarchy. A simple PMA with fixed thresholds can spend most of its time repairing the same region. The adaptive PMA addresses this by adjusting thresholds based on observed insert distribution, but the problem is fundamental: concentrated updates fight against the structure.',
@@ -447,13 +450,12 @@ export const article = {
       heading: 'Sources and study next',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Source', 'Role'],
-          rows: [
-            ['Bender, Demaine, Farach-Colton. "Cache-Oblivious B-Trees." FOCS 2000 / SIAM J. Comput. 2005. https://erikdemaine.org/papers/CacheObliviousBTrees_SICOMP/paper.pdf', 'Introduced the PMA as the storage layer for cache-oblivious B-trees'],
-            ['Bender and Hu. "An Adaptive Packed-Memory Array." ACM TODS 2007. https://www3.cs.stonybrook.edu/~bender/newpub/BenderHu07-TODS.pdf', 'Adaptive density thresholds that respond to insert distribution'],
-            ['Khuong and Morin. "Packed Memory Arrays Rewired." 2017. https://ir.cwi.nl/pub/28649/28649.pdf', 'Uses virtual-memory remapping to reduce physical data movement'],
-            ['Xu et al. "Packed Memory Array search layouts." ALENEX 2023. https://itshelenxu.github.io/files/papers/spma-alenex-23.pdf', 'Search-optimized PMA layouts'],
+          type: 'bullets',
+          items: [
+            'Bender, Demaine, and Farach-Colton, "Cache-Oblivious B-Trees": introduced the PMA as the storage layer for cache-oblivious B-trees. https://erikdemaine.org/papers/CacheObliviousBTrees_SICOMP/paper.pdf',
+            'Bender and Hu, "An Adaptive Packed-Memory Array": adaptive density thresholds that respond to insert distribution. https://www3.cs.stonybrook.edu/~bender/newpub/BenderHu07-TODS.pdf',
+            'Khuong and Morin, "Packed Memory Arrays Rewired": virtual-memory remapping to reduce physical data movement. https://ir.cwi.nl/pub/28649/28649.pdf',
+            'Xu et al., "Packed Memory Array search layouts": search-optimized PMA layouts. https://itshelenxu.github.io/files/papers/spma-alenex-23.pdf',
           ],
         },
         {

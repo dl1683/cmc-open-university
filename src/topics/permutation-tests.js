@@ -233,6 +233,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Permutation tests exist for the moment when you want a significance test but do not want to lean on a fragile distribution formula. Instead of assuming a t distribution, normality, equal variances, or a large-sample approximation, the test builds the null distribution directly from the observed data.',
+        { type: 'callout', text: 'A permutation test makes the null hypothesis physical: if labels mean nothing, shuffle them and count how extreme reality looks.' },
         'The question is simple: if the treatment labels did not matter, how unusual would the observed difference be? A permutation test answers by repeatedly shuffling labels, recomputing the statistic, and seeing where the real statistic falls among the shuffled worlds.',
         'This makes the method especially valuable pedagogically. A p-value stops being a mysterious table lookup and becomes a count: among the worlds where labels are irrelevant, how many produced a statistic at least this extreme?',
       ],
@@ -241,6 +242,12 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The obvious approach is to compare two sample means and look up a p-value in a standard test. That is efficient and often right. It can also hide assumptions about sampling, variance, shape, and test statistic behavior.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg',
+          alt: 'Normal distribution probability density functions',
+          caption: 'Formula-based tests often start from a theoretical sampling curve; permutation tests build the reference curve by relabeling the observed data. Source: Wikimedia Commons, Inductiveload, public domain.',
+        },
         'Another tempting approach is to eyeball the difference. That fails because noisy samples produce differences even when no real effect exists. A permutation test gives the noise a concrete shape by asking what differences appear when the labels are made irrelevant.',
       ],
     },

@@ -167,6 +167,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The first view computes PCA live on twelve correlated 2-D points. Faded points are the original data. The covariance matrix step shows the second-order summary: variances on the diagonal, co-movement off it. The arrow labeled PC1 is the direction of maximum variance; PC2 is the perpendicular remainder. Arrow length scales with the square root of the eigenvalue, so a long arrow means a loud direction. Projected points (highlighted) show the 2-D-to-1-D compression: each original point drops perpendicularly onto the PC1 line and becomes a single coordinate.',
+        { type: 'callout', text: 'PCA is the best linear shadow of centered data: rotate to the loud axes, then keep the coordinates that carry variance.' },
         'The second view shows PCA on a ring -- the honest failure case. The shadow row below the ring is the PC1 projection. When opposite points on the ring land on the same shadow position, you are watching a collision caused by PCA\'s linearity assumption. The comparison table and pipeline step spell out how PCA and t-SNE/UMAP divide labor in practice.',
       ],
     },
@@ -174,6 +175,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'High-dimensional data often contains fewer real degrees of freedom than its column count suggests. Two features may rise and fall together. Hundreds of embedding dimensions may encode a handful of dominant variation patterns. Sensor channels may repeat the same signal buried in noise. Working with all the raw dimensions wastes storage, slows models, amplifies noise, and makes visualization impossible -- humans cannot see past three dimensions.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/f/f5/GaussianScatterPCA.svg',
+          alt: 'Point cloud with principal component eigenvectors drawn from the mean',
+          caption: 'The long eigenvector shows the direction of maximum variance; the short one shows the quiet orthogonal remainder. Source: Wikimedia Commons, Nicoguaro, CC BY 4.0.',
+        },
         'Karl Pearson posed the core question in 1901: given a cloud of points, what is the line (or plane) of closest fit? Harold Hotelling formalized the answer in 1933 as Principal Component Analysis -- find the orthogonal directions along which the centered data varies the most, rank them by how much variance each captures, and keep the top few. The quiet directions, where the data barely moves, are discarded. What remains is the best low-dimensional linear summary of the original data, in a precise least-squares sense.',
       ],
     },

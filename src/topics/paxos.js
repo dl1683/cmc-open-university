@@ -191,6 +191,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "The first view ('choosing one value') shows five acceptors as a table. Each acceptor tracks two fields: its highest promised ballot and its last accepted (ballot, value) pair. Proposers P1 and P2 run the two-phase protocol against this group. Active cells mark fields changing during the current phase. Found cells mark values accepted by a majority -- the instant that third acceptor writes the pair, the value is chosen, even though no single machine knows it yet.",
+        { type: "callout", text: "Paxos separates who may speak next from which value history forces that speaker to carry." },
         "The second view ('duels & the road to Raft') replays two proposers outbidding each other in alternating prepares. Removed cells mark rejected accept attempts: ballots that arrived after acceptors had already promised something higher. Every rejection obeys the safety rules, yet no value is ever chosen. The view then derives Multi-Paxos and the Raft mapping as the engineering fix.",
         "Under each frame, the invariant line states the property that keeps the step safe. If the invariant holds, two different values cannot both be chosen. If an acceptor loses its durable state, the invariant breaks.",
       ],
@@ -221,6 +222,12 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         "Any two majorities of the same set must share at least one member. Paxos exploits this overlap with two rules. First, each proposal carries a unique, increasing ballot number; acceptors promise to ignore anything with a lower number. Second, when a proposer collects promises, each acceptor reports whatever value it previously accepted. The proposer must adopt the highest-ballot accepted value from the responses -- it cannot substitute its own.",
+        {
+          type: "image",
+          src: "https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg",
+          alt: "Directed graph with nodes connected by arrows",
+          caption: "Consensus protocols are graph protocols over unreliable message paths; the safety proof comes from quorum overlap, not from reliable delivery. Source: Wikimedia Commons, David W., public domain.",
+        },
         "Later ballots can supersede authority (which proposer runs the round) but never the chosen value. Phase 1 freezes the past and reads it. Phase 2 writes only what the past allows. This separation of authority transfer from value preservation is exactly what 2PC lacks: 2PC merges both into one coordinator, so losing the coordinator loses everything.",
       ],
     },

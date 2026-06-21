@@ -207,6 +207,7 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The "compressed bits" view shows four keys and their first differing bit positions, then builds the PATRICIA trie that stores only those distinguishing bits. Active (highlighted) cells mark the bit positions being tested. Found markers indicate the leaf or prefix reached after following compressed branch decisions. The second frame shows the compressed trie shape: each internal node is labeled with a bit index, not a character or full prefix.',
+        { type: 'callout', text: 'PATRICIA keeps only branch bits, then verifies the full key so compression cannot invent a match.' },
         'The "longest prefix match" view walks a destination address through a routing trie. Active nodes trace the path taken. Found marks the deepest terminal prefix remembered along that path. The key detail: lookup can end at a missing branch, but the answer is the last terminal ancestor, not the last node visited.',
         'In both views, the matrix frames show the logical steps (compare, split, attach) that produce each structural change. Read the "work" column for what the algorithm does, and the "result" column for what the structure becomes.',
       ],
@@ -215,6 +216,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A trie is a natural structure for prefix search, but a plain binary trie wastes most of its memory on non-decisions. If stored keys share long prefixes, the tree contains long chains where every internal node has exactly one child. Lookup still walks those nodes, and the structure still stores pointers for them, even though no key choice happens there. For a router with thousands of IP prefixes sharing common high-order bits, a plain binary trie can have ten or twenty one-child nodes for every real branch.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg',
+          alt: 'Trie containing words with shared prefixes',
+          caption: 'A plain trie materializes prefix structure directly; PATRICIA compresses the one-child paths between real choices. Source: Wikimedia Commons, Booyabazooka, public domain.',
+        },
         {type: 'quote', text: 'PATRICIA is a particular form of digital search tree in which each node has two exits... the algorithm for inserting and retrieving information is practical, fast, and uncomplicated.', attribution: 'Donald R. Morrison, JACM (1968)'},
         'PATRICIA -- Practical Algorithm To Retrieve Information Coded In Alphanumeric -- compresses that waste. In its binary form, it stores only the bit positions where keys actually differ. Internal nodes are not "next bit" nodes. They are "test this distinguishing bit" nodes. Everything between distinguishing bits is shared context, verified against the full key stored at a leaf.',
         'That makes PATRICIA useful for binary keys and prefix-heavy domains: IP routing prefixes, CIDR policy tables, compact dictionaries, peer identifiers, and sparse bitstring sets. It preserves trie semantics while refusing to materialize one-child paths.',
@@ -259,13 +266,15 @@ export const article = {
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {type: 'table', headers: ['Property', 'Plain trie', 'PATRICIA trie', 'Radix tree'], rows: [
-          ['Space (n keys, W-bit)', 'O(n * W) nodes', 'O(n) internal nodes', 'O(n) nodes, string edges'],
-          ['Lookup', 'O(W) bit tests', 'O(branches on path) + verify', 'O(key length) char comparisons'],
-          ['Branching unit', 'Every bit', 'Distinguishing bit index', 'Compressed string edge'],
-          ['Insert', 'O(W) descent', 'O(branches) + 1 split', 'O(key length) + edge split'],
-          ['Best for', 'Dense short keys', 'Sparse binary keys, IP prefixes', 'General variable-length strings'],
-        ]},
+        {
+          type: 'bullets',
+          items: [
+            'Plain trie: O(n * W) nodes in the sparse worst case, O(W) lookup, and one branch decision per bit.',
+            'PATRICIA trie: O(n) internal nodes, lookup by branch nodes on the path plus a final full-key verification, and one new split at the first differing bit during insert.',
+            'Radix tree: O(n) compressed nodes with string or byte edges, useful for general variable-length strings rather than fixed binary keys.',
+            'Best fit: plain tries suit dense short keys, PATRICIA suits sparse binary keys and IP prefixes, radix trees suit character or byte prefixes.',
+          ],
+        },
         'Lookup cost is proportional to the number of branch nodes visited, not the key length in bits. For n keys of W bits, a plain trie visits up to W nodes. A PATRICIA trie visits at most min(W, n-1) branch nodes -- in practice far fewer, because most paths share early bits. The final verification adds one full-key comparison.',
         'Space is the main win. A plain binary trie for n keys of W bits can create up to n*W internal nodes. PATRICIA creates at most n-1 internal nodes regardless of key length, because each internal node separates at least two keys. For 800,000 IPv4 routes in a 32-bit space, that is the difference between potentially 25 million one-child nodes and fewer than 800,000 branch nodes.',
         'The practical cost is pointer chasing and bit manipulation. Each branch node requires extracting a single bit from the search key and following a pointer. The structure is compact in node count but not necessarily cache-friendly: nodes are heap-allocated and accessed in unpredictable order. Adaptive Radix Trees address this with byte-oriented node layouts and cache-line-sized structures.',

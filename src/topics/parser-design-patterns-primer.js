@@ -240,6 +240,7 @@ export const article = {
       heading: 'What A Parser Really Does',
       paragraphs: [
         'A parser turns raw input into one explicit meaning. That sounds simple until the input is malformed, partial, huge, ambiguous, encoded oddly, or hostile. Parser design is the work of making those cases boring.',
+        { type: 'callout', text: 'Parser design is boundary design: each layer owns one kind of meaning and one kind of failure.' },
         'The same shape appears in UTF-8 decoders, CSV readers, JSON parsers, expression parsers, regex engines, Protobuf readers, Avro decoders, HTTP header compressors, SQL parsers, and compiler front ends. Bytes become characters or primitive values. Characters become tokens. Tokens update state. State emits events, rows, trees, typed records, or diagnostics.',
         'A production parser answers five questions before code starts: what language is valid, what state structure recognizes it, what output the caller needs, what resource limits protect the machine, and what error information helps a human or upstream system repair the input.',
       ],
@@ -257,6 +258,12 @@ export const article = {
       paragraphs: [
         'The decoder validates the lowest representation. For text, that may mean UTF-8 byte sequences and Unicode scalar values. For binary formats, it may mean varints, fixed-width integers, endianness, lengths, checksums, or frame boundaries.',
         'The lexer groups the decoded stream into symbols the grammar can use: identifiers, numbers, strings, braces, delimiters, operators, field tags, or record separators. Some formats, such as CSV, can skip a separate lexer and use a small state machine directly, but the separation is still conceptually useful.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/c/c7/Abstract_syntax_tree_for_Euclidean_algorithm.svg',
+          alt: 'Abstract syntax tree for a small Euclidean algorithm program',
+          caption: 'An AST is one possible parser output: syntax made navigable for later analysis and transformation. Source: Wikimedia Commons.',
+        },
         'The parser applies structure. It recognizes arrays inside objects, expressions inside parentheses, statements inside blocks, or fields inside records. The builder then emits the chosen output: events, row batches, DOM-like trees, AST nodes, typed structs, or validation errors with source spans.',
       ],
     },
