@@ -196,6 +196,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `A model is only as good as the values it sees at prediction time. Training wants large historical scans, backfills, and joins over labels. Serving wants a few fresh values in milliseconds. Without a shared system, those two paths drift apart: the offline feature is computed one way, the online feature another, and the model learns a world it will never actually see.`,
+        {
+          type: `callout`,
+          text: `A feature store is the contract layer between historical training rows and low-latency serving values, with time as the invariant that keeps them aligned.`,
+        },
         `A feature store exists to make reusable ML features obey one contract across training and serving. It is not just a database for ML. It is a system for definitions, timestamps, materialization, lineage, ownership, freshness, and point-in-time correctness.`,
       ],
     },
@@ -211,6 +215,12 @@ export const article = {
       paragraphs: [
         `A feature definition describes how to compute a value for an entity at a time. Examples include rider_rides_7d, merchant_chargebacks_1h, item_click_rate_30d, or device_age_days. The definition should name the entity key, timestamp semantics, source data, window logic, default value, freshness expectation, owner, and tests.`,
         `The feature store materializes that definition in two places. The offline store keeps historical values for training and backtesting. The online store serves current values by key during prediction. The storage engines can be different. The semantics must be the same.`,
+        {
+          type: `image`,
+          src: `https://docs.feast.dev/~gitbook/image?dpr=3&quality=100&sign=cfd7770a&sv=2&url=https%3A%2F%2F3574186616-files.gitbook.io%2F~%2Ffiles%2Fv0%2Fb%2Fgitbook-x-prod.appspot.com%2Fo%2Fspaces%252FvCDTUDp5EGcTxNy4CVdG%252Fuploads%252Fgit-blob-9f7df7c01969608f5a8b1d48b21f20ddeaed5590%252Ffeast_marchitecture.png%3Falt%3Dmedia&width=768`,
+          alt: `Feast feature store architecture with request, stream, and batch sources feeding online and offline features`,
+          caption: `Feast separates feature registration, storage, and serving while exposing online features for inference and offline features for training. Source: Feast documentation, https://docs.feast.dev/`,
+        },
       ],
     },
     {

@@ -212,6 +212,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Feature Flag Control Plane. Progressive delivery as a data structure: flag keys, evaluation context, providers, hooks, targeting rules, cohorts, and kill switches..",
+        {
+          type: "callout",
+          text: "A feature flag control plane turns release risk into a typed runtime decision with context, rules, defaults, and telemetry.",
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -222,6 +226,12 @@ export const article = {
       paragraphs: [
         'A feature flag control plane exists because deploying code and releasing behavior are different actions. A team may want the new code path deployed everywhere but enabled only for employees, one enterprise tenant, one region, or one percent of stable users. It may also need to kill a broken feature without building and shipping a new artifact.',
         'The control plane turns behavior into a runtime decision. The application asks for a typed flag value. The SDK builds an evaluation context, the provider applies rules, the result resolves to a variant, and hooks emit telemetry. That small path lets teams dark launch, canary, experiment, degrade, and roll back with more precision than a deployment alone can provide.',
+        {
+          type: 'image',
+          src: 'https://openfeature.dev/assets/images/ff-service-9bfd5d029bfcd0ebbea6c6cab79b6a14.png',
+          alt: 'Feature flagging client sending flag evaluations to a feature flagging service',
+          caption: 'OpenFeature shows the split between application evaluation calls, a client library, and the external flagging service that owns dynamic rules. Source: OpenFeature documentation, https://openfeature.dev/docs/reference/intro/',
+        },
       ],
     },
     {

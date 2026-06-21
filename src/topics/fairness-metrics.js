@@ -227,6 +227,10 @@ export const article = {
       heading: "Why this exists",
       paragraphs: [
         "Fairness metrics exist because a model can look good on average while failing a particular group. Global accuracy, AUC, loss, or precision can hide who receives false positives, false negatives, bad calibration, low coverage, or no useful path to appeal. The metric has to be sliced before the harm is visible.",
+        {
+          type: "callout",
+          text: "Fairness metrics are denominator choices: each metric names which group bears which kind of error.",
+        },
         "This is separate from privacy, robustness, and security. A private model can still be unfair. A robust model can still assign one group more false negatives. A calibrated model can still have unequal error rates. A model with equal selection rates can still be wrong for one group. Fairness is not a bonus dashboard; it is a question about who bears the system's mistakes.",
       ],
     },
@@ -248,6 +252,12 @@ export const article = {
       heading: "How the mechanism works",
       paragraphs: [
         "A fairness audit starts with a normal confusion matrix, then repeats it by group and often by intersectional slices. For each group, compute counts and rates: true positives, false positives, true negatives, false negatives, selection rate, precision, recall, false positive rate, false negative rate, calibration by score band, and coverage for any defer or abstain option.",
+        {
+          type: "image",
+          src: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Confusion_Matrix_Metrics.png/250px-Confusion_Matrix_Metrics.png",
+          alt: "Confusion matrix metrics showing accuracy, precision, recall, and specificity",
+          caption: "Most group fairness metrics are rates computed from confusion-matrix cells, then compared across slices. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Confusion_Matrix_Metrics.png",
+        },
         "The next step is comparison. Equal opportunity compares TPR across groups. Equalized odds compares both TPR and FPR. Demographic parity compares selection rates. Calibration compares empirical outcomes within score bands. The same table can support several definitions, but the interpretation changes with the denominator.",
         "Thresholds are a common intervention. A group-specific threshold can close a TPR gap, but it may change precision, selection rate, and calibration. Some equalized-odds procedures also use randomized decisions to reach a shared error-rate point. That can satisfy a statistical constraint while creating product and governance questions.",
       ],

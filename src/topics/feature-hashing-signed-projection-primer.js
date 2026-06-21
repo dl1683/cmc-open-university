@@ -253,6 +253,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Many useful features are names, not numbers. A text classifier sees tokens and character n-grams. An ad model sees campaign ids, publisher ids, search terms, geographies, devices, and crossed features such as campaign x device. A fraud model sees merchant ids, email domains, IP prefixes, and behavioral tags. The model needs a numeric vector, but the raw input is an open-ended set of strings.',
+        {
+          type: 'callout',
+          text: 'Feature hashing trades a growing dictionary for a fixed collision budget: schema stays stable, but identity can merge inside buckets.',
+        },
         'The clean textbook answer is one-hot encoding. Give every feature name its own column, put a one in that column when the feature appears, and train a linear model or tree model on the resulting sparse rows. That works when the vocabulary is small, closed, and fitted before training. It breaks when new feature names arrive every minute or when the dictionary itself is too large to coordinate across workers.',
         'Feature hashing, also called the hashing trick, removes the fitted dictionary. Each feature name is hashed directly into a fixed number of buckets. The vector width is chosen before training, and new names do not change the schema. That turns a high-cardinality vocabulary problem into a collision-budget problem.',
       ],
@@ -277,6 +281,12 @@ export const article = {
       heading: 'The core mechanism',
       paragraphs: [
         'For each active feature, build a stable string name such as `token=free`, `city=nyc`, or `campaign=17|device=ios`. Compute `index = hash(name) mod n_features`. Add the feature value to that bucket. If signed hashing is enabled, compute a second sign from the name and add either `+value` or `-value`.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Hash_table_4_1_1_0_0_1_0_LL.svg/250px-Hash_table_4_1_1_0_0_1_0_LL.svg.png',
+          alt: 'Hash function mapping names into a small bucket range with a collision',
+          caption: 'Feature hashing uses the same bucket mapping idea as a hash table, except collisions become model input rather than lookup chains. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_4_1_1_0_0_1_0_LL.svg',
+        },
         'The output is usually sparse. A row with twenty active names should not allocate a dense vector with a million entries. It is stored as index-value pairs or as a CSR sparse row. Multiple feature names that land in the same bucket are summed. If `ad=17` contributes `-1` and `word=free` contributes `+1` to the same bucket, the row contribution can cancel to zero.',
         'The namespace prefix is part of the data structure. `city=Paris` and `token=Paris` should normally be different names before hashing. Crossed features should also be explicit, such as `campaign=17|device=ios`. If teams hash bare values, unrelated fields collide more often and debugging becomes harder.',
       ],

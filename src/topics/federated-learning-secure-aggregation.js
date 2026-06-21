@@ -209,6 +209,10 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'Federated learning trains a shared model from decentralized data. Instead of collecting raw user data in a central warehouse, the server sends a model to clients, clients train locally, and the server aggregates updates. The canonical algorithm is federated averaging: local training followed by weighted averaging of client model updates.',
+        {
+          type: 'callout',
+          text: 'Federated learning moves computation to private data, then secure aggregation narrows what the server can observe to the cohort sum.',
+        },
         'Secure aggregation strengthens the privacy story by hiding individual client updates from the server. The server sees only the aggregate sum. Differential privacy can add another layer by clipping and noising updates so any one participant has bounded influence. These ideas match the local corpus note on privacy-preserving ML: practical systems combine architecture, cryptography, and statistical noise, each with a cost.',
       ],
     },
@@ -230,6 +234,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A training round selects available clients, sends the current model, runs local optimization, receives updates, aggregates them, and publishes a new global model. Because client data is non-IID, updates can point in different directions. Because clients are phones or edge devices, availability and bandwidth dominate. Because updates can leak information, secure aggregation and differential privacy may be required.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Centralized_federated_learning_protocol.png/250px-Centralized_federated_learning_protocol.png',
+          alt: 'Central server coordinating model updates from several smartphones in federated learning',
+          caption: 'A central federated-learning round sends a model to clients and receives updates instead of raw examples. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Centralized_federated_learning_protocol.png',
+        },
         'Secure aggregation often uses masks that cancel only when summed. Each client sends a masked update; the server can add masked updates to recover the aggregate but cannot inspect one client contribution. Practical protocols also handle client dropout, which is essential because mobile devices disappear during rounds. Shamir Secret Sharing is the next useful primitive: it explains how recovery material can be split so masks can be repaired only with a threshold of cooperating clients.',
       ],
     },

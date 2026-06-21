@@ -215,6 +215,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Layout transform" shows a sorted array being rearranged into Eytzinger (BFS) order and the implicit binary search tree that ordering encodes. "Search path" traces a lower_bound query through that tree, one comparison per frame.',
+        {
+          type: 'callout',
+          text: 'Eytzinger layout preserves binary-search correctness while changing the physical address sequence into predictable heap-style child jumps.',
+        },
         'Active highlights mark the node being compared right now. Found highlights mark the current lower_bound candidate -- the smallest key seen so far that is >= the query. Compare highlights show alternatives being ruled out.',
         'Watch the array indices, not just the values. The point of Eytzinger layout is that the sequence of indices visited during search -- 1, 2 or 3, 4-7, ... -- follows a predictable pattern the CPU can prefetch ahead of time. If you only watch the values, you see ordinary binary search. If you watch the addresses, you see why the layout matters.',
       ],
@@ -248,6 +252,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Eytzinger layout stores sorted keys in the array positions determined by a breadth-first traversal of an implicit complete binary search tree. Index 1 (one-based) holds the root -- the median. Index 2 holds the root of the left subtree. Index 3 holds the root of the right subtree. Level by level, the tree fills the array.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/Binary_tree_in_array.svg/500px-Binary_tree_in_array.svg.png',
+          alt: 'Complete binary tree relationships represented by positions in an array',
+          caption: 'Implicit tree layouts store parent and child links as array positions, the same address arithmetic Eytzinger search exploits. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_tree_in_array.svg',
+        },
         {
           type: 'diagram',
           label: 'BFS numbering maps tree nodes to array positions',

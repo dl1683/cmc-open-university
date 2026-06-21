@@ -201,6 +201,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Euler Tour Tree. A dynamic-forest representation: store each tree as an Euler-tour sequence in a balanced tree, then split and concatenate on link/cut..",
+        {
+          type: "callout",
+          text: "Euler tour trees make dynamic forest edits look like sequence surgery: rotate, split, and concatenate tours while component identity stays explicit.",
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -210,6 +214,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'An Euler tour tree represents each tree in a dynamic forest as a cyclic sequence of vertex visits. The sequence is stored in a balanced binary tree, so the implementation can split a component sequence, concatenate two component sequences, and maintain aggregate metadata over the represented tree.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/14/Stirling_permutation_Euler_tour.svg/250px-Stirling_permutation_Euler_tour.svg.png',
+          alt: 'Euler tour of a tree with directed traversal arcs around the nodes',
+          caption: 'An Euler tour turns a tree into a repeated traversal sequence. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Stirling_permutation_Euler_tour.svg',
+        },
         'It is a dynamic data structure, not just a traversal order written into an array. The tour lives inside a sequence tree such as a treap, splay tree, or red-black tree. Link, cut, reroot, connectivity, and component-aggregate operations are expressed as edits or queries on that sequence tree.',
         'The design is strongest when the natural question is about a whole connected component: are two vertices in the same tree, how large is the component, or what aggregate value is stored over the component. Link-Cut Tree is usually the more direct tool for path aggregates; Euler tour trees make the whole tree visible.',
       ],

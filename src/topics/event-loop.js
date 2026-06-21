@@ -156,6 +156,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows three columns: the call stack on the left, the microtask queue in the center, and the task queue on the right. Console output appears along the bottom. Watch the call stack first. Anything on the stack is running now; nothing in either queue can interrupt it.',
+        {
+          type: 'callout',
+          text: 'The event loop is a cooperative scheduler: JavaScript runs one stack to completion, then the runtime drains higher-priority queues before admitting the next task.',
+        },
         'In the A B C D view, follow the stack as it executes the script, then empties. The microtask column drains before the task column gets a turn. That ordering is the entire lesson: synchronous code first, microtasks at the checkpoint, tasks after.',
         'In the starvation view, watch the RENDER note. It never clears because each microtask schedules another before the queue can empty. The bug is not a slow function; it is a scheduling pattern that denies the browser a checkpoint.',
       ],
@@ -193,6 +197,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The call stack tracks currently executing functions. Synchronous calls push frames; returns pop them. The stack is the only place JavaScript actually runs.',
+        {
+          type: 'image',
+          src: 'https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Execution_model/runtime-environment-diagram.svg',
+          alt: 'MDN diagram of JavaScript agents with stack, heap, and job queue',
+          caption: 'MDN shows each JavaScript agent as a stack, heap, and job queue, which is the local machinery the event loop schedules. Source: MDN, https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Execution_model',
+        },
         'The task queue (macrotask queue) holds callbacks from setTimeout, setInterval, I/O completions, DOM events, and MessageChannel. After the current task finishes and microtasks drain, the browser may render, then it dequeues one task and pushes it onto the call stack.',
         'The microtask queue holds promise .then/.catch/.finally callbacks, queueMicrotask callbacks, and MutationObserver notifications. When the call stack empties after any task, the runtime processes every microtask in the queue, including any new microtasks added during processing, before doing anything else. This is the microtask checkpoint.',
         'The browser rendering pipeline runs between tasks when the browser decides a repaint is needed. requestAnimationFrame callbacks fire just before this paint step. requestIdleCallback fires when the browser has spare time after painting. Neither can run while the microtask queue is draining or while a task occupies the call stack.',

@@ -250,6 +250,10 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         `A query plan is a dataflow graph, but many classic executors expose it through a simple iterator contract: a parent asks its child for the next row. That contract is easy to compose, but it is not enough when a scan, join, or aggregation should run on many cores or many machines at once.`,
+        {
+          type: `callout`,
+          text: `Exchange is the control boundary that lets local query operators stay simple while data movement, worker orchestration, and backpressure become explicit plan nodes.`,
+        },
         `The exchange operator exists to hide that parallel machinery behind a normal plan node. It can start producers, move rows between workers, repartition by key, merge streams, buffer packets, and apply backpressure. The rest of the plan can still look like a tree of operators instead of a pile of thread, queue, and network code.`,
       ],
     },
@@ -278,6 +282,12 @@ export const article = {
       heading: 'Repartition exchange',
       paragraphs: [
         `A repartition exchange sends each row to a worker chosen by a partitioning function. For a parallel hash join, the usual function hashes the join key. The invariant is simple and strict: equal keys must meet. If rows with the same key land on different workers, local joins miss matches and the query is wrong.`,
+        {
+          type: `image`,
+          src: `https://cdnd.selectdb.com/assets/images/Figure_10_en-e99cc952e6ef7e1500565bffbd73da18.png`,
+          alt: `Bucket shuffle join routing rows into hash-selected buckets`,
+          caption: `Bucket shuffle join is the same invariant in a production SQL engine: route rows by a hash rule so matching keys meet. Source: Apache Doris blog, https://doris.apache.org/blog/principle-of-Doris-SQL-parsing/`,
+        },
         `The same shape appears in group by, distinct, distributed aggregation, and windowed systems. The exchange does the global movement so the downstream operator can be local again. After repartitioning, each join worker builds or probes a hash table for its own partition instead of needing every row in the cluster.`,
       ],
     },

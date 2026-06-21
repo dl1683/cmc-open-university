@@ -135,6 +135,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Evolutionary Search. Population, mutation, crossover, selection: optimization when gradients are absent or the search space is weird..",
+        {
+          type: "callout",
+          text: "Evolutionary search turns a black-box evaluator into pressure over a population: score candidates, keep better structure, and vary what survives.",
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -154,6 +158,12 @@ export const article = {
         'Optimize a function with no gradient. Traveling salesman: n! permutations, brute force is impossible for n > 20. Hill climbing: start with a random solution, make small changes, keep improvements. Gets stuck in local optima.',
         'Simulated annealing: accept bad moves with decreasing probability. Better, but one solution at a time.',
         'Genetic Algorithm (Holland 1975): maintain a POPULATION of solutions. Each individual is a chromosome (bit string or sequence). A fitness function scores each one. Selection picks parents proportional to fitness (roulette wheel) or by tournament. Crossover combines two parents via single-point, two-point, or uniform crossover. Mutation randomly flips bits with small probability. Replace the old population with offspring. Repeat for generations.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Estimation_of_Distribution_Algorithm_animation.gif',
+          alt: 'Animated population search converging around high-scoring regions',
+          caption: 'Population methods repeatedly sample, score, and reshape candidate distributions around better regions. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Estimation_of_Distribution_Algorithm_animation.gif',
+        },
         'Why it works: crossover recombines good building blocks (schema theorem, Holland 1975). Mutation maintains diversity. Selection drives improvement. The population explores multiple regions of the search space simultaneously, avoiding the single-point trap of hill climbing.',
       ],
     },
@@ -175,4 +185,3 @@ export const article = {
     }
   ],
 };
-
