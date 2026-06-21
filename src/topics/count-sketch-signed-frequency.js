@@ -249,6 +249,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a Count Sketch with five rows and seven buckets per row. Active cells mark the buckets touched by the current update or query. Compared cells show where an earlier key landed in the same row, making collisions visible.',
+        {
+          type: 'callout',
+          text: 'Signed hashes make collision noise cancel in expectation, so a fixed table can estimate streams with both positive and negative updates.',
+        },
         'In the "signed counters" view, watch how each key lands in one bucket per row but pushes the counter up or down depending on its sign hash. Negative counters are not errors. They encode the direction assigned to each key and are essential to the unbiased query.',
         'In the "turnstile merge" view, observe negative deltas flowing through the same update path as positive ones. The merge step adds matching cells from two shards, producing the same sketch as if both streams had been processed together. Follow the row estimates table to see how the sign is reversed at query time and the median selects the robust answer.',
       ],
@@ -286,6 +290,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Count Sketch allocates d rows of w buckets each. Each row j has two hash functions: a position hash h_j that maps a key to a bucket in [0, w), and a sign hash s_j that maps the same key to +1 or -1.',
+        {
+          type: 'image',
+          src: 'https://image.slideserve.com/122279/countsketch-data-structure-l.jpg',
+          alt: 'CountSketch data structure with several hash tables and bucket columns',
+          caption: 'CountSketch table family diagram. Source: https://image.slideserve.com/122279/countsketch-data-structure-l.jpg',
+        },
         {
           type: 'diagram',
           label: 'Signed hash update across rows',

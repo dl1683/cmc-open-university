@@ -199,6 +199,16 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Counting Bloom filters exist because ordinary Bloom filters are good at compact membership checks but bad at deletion. A normal Bloom filter stores bits. If two keys share a bit and one key is deleted, clearing the bit can accidentally erase evidence for the other key.',
+        {
+          type: 'callout',
+          text: 'Counting Bloom filters keep the Bloom filter maybe answer while adding enough shared evidence accounting to delete safely.',
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/500px-Bloom_filter.svg.png',
+          alt: 'Bloom filter bit array with several keys mapped by hash arrows',
+          caption: 'Bloom filter hash footprint diagram. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Bloom_filter.svg/500px-Bloom_filter.svg.png',
+        },
         'Counting replaces each bit with a small counter. Insert increments the counters selected by the hash functions. Delete decrements those same counters. Query still asks whether all selected counters are nonzero.',
         'The structure is useful when approximate membership is valuable but the set changes over time: cache summaries, mutable network filters, duplicate suppression windows, distributed stores, and streaming systems.',
       ],
@@ -250,6 +260,12 @@ export const article = {
       heading: 'Cost and tradeoffs',
       paragraphs: [
         'Insert, query, and delete are O(k). Space is larger than a bit Bloom filter because every cell stores several bits of counter. Four-bit counters are common in teaching examples, but real choices depend on overflow risk, expected multiplicity, and memory budget. Stable filters add per-insert aging work, chosen to control the steady-state false-positive rate.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloom_filter_fp_probability.svg/500px-Bloom_filter_fp_probability.svg.png',
+          alt: 'Bloom filter false positive probability curves for different filter sizes',
+          caption: 'False positive probability as Bloom filter load changes. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloom_filter_fp_probability.svg/500px-Bloom_filter_fp_probability.svg.png',
+        },
         'Counting filters trade memory for deletion. Stable filters trade the no-false-negative guarantee for bounded memory over infinite streams. Cuckoo filters and quotient filters make different tradeoffs around deletion, locality, fingerprints, and load factor.',
         'The practical design question is not which approximate filter is best in the abstract. It is which contract the system needs: no deletes, safe deletes, recency windows, compact transfer, or fast local lookup.',
       ],
@@ -258,6 +274,12 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Counting Bloom filters were motivated by mutable approximate-membership workloads such as cache summaries. A proxy or distributed cache may need to advertise compact summaries while its contents change. Counting counters support local deletion and update, then a standard bit-style summary can be derived for sharing.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Bloom_filter_speed.svg/500px-Bloom_filter_speed.svg.png',
+          alt: 'Bloom filter in front of slower storage with false positive and fast negative paths',
+          caption: 'Bloom filter as a fast guard before slow storage. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/c/c4/Bloom_filter_speed.svg/500px-Bloom_filter_speed.svg.png',
+        },
         'Stable Bloom filters target duplicate detection over data streams where exact all-time memory is impossible. The Deng and Rafiei SIGMOD work framed the problem directly: in an unbounded stream, old duplicate evidence must eventually be evicted, so the structure deliberately trades some false negatives for bounded memory.',
         'They also fit approximate replay suppression, crawling windows, telemetry dedupe, cache admission, and systems that can tolerate false positives but need compact state. When deletion correctness is critical, the application must guarantee matched insert/delete operations.',
         'Counting filters are also useful during rebuild transitions. A system can maintain a mutable approximate summary while a larger exact index is being compacted or refreshed, as long as the summary is treated as a hint rather than final truth.',

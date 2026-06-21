@@ -119,6 +119,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has three phases. Phase 1 builds the count array: each input value lights up its matching slot and increments the counter there. Phase 2 converts counts into prefix sums (cumulative counts): each slot accumulates the total of all slots up to and including itself. Phase 3 builds the sorted output by scanning the input backwards, using each prefix sum as a placement cursor.',
+        {
+          type: 'callout',
+          text: 'Counting sort escapes comparison sorting by using small integer keys as addresses, then prefix sums turn counts into stable positions.',
+        },
         'Active highlights mark the slot being written. Compare highlights during the prefix-sum phase show which neighbor contributes. At the end, the sorted highlight confirms every position is final.',
         'The backwards scan in phase 3 is the detail that matters most. When two copies of the same value exist, the copy scanned first (the one further right in the input) is placed at the higher output index. The copy scanned second lands one position lower. Their original left-to-right order survives in the output. That is stability, and the animation makes it visible step by step.',
       ],
@@ -148,6 +152,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Pass 1 -- Count. Scan the input left to right. For each value v, increment count[v]. After this pass, count[v] holds the number of times v appears. Cost: O(n).',
+        {
+          type: 'image',
+          src: 'https://www.growingwiththeweb.com/images/2014/05/25/counting-sort.svg',
+          alt: 'Counting sort maps unsorted values into an auxiliary array and reads them back sorted',
+          caption: 'Counting sort value mapping diagram. Source: https://www.growingwiththeweb.com/images/2014/05/25/counting-sort.svg',
+        },
         'Pass 2 -- Prefix sum. Walk the count array from index 1 to k-1, adding each entry to its predecessor: count[i] += count[i-1]. After this pass, count[v] holds the number of elements with value <= v. This number is the placement ceiling: value v\'s last copy belongs at output index count[v] - 1. Cost: O(k).',
         'Pass 3 -- Place backwards. Scan the input from right to left. For each value v, decrement count[v] and write v at output[count[v]]. The decrement moves the cursor down, so the next copy of v lands one position earlier. Iterating backwards is the key to stability: the rightmost copy of v is placed first at the highest available slot, and the leftmost copy is placed last at the lowest available slot. Their original order is preserved. Cost: O(n).',
         'The prefix sum is the engine. Without it, you would know how many 3s exist but not where they belong relative to all the 2s and 1s. The prefix sum answers that in O(k) time: count[3] tells you the total number of elements with value <= 3, which is exactly the first index after the 3-block ends.',

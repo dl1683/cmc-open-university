@@ -113,6 +113,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Cross-Validation & Honest Evaluation. Never grade your own homework: why train accuracy lies, one split gambles, and k-fold spends data honestly..",
+        {
+          type: "callout",
+          text: "Cross-validation rotates the hidden data so every row gets an out-of-sample prediction without making one split the whole judge.",
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -123,6 +127,12 @@ export const article = {
       paragraphs: [
         `Cross-validation is a protocol for estimating how a model will perform on examples it did not use for fitting. That sounds modest, but it is one of the central disciplines in machine learning. A model can look excellent on its training data because it memorized quirks, repeated rows, label leakage, or accidental shortcuts. Cross-validation forces the model to answer a stricter question: if we hide some training examples, fit the model without them, and then ask the fitted model to predict the hidden examples, how well does the pattern survive?`,
         `The usual k-fold version splits the available training data into k folds. Each round holds out one fold for validation and trains a fresh model on the other folds. After k rounds, every example has served once as validation data and k minus one times as training data. The fold scores are averaged, and their spread is kept as evidence about stability. The result is not a magic truth number. It is a better estimate than training accuracy and usually a less arbitrary estimate than one random train-validation split.`,
+        {
+          type: `image`,
+          src: `https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/K-fold_cross_validation_EN.svg/500px-K-fold_cross_validation_EN.svg.png`,
+          alt: `K-fold cross-validation diagram with train and validation partitions rotating across folds`,
+          caption: `K-fold cross-validation split diagram. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/K-fold_cross_validation_EN.svg/500px-K-fold_cross_validation_EN.svg.png`,
+        },
       ],
     },
     {
@@ -224,4 +234,3 @@ export const article = {
     },
 ],
 };
-

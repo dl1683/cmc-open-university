@@ -210,6 +210,16 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Compressed Sparse Column, or CSC, exists because many important matrices are large but mostly empty. Finite-element systems, optimization constraints, graph incidence matrices, recommender features, and bag-of-words tables can have millions of possible cells while only a small fraction contain useful values. A dense array stores every zero. That wastes memory and makes kernels read data that contributes nothing.',
+        {
+          type: 'callout',
+          text: 'CSC is a column table of contents: one pointer pair turns a sparse column into a contiguous slice.',
+        },
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Finite_element_sparse_matrix.png/250px-Finite_element_sparse_matrix.png',
+          alt: 'Sparse matrix pattern with many zero locations and black nonzero entries',
+          caption: 'Sparse matrices motivate compressed layouts that store only nonzero structure. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Finite_element_sparse_matrix.png/250px-Finite_element_sparse_matrix.png',
+        },
         'Sparse storage is the first repair. Instead of storing all cells, store only nonzeros. The next question is access direction. If the hot operation asks for whole columns, a plain list of triples still has the wrong shape. A solver or optimizer would have to search through unrelated entries just to find the values for one column.',
         'CSC makes each column a contiguous slice. It answers one basic question quickly: which row indices and values belong to column j. The format is not sparse magic. It is a compact table of contents for column-oriented work.',
       ],

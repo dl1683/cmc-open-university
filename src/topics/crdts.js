@@ -192,6 +192,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The counter view starts with the broken design: a bare replicated integer that cannot merge safely. Watch why max, overwrite, and add all fail. Then the G-counter reshapes state into one slot per replica, and elementwise max becomes a safe merge. Active markers highlight which replica owns which slot. The invariant to track: stored components only grow, so no delivery order can undo history.',
+        {
+          type: 'callout',
+          text: 'CRDTs move conflict resolution into the data type so replicas can merge by law instead of by coordination.',
+        },
         'The sets-and-laws view contrasts three CRDT families by what they sacrifice. The LWW-register converges by discarding a concurrent value. The OR-set converges by tagging adds and removing only observed tags. The laws table maps each algebraic property to the network failure it absorbs. Read each row as a contract: if this law holds, that class of failure is harmless.',
       ],
     },
@@ -199,6 +203,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Distributed systems replicate data for availability, latency, and offline access. Replication creates a coordination problem: when two replicas accept writes concurrently, the system must reconcile them later. Traditional approaches use a leader or consensus protocol to serialize writes, but that blocks during partitions and adds round-trip latency.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Vector_Clock.svg/500px-Vector_Clock.svg.png',
+          alt: 'Vector clock diagram with causal past, causal future, and independent events',
+          caption: 'Vector clocks show why replicated data needs causal structure, not only wall-clock time. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Vector_Clock.svg/500px-Vector_Clock.svg.png',
+        },
         'CRDTs solve this by embedding the merge rule into the data type itself. The term was introduced by Shapiro, Preguica, Baquero, and Zawirski in their 2011 INRIA technical report "Conflict-Free Replicated Data Types." Their key contribution was showing that if a replicated data type satisfies certain algebraic properties, all replicas converge to the same state once they have received the same updates, regardless of delivery order, duplication, or network topology.',
       ],
     },

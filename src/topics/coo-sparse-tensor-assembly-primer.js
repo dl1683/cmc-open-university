@@ -214,6 +214,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Assemble triples" shows coordinate contributions arriving one at a time, collecting into an unsorted COO list, then sorting and coalescing into canonical form. "Coalesce lower" shows the canonical COO converting into CSR, CSC, or BSR depending on the compute path ahead.',
+        {
+          type: 'callout',
+          text: 'COO is a staging format: append sparse facts cheaply, canonicalize duplicates, then lower to the compute layout.',
+        },
         'Active nodes are the phase currently executing. Found nodes mark outputs that are now guaranteed correct. Highlighted matrix cells in the triple table mark duplicate coordinates whose values must be combined.',
         {
           type: 'note',
@@ -226,6 +230,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Sparse data arrives as events. A finite-element solver emits local stiffness contributions per element. A graph pipeline emits (source, destination, weight) edges. A feature pipeline emits (example_id, feature_id, value) triples. A recommendation system logs user-item interactions. In every case, the producer knows coordinates and values but not the final matrix shape, sparsity pattern, or row ordering.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Finite_element_sparse_matrix.png/250px-Finite_element_sparse_matrix.png',
+          alt: 'Sparse finite element matrix with nonzero entries shown as black marks',
+          caption: 'Finite element sparse matrix pattern. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Finite_element_sparse_matrix.png/250px-Finite_element_sparse_matrix.png',
+        },
         'The system needs a format that can absorb these contributions without knowing the answer in advance. That is the assembly problem: collect sparse updates now, organize them later.',
         {
           type: 'quote',
@@ -396,4 +406,3 @@ export const article = {
     },
   ],
 };
-

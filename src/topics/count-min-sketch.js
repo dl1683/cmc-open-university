@@ -181,6 +181,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation shows a d-by-w grid: three rows (one per hash function) and eight columns (counter buckets). Every cell starts at zero.',
+        {
+          type: 'callout',
+          text: 'The sketch wins by turning many exact counters into a few rows of bounded overestimates and trusting the least polluted row.',
+        },
         'When an event arrives, three cells light up -- one per row -- at the column positions chosen by each hash function. Those three counters increment by one; nothing else changes. When the sketch answers a query, it reads the same three positions and returns the smallest value. That minimum is the frequency estimate.',
         'Track "login" and "bot" through the stream. They collide in rows h1 and h2 (both land in columns 4 and 6), so those rows overcount both keys. Row h0 maps them to different columns (0 vs 5), keeping a clean witness. The min-query picks up that clean row and recovers the true count.',
         'The merge view adds two shard sketches cell by cell. The result equals a single sketch built over the combined stream, because addition preserves the overestimate invariant.',
@@ -217,6 +221,12 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Allocate a table of d rows and w columns, all counters at zero. Each row owns one hash function that maps keys to columns 0 through w-1.',
+        {
+          type: 'image',
+          src: 'https://www.waitingforcode.com/public/images/articles/count_min_sketch.png',
+          alt: 'Count-Min Sketch update where one input touches one counter in each hash row',
+          caption: 'Count-Min Sketch update and min query diagram. Source: https://www.waitingforcode.com/public/images/articles/count_min_sketch.png',
+        },
         'Insert(x): compute h_1(x), h_2(x), ..., h_d(x). Increment counter[row][h_row(x)] in every row. Exactly d counters change per insert, regardless of how many distinct keys exist.',
         'Query(x): compute the same d positions. Read counter[row][h_row(x)] from every row. Return min(counter[0][h_1(x)], ..., counter[d-1][h_d(x)]).',
         'The key itself is never stored. The sketch cannot list its contents or enumerate frequent keys -- it only estimates the count of a key you already know to ask about. Heavy-hitter pipelines pair the sketch with a candidate tracker (Space-Saving, a heap, or a sampled exact window) to decide which keys to query.',

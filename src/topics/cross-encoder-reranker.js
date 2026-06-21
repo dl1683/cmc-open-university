@@ -218,6 +218,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         "Read the animation as the execution trace for Cross-Encoder Reranker. A retrieval cascade pattern: retrieve cheaply, then score query-document pairs jointly with a slower but more precise Transformer..",
+        {
+          type: "callout",
+          text: "A cross-encoder reranker is expensive because it reads query and passage together, so it must sit after a cheap recall stage.",
+        },
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
@@ -227,6 +231,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'A cross-encoder reranker is a precision stage in a retrieval system. A first-stage retriever finds a manageable set of candidate documents or passages. The cross-encoder then scores each query-candidate pair jointly by placing the query and the candidate text into one Transformer input. Query tokens and document tokens can attend to one another inside the model, so the score can reflect exact relationships, negation, order, and context that a simple vector distance may miss.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/8/8f/The-Transformer-model-architecture.png',
+          alt: 'Transformer architecture diagram with encoder and decoder stacks',
+          caption: 'Transformer architecture, the model family used for full pair scoring in many cross-encoders. Source: https://upload.wikimedia.org/wikipedia/commons/8/8f/The-Transformer-model-architecture.png',
+        },
         'The word reranker matters. A cross-encoder is usually not responsible for searching the whole corpus. It is responsible for reordering a candidate set that was found cheaply by BM25, dense vectors, metadata filters, ColBERT, or rank fusion. In a RAG system, that reordered set decides which chunks enter the prompt. In a search product, it decides which results the user sees first. Its job is to spend expensive model attention only where it can change the final ranking.',
       ],
     },

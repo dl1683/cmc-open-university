@@ -221,6 +221,10 @@ export const article = {
       heading: 'How to read the animation',
       paragraphs: [
         'The animation has two views. "Snapshot compaction" traces the pipeline from raw operation log to compact store. "GC safety" traces the blockers that prevent deletion. Switch between them to see both halves of the problem.',
+        {
+          type: 'callout',
+          text: 'A compacted CRDT snapshot is safe only when it preserves both visible state and the causal summary needed for future sync.',
+        },
         'Active nodes (highlighted) are the current decision point -- the stage of the pipeline being evaluated. Found markers are outcomes the system has committed to: a checkpoint written, a cut declared safe, a store shrunk. Compare markers flag the tension: the thing that makes the step non-trivial.',
         {
           type: 'note',
@@ -233,6 +237,12 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'CRDTs buy offline-first collaboration by recording every operation with a causal identity. A peer can go offline, edit freely, come back, and merge without a central arbiter. The cost is history: each character insertion, each delete, each metadata update stays in the log so future merges can place new operations in the causal graph.',
+        {
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Vector_Clock.svg/500px-Vector_Clock.svg.png',
+          alt: 'Vector clock diagram showing causal regions and independent concurrent events',
+          caption: 'Vector clocks visualize the causal summaries that compacted replicas must preserve. Source: https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Vector_Clock.svg/500px-Vector_Clock.svg.png',
+        },
         {
           type: 'quote',
           text: 'If I have seen further it is by standing on the shoulders of giants -- but I do not need the giants in RAM.',
@@ -403,4 +413,3 @@ export const article = {
     },
   ],
 };
-
