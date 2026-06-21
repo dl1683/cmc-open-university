@@ -702,6 +702,7 @@ html { scroll-behavior: smooth; }
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
 }
 .study-section {
   background: var(--panel);
@@ -709,6 +710,8 @@ html { scroll-behavior: smooth; }
   border-radius: var(--radius);
   padding: 18px 22px;
   box-shadow: var(--shadow);
+  width: 100%;
+  min-width: 0;
 }
 .study-section summary {
   cursor: pointer;
@@ -719,6 +722,7 @@ html { scroll-behavior: smooth; }
 }
 .study-section-body {
   margin-top: 10px;
+  width: 100%;
 }
 .study-section h3 {
   font-size: 1.08rem;
@@ -1013,8 +1017,7 @@ html { scroll-behavior: smooth; }
   }
   .track-grid,
   .domain-grid,
-  .context-grid,
-  .study-sections {
+  .context-grid {
     grid-template-columns: minmax(0, 1fr);
   }
   .study-section {
