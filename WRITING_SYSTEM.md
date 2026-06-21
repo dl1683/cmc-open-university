@@ -441,10 +441,13 @@ and charts woven throughout every section.
 Every major section of a topic article should include at least one visual
 element where it genuinely helps comprehension. Visual elements include:
 
-- **Images** from Wikimedia Commons (with source attribution in the caption).
+- **Images** from any public URL (with source attribution in the caption).
 - **Diagrams** (ASCII art or structured text showing layouts, flows, or state).
-- **Tables** comparing approaches, costs, or properties.
 - **Code blocks** showing the mechanism in pseudocode or real code.
+- **Bullet lists** comparing approaches, costs, or properties.
+
+Do not use tables. The site renderer does not handle them well. Use bullet
+lists, side-by-side callouts, or prose comparisons instead.
 
 Do not add visuals for decoration. Add them where a reader would otherwise have
 to build a mental picture from prose alone. The test: if a section describes a
@@ -452,12 +455,14 @@ structure, a flow, a comparison, or a state transition, it should show one.
 
 ### Image Guidelines
 
-- Use Wikimedia Commons images with full attribution.
+- Images can come from any publicly accessible URL on the internet — Wikimedia
+  Commons, documentation sites, research papers, blog posts, educational
+  resources, etc. The entire internet is our source.
+- Always cite the source with a link in the caption.
 - Prefer diagrams and architecture visuals over logos (logos are fine as a
   secondary visual, but the primary images should teach).
-- Every image block must include: `src` (full upload.wikimedia.org URL), `alt`
-  (descriptive alt text), and `caption` (with "Source: Wikimedia Commons"
-  attribution and license).
+- Every image block must include: `src` (full public URL), `alt` (descriptive
+  alt text), and `caption` (with source attribution and link).
 - Images should appear inline in the section they support, not collected at
   the end.
 
