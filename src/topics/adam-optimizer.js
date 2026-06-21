@@ -192,6 +192,7 @@ export const article = {
       heading: `Why this exists`,
       paragraphs: [
         `Adam is an optimizer: the rule that turns gradients into weight updates. Gradient Descent uses one global learning rate, so the steepest direction caps every coordinate. In this demo the terrain is the ravine loss = (x^2 + 50y^2)/2. The y direction is fifty times steeper than x. Plain descent at lr = 0.038 zigzags across the steep wall and still has loss 4.06 after 30 steps. Adam tracks direction and scale separately, so at step 20 its loss is 0.40, more than 20x below plain descent at the same moment. Loss Landscapes & Optimization Geometry is the terrain; Adam is the walking strategy.`,
+        {type: `callout`, text: `Adam is cheap per-coordinate preconditioning: momentum remembers direction while the second moment rescales noisy or steep coordinates.`},
       ],
     },
     {
@@ -216,6 +217,7 @@ export const article = {
       heading: `The wall`,
       paragraphs: [
         `A single global learning rate is capped by the steepest direction in the loss surface. In the ravine demo, the y-direction has curvature 50 and x-direction has curvature 1. Any learning rate above 0.04 makes y diverge. At lr = 0.038, x crawls because the rate that keeps y stable wastes 98% of the available step budget on the shallow direction.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/3/32/Rosenbrock_function.svg`, alt: `Rosenbrock function surface with curved valley`, caption: `The Rosenbrock valley is a classic ravine that exposes why one global step size zigzags across steep curvature. Source: Wikimedia Commons, Oleg Alexandrov, public domain.`},
         `Momentum fixes the direction problem but not the scale problem: it cancels oscillation across the ravine, but both coordinates still share one step size. AdaGrad fixes the scale problem but accumulates squared gradients forever, so its effective rate shrinks to zero on long runs. Neither alone is enough for the combination of noisy gradients, uneven curvature, and long training that defines modern deep learning.`,
       ],
     },

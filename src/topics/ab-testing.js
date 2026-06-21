@@ -94,6 +94,7 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: "callout", text: "A/B testing turns a product choice into a noise model: the observed lift only matters after you ask how often chance can fake it."},
       ],
     },
     {
@@ -135,6 +136,7 @@ export const article = {
       heading: 'How it works (2)',
       paragraphs: [
         `The curve is the "chance alone" world. It shows where measured differences would land across many imaginary reruns if the product change had no effect. The marker is the one experiment you actually observed. At low traffic, the curve is wide, so the marker can sit inside a region that luck reaches often. At higher traffic, the curve tightens around zero, so the same marker can move into the tail.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/7/74/Normal_Distribution_PDF.svg`, alt: `Normal distribution probability density functions`, caption: `The null curve shows where measured lift would fall if the variants were equal. Source: Wikimedia Commons, Inductiveload, public domain.`},
         `That is the point of the sample-size control. Nothing about the displayed conversion rates changes. A is still 5.0%, B is still 6.5%, and the lift is still 1.5 percentage points. What changes is the amount of data behind those rates. The visual proves that "same lift" is not the same as "same evidence."`,
       ],
     },
@@ -143,6 +145,7 @@ export const article = {
       paragraphs: [
         `Random assignment makes the two groups comparable before the product experience differs. If assignment is fair and stable, outside causes should be balanced in expectation: mobile users, desktop users, impatient users, loyal users, and random arrival patterns all land in both buckets. That is why the remaining difference can be treated as a signal-plus-noise problem instead of an uncontrolled observational comparison.`,
         `The normal approximation works here because each arm has many independent conversion trials. Individual users still vary, but the aggregate difference has a predictable sampling distribution. This is the same reason polling margins and confidence intervals shrink slowly with sample size: to cut uncertainty in half, you need roughly four times as much data.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/8/8c/Standard_deviation_diagram.svg`, alt: `Standard deviation regions under a normal distribution`, caption: `Standard deviation makes sampling noise visible: more traffic narrows uncertainty slowly, by square root n. Source: Wikimedia Commons, M. W. Toews, public domain.`},
       ],
     },
     {
@@ -163,6 +166,7 @@ export const article = {
       heading: 'Where it fails (2)',
       paragraphs: [
         `Peeking is the classic failure. If you check every day and stop when p < 0.05, the advertised false-alarm rate no longer applies. Multiple metrics create the same problem. If twenty unrelated outcomes are inspected, one may look significant by accident. Multiple Testing & False Discoveries is the next topic for that dashboard trap.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/c/ca/Normal_Distribution_CDF.svg`, alt: `Normal distribution cumulative distribution functions`, caption: `The CDF view shows why tail probability depends on the whole distribution, not just the observed difference. Source: Wikimedia Commons, Inductiveload, public domain.`},
         `Instrumentation mistakes can be worse than statistical mistakes. Users must be assigned consistently, conversions must be attributed to the right exposure, bots and internal traffic may need filtering, and the metric should match the product decision. A perfectly computed p-value on a broken event stream is still broken evidence.`,
       ],
     },

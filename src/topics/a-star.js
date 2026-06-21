@@ -129,6 +129,7 @@ export const article = {
         'Active node (highlighted): the frontier node with the lowest f, about to be expanded. Visited nodes (dimmed): already settled -- their shortest path from A is final. Compare highlights (edges and neighbors): the algorithm is relaxing an edge, checking whether routing through the active node gives the neighbor a cheaper g.',
         'Found highlights (at the end): the optimal path, traced back through parent pointers. Nodes visited but not on the final path represent wasted work -- the heuristic\'s job is to minimize that set.',
         'Toggle the heuristic to "zero (becomes Dijkstra)" and rerun. The path and cost are identical, but more nodes are settled. The difference in visited count is the heuristic\'s entire contribution.',
+        {type: 'callout', text: 'A star is Dijkstra with a lower-bound compass: g preserves optimal cost accounting while h spends expansion budget toward the goal.'},
       ],
     },
     {
@@ -158,6 +159,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Score each frontier node by estimated total path cost: f(n) = g(n) + h(n). g(n) is the cheapest known cost from start to n. h(n) is an estimate of the cheapest cost from n to the goal. Order the open set (priority queue) by f. The next node expanded is always the one sitting on the most promising complete route -- not just the cheapest partial route (Dijkstra) or the one nearest the goal (greedy).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/85/Astar_progress_animation.gif', alt: 'A star search expanding a grid frontier toward a goal', caption: 'A star expansion shows how f = g + h steers the frontier without abandoning cost accounting. Source: Wikimedia Commons, Subh83, CC BY 3.0.'},
         'Set h = 0 everywhere: f = g, and A* becomes Dijkstra. Set g = 0: f = h, and A* becomes greedy best-first search. A* is a continuous dial between them, controlled by heuristic quality.',
         'The critical constraint: h must be admissible -- it must never overestimate the true cheapest remaining cost. When h is admissible, f(n) is a lower bound on the cost of any complete path through n. So when the goal reaches the front of the queue, no unseen node can hide a cheaper route: even its optimistic lower bound is already worse.',
       ],
@@ -211,6 +213,7 @@ export const article = {
       heading: 'Worked example',
       paragraphs: [
         '5x5 grid, start at (0,0), goal at (4,4). Walls block cells (1,1), (1,2), (2,3), (3,1). Movement is 4-connected (up/down/left/right), all edge weights 1. Heuristic: Manhattan distance h(r,c) = |r-4| + |c-4|.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5d/AstarExampleEn.gif', alt: 'Animated A star example on a grid with obstacles', caption: 'A second A star trace makes the worked example easier to follow step by step. Source: Wikimedia Commons, CC0 1.0.'},
         'Step 1. Open = {(0,0) f=0+8=8}. Pop (0,0), settle it. Neighbors (0,1) and (1,0) both get g=1, h=7, f=8. Open = {(0,1), (1,0)}.',
         'Step 2. Pop (0,1) by tie-break. Neighbor (0,2) gets g=2, h=6, f=8. Neighbor (1,1) is a wall -- skip. Open = {(1,0), (0,2)}.',
         'Step 3. Pop (1,0). Neighbor (2,0) gets g=2, h=6, f=8. Neighbor (1,1) is a wall -- skip.',

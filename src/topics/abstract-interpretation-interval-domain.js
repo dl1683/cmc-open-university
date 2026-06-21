@@ -139,6 +139,7 @@ export const article = {
       paragraphs: [
         'Testing tells you what happened on the runs you executed. Static analysis often needs a stronger kind of answer: can this array index ever exceed the array length, can this counter ever become negative, can this loop violate an invariant for any input?',
         'Abstract interpretation exists to make those questions computable. Instead of trying to list every concrete state of the program, it summarizes many possible states with one abstract value that is small enough to propagate through the control-flow graph.',
+        {type: 'callout', text: 'Abstract interpretation wins by proving over a safe summary of all states, accepting false alarms instead of missing real executions.'},
       ],
     },
     {
@@ -167,6 +168,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'The engine usually looks like Data-Flow Worklist Analysis. Each program point has an abstract state. Transfer functions update that state through assignments, arithmetic, branches, calls, and memory operations. Joins merge facts from multiple predecessors.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Directed edges help show how abstract facts move through program points until a fixed point is reached. Source: Wikimedia Commons, David W., public domain.'},
         'For intervals, assignment is interval arithmetic. If `x` is `[1, 4]`, then `x + 1` is `[2, 5]`. If a branch says `x < 10`, the true side can intersect the interval with `[-inf, 9]` for integer code. If two paths meet with `[1, 3]` and `[8, 12]`, their join is `[1, 12]`.',
         'Loops require a fixed point: keep applying transfer and join until no abstract state changes. Plain joining can ascend forever: `[1,1]`, `[1,2]`, `[1,3]`, and so on. Widening accelerates convergence by jumping to a stable broader interval such as `[1,+inf]`. Narrowing then runs a few more passes to regain precision from guards.',
       ],

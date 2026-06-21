@@ -234,12 +234,14 @@ export const article = {
       paragraphs: [
         `A main-memory database index has a different bottleneck from a disk index. The data is already in RAM, so the cost shifts to cache misses, unpredictable branches, pointer chasing, and wasted memory. Big-O alone hides those costs.`,
         `An Adaptive Radix Tree, or ART, is an ordered in-memory index for keys that can be treated as byte strings. It keeps trie-style prefix search and sorted traversal, but it changes each node layout to match that node\'s fanout.`,
+        {type: `callout`, text: `ART keeps trie order but treats each node as a cache-sensitive layout decision rather than a fixed array.`},
       ],
     },
     {
       heading: `The wall`,
       paragraphs: [
         `A plain byte trie is the natural baseline. Each level consumes one byte of the key, and a 256-entry child array gives direct access to the next edge. Lookup is simple and ordered traversal is natural.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg`, alt: `Trie containing words with shared prefixes`, caption: `A trie makes byte-by-byte branching explicit, which is the baseline ART compresses and resizes. Source: Wikimedia Commons, Booyabazooka, public domain.`},
         `The wall is sparsity. Most nodes lack 256 children. Allocating 256 pointers for every node wastes memory and cache. Replacing the array with a small child list saves space, but dense nodes become slow scans. A hash table gives fast exact lookup, but it loses sorted order and prefix scans.`,
       ],
     },
@@ -329,6 +331,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'Index keys for fast lookup. Hash table: O(1) average but no order — can\'t do range queries or prefix searches. BST/AVL/Red-Black: O(log n) with order, but each comparison examines the entire key. For long keys (URLs, file paths): comparison cost dominates.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'Small B-tree diagram with grouped keys in nodes', caption: 'A B-tree shows the competing idea of grouping many keys per node to reduce pointer hops and IO. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
         'Trie: O(m) lookup for key length m — independent of n. But each node needs space for all possible children (256 for bytes). Sparse nodes waste memory. Radix tree (Patricia trie): compress single-child chains into one node. Saves space but node types vary.',
         'ART (Adaptive Radix Tree, Leis et al. 2013): radix tree with four node types that adapt to density: Node4 (≤4 children, sorted array), Node16 (≤16, SIMD-searchable array), Node48 (≤48, 256-entry index → 48 child pointers), Node256 (full 256-pointer array). As children are added or removed, nodes grow or shrink between types. Result: space-efficient like a hash table, order-preserving like a tree, O(m) per lookup. Height = key length in bytes, not log(n). Used in: database indexes (HyPer, DuckDB, TigerBeetle), IP routing tables, file system path lookup.',
       ],

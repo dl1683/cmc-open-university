@@ -214,6 +214,7 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: "callout", text: "Checkpointing changes activation memory from a long-lived trace into short replay windows with saved boundaries."},
       ],
     },
     {
@@ -234,6 +235,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Imagine a model as a chain of blocks. Without checkpointing, each block output stays alive until backward reaches it. With checkpointing, the runtime saves the input or output boundary of a region, drops interior activations, and later reruns that region forward during backward to rebuild the exact intermediates needed for gradient formulas.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'Layered networks make the saved-boundary idea concrete: keep selected block outputs and rebuild missing interiors during backward. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},
         'The recomputed activations are temporary. They exist just long enough to compute gradients for that segment, then they can be freed. The memory win comes from keeping fewer tensors live across the whole forward-to-backward gap. The compute cost comes from executing parts of the forward pass twice.',
       ],
     },

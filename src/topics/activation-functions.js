@@ -73,6 +73,7 @@ export const article = {
         "The plot shows input x on the horizontal axis and activation output on the vertical axis. Each curve is one activation function applied element-wise. The active highlight marks the function currently being introduced; visited markers show functions already plotted for comparison.",
         "Watch the slope of each curve, not just its shape. Steep regions are where the derivative is large and gradients flow well during training. Flat regions are where the derivative is near zero and gradients vanish. The first frame shows a plain linear function to establish the baseline that activation functions must break.",
         "After all three curves appear, compare them side by side: sigmoid saturates at both extremes, tanh saturates at both extremes but is zero-centered, and ReLU has constant slope on the positive side but is exactly zero on the negative side. The invariant across all frames is that slope equals trainability.",
+        {type: "callout", text: "An activation is both a bend in the forward map and a gate for gradient flow during training."},
       ],
     },
     {
@@ -80,6 +81,7 @@ export const article = {
       paragraphs: [
         `A neural network layer is mostly an affine transformation: multiply inputs by weights, add biases, pass the result onward. If every layer did only that, depth would be an illusion. The composition of linear or affine functions is still one affine function. A hundred layers without nonlinear activations can be collapsed into a single layer. The model may have many parameters, but its input-output shape is still a plane, hyperplane, or linear decision boundary in transformed coordinates.`,
         `Activation functions are the bends between those linear maps. They let a network build curves, gates, regions, interactions, and piecewise surfaces. A layer creates weighted combinations; the activation decides how those combinations pass forward. Stack that pattern many times and the model can approximate complicated functions rather than only straight-line relationships.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg`, alt: `Layered neural network diagram with colored nodes`, caption: `The layer stack shows why nonlinear bends between affine maps are needed for depth to add expressive power. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.`},
         `The activation also controls learning. Backpropagation sends gradients backward through every operation. If an activation has useful slope in the region where neurons operate, gradients can pass. If it is flat, gradients shrink. If it outputs exactly zero with zero derivative for many units, parts of the network can stop learning. So an activation is both a forward modeling choice and a backward optimization choice.`,
       ],
     },
@@ -103,6 +105,7 @@ export const article = {
       heading: `Sigmoid and tanh`,
       paragraphs: [
         `Sigmoid maps any real input into the interval (0, 1). That makes it natural at the end of a binary classifier: the output can be interpreted as a probability after logistic training and calibration checks. Its derivative is largest near zero and shrinks in the tails. For inputs around +6 or -6, the output barely changes when the input changes. In a hidden layer, that means the neuron is saturated and the gradient flowing through it is weak.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/8/88/Logistic-curve.svg`, alt: `Logistic sigmoid curve`, caption: `The logistic curve shows saturation at both ends, which explains small gradients far from the center. Source: Wikimedia Commons, Qef, public domain.`},
         `Sigmoid also has a centering problem. Its outputs are always positive, so the next layer receives activations with a positive mean unless other machinery corrects it. That can make optimization zigzag because weight updates tend to share the same sign structure. This is one reason sigmoid moved out of favor for hidden layers even though it remains useful for binary output heads and gates.`,
         `Tanh maps inputs into (-1, 1). It is essentially a centered sigmoid. The zero-centered output helps optimization because activations can be positive or negative. That made tanh a strong default in older neural networks and recurrent architectures. But tanh still saturates in both tails. It solves the centering problem better than sigmoid, not the vanishing-gradient problem caused by flat extremes.`,
       ],
@@ -111,6 +114,7 @@ export const article = {
       heading: `ReLU and its family`,
       paragraphs: [
         `ReLU is max(0, x). It looks crude because it is two straight lines joined at a corner: zero for negative inputs, identity for positive inputs. That simplicity is the reason it works. On the positive side the derivative is 1, so gradients can pass through deep stacks without being repeatedly shrunk by a saturating curve. ReLU helped make very deep convolutional networks practical because it gave optimization a wide non-flat region.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/6/6c/Rectifier_and_softplus_functions.svg`, alt: `Rectifier and softplus activation curves`, caption: `ReLU and softplus make the hard gate versus smooth gate tradeoff visible on one axis. Source: Wikimedia Commons, Dan Stowell, CC0 1.0.`},
         `The negative side is the price. For x below zero, the output is zero and the derivative is zero. A unit that receives negative pre-activations for all relevant examples contributes nothing and learns nothing through ordinary gradient updates. This is called a dead ReLU. Some dead units are just sparsity; many dead units are wasted capacity. Initialization, learning rate, normalization, and data distribution all influence how often this happens.`,
         `Leaky ReLU gives the negative side a small slope instead of zero. ELU and SELU modify the negative side more smoothly. GELU and Swish use smooth gates that keep small negative signals in a probabilistic or sigmoid-shaped way. Modern transformer feed-forward networks often use GELU or related activations because they train well at scale. These variants are not magic decorations; they are attempts to keep the benefits of ReLU while softening its dead-zone behavior.`,
       ],

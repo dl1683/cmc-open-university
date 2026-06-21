@@ -348,6 +348,7 @@ export const article = {
         'In the halting-mass view, each row of the table is one recurrent step. Watch the cumulative probability column climb toward one. The final row uses a remainder -- not the raw halt probability -- so the weights sum exactly. The action column is not decoration; it is the runtime branch between "continue" and "emit."',
         'In the recurrent-depth view, positions process in parallel but halt independently. Ambiguous tokens stay active longer while simple tokens freeze early. The graph shows shared weights applied in a loop, not a fixed stack of distinct layers.',
         'At each frame, ask: how much halt mass has accumulated, which examples or positions are still active, and what the ponder cost would be if the model stopped here versus continuing.',
+        {type: 'callout', text: 'ACT turns compute depth into trainable state: halt mass, remainder, active mask, and ponder cost decide when thinking stops.'},
       ],
     },
     {
@@ -384,6 +385,7 @@ export const article = {
       paragraphs: [
         'At each recurrent step t, the core network reads the current hidden state and produces two outputs: an updated state h_t and a scalar halt probability p_t (passed through a sigmoid). The runtime maintains a running sum of halt probabilities. If the cumulative mass is still below one, the example stays active and another step runs.',
         'When the next p_t would push the cumulative sum past one, the runtime does not use p_t directly. Instead it assigns the final step a remainder weight: R = 1 - (sum of all previous p values). This guarantees the output weights sum to exactly one. The model\'s final prediction is the weighted combination: y = p_1*h_1 + p_2*h_2 + ... + R*h_N.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'A directed graph clarifies the recurrent control loop: update state, add halt mass, emit or loop. Source: Wikimedia Commons, David W., public domain.'},
         {
           type: 'code',
           language: 'python',

@@ -127,12 +127,14 @@ export const article = {
           text: 'The surface is NOT a loss landscape. It is the function the layer computes. The loss landscape lives in weight space; this terrain lives in input space. Confusing the two is a common mistake.',
         },
         'At each frame, ask: how many flat regions exist, where are the boundaries between them, and what happens to gradient flow on the flat parts versus the sloped parts.',
+        {type: 'callout', text: 'Activation geometry is input-space folding: each nonlinear unit creates regions where different linear maps become active.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'Activation functions are almost always taught as 1-D curves: sigmoid is an S, ReLU is a bent line, GELU is a smooth bent line. That framing hides the real story. An activation does not operate on a single number in isolation -- it operates on every neuron in a layer, and the combined effect reshapes the entire input space. The question is not "what does the curve look like" but "what does the layer do to geometry."',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/46/Colored_neural_network.svg', alt: 'Layered neural network diagram with colored nodes', caption: 'The network diagram grounds the 3D terrain in ordinary layers: inputs feed hidden units whose activations reshape the represented function. Source: Wikimedia Commons, Glosser.ca, CC BY-SA 3.0.'},,
         'A single ReLU neuron receiving two inputs computes ReLU(w1*x1 + w2*x2 + b). Plotted in 3D, this is a tilted plane clamped to zero on one side -- a single fold in the input space. Three neurons produce three folds that cross each other, carving the plane into distinct flat-sided regions. Each region has its own slope because a different subset of neurons is active there. That piecewise-linear origami is what a ReLU layer actually computes, and it is invisible on a 1-D graph.',
         'Swap to sigmoid and the folds melt into smooth hills -- but the far edges go flat, which means gradients die there. Swap to GELU and you get ReLU\'s origami with sanded creases. The geometry is not decoration. It determines what boundaries the network can draw, where gradients flow, and where learning stalls.',
       ],
