@@ -722,7 +722,9 @@ html { scroll-behavior: smooth; }
 }
 .study-section-body {
   margin-top: 10px;
-  width: 100%;
+  max-width: 90ch;
+  margin-left: auto;
+  margin-right: auto;
 }
 .study-section h3 {
   font-size: 1.08rem;
