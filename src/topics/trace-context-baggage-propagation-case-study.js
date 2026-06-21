@@ -185,6 +185,7 @@ export const article = {
         'The header-flow view traces a request from client to downstream service. Active nodes show the current propagation step. Found nodes mark headers that are now committed to the outbound carrier. Compare nodes highlight where a second header type (tracestate, baggage) runs alongside the primary one.',
         'The baggage-guardrails view shifts focus to what travels inside baggage and what must be stopped at the edge. Found cells mark safe choices. Removed cells mark values that would cause production failures if propagated.',
         'At each frame, ask: what context crossed a boundary, what carrier moved it, and what breaks if this step is skipped.',
+        {type:'callout', text:'Trace propagation works only when context is treated as boundary-crossing data with explicit extraction, storage, update, and injection at every hop.'},
       ],
     },
     {

@@ -345,6 +345,7 @@ export const article = {
       paragraphs: [
         'The memory write/read view traces a single stream through the Titans pipeline: chunking, surprise scoring, memory update, decay, and readback. Active nodes are the component currently executing. Found nodes are outputs already produced. Compare nodes highlight the alternative path the architecture chose not to take.',
         'The architecture audit view places Titans against Transformers, SSMs, and ATLAS on the same axes. Active series are the Titans curves. Compare series are the baselines. Markers flag the context lengths where the gap matters.',
+        {type:'callout', text:'Titans is easiest to audit when every memory write is tied to the surprise signal that caused it.'},
         {
           type: 'note',
           text: 'At each frame, ask: what state changed, what triggered the change, and what would break if the trigger were removed. The surprise-gated write is the central mechanism -- every other component exists to support or constrain it.',

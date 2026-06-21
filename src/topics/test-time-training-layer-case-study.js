@@ -323,6 +323,7 @@ export const article = {
       paragraphs: [
         'Test-Time Training layers exist because long-context sequence models face an uncomfortable choice. Full attention stores a growing KV cache of token-level memory. That is accurate and flexible, but the cache grows with context length, batch size, layers, KV heads, and precision. Recurrent and state-space models keep bounded state and scan efficiently, but a small fixed vector or state can forget exact details. TTT layers propose a different hidden state: instead of carrying only a vector, the layer carries a small model that can be trained while reading the sequence.',
         'The idea comes from Learning to Learn at Test Time, where the hidden state is treated as parameters theta_t of an inner model rather than a passive activation: https://arxiv.org/abs/2407.04620. As tokens arrive, the layer builds a self-supervised local objective, updates theta_t by gradient descent, and carries the updated parameters forward. TTT-Linear uses a linear hidden model. TTT-MLP uses a small multilayer perceptron. The promise is linear-time recurrent execution with a hidden state more expressive than a fixed vector.',
+        {type:'callout', text:'TTT turns hidden state from a passive cache into an updateable model, so long context is represented by learned adaptation rather than token retention.'},
       ],
     },
     {

@@ -169,6 +169,8 @@ export const article = {
         'The resumption view traces ticket lifecycle left to right: a full handshake mints a ticket, the client caches it with scope metadata, a later ClientHello offers the ticket with a PSK binder, and the server verifies and resumes. Active nodes are the current step in that lifecycle. Found nodes are commitments locked in from the previous full handshake.',
         'The 0-RTT replay view highlights the gap between encryption and replay safety. Follow the early-data path from the client through the server to the application, and watch the anti-replay node. When that node shows "miss," the system has no proof this early data is fresh. The matrix frame maps request types to replay fitness so you can see which operations belong in 0-RTT and which must wait.',
         'The key state change across both views is not "faster handshake." It is a shift from fresh full authentication to resumed authenticated context, and optionally from post-handshake application data to replayable early data. Each transition trades a guarantee for latency.',
+        {type:'callout', text:'Resumption is fast because it reuses scoped proof from a prior handshake, and risky only when early data crosses a replay-sensitive boundary.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4c/Abbreviated_TLS_1.3_Handshake.svg', alt:'Timeline diagram of an abbreviated TLS 1.3 handshake between client and server.', caption:'Abbreviated TLS 1.3 handshake diagram, Fleshgrinder and The People from The Tango! Desktop Project, public domain, via Wikimedia Commons.'},
       ],
     },
     {

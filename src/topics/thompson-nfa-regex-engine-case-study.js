@@ -217,6 +217,7 @@ export const article = {
       paragraphs: [
         'Regular expressions often sit on service boundaries: log filters, routing rules, validation checks, search boxes, security policies, and data pipelines. The input may be large, messy, or controlled by someone trying to waste your CPU.',
         'A Thompson NFA engine exists because a matcher should not turn a small ambiguous pattern into an exponential search. It compiles the pattern into a graph and scans the input with a bounded frontier of active states.',
+        {type:'callout', text:'A Thompson engine avoids catastrophic guessing by turning regex ambiguity into a bounded frontier of active graph states.'},
       ],
     },
     {

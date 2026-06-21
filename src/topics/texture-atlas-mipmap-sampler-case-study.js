@@ -191,6 +191,8 @@ export const article = {
         'Texture atlases and mipmaps solve two different GPU problems that often meet in the same renderer. Atlases reduce binding churn by packing many small images into one texture. Mipmaps reduce aliasing and bandwidth by storing prefiltered lower-resolution versions of a texture.',
         'The practical problem is not just storing pixels. A renderer must draw many quads without changing state constantly, map each quad to the correct subimage, choose the right level of detail, and avoid seams caused by filtering across neighboring atlas entries.',
         'That makes the topic a data-structure case study: one large pixel array, a metadata table of UV rectangles, padding rules, a mip pyramid, and sampler state that tells the GPU how to read it.',
+        {type:'callout', text:'An atlas is safe only when the pixel layout, UV table, mip chain, and sampler rules are treated as one contract.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/59/Mipmap_Aliasing_Comparison.png', alt:'Side-by-side checkerboard texture showing aliasing without mipmapping and smoother distant sampling with mipmapping.', caption:'Mipmap aliasing comparison, BillyBob CornCob, CC0, via Wikimedia Commons.'},
       ],
     },
     {

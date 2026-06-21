@@ -196,6 +196,7 @@ export const article = {
       paragraphs: [
         'TiKV stores data as a distributed, replicated key-value system, while TiDB exposes SQL transactions above it. A single SQL transaction can update rows, indexes, and metadata that live in different key ranges, on different leaders, replicated by different Raft groups.',
         'Percolator-style transactions exist to make those multi-key changes atomic under partial failure. The hard case is not the clean success path. The hard case is a coordinator crash after some keys have durable locks, before every key has a final committed record.',
+        {type:'callout', text:'Percolator makes crash recovery possible by storing the transaction decision in data that later actors can inspect.'},
       ],
     },
     {

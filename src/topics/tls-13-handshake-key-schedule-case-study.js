@@ -204,6 +204,8 @@ export const article = {
         'The handshake view traces trust construction left to right: ClientHello negotiates, ServerHello selects, Certificate and CertificateVerify bind identity, Finished authenticates the transcript, and application data flows only after all checks pass. Active nodes are the current trust-building step. Found nodes are commitments already locked in.',
         'The key-schedule view shows derivation flow. Secrets enter on the left (optional PSK, fresh ECDHE), pass through HKDF stages, get contextualized by the transcript hash, and split into per-direction traffic keys on the right. Each edge is a derivation dependency, not a message on the wire.',
         'Watch for the separation between authentication (certificate, signature, MAC) and key derivation (HKDF, transcript hash). TLS 1.3 keeps these roles distinct so that compromising one mechanism does not automatically break the other.',
+        {type:'callout', text:'TLS 1.3 builds trust by deriving keys from fresh secrets and then authenticating the exact transcript that selected them.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/73/Full_TLS_1.3_Handshake.svg', alt:'Timeline diagram of a full TLS 1.3 handshake between client and server.', caption:'Full TLS 1.3 handshake diagram, Fleshgrinder and The People from The Tango! Desktop Project, public domain, via Wikimedia Commons.'},
       ],
     },
     {

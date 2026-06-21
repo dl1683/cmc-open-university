@@ -198,6 +198,7 @@ export const article = {
       paragraphs: [
         'PyTorch NCCL flight recorder exists because distributed training failures are expensive and often silent. A single stuck collective can freeze hundreds or thousands of accelerators. The terminal may show only a timeout, the last Python log may be unrelated, and the visible symptom may look like a network failure even when the root cause is a data-dependent branch in the training loop.',
         'The hard part is that collective communication is a shared contract. Every rank must enter the same operation in the same order with compatible buffers. When that contract breaks, the final state is usually just "some ranks are waiting." Flight recorder preserves the recent collective history so the incident can be debugged from rank evidence instead of guesswork.',
+        {type:'callout', text:'Flight recorder turns a frozen distributed job into comparable per-rank event history, so desync becomes a structured diff instead of a guess.'},
       ],
     },
     {

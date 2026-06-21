@@ -235,6 +235,7 @@ export const article = {
       paragraphs: [
         `Tiny Recursive Model reasoning exists because some hard reasoning tasks do not mainly fail from lack of facts. They fail because the solver has to hold a compact state, repair it several times, and stop only after the state is consistent. Sudoku, maze solving, and ARC-style grid transformations are examples. They are not asking for broad world knowledge. They are asking for a small computation that can notice constraints, revise a candidate answer, and avoid locking onto the first plausible pattern.`,
         `Large language models usually spend extra reasoning compute by writing more tokens. That works for many language tasks, but it is an awkward fit for small structured puzzles. A long visible chain of thought can be verbose, brittle, and hard to score step by step. The TRM idea asks a different question: can a small network use repeated internal updates as its reasoning budget? The educational value is that the model becomes a state machine with a latent scratchpad, an answer buffer, a step counter, and a halt rule.`,
+        {type:'callout', text:`The model spends compute by revising persistent state, not by emitting a longer explanation.`},
       ],
     },
     {
