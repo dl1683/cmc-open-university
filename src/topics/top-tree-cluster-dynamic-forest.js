@@ -335,12 +335,17 @@ export const article = {
           type: 'note',
           text: 'At each frame, ask: which clusters changed, why the join or split is valid, and what the root cluster now summarizes. If you cannot answer the third question, the frame has not taught you anything yet.',
         },
+        {
+          type: 'callout',
+          text: 'A top tree works because every large tree query is reduced to constant-size facts at two-boundary clusters.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'A dynamic forest is a collection of trees where edges appear and vanish over time. After each change, queries ask about paths ("what is the sum from u to v?"), components ("what is the diameter of this tree?"), or marked subsets ("where is the nearest flagged vertex?"). The challenge is answering these queries without rescanning the whole component after every link or cut.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Tree_graph.svg/250px-Tree_graph.svg.png', alt: 'Small undirected tree graph with six labeled vertices', caption: 'Top trees start from ordinary graph-theory trees, then maintain a balanced hierarchy over their edges. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Tree_graph.svg.' },
         'Static decompositions -- Heavy-Light Decomposition, Euler tour arrays, binary lifting -- assume fixed topology. They answer path and subtree queries efficiently, but rebuilding them after a structural change costs O(n) in the worst case. Link-Cut Trees handle dynamic topology but expose only path aggregates natively; component-wide queries like diameter require extra bookkeeping. Euler Tour Trees handle dynamic connectivity and some component aggregates, but lack the boundary-aware path interface needed for richer summaries.',
         {
           type: 'quote',
@@ -425,17 +430,12 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         {
-          type: 'table',
-          headers: ['Operation', 'Top Tree', 'Link-Cut Tree', 'Euler Tour Tree', 'Heavy-Light Decomp.'],
-          rows: [
-            ['Link', 'O(log n) worst-case', 'O(log n) amortized', 'O(log n)', 'O(n) rebuild'],
-            ['Cut', 'O(log n) worst-case', 'O(log n) amortized', 'O(log n)', 'O(n) rebuild'],
-            ['Path aggregate', 'O(log n) worst-case', 'O(log n) amortized', 'not native', 'O(log^2 n)'],
-            ['Subtree aggregate', 'O(log n) via expose', 'O(log n) with augmentation', 'O(log n)', 'O(log n)'],
-            ['Non-local (diameter, center)', 'O(log n) with custom summary', 'requires extension', 'requires extension', 'O(n) recompute'],
-            ['Dynamic topology', 'yes', 'yes', 'yes', 'no (static)'],
-            ['Worst-case per op', 'yes', 'no (amortized)', 'yes', 'n/a'],
-            ['Space', 'O(n)', 'O(n)', 'O(n)', 'O(n)'],
+          type: 'bullets',
+          items: [
+            'Link and cut: top trees give O(log n) worst-case updates; link-cut trees give O(log n) amortized updates; Euler tour trees also update dynamically; heavy-light decomposition usually needs an O(n) rebuild after topology changes.',
+            'Path aggregate: top trees expose the requested path and answer from the root summary in O(log n) worst-case; link-cut trees handle path aggregates natively with amortized bounds; Euler tour trees do not expose the same path-summary interface.',
+            'Component-wide or non-local aggregate: top trees can support diameter, center, and related summaries when the cluster summary is constant-size; other dynamic-tree structures need custom extensions or recomputation.',
+            'Space: all four families are O(n) when the per-node or per-cluster summary is constant-size.',
           ],
         },
         'When n doubles, top tree operations add one more level to the cluster hierarchy -- one more join or split. The cost grows as log base 2: a million-node tree needs about 20 cluster levels; a billion-node tree needs about 30. Each level costs one combine call, so the wall-clock time per operation scales with the cost of the combine function times the tree height.',
@@ -482,15 +482,14 @@ export const article = {
           ],
         },
         {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'Heavy-Light Decomposition -- static path queries on trees'],
-            ['Prerequisite', 'Link-Cut Tree -- dynamic path queries with amortized bounds'],
-            ['Prerequisite', 'Euler Tour Tree -- dynamic connectivity and subtree aggregates'],
-            ['Prerequisite', 'Segment Tree -- range queries that top tree summaries generalize'],
-            ['Extension', 'Self-adjusting top trees -- access-adaptive cluster hierarchies'],
-            ['Application', 'Dynamic diameter, center, and radius maintenance in network monitoring'],
+          type: 'bullets',
+          items: [
+            'Prerequisite: Heavy-Light Decomposition -- static path queries on trees.',
+            'Prerequisite: Link-Cut Tree -- dynamic path queries with amortized bounds.',
+            'Prerequisite: Euler Tour Tree -- dynamic connectivity and subtree aggregates.',
+            'Prerequisite: Segment Tree -- range queries that top tree summaries generalize.',
+            'Extension: self-adjusting top trees -- access-adaptive cluster hierarchies.',
+            'Application: dynamic diameter, center, and radius maintenance in network monitoring.',
           ],
         },
         'The essential question for any proposed top-tree aggregate is: can two child cluster summaries be joined into a parent summary using only constant-size, boundary-aware information? If yes, the aggregate fits the framework. If no, a different data structure is needed.',

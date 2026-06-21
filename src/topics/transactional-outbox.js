@@ -231,6 +231,10 @@ export const article = {
       paragraphs: [
         'A service often has to change local state and tell the rest of the system what happened. An order service creates an order and inventory needs to reserve stock. A billing service records a charge and email needs to send a receipt. The database update and the message are part of one business fact, but they usually live in two different systems.',
         'The transactional outbox exists because that split creates a crash window. If the service commits the database row and dies before publishing the event, downstream systems never hear about a real change. If it publishes first and the database transaction rolls back, downstream systems react to a change that never existed.',
+        {
+          type: 'callout',
+          text: 'The outbox turns a two-system promise into one durable local commit plus retryable delivery.',
+        },
         'The pattern is not mainly about cleaner code. It is about choosing one durable source of truth for the decision that an event should exist. Once the event intent is a database row, a later worker can retry publication without asking the original request handler to still be alive.',
       ],
     },
@@ -238,6 +242,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'The obvious approach is a dual write: update the database, then publish to Kafka, RabbitMQ, SNS, or another broker. Retrying the publish makes the happy path more reliable, but it does not remove the moment between database commit and broker acknowledgement.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Animated packet switching diagram showing packets moving through a network', caption: 'A broker publish is a network effect, so the service must survive lost acknowledgements, retries, and reordered delivery. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Packet_Switching.gif.' },
         'Publishing before the commit has the opposite bug. A consumer can observe an event for a transaction that later aborts. Wrapping the database and broker in a distributed transaction is often unavailable, operationally heavy, or not worth the coupling. The wall is simple: there is no single durable decision record shared by the database and the broker.',
         'Timeouts make the wall worse. The service may not know whether a broker publish succeeded, whether the broker accepted the event but the acknowledgement was lost, or whether the database commit completed after the client disconnected. Without a durable outbox row, retries can create either missing events or duplicates with no stable dedupe key.',
       ],
@@ -302,6 +307,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         'Transactional outbox wins when one service owns a local database but other services need to react after commit. It fits order management, payments, inventory, audit streams, CQRS projections, cache invalidation, search indexing, and Saga Pattern steps.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Apache_Kafka_logo.svg/120px-Apache_Kafka_logo.svg.png', alt: 'Apache Kafka project logo', caption: 'Kafka is a common destination for outbox relays because it provides durable partitioned event streams. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Apache_Kafka_logo.svg.' },
         'It is especially useful when the database is the authoritative record and the broker is the distribution mechanism. The service does not need to block on every downstream system, and downstream systems can rebuild state by replaying events.',
       ],
     },
@@ -318,68 +324,5 @@ export const article = {
         'Primary sources: Debezium Outbox Event Router documentation at https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html and Confluent EventRouter SMT docs at https://docs.confluent.io/kafka-connectors/transforms/current/eventrouter.html. Study Idempotency Keys, Saga Pattern, Kafka Log Case Study, Message Queue, and Write-Ahead Log next.',
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Transactional Outbox moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
 ],
 };

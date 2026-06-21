@@ -192,12 +192,14 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: "callout", text: "A FLOPs model is useful only when it names the tensor shape. Dense terms grow with tokens times width squared; attention terms grow with token pairs times width."},
       ],
     },
     {
       heading: `Why this exists`,
       paragraphs: [
         `Transformer inference sounds like one cost until you try to make a serving decision. Then the word hides several different bills: dense matrix multiplies, attention over token pairs, KV-cache reads, activation movement, batching overhead, and queueing. A simple FLOPs model is useful because it separates the arithmetic shape before hardware details enter the argument.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/The-Transformer-model-architecture.png/250px-The-Transformer-model-architecture.png`, alt: `Transformer encoder-decoder architecture diagram.`, caption: `The architecture diagram gives each cost term a home: projections, attention, feed-forward blocks, residual paths, and normalization all live inside the repeated layer. Source: Wikimedia Commons, Llion Jones, CC BY 4.0.`},
         `This article focuses on one decoder layer. Let n be the number of prompt tokens and d be the model width. For a common dense transformer block with Q, K, V, output projection, and a feed-forward layer about four times wider than d, a rough forward-pass estimate is 24 n d^2 + 4 n^2 d. The constants are not universal, but the split is durable.`,
       ],
     },
@@ -225,7 +227,8 @@ export const article = {
     {
       heading: `How it works`,
       paragraphs: [
-        `The first table separates dense rows from attention rows. QKV, output projection, and MLP are per-token matrix work. QK and AV are pairwise attention work. The optimizer table then prevents category errors: FlashAttention improves attention IO and materialization, grouped-query attention mainly reduces KV-cache size and bandwidth during serving, and mixture-of-experts changes which feed-forward experts run.`,
+        `The first matrix separates dense rows from attention rows. QKV, output projection, and MLP are per-token matrix work. QK and AV are pairwise attention work. The optimizer matrix then prevents category errors: FlashAttention improves attention IO and materialization, grouped-query attention mainly reduces KV-cache size and bandwidth during serving, and mixture-of-experts changes which feed-forward experts run.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Example_of_a_naive_Roofline_model.svg/330px-Example_of_a_naive_Roofline_model.svg.png`, alt: `Naive roofline chart showing memory and compute limits.`, caption: `The FLOPs formula tells you arithmetic shape; a roofline adds the missing hardware question of whether those FLOPs are fed by enough byte reuse. Source: Wikimedia Commons, Tanzima, CC BY-SA 4.0.`},
         `The plot fixes d at 4096 and grows n. Dense terms rise linearly with n. Attention rises quadratically. Setting 24 n d^2 equal to 4 n^2 d gives n = 6d, so the crossover is around 24k tokens for d = 4096. A 4k chat, a 32k agent run, and a 128k document prompt are different workload shapes, not just bigger versions of the same request.`,
       ],
     },
@@ -265,93 +268,20 @@ export const article = {
       ],
     },
     {
+      heading: `Worked example`,
+      paragraphs: [
+        `Use d = 4096 and n = 4096. Dense work is about 24 * 4096 * 4096^2, or 1.65 trillion FLOPs per layer. Attention work is about 4 * 4096^2 * 4096, or 0.27 trillion FLOPs per layer. At this context length, dense terms still dominate arithmetic.`,
+        `Now raise n to 32768 with the same model width. Dense work grows 8x to about 13.2 trillion FLOPs, but attention grows 64x to about 17.6 trillion FLOPs. The model did not change; the prompt shape changed which term owns the bill.`,
+        `This is why long-context product choices cannot be judged from a short-prompt benchmark. The same layer can look dense-dominated in chat and attention-dominated in agent traces or document analysis.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
         `Study The Transformer Block and Attention Mechanism to connect each term to layer structure. Then read Transformer Inference Roofline, KV Cache, Grouped-Query Attention, FlashAttention Case Study, Prefix Caching & RadixAttention, Sliding-Window Attention Context Policy, KV Cache Concurrency Capacity Model, LLM Continuous Batching, Prefill/Decode Disaggregation Case Study, and LLM Inference Cost Stack Case Study.`,
         `Primary sources worth reading are Attention Is All You Need at https://arxiv.org/abs/1706.03762, the JAX scaling book chapters on transformer and inference math at https://jax-ml.github.io/scaling-book/transformers/ and https://jax-ml.github.io/scaling-book/inference/, Efficiently Scaling Transformer Inference at https://arxiv.org/abs/2211.05102, and FlashAttention at https://arxiv.org/abs/2205.14135.`,
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        "The core insight is the smallest idea that changes what can be proven.",
-        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
-        "Everything else in the topic should serve this one sentence.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Transformer Layer FLOPs Cost Model moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
 ],
 };
 

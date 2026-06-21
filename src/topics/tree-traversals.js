@@ -108,12 +108,14 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: "callout", text: "Traversal order is a dependency contract: it decides whether a node is processed before children, after children, between subtrees, or by depth."},
       ],
     },
     {
       heading: `Why this exists`,
       paragraphs: [
         `A tree traversal is a disciplined order for visiting every node exactly once. The order is not cosmetic; it determines what information is available when a node is processed. In-order visits left subtree, node, right subtree. Pre-order visits node before children. Post-order visits children before node. Level-order visits nodes by depth from the root.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Sorted_binary_tree_ALL_RGB.svg/330px-Sorted_binary_tree_ALL_RGB.svg.png`, alt: `Binary search tree showing traversal paths in different colors.`, caption: `Traversal diagrams make the invisible order visible: the same tree can emit different sequences depending on where the node visit happens. Source: Wikimedia Commons, Derrick Coetzee, public domain.`},
         `On a Binary Search Tree, in-order traversal emits keys in sorted order because every left key is smaller and every right key is larger by invariant. Pre-order is useful for copying or serializing structure because parents appear before descendants. Post-order is useful for deletion and expression evaluation because children finish before parents. Level-order is breadth-first traversal on a tree and uses a Queue instead of the call stack.`,
       ],
     },
@@ -143,6 +145,7 @@ export const article = {
       heading: `How it works (2)`,
       paragraphs: [
         `The depth-first orders are naturally recursive. To traverse a subtree, handle its left child, its own node, and its right child in the order demanded by the task. Recursion supplies the implicit stack of unfinished calls. The same walks can be written iteratively with an explicit stack, which is safer for very deep or adversarial trees.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Sorted_binary_tree_breadth-first_traversal.svg/250px-Sorted_binary_tree_breadth-first_traversal.svg.png`, alt: `Binary search tree annotated in breadth-first traversal order.`, caption: `Breadth-first traversal shows why level-order needs a queue: every node at one depth must leave before children at the next depth. Source: Wikimedia Commons, Derrick Coetzee, public domain.`},
         `Level-order is different. Enqueue the root. Repeatedly dequeue one node, visit it, and enqueue its children from left to right. That queue discipline guarantees all nodes at depth d appear before any node at depth d + 1. Graph BFS generalizes the same frontier idea to graphs, adding a seen set because graphs can cycle back to previously visited nodes.`,
       ],
     },
@@ -187,87 +190,6 @@ export const article = {
         `Study the search-tree lesson to connect in-order traversal with sorted output. Queue and Graph BFS explain level-order traversal beyond trees. Recursion explains the implicit call stack behind depth-first walks. Rerooting DP: All Roots Tree DP, Virtual Tree LCA Compression, Trie (Prefix Tree), Binary Heap (Priority Queue), and Topological Sort show how different structures reuse the same visit-each-node discipline for different jobs.`,
       ],
     },
-      {
-      heading: 'The obvious approach',
-      paragraphs: [
-        "Name the reasonable first attempt and why teams reach for it.",
-        "Then show the exact place that approach stops scaling or starts breaking.",
-        "Treat this section as contrast, not a rejection.",
-      ],
-    },
-
-    {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        "The core insight is the smallest idea that changes what can be proven.",
-        "Phrase it as an invariant, boundary, or contract that stays true across all transitions.",
-        "Everything else in the topic should serve this one sentence.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Tree Traversals moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
 ],
 };
 

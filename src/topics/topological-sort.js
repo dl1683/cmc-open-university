@@ -111,12 +111,17 @@ export const article = {
         'Each node is a course in a prerequisite graph. An arrow from X to Y means "take X before Y." The label on each node shows either its remaining in-degree ("needs 2" means two prerequisites are still unscheduled) or its position in the final output ("#3" means it was the third course scheduled).',
         'Highlighted nodes are the ready queue: courses whose in-degree just hit zero. Green nodes are already placed in the output. Highlighted edges are outgoing dependencies being erased because their source was just scheduled.',
         'The inference rule to watch: when a node shows "needs 0," every prerequisite is already in the output, so scheduling it next is safe. Watch the counts drop each time a predecessor is scheduled. In the circular scenario, an extra edge from CAP back to CS1 creates a cycle. The ready queue empties while nodes remain unscheduled, and their positive in-degrees prove the cycle.',
+        {
+          type: 'callout',
+          text: 'Topological sort is scheduling by proof: a zero in-degree node has no unmet prerequisite left.',
+        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'Topological sort produces a linear ordering of vertices in a directed acyclic graph (DAG) such that for every edge u -> v, u appears before v. Kahn introduced the idea in 1962 as "topological sorting of large networks."',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Directed_acyclic_graph_2.svg/500px-Directed_acyclic_graph_2.svg.png', alt: 'Directed acyclic graph used to illustrate topological ordering', caption: 'A DAG can admit many valid topological orders; the algorithm only needs one order that points every edge forward. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_acyclic_graph_2.svg.' },
         'The problem appears whenever work has prerequisites. A build system must compile generated files before code that imports them. A package manager must install dependencies before dependents. A spreadsheet must recalculate cells that feed formulas before recalculating the formulas. A course planner must place prerequisites before advanced classes.',
         'The algorithm answers one question: what is a legal execution order? It does not pick the best order by priority or cost. It separates legality from optimization. Once the legal ready set exists, a scheduler can rank by priority, deadline, or resource capacity.',
       ],
@@ -139,6 +144,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Two algorithms solve topological sort in O(V + E). Both exploit the DAG structure directly instead of brute-forcing permutations.',
+        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Simple directed graph with arrows between nodes', caption: 'Direction is the contract: topological sort is only meaningful because every edge has a before-after interpretation. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.' },
         'Kahn\'s algorithm (BFS-based). Count the in-degree of every node by scanning all edges. Enqueue every node with in-degree zero. Main loop: dequeue a node, append it to the output, and walk its outgoing edges. For each neighbor, decrement the neighbor\'s in-degree. When a count hits zero, enqueue that neighbor. Repeat until the queue is empty. If the output contains all V nodes, it is a valid topological order. If fewer than V nodes were processed, the remaining nodes form a cycle.',
         'DFS-based alternative (reverse postorder). Run a depth-first search from every unvisited node. When a node finishes -- all its descendants are fully explored -- push it onto a stack. Pop the stack to get a topological order. Cycle detection uses edge coloring: if DFS reaches a node currently on the call stack (a "gray" node), that back edge proves a cycle.',
         'Kahn\'s algorithm is naturally BFS-flavored and produces nodes in level order of the dependency DAG. The DFS approach produces a different valid ordering and integrates naturally with other DFS-based algorithms like strongly connected components. The ready container in Kahn\'s can be a FIFO queue, a stack, or a priority queue. The choice affects which valid order appears but not correctness.',

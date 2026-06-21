@@ -221,12 +221,14 @@ export const article = {
         'The animation draws a roofline chart: arithmetic intensity (FLOPs per byte transferred) on the horizontal axis, attainable throughput on the vertical axis. Two lines form the "roof." The sloped line is the memory-bandwidth ceiling -- throughput grows linearly with intensity until the hardware runs out of math units. The flat line is the compute ceiling -- no workload can exceed peak FLOPs regardless of how much data reuse it achieves.',
         'Each marker is a serving phase placed on the chart. The prefill marker sits near the compute roof because processing many prompt tokens at once yields high arithmetic intensity. The decode marker sits near the memory slope because generating one token at a time reads many bytes for little new math. Watch how quantization, batching, and other levers shift markers horizontally -- rightward means more work per byte, which pushes a memory-bound phase closer to the compute roof.',
         'Active markers (highlighted) are the current focus. Found markers are phases whose bottleneck has been identified. When the animation switches to the matrix view, rows are serving phases and columns are diagnostic axes: work shape, dominant pressure, and the lever that actually helps. Read both views together to see that "the model is slow" is never a diagnosis -- the phase determines the fix.',
+        {type: 'callout', text: 'Roofline thinking starts by naming the phase. Prefill, decode, long-context cache pressure, and batching can all bottleneck on different physical limits inside the same model.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         'GPU vendors quote peak FLOPs. Cloud dashboards report tokens per second. Neither number tells you why a serving deployment is slow or what to do about it. The roofline model, introduced by Williams, Waterman, and Patterson in 2009, connects two physical limits -- compute throughput and memory bandwidth -- through a single diagnostic quantity: arithmetic intensity. A workload that performs many operations per byte of data moved can approach the compute ceiling. A workload that moves many bytes per operation is capped by the memory ceiling. The bound is whichever ceiling is lower.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Example_of_a_Roofline_model.svg/330px-Example_of_a_Roofline_model.svg.png', alt: 'Example roofline model chart with memory and compute ceilings.', caption: 'The roofline chart shows the decision boundary: low arithmetic intensity follows memory bandwidth, while high intensity can reach peak compute. Source: Wikimedia Commons, Tanzima, CC BY-SA 4.0.'},
         'LLM inference is the best modern example of why this matters, because one request hits both ceilings during its lifetime. Prefill processes the entire prompt in parallel -- large matrix multiplies with high data reuse -- and can saturate the compute units. Decode generates tokens one at a time under an autoregressive dependency, reading the full weight matrices and growing KV cache for each new token. The same GPU, the same model, the same request: compute-bound in one phase, memory-bound in the other.',
         {
           type: 'quote',
@@ -248,13 +250,13 @@ export const article = {
       paragraphs: [
         'Decode shatters the assumption. Each decode step generates one token per sequence. The same weight matrices must be read, but the input is now a single vector instead of a long sequence. Arithmetic intensity collapses. A linear layer that was a large matrix multiply during prefill becomes a matrix-vector product during decode: same bytes read, a fraction of the FLOPs.',
         {
-          type: 'table',
-          headers: ['Phase', 'Input shape', 'FLOPs per layer', 'Bytes read', 'Arithmetic intensity', 'Bottleneck'],
-          rows: [
-            ['Prefill (seq=2048)', '[2048, d]', '~2 * 2048 * d^2', '~2 * d^2 (weights)', 'High (~2048)', 'Compute'],
-            ['Decode (seq=1)', '[1, d]', '~2 * d^2', '~2 * d^2 (weights) + KV cache', 'Low (~1)', 'Memory bandwidth'],
+          type: 'bullets',
+          items: [
+            'Prefill at sequence length 2048 uses an input shaped [2048, d]. The layer performs roughly 2 * 2048 * d^2 work against one weight read, so arithmetic intensity is high and the bottleneck tends toward compute.',
+            'Decode uses an input shaped [1, d]. The layer performs roughly 2 * d^2 work while still reading weights and KV cache, so arithmetic intensity is low and the bottleneck tends toward memory bandwidth.',
           ],
         },
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Example_of_a_naive_Roofline_model.svg/330px-Example_of_a_naive_Roofline_model.svg.png', alt: 'Naive roofline chart showing memory and compute limits.', caption: 'A naive roofline still captures the serving lesson: points on the left improve by moving fewer bytes or reusing bytes better, not by chasing peak FLOPs. Source: Wikimedia Commons, Tanzima, CC BY-SA 4.0.'},
         'The KV cache makes it worse. Every decode step reads cached keys and values from all previous tokens across all layers and all attention heads. For a 70B-parameter model with 80 layers and 8192-dimension hidden state, the KV cache at 4096 context length can consume 10+ GB. That memory must be streamed through the memory bus on every single token generation step.',
         'The wall is not that decode is slow. The wall is that the reason it is slow is fundamentally different from why prefill is slow, and optimizing the wrong phase wastes engineering effort. A team that makes attention 2x faster but does not touch memory bandwidth will see prefill improve and decode barely move.',
       ],
@@ -289,16 +291,14 @@ export const article = {
       paragraphs: [
         'The roofline itself costs nothing to compute -- it is a diagnostic model, not a runtime system. The cost is in the serving optimizations it motivates, each of which carries a tax.',
         {
-          type: 'table',
-          headers: ['Optimization', 'What it moves', 'Tax'],
-          rows: [
-            ['Quantization (INT4/INT8)', 'Shifts decode rightward by reducing bytes per weight', 'Potential quality loss; needs calibration data and specialized kernels'],
-            ['Continuous batching', 'Raises decode arithmetic intensity via weight reuse', 'Increases tail latency; KV cache memory limits max batch'],
-            ['Tensor parallelism', 'Splits compute across devices to raise effective peak', 'Adds all-reduce communication; diminishing returns past ~8 GPUs'],
-            ['KV cache quantization', 'Reduces cache bytes, allowing larger batches', 'Attention accuracy may degrade on long contexts'],
-            ['PagedAttention', 'Reduces cache fragmentation, fitting more sequences', 'Block management overhead; memory allocator complexity'],
-            ['Speculative decoding', 'Converts serial decode steps into batch-like verification', 'Draft model quality bounds acceptance rate; wasted compute on rejections'],
-            ['Prefill/decode disaggregation', 'Matches each phase to hardware tuned for its roof', 'KV cache must transfer between machines; scheduling complexity'],
+          type: 'bullets',
+          items: [
+            'Quantization shifts decode rightward by reducing bytes per weight, but it needs calibration data, specialized kernels, and quality checks.',
+            'Continuous batching raises decode arithmetic intensity through weight reuse, but it increases tail-latency risk and consumes KV cache memory.',
+            'Tensor parallelism raises effective peak compute, but it adds all-reduce communication and diminishing returns at high GPU counts.',
+            'KV cache quantization and PagedAttention reduce cache bytes or fragmentation, but they add accuracy and allocator complexity.',
+            'Speculative decoding turns serial steps into batch-like verification, but draft-model quality controls the acceptance rate.',
+            'Prefill and decode disaggregation matches each phase to hardware tuned for its roof, but KV cache transfer and scheduling become product constraints.',
           ],
         },
         'The critical insight about cost is that these optimizations interact. Quantization enables larger batches (less memory per weight), but larger batches increase KV cache pressure (more live sequences). Tensor parallelism raises compute capacity but also raises the ridge point, meaning memory bandwidth must be higher before the investment pays off. A production system must model these interactions, not just apply each optimization independently.',
