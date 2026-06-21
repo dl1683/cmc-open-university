@@ -302,6 +302,7 @@ export const article = {
       paragraphs: [
         `Bayesian optimization exists for settings where each experiment is expensive enough that a bad search policy has a real cost. Training a large model configuration may take six hours. A robotics run may risk hardware. A lab assay may consume scarce material. A simulation may occupy a cluster queue. In those settings, "try a lot of things and keep the best" is not a strategy; it is a budget leak.`,
         `The central problem is that the objective function is unknown. You can ask for the validation score at one learning rate, one regularization value, or one compiler setting, but you cannot see the whole surface. Bayesian optimization builds a cheap statistical model of that unknown surface, uses the model to choose the next experiment, pays for the real evaluation, and then updates the model. A Gaussian process is one of the cleanest surrogates for this loop because it gives both a predicted mean and a predicted uncertainty.`,
+        {type: `callout`, text: `Bayesian optimization buys information, not just scores: the surrogate tracks both what looks good and where ignorance is still valuable.`},
       ],
     },
     {
@@ -316,6 +317,7 @@ export const article = {
       paragraphs: [
         `A Gaussian process is a distribution over functions. Before seeing data, it says which functions are plausible. After seeing trials, it conditions that belief on the observed inputs and scores. For any candidate point, the fitted GP returns a posterior mean, which is the current best estimate of the objective there, and a posterior variance, which measures how uncertain the surrogate remains at that point.`,
         `The kernel defines the prior notion of similarity. If two learning rates are close, their scores should usually be more related than two learning rates far apart. The kernel matrix stores those pairwise relationships among observed trials. A smooth radial basis kernel assumes very smooth functions. A Matern kernel allows rougher behavior and is often a safer default for real tuning problems. A white-noise term accounts for measurement noise, such as randomness from initialization, data order, or nondeterministic hardware.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/Gaussian_process_draws_from_prior_distribution.png/330px-Gaussian_process_draws_from_prior_distribution.png`, alt: `Gaussian process prior samples under different kernels`, caption: `Different kernels produce different function priors, so kernel choice is an assumption about smoothness before any trial is run. Source: Wikimedia Commons, Gaussian process prior examples.`},
       ],
     },
     {
@@ -323,12 +325,14 @@ export const article = {
       paragraphs: [
         `A practical GP implementation stores the tried inputs X_train, their observed scores y_train, the kernel matrix K with a noise term on the diagonal, a Cholesky factor L, and a vector often called alpha. The Cholesky factor matters because direct matrix inversion is numerically fragile and unnecessary. Instead of computing K^-1 explicitly, the implementation solves triangular systems using L. That is how it obtains alpha for posterior means and reuses the same factor for posterior variances.`,
         `At a candidate x, the model computes a vector k(x, X_train): the similarity between x and every tried point. The posterior mean is a weighted combination of observed scores, with weights determined by the kernel and alpha. The posterior variance starts from the prior uncertainty and subtracts the part explained by nearby observations. This is why the uncertainty band pinches near tried points and widens in gaps. The band is not decoration; it is the search policy's reason to explore.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/7/7f/Gaussian_Process_Regression.png/250px-Gaussian_Process_Regression.png`, alt: `Gaussian process regression showing prior, posterior, and uncertainty`, caption: `The posterior mean and uncertainty band are the state that the acquisition function consumes. Source: Wikimedia Commons, Gaussian Process Regression.`},
       ],
     },
     {
       heading: 'Acquisition is the decision rule',
       paragraphs: [
         `The GP posterior estimates the objective; the acquisition function decides where to spend the next real trial. This distinction is important. The acquisition curve is not the predicted validation score. It is a score for the action "evaluate here next." It combines exploitation, which favors high posterior mean, with exploration, which favors high uncertainty.`,
+        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Regressions_sine_demo.svg/250px-Regressions_sine_demo.svg.png`, alt: `Regression comparison on noisy sine data with uncertainty bands`, caption: `Surrogate uncertainty changes the next-point decision: a candidate can be valuable because it is promising or because it reduces a costly unknown. Source: Wikimedia Commons, regression sine demo.`},
         `Upper confidence bound acquisition is the simplest to read: acquisition(x) = mean(x) + beta * sigma(x). A larger beta makes the search more optimistic about uncertain regions. Expected improvement asks how much a candidate is expected to beat the current best observation. Probability of improvement asks how likely it is to beat the current best, but can become too local because it does not care by how much. Thompson sampling draws one plausible function from the posterior and optimizes that draw. Each acquisition family spends uncertainty differently; none removes the need to define the search space well.`,
       ],
     },

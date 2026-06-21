@@ -222,6 +222,7 @@ export const article = {
       paragraphs: [
         'The BWT-table view shows every cyclic rotation of the text sorted lexicographically. The first column (F) is the sorted characters; the last column (L) is the Burrows-Wheeler transform. Active cells highlight the BWT characters that participate in a search step. Found cells mark the suffix-array rows that match the current interval.',
         'The backward-search view walks through the pattern from right to left, one character per step. Each step shrinks a suffix-array interval using the C table and the Occ (rank) function. When the interval is non-empty at the end, its width is the occurrence count, and the suffix-array rows inside it point to the text positions where the pattern appears.',
+        {type: 'callout', text: 'The FM-index keeps suffix-array search but replaces random suffix access with BWT rank steps, so counting can happen inside compressed text.'},
         {
           type: 'diagram',
           text: [
@@ -261,6 +262,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The simplest exact-match method is scanning: slide a window across the text, compare the pattern at every position. This uses O(1) extra space, but every query costs O(nm) in the worst case. For millions of queries against a genome, scanning is hopeless.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg', alt: 'Trie with words sharing prefixes', caption: 'A trie shows the uncompressed prefix-search idea: explicit edges make lookup easy but spend pointer-heavy space. The FM-index keeps the search power without storing a full trie or suffix tree. Source: Wikimedia Commons, Booyabazooka, public domain.'},
         'The next step is a suffix array. Sort all n suffixes, then binary-search for the pattern in O(m log n) time, or O(m) with an LCP array. This is clean, correct, and fast. The problem is space: the suffix array alone is n integers, and the LCP array adds another n integers. For large texts, the index dwarfs the data.',
         'A suffix tree solves the same search in O(m) time but uses even more memory -- typically 10n to 20n bytes due to node pointers, edge labels, and suffix links. Both structures pay a steep space tax for their speed.',
       ],
@@ -278,6 +280,7 @@ export const article = {
       paragraphs: [
         'Construction starts by appending a sentinel character $ (lexicographically smallest) to the text. Sort all cyclic rotations of the augmented text. The last column of this sorted matrix is the BWT. Equivalently, for each suffix in the suffix array, the BWT stores the character immediately before that suffix in the original text (wrapping around for position 0).',
         'From the BWT, build two navigation structures. The C table: for each character c in the alphabet, C[c] is the number of characters in the text that are lexicographically smaller than c. This tells you where the block of suffixes starting with c begins in the suffix array. The Occ function (also called rank): Occ(c, i) counts how many times character c appears in BWT[0..i). This can be implemented with wavelet trees, bitvector rank structures, or simple sampled cumulative counts.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/01/Wavelet_tree.png', alt: 'Wavelet tree for the string abracadabra with bitvectors at internal nodes', caption: 'Wavelet trees are a common way to answer rank queries over the BWT for larger alphabets. Source: Wikimedia Commons, Wavelet tree example.'},
         {
           type: 'diagram',
           text: [

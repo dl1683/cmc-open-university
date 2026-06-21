@@ -134,6 +134,7 @@ export const article = {
       paragraphs: [
         'The grid is a V-by-V distance matrix. Row i, column j holds the shortest known cost from vertex i to vertex j. Cells showing ∞ mean no path has been discovered yet. Cells showing 0 on the diagonal mean "the cost from a vertex to itself is zero."',
         'Each round introduces one intermediate vertex k. The algorithm highlights row k and column k because those are the two legs of any detour through k: the cost to reach k (column k) and the cost to leave k (row k). For every other cell (i,j), the algorithm checks whether dist[i][k] + dist[k][j] is cheaper than the current dist[i][j].',
+        {type: 'callout', text: 'Floyd-Warshall turns one allowed intermediate vertex into a global matrix update: every cell asks whether routing through k makes its current path cheaper.'},
         'Green cells are improvements: a cheaper path was found by routing through k. After all V rounds, every vertex has been tried as an intermediate, and no cell can improve further. The diagonal stays zero unless the graph contains a negative-weight cycle, in which case the affected diagonal entry drops below zero.',
       ],
     },
@@ -148,6 +149,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'You already know single-source shortest paths. The natural way to get all-pairs distances is to run Dijkstra from every vertex and collect the V result vectors into a V-by-V table.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'All-pairs shortest paths begin with a directed graph, but Floyd-Warshall moves the work into a matrix of every source-target pair. Source: Wikimedia Commons, David W., public domain.'},
         'Cost: O(V(V + E) log V) with a binary heap. For sparse graphs this is reasonable. For dense graphs where E approaches V², the total becomes O(V³ log V), and the log V factor starts to matter. The approach also requires building and maintaining a priority queue V separate times, which adds implementation weight.',
       ],
     },
@@ -164,6 +166,7 @@ export const article = {
       paragraphs: [
         'Floyd-Warshall is dynamic programming over the set of allowed intermediate vertices. Define dp[i][j][k] as the shortest path from i to j using only vertices 0 through k as intermediates. The recurrence is:',
         'dp[i][j][k] = min(dp[i][j][k-1], dp[i][k][k-1] + dp[k][j][k-1]).',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Floyd-Warshall_example.svg/960px-Floyd-Warshall_example.svg.png', alt: 'Floyd-Warshall example showing path composition through intermediate vertices', caption: 'The red and blue boxes show how a shortest path is assembled from subpaths through an intermediate vertex. Source: Wikimedia Commons, Floyd-Warshall example.'},
         'The first term: the shortest path that avoids vertex k. The second term: a path that goes from i to k, then from k to j, with both legs restricted to intermediates 0 through k-1. The better of the two wins.',
         'Base case: dp[i][j][-1] is the direct edge weight from i to j (or ∞ if no edge exists, 0 on the diagonal). After V rounds, dp[i][j][V-1] is the true shortest path with all vertices available as intermediates.',
         'The three-dimensional table collapses to a two-dimensional matrix updated in place. During round k, the values dist[i][k] and dist[k][j] do not change -- any path from i to k that re-uses k as an intermediate would contain a cycle through k, which cannot help in a graph without negative cycles. So reading the "old" row-k and column-k values from the current matrix is safe.',

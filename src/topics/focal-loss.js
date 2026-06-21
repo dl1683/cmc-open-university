@@ -127,6 +127,7 @@ export const article = {
       paragraphs: [
         "Read the animation as the execution trace for Focal Loss & Hard Examples. Easy examples drown the gradient by sheer headcount — (1âˆ’p)^γ mutes the confident and amplifies the struggling..",
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
+        {type: "callout", text: "Focal loss is difficulty-aware weighting: the label chooses the target, but model confidence chooses how much the example can steer the update."},
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
       ],
@@ -151,6 +152,7 @@ export const article = {
       heading: `The core insight`,
       paragraphs: [
         `Focal loss multiplies cross-entropy by (1 - p)^gamma. When gamma is 0, the factor is 1 and the loss is ordinary cross-entropy. When gamma is positive, the factor shrinks as p approaches 1. A confident correct example with p = 0.99 and gamma = 2 receives a multiplier of 0.0001. A hard example with p = 0.1 receives a multiplier of 0.81. The hard example keeps most of its loss; the easy example is almost silenced.`,
+        {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1708.02002/assets/x0.png', alt: 'Focal loss curves showing easy examples down-weighted as gamma increases', caption: 'The focal loss paper plots cross-entropy against focal loss for several gamma values, making the easy-example damping visible. Source: Lin et al., Focal Loss for Dense Object Detection, ar5iv.'},
         `In the detector ledger, gamma = 2 changes the totals dramatically. The easy background group falls from roughly 1,004 total cross-entropy to about 0.10 focal loss. The hard group falls from roughly 230 to about 187. The share of training signal flips from easy-dominated to hard-dominated without an explicit rule that says "these examples are hard." The current model probability supplies that information every step.`,
         `Alpha weighting is often paired with focal loss. Alpha is a class-balancing multiplier; gamma is the focusing parameter. They solve different problems. Alpha says one class should count more. Gamma says confident examples should count less. In practice, alpha can help with positive-negative imbalance while gamma handles easy-hard imbalance inside and across those classes.`,
       ],
@@ -160,6 +162,7 @@ export const article = {
       paragraphs: [
         `The mechanism works because it changes gradient allocation, not just reported loss values. Easy examples still flow through the model, but their contribution to parameter updates becomes tiny. Hard examples retain a large derivative because the focal factor is near one when p is low. As training progresses, an example that used to be hard becomes confident, its focal factor shrinks, and attention moves elsewhere. The curriculum updates itself.`,
         `This is especially useful in one-stage object detectors. Two-stage detectors first propose a smaller set of candidate regions, which reduces the easy-background flood. One-stage detectors classify dense grids of anchors directly, which is faster but creates a huge imbalance. Focal loss was the loss-function fix that let RetinaNet-style one-stage detection compete with two-stage approaches: keep dense detection, but stop easy anchors from owning the gradient.`,
+        {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1708.02002/assets/x2.png', alt: 'RetinaNet architecture with feature pyramid and classification and box subnetworks', caption: 'RetinaNet applies focal loss to dense anchors across a feature pyramid, where easy background examples are abundant. Source: Lin et al., Focal Loss for Dense Object Detection, ar5iv.'},
         `The shape is also related to margin thinking. Focal loss does not merely ask whether an example is correct; it asks whether the model is confidently correct. A borderline correct example still receives attention. A solved example fades. This is why focal loss can improve rare-event recall and detection quality even when class weights alone are insufficient.`,
       ],
     },
@@ -175,6 +178,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Focal loss is best known for dense object detection, but the pattern appears anywhere easy negatives are overwhelming. Medical image segmentation often has large background regions and small lesions. Defect detection may have many normal patches and few subtle flaws. Fraud, abuse, and moderation systems may see huge volumes of obvious benign cases and a small number of hard positives. In each case, accuracy can look healthy while the valuable rare cases receive weak training pressure.`,
+        {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1708.02002/assets/x1.png', alt: 'RetinaNet speed and COCO AP comparison chart', caption: 'The focal loss paper shows RetinaNet moving the speed-accuracy frontier for one-stage detection. Source: Lin et al., Focal Loss for Dense Object Detection, ar5iv.'},
         `It is also used in multi-label classification, instance segmentation, and variants of segmentation loss where foreground regions are small. The important match is not the domain label; it is the loss ledger. If easy examples dominate because of count, and hard examples are genuinely informative, focal loss is a reasonable tool. If the hard examples are mostly annotation errors, duplicated records, adversarial edge cases outside the product scope, or unresolvable ambiguity, the same tool can overfit the mess.`,
       ],
     },
@@ -267,4 +271,3 @@ export const article = {
     },
   ],
 };
-

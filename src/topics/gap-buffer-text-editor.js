@@ -214,6 +214,7 @@ export const article = {
       paragraphs: [
         'In the move-the-gap view, the graph shows the physical layout of one contiguous array. The left span and right span hold real text. The gap between them is allocated but ignored memory. The cursor node points at gap_start, the first unused slot.',
         'Watch the insert frame first: characters fill the gap without touching the suffix. Then watch the distant-edit frame: the gap must slide across the array before a new burst of typing can begin. The matrix shows exact before/after layouts so you can trace each byte.',
+        {type: 'callout', text: 'A gap buffer makes cursor-local editing cheap by moving empty capacity to the edit point instead of shifting the suffix on every keystroke.'},
         'In the editor-tradeoffs view, the plot compares edit cost against cursor distance. The gap buffer curve rises steeply because moving the gap copies text proportional to the jump. Rope and piece-table curves stay flatter because their tree structures avoid moving contiguous memory.',
       ],
     },
@@ -226,6 +227,7 @@ export const article = {
           attribution: 'GNU Emacs Internals documentation',
         },
         'A text editor spends almost all its time changing text near the cursor. If the document lives in a flat array, inserting one character shifts the entire suffix. A user typing at 80 words per minute triggers about 400 shift operations per minute, each copying everything after the cursor. That is wasted work on text the user is not touching.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Emacs27_showing_Org%2C_Magit%2C_and_Dired_with_the_modus-operandi_theme.png/250px-Emacs27_showing_Org%2C_Magit%2C_and_Dired_with_the_modus-operandi_theme.png', alt: 'GNU Emacs editing several buffers', caption: 'GNU Emacs is the production reference most associated with gap-buffer editing semantics. Source: Wikimedia Commons, GNU Emacs 27 screenshot.'},
         'A gap buffer eliminates that waste for the common case. It keeps unused capacity at the cursor so local inserts write into empty slots and local deletes grow the empty region. The idea dates to the 1970s and powered GNU Emacs from its earliest versions. It is simple, cache-friendly, and proven across decades of production editing.',
       ],
     },
@@ -246,6 +248,7 @@ export const article = {
       paragraphs: [
         'The flat-array approach breaks when edits happen in the middle. Inserting one character at position k shifts n - k characters. A burst of 50 keystrokes at the same spot triggers 50 separate shifts of the same suffix. For a 100,000-character file with the cursor at position 1,000, that is 50 copies of 99,000 characters each -- nearly 5 million character moves for one sentence of typing.',
         'A linked list avoids shifting, but it destroys cache locality, makes rendering expensive (one pointer chase per character), and eliminates the ability to do fast bulk operations like search, save, or line counting. The structure that solves the shifting problem must keep contiguous memory for the common case.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Singly linked list with nodes connected by pointers', caption: 'A linked list avoids suffix shifts but pays pointer-chasing costs that hurt rendering and search. Source: Wikimedia Commons, Lasindi, public domain.'},
       ],
     },
     {
@@ -294,6 +297,7 @@ export const article = {
         },
         'Local inserts cost O(1) amortized because they fill gap slots. When the gap is exhausted, the buffer grows like a dynamic array: allocate a new array at 1.5x or 2x the current size, copy everything, and place a fresh gap at the cursor. That growth is O(n) but happens rarely enough to amortize to O(1) per insert.',
         'The expensive operation is the cursor jump edit. Moving the gap from position a to position b copies |b - a| characters. In a 100,000-character file, jumping from the start to the end copies the entire document. This is the fundamental tradeoff: the gap buffer bets everything on edit locality.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/b7/Circular_buffer.svg', alt: 'Circular buffer showing fixed slots arranged in a ring', caption: 'A circular buffer is another array layout that moves logical boundaries instead of moving every element. Gap buffers make the same locality bet around a text cursor. Source: Wikimedia Commons, Cburnett, CC BY-SA 3.0 or GFDL.'},
         {
           type: 'note',
           text: 'Gap growth strategy matters. Emacs historically doubled the gap size. A common modern choice is max(256, gapSize * 2) to avoid frequent reallocation during fast typing while not wasting memory on small files.',

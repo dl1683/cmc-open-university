@@ -224,6 +224,7 @@ export const article = {
       paragraphs: [
         'A generational arena, also called a slot map, owns objects in an array of reusable slots and gives callers compact handles instead of raw references. A handle contains a slot index and a generation. The index finds a storage position. The generation proves that the position still contains the logical object the handle originally named.',
         'The structure exists for programs with dynamic lifetimes and cross references: games, editors, graph algorithms, compiler IRs, simulations, UI trees, and ECS storage. These programs need stable ids, cheap deletion, and a way to reject old references after storage is reused.',
+        {type: 'callout', text: 'A generational handle separates location from identity: the index finds a slot, and the generation proves the current occupant is the one the handle meant.'},
         'The problem is not just memory allocation. It is identity over time. Programs want to delete an object and reuse its storage without letting old ids accidentally reach the next object placed in that slot.',
       ],
     },
@@ -239,6 +240,7 @@ export const article = {
       heading: 'Core insight and invariant',
       paragraphs: [
         'Reuse must change the name. A slot index tells you where to look; a generation tells you which occupant you expected to find there. Handle 7:g2 and handle 7:g3 name the same storage position but different lifetimes.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a1/Linked_list.svg', alt: 'Singly linked list with nodes connected by pointers', caption: 'Free slots often form an internal linked list: the arena reuses empty storage without allocating a separate node for every hole. Source: Wikimedia Commons, Lasindi, public domain.'},
         'The invariant is small enough to audit: a handle is valid only when the index is in range, the slot is occupied, and the slot generation equals the handle generation. Insert, remove, free-list linking, and generation-wrap policy all exist to preserve that sentence.',
       ],
     },
@@ -263,6 +265,7 @@ export const article = {
       heading: 'Why it works',
       paragraphs: [
         'The generation is a version number for the lifetime of the slot occupant. Any handle created before removal carries the old version. Any value inserted after removal gets a newer version. Because lookup requires equality, an old handle cannot silently reach the new value.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/3/3d/Process_states.svg', alt: 'Process state transition diagram', caption: 'Generation checks turn slot reuse into a state transition: live, freed, then live again with a new version. Source: Wikimedia Commons, state transition diagram.'},
         'This is the same defense shape as tagged pointers in ABA-resistant concurrent structures: location alone is not enough when storage can leave and return to the same address or index. Add a tag, advance the tag on reuse, and stale observations become detectable.',
       ],
     },
@@ -285,6 +288,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Generational arenas win when objects need stable ids, frequent deletion, compact ownership, and cheap validity checks. They fit ECS entities, compiler IR nodes, UI widgets, scene graph nodes, graph vertices, simulation objects, and editor resources.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'Graphs and scene structures need stable cross references even as nodes are deleted and reused. Source: Wikimedia Commons, David W., public domain.'},
         'They are often simpler than reference counting for cyclic graphs and safer than naked indices for reusable storage. They also make debugging easier because a failed lookup is explicit: the handle is stale, out of range, or points at a freed slot.',
       ],
     },

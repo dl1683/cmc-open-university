@@ -203,6 +203,7 @@ export const article = {
       paragraphs: [
         'The minimax game view shows the GAN as a data-flow graph. Highlighted nodes mark which network is updating. In the discriminator step, real data and fake samples both flow into D, which adjusts its classification boundary. In the generator step, gradients flow backward from D through to G, which shifts its output distribution. The key rule: G never sees real data. Its only learning signal is the gradient that passes through D.',
         'The mode collapse view uses a scatter plot. Real data points form four clusters. Generated points should cover all four. In the collapsed state, all generated points pile onto a single mode -- sharp-looking but missing three-quarters of the distribution. In the healthy state, generated points spread across all clusters. The visual check: does the generated cloud match the shape of the real cloud, or just overlap with a piece of it?',
+        {type: 'callout', text: 'A GAN replaces a fixed reconstruction loss with a learned critic, so the generator is trained by whatever currently lets fake samples be detected.'},
       ],
     },
     {
@@ -231,6 +232,7 @@ export const article = {
       paragraphs: [
         'Replace the hand-written loss with a learned one. Train a discriminator network D to classify inputs as real or fake. The generator G maps random noise z to synthetic samples G(z). D receives both real data x and generated samples and outputs the probability each is real. G updates to make D wrong; D updates to get better at telling them apart. The minimax objective is:',
         'min_G max_D  E_x[log D(x)] + E_z[log(1 - D(G(z)))]',
+        {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1406.2661/assets/x1.png', alt: 'GAN training diagram with data distribution, generator distribution, and discriminator curve', caption: 'The original GAN paper visualizes the game as a generator distribution moving toward the data distribution while the discriminator boundary adapts. Source: Goodfellow et al., Generative Adversarial Nets, ar5iv.'},
         'Goodfellow proved that if both networks have enough capacity and D is trained to optimality at each step, the global minimum occurs when the generator\'s distribution p_G equals the data distribution p_data. At that point D(x) = 0.5 for all x -- the discriminator cannot tell real from fake. This is the Nash equilibrium of the game.',
       ],
     },
@@ -263,6 +265,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         'Face synthesis: StyleGAN (Karras et al., 2019) generates photorealistic 1024x1024 faces with disentangled control over pose, age, lighting, and style. The single-pass generator makes interactive exploration and latent-space editing practical.',
+        {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1406.2661/assets/mnist_samples.png', alt: 'Generated MNIST digit samples from the original GAN paper', caption: 'The original GAN experiments included random MNIST samples with nearest training neighbors, a check against memorization. Source: Goodfellow et al., Generative Adversarial Nets, ar5iv.'},
         'Super-resolution: SRGAN and ESRGAN use a discriminator to ensure upscaled images contain realistic high-frequency detail. An L2-trained upsampler averages over possible textures and produces blur; the discriminator learns what sharp edges in real photos look like and penalizes the generator for hallucinating the wrong texture pattern.',
         'Image-to-image translation: Pix2Pix (Isola et al., 2017) translates paired images (sketch to photo, satellite to map). CycleGAN (Zhu et al., 2017) extends this to unpaired domains (horse to zebra, summer to winter) using cycle-consistency losses alongside adversarial losses. The adversarial term ensures outputs look like plausible members of the target domain rather than averaged approximations.',
         'Data augmentation: when labeled training data is scarce, GANs can synthesize examples to expand the dataset. Medical imaging studies have used GANs to generate rare pathologies for classifier training. The risk is that a collapsed GAN biases the augmented set toward the modes it covers.',
@@ -284,6 +287,7 @@ export const article = {
         'Step 1 -- D learns the easy boundary. D trains on a batch: real samples clustered near 5, fakes clustered near 0. D learns "values near 5 are real" and achieves confident separation. D loss drops from 1.39 to 0.41. G loss is high at 2.30 because D(G(z)) is near 0 for all fakes. The gradient through D tells G: shift outputs toward the region D labels "real."',
         'Step 2 -- G moves halfway. G updates its parameters and now produces N(2.5, 1). D retrains: real samples near 5, fakes near 2.5. Separation is harder. D loss rises to 0.58. G loss drops to 1.20 because some fakes now score D(G(z)) around 0.3. The game tightens -- each player\'s job gets harder.',
         'Step 3 -- distributions overlap. G shifts to N(4.2, 1). Real and fake distributions now overlap substantially. D loss rises to 0.82 -- classification is difficult. G loss drops to 0.75. D(G(z)) averages about 0.47, approaching the 0.5 of a confused classifier. If training continues stably, G converges to N(5, 1) and D(x) approaches 0.5 everywhere -- the Nash equilibrium.',
+        {type: 'image', src: 'https://ar5iv.labs.arxiv.org/html/1406.2661/assets/1dsubspace.png', alt: 'GAN latent interpolation through generated digit samples', caption: 'Linear interpolation through latent space shows that the generator has learned a continuous sample manifold, not only isolated training images. Source: Goodfellow et al., Generative Adversarial Nets, ar5iv.'},
         'Mode collapse variant: real data is bimodal, N(0, 1) and N(10, 1). G might converge to N(5, 1) -- the mean of the two modes. D flags this as fake because nothing real lives near 5. G shifts to N(0, 1). D adapts. G jumps to N(10, 1). The generator oscillates between modes without covering both. This is where the Wasserstein distance helps: it provides a gradient proportional to how far G is from the full distribution, not just a binary "caught or not caught."',
       ],
     },

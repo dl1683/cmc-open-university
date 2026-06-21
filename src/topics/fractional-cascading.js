@@ -204,6 +204,7 @@ export const article = {
       heading: 'Why this exists',
       paragraphs: [
         'Many data structures answer one logical query by searching several sorted catalogs. A range query over a merge-sort tree may decompose into several segment-tree nodes. A geometric query may walk across related layers or slabs. In each catalog, the task is often the same: find the predecessor, successor, or rank of one key.',
+        {type: 'callout', text: 'Fractional cascading makes a search position portable: pay for one binary search, then use bridge pointers to repair each later catalog in constant time.'},
         'The repeated key is the opportunity. If the query value is `x = 50`, every catalog is being asked where 50 would be inserted. Independent binary searches treat those questions as unrelated, even though the query key is identical and the catalogs were built by one data structure.',
         'Fractional cascading exists to remove that repeated search cost. It preprocesses related sorted lists so the first list pays for a full binary search and later lists receive near positions through stored bridge pointers.',
       ],
@@ -212,6 +213,7 @@ export const article = {
       heading: 'The obvious approach',
       paragraphs: [
         'The obvious approach is to binary-search every catalog separately. It is simple, local, and easy to implement. For k catalogs of comparable size, the query cost is O(k log n), or more generally the sum of the logarithms of the catalog sizes.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'B-tree with sorted keys grouped in nodes', caption: 'Wide sorted nodes show the baseline idea of searching ordered catalogs. Fractional cascading optimizes a chain of such searches, not one isolated lookup. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0 or GFDL.'},
         'That approach is often fine. If there are only two lists, if queries are rare, or if the catalogs are small, repeated binary search may be clearer and faster in practice. Fractional cascading is worth learning because it attacks a specific bottleneck, not because every sorted list needs bridge pointers.',
         'The baseline also has a useful correctness property: each search is independent. If one catalog changes, only that catalog has to be maintained. Fractional cascading gives up some of that simplicity to make repeated queries faster.',
       ],
@@ -221,6 +223,7 @@ export const article = {
       paragraphs: [
         'The wall appears when k is large enough and queries are frequent enough that the logarithmic factor repeats constantly. A merge-sort tree range query may touch O(log n) node catalogs. If each touched node performs its own binary search, the total query becomes O(log^2 n) for rank-like work that feels like it should share effort.',
         'The waste is not that binary search is slow. The waste is that every binary search relearns the same placement of the same key. Once one catalog has located 50 between two nearby values, a related catalog should not have to start with the full interval again.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'The catalog graph view is the general setting: each vertex owns a sorted list, and the query walks a path while searching the same key. Source: Wikimedia Commons, David W., public domain.'},
         'The missing structure is a way to carry a position from one catalog to the next while keeping the correction small. A raw array index in one list is not enough because the lists contain different values. Fractional cascading adds sampled values and explicit bridge pointers so an index becomes transferable.',
       ],
     },
@@ -277,6 +280,7 @@ export const article = {
       heading: 'Practical use',
       paragraphs: [
         'A merge-sort tree is the easiest application to remember. Each segment-tree node stores a sorted list. A range query decomposes into O(log n) nodes, and each touched node needs the rank, predecessor, or successor of the same x. Fractional cascading links those node catalogs so the query pays one binary search and then follows bridges across the relevant catalogs.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt: 'Binary tree with parent and child nodes', caption: 'A segment tree decomposes one range query into several node catalogs. Fractional cascading links those catalogs so the same key search is not repeated from scratch. Source: Wikimedia Commons, Derrick Coetzee, public domain.'},
         'Computational geometry gives the historical motivation. Layered range searching and planar subdivisions often ask related catalogs the same key question while moving through a search structure. Fractional cascading turns the repeated sorted-list searches into a cascade of constant-time transfers after the first search.',
         'The decision rule is concrete: many related catalogs, one query key, frequent queries, and enough stability to repay preprocessing. If any of those pieces is missing, the technique loses its reason to exist.',
       ],
