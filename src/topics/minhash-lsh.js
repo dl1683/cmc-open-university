@@ -199,12 +199,14 @@ export const article = {
       paragraphs: [
         'Near-duplicate detection becomes impossible if every document, profile, or item must be compared with every other one. MinHash exists to compress set similarity into signatures. LSH exists to turn those signatures into candidates so the exact comparison is paid only for likely matches.',
         'This matters whenever the object is naturally a set: web-page shingles, tokens in a document, users who bought an item, neighbors of a graph node, permissions attached to a role, or chunks in a retrieval corpus. The question is not "are these vectors close?" It is "how much set overlap do these objects share?"',
+        {type: 'callout', text: 'MinHash turns set overlap into collision probability, then LSH spends exact comparison only on likely pairs.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
         'The direct approach builds shingles or token sets for every object and computes Jaccard similarity for all pairs. That is fine for dozens of documents and hopeless for millions. Embeddings can capture semantics, but they answer a different question than exact token-set resemblance.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6d/Venn_A_intersect_B.svg', alt: 'Venn diagram showing the intersection of sets A and B', caption: 'Jaccard similarity is intersection over union; the overlap area is the signal MinHash preserves probabilistically. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Venn_A_intersect_B.svg.'},
       ],
     },
     {
@@ -217,6 +219,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'Under a random permutation, the probability that two sets have the same minimum element equals their Jaccard similarity. Repeating that experiment with many hashes creates a signature. LSH banding hashes chunks of the signature so highly similar objects collide as candidates with high probability.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Bloom_filter.svg', alt: 'Bloom filter diagram showing hash functions mapping keys into shared bit positions', caption: 'The shared design move is hash-derived compact evidence; MinHash stores minimum hash rows instead of membership bits. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Bloom_filter.svg.'},
       ],
     },
     {
@@ -242,6 +245,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         'Computing a k-row signature costs O(k times set size), though production systems use faster approximations and one-permutation variants. Memory is O(k) per object plus LSH buckets. Candidate lookup is hash-table work, and expensive exact comparison is reserved for candidate pairs.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Bloom_filter_fp_probability.svg/500px-Bloom_filter_fp_probability.svg.png', alt: 'Chart showing false positive probability changing with Bloom filter parameters', caption: 'Approximate data structures turn memory into probability curves; MinHash LSH does the same with band collision probability. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Bloom_filter_fp_probability.svg.'},
         'The banding parameters are the main knob. More rows per band makes collisions stricter. More bands gives pairs more chances to collide. The resulting S-curve is useful because it turns similarity into a tunable retrieval threshold rather than a hard exact scan.',
       ],
     },

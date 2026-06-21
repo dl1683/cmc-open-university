@@ -313,6 +313,7 @@ export const article = {
         'Internal nodes start as "?" and fill in as the algorithm propagates values upward. At a MAX level the node takes the highest child value; at a MIN level, the lowest.',
         'The animation runs two passes. Pass one is plain minimax: every node is visited and evaluated. Pass two is alpha-beta pruning: some nodes are dimmed and skipped. These dimmed nodes are pruned branches -- subtrees the algorithm proved irrelevant without examining them. The root value is identical in both passes.',
         'Watch the alpha and beta bounds reported at each step. Alpha is the best the maximizer can guarantee so far; beta is the best the minimizer can guarantee. When alpha >= beta at any node, the remaining children are pruned. The cascade is the payoff: pruning one node often eliminates its entire subtree.',
+        {type: 'callout', text: 'Alpha-beta pruning is minimax with proof-carrying bounds: skipped nodes are skipped because they cannot change the root value.'},
       ],
     },
     {
@@ -334,6 +335,7 @@ export const article = {
       heading: 'The wall',
       paragraphs: [
         'Game trees grow exponentially. Chess has an average branching factor b of about 35 and games average about 80 moves deep. That is 35^80, roughly 10^123 nodes. Even searching just 10 moves ahead (20 plies) means 35^20, about 10^30 nodes -- far beyond any computer.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/da/Tic-tac-toe-game-tree.svg/500px-Tic-tac-toe-game-tree.svg.png', alt: 'Top of a tic-tac-toe game tree with branching game states', caption: 'Even tic-tac-toe creates a branching game tree; larger games make exhaustive search infeasible. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Tic-tac-toe-game-tree.svg.'},
         'But most of those nodes are irrelevant. If you already know a move guarantees a score of 5, and a new branch reveals the opponent can force a score of 3, that branch is dead. The opponent will never let you score higher than 3 there, and you already have 5 elsewhere. The full search wastes time proving what is already known.',
       ],
     },
@@ -341,6 +343,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Minimax is the base: alternate maximize and minimize layers. The maximizer picks the highest child value, the minimizer picks the lowest, all the way from leaves to root. The root value is the game\'s outcome under optimal play by both sides.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Decision_tree_model.png', alt: 'Decision tree model diagram with branches ending in leaves', caption: 'Minimax is a decision tree with alternating objectives, and alpha-beta cuts branches once bounds prove they cannot win. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Decision_tree_model.png.'},
         'Alpha-beta pruning adds two bounds that travel with the search. Alpha is the best score the maximizer can guarantee so far -- the floor. Beta is the best score the minimizer can guarantee -- the ceiling. Together they form a window [alpha, beta]. Any value outside this window is irrelevant: the maximizer will not accept less than alpha, and the minimizer will not accept more than beta.',
         'Start at the root with alpha = -infinity and beta = +infinity (no constraints yet). Recurse depth-first into the first child, passing alpha and beta down. At a leaf, return the evaluation. At a MAX node, each child\'s return value is a candidate for raising alpha. At a MIN node, each child\'s return value is a candidate for lowering beta.',
         'After evaluating each child, check: is beta <= alpha? If so, stop -- prune the remaining children. The bounds prove they cannot affect the result. This is the alpha-beta cutoff.',
@@ -378,6 +381,7 @@ export const article = {
       paragraphs: [
         'Imperfect information kills the premise. Poker, bridge, and Stratego have hidden state -- you do not know the opponent\'s cards or pieces. Minimax over the visible state is wrong because it ignores the information asymmetry. These games need counterfactual regret minimization (poker) or information-set Monte Carlo search (bridge, Stratego).',
         'Stochastic games (backgammon, dice-based combat) require expectiminimax, which adds chance nodes that average over random outcomes. Plain minimax cannot handle the branching over probabilistic events.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with arrows between nodes', caption: 'Hidden state, chance, and repeated positions push the clean tree model toward richer directed state graphs. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'Very high branching factors defeat alpha-beta even with pruning. Go has b around 250; even O(b^(d/2)) is too large for meaningful depth. Monte Carlo tree search sidesteps this by sampling random playouts instead of exhaustive search, which is why MCTS displaced alpha-beta for Go.',
         'The horizon effect is a subtler failure: alpha-beta at a fixed depth can miss tactics just beyond the search horizon. A losing capture sequence might appear to "disappear" because the final losing move is one ply past the depth limit. Quiescence search -- extending the search at tactical positions -- is the standard fix.',
         'Finally, alpha-beta is only as good as its evaluation function. When search cannot reach terminal states, the leaf evaluator determines play quality. Chess engines spent decades hand-tuning evaluation; neural network evaluators (NNUE, AlphaZero-style networks) transformed the field because better leaf scores make every search depth more effective.',

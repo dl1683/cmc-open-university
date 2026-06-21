@@ -226,12 +226,14 @@ export const article = {
       paragraphs: [
         'Some dictionaries are frozen before they ship: compiler keywords, generated protocol names, static URL tables, genomic k-mer sets, feature vocabularies, and lookup tables inside data files. They need exact lookup, but they do not need runtime insertion.',
         'Minimal perfect hashing exists for that case. If the keys are known in advance, the builder can search for a function that maps every stored key to a dense unique id, so payloads live in a compact array.',
+        {type: 'callout', text: 'A minimal perfect hash moves collision work to build time so member lookup becomes dense-array addressing.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
         'The normal answer is an ordinary hash table. It handles changing sets and resolves collisions with chaining or probing. That flexibility is valuable when keys arrive over time.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/d0/Hash_table_5_0_1_1_1_1_1_LL.svg', alt: 'Hash table with chaining showing keys mapped to buckets', caption: 'A normal hash table keeps collision machinery because arbitrary future keys may share a bucket. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_5_0_1_1_1_1_1_LL.svg.'},
         'For a fixed set, the ordinary table keeps paying for flexibility it does not use. It needs spare capacity, collision handling, and sometimes pointers or control metadata. A dense array would be smaller, but only if each key could be assigned a unique array index.',
       ],
     },
@@ -246,6 +248,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'Perfect means no two stored keys collide. Minimal means the range has exactly n slots for n stored keys. Together they turn dictionary lookup for member keys into direct indexing: id = f(key), then values[id].',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Hash_table_3_1_1_0_1_0_0_SP.svg/500px-Hash_table_3_1_1_0_1_0_0_SP.svg.png', alt: 'Hash table with keys distributed into bucket slots', caption: 'Minimal perfect hashing aims for dense unique slots for the frozen key set, with no spare collision room. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_table_3_1_1_0_1_0_0_SP.svg.'},
         'The function is not magic for every possible key. It is constructed to be collision-free on the known set. An absent key may still produce an in-range id, so membership semantics require verification unless all queries are known members.',
       ],
     },
@@ -291,6 +294,7 @@ export const article = {
       heading: 'Design choices',
       paragraphs: [
         'Choose verification based on the API. If every query is guaranteed to be a member, the MPHF can return an id directly. If queries are arbitrary, store full keys, compact fingerprints, or pair the MPHF with a filter. The smaller the verification data, the more carefully collision probability and error behavior must be documented.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/ac/Bloom_filter.svg', alt: 'Bloom filter diagram showing several hash functions setting positions in a bit array', caption: 'A filter can guard arbitrary queries before the MPHF id is treated as a real member slot. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Bloom_filter.svg.'},
         'Choose construction based on scale. A tiny keyword table values simplicity. A billion-key genomic index values bits per key and build throughput. A latency-sensitive embedded dictionary values predictable lookup and compact memory layout. Minimal perfect hashing is a family of tradeoffs, not one algorithm.',
       ],
     },

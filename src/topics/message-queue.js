@@ -101,6 +101,7 @@ export const article = {
         'Each frame is one tick of a system with a producer (checkout service) and a consumer (email/invoice worker). Active highlights show messages just enqueued. Removed highlights show the message being processed and ACKed. Swap highlights mark a delivery that failed mid-processing.',
         'Watch queue depth: it rises when producers outpace consumers and falls when consumers catch up. The gap between the two rates is the backlog, and backlog is the core quantity a message queue manages.',
         'In the crash scenario, a message is received but never acknowledged. The broker holds it, then redelivers it on the next consumer attempt. That redelivery frame is the most important one: it shows at-least-once semantics in action and surfaces the idempotency requirement that every production consumer must handle.',
+        {type: 'callout', text: 'A production queue is not just FIFO; it is a durable handoff contract around ACKs, retries, leases, and idempotency.'},
       ],
     },
     {
@@ -130,6 +131,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'A producer sends a message to a broker. The broker writes it to durable storage (disk, replicated log, or managed storage) before confirming acceptance. Until the broker acknowledges the write, the producer must assume the message may be lost.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/52/Data_Queue.svg', alt: 'Queue diagram showing data entering and leaving in order', caption: 'The FIFO picture is only the starting shape; production brokers add durable storage and ACK state around it. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Data_Queue.svg.'},
         'In a task-queue model (SQS, RabbitMQ), the broker delivers a message to one consumer and starts a visibility timeout. The message is hidden from other consumers during this window. If the consumer finishes and sends an ACK, the broker deletes the message. If the consumer crashes or the timeout expires, the broker makes the message visible again for redelivery.',
         'In a log model (Kafka, Redpanda, Redis Streams), records are appended to partitions. Consumers track offsets: a committed offset marks the last successfully processed record. The record is not deleted per consumer; retention policy governs cleanup. Consumer groups coordinate which members read which partitions, and rebalancing reassigns partitions when members join or leave.',
         'SQS visibility timeout defaults to 30 seconds. Kafka consumer group rebalance triggers when a member misses heartbeats for session.timeout.ms (default 45 seconds). RabbitMQ uses explicit ACK/NACK per message with optional prefetch limits. NATS JetStream uses explicit ack with configurable ack-wait. Each system scopes its guarantees differently, but the contract is the same: the broker holds the message until the consumer proves it is done.',
@@ -147,6 +149,7 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         'Enqueue and dequeue are O(1) per message in both task-queue and log-based systems. Kafka appends to a partition log sequentially; SQS and RabbitMQ route to a queue. The dominant cost is not algorithmic but operational: disk I/O for durability, network round-trips for replication, and coordination overhead for consumer groups.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/06/Queueing_node_service_digram.png', alt: 'Queueing node diagram with arrivals service positions and departures', caption: 'Queue depth and service rate decide latency once producers can outrun consumers. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Queueing_node_service_digram.png.'},
         'Kafka brokers on commodity hardware sustain 200 MB/s per broker with 3x replication. A single SQS standard queue handles nearly unlimited throughput (AWS does not publish a hard cap but documents millions of messages per second across partitions). RabbitMQ handles roughly 20,000-50,000 messages per second per queue depending on message size, persistence, and acknowledgment mode.',
         'Memory cost scales with in-flight messages for task queues and with retained log size for Kafka. Kafka retention is typically time-based (7 days default) or size-based. SQS retains messages for up to 14 days. The operational surface includes broker monitoring, consumer lag alerting, partition rebalancing, schema registry management, and dead-letter queue inspection.',
       ],
@@ -155,6 +158,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'Queues win when work can happen later, when producers and consumers scale independently, when bursts are normal, and when downstream dependencies fail independently. The access pattern is: record work now, process reliably later, never lose accepted work.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/af/BPMN-AProcessWithNormalFlow.svg', alt: 'BPMN process diagram with tasks gateways events and data object', caption: 'Business workflows often become queued handoffs once each side effect needs its own retry and ownership boundary. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:BPMN-AProcessWithNormalFlow.svg.'},
         'Email delivery, webhook dispatch, thumbnail generation, video transcoding, fraud scoring, search indexing, telemetry ingestion, order fulfillment, cache invalidation, and saga choreography across microservices all fit this pattern. Each involves a producer that should not wait for the side effect and a consumer whose failure should not propagate upstream.',
         'Kafka specifically wins for event sourcing, change data capture, and stream processing where consumers need to replay history. Its log retention means a new consumer can start from the beginning and rebuild derived state. SQS wins for serverless fan-out with Lambda triggers. RabbitMQ wins for complex routing topologies with exchanges, bindings, and per-queue policies. NATS wins for low-latency pub-sub with optional persistence via JetStream.',
       ],

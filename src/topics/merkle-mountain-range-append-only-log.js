@@ -220,6 +220,7 @@ export const article = {
       paragraphs: [
         'An append-only log is useful only if readers can trust its past. Package registries, timestamping services, transparency logs, blockchain histories, audit ledgers, and build artifact indexes all promise the same basic contract: new entries may appear at the right edge, but old entries must not be edited, removed, or reordered without being detected.',
         'A plain file or database table can accept appends, but it gives weak evidence. A server can show one client one version of history and another client a different version. It can replace an old row and claim the row was always there. It can also publish a short digest that says almost nothing unless clients know how that digest was computed.',
+        {type: 'callout', text: 'An MMR is binary addition over Merkle peaks: appends create carry chains without moving old leaves.'},
         'A Merkle Mountain Range, or MMR, is an authenticated append-only array. It keeps a compact frontier of complete Merkle subtrees called peaks. Each append creates a new leaf on the right. Equal-size peaks merge. The remaining peaks are combined in a fixed order to publish one commitment for the whole current prefix.',
       ],
     },
@@ -235,6 +236,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         'The core invariant is that the frontier contains one complete subtree for each 1 bit in the binary representation of the leaf count. Seven leaves is binary `111`, so the frontier has peaks of sizes 4, 2, and 1. Ten leaves is binary `1010`, so the frontier has peaks of sizes 8 and 2. This is the same decomposition every integer has into powers of two.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt: 'Binary hash tree with leaf blocks feeding parent hashes up to a root', caption: 'Each MMR peak is an ordinary complete Merkle subtree sealed by its root hash. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_Tree.svg.'},
         'Appending is binary addition implemented with hashes. Add a size-1 peak for the new leaf. If the two rightmost peaks have the same size, hash them into a parent peak twice as large. Continue while there is a carry. When the rightmost peak sizes differ, the frontier again matches the 1 bits of the count.',
         'This insight keeps old ranges stable. A later append may merge an old peak into a larger peak, but it never edits the leaves inside that peak. The peak root acts like a sealed summary of that range. Any change to an old entry changes the peak root and then changes every later commitment that includes it.',
       ],
@@ -251,6 +253,7 @@ export const article = {
       heading: 'Append mechanism',
       paragraphs: [
         'Each entry is first turned into a leaf hash. Production systems normally use domain separation so a leaf hash cannot be confused with an internal-node hash. A common pattern is to prefix leaf input with one tag and internal-node input with another tag before hashing.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Cryptographic_Hash_Function.svg', alt: 'Several inputs entering a cryptographic hash function and producing different digests', caption: 'Hash framing decides whether the verifier can distinguish leaves, internal nodes, and bagged peaks. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cryptographic_Hash_Function.svg.'},
         'The append operation stores the new leaf as a size-1 peak at the right edge. While the newest peak has the same size as the peak immediately to its left, the implementation removes both peaks and inserts their parent. The parent hash commits to left child, right child, and often the range size or node kind, depending on the proof format.',
         'The frontier can be stored as an array of peaks ordered by position, or as slots indexed by height. The count tells the implementation which heights are currently occupied. The append path creates only the nodes on the carry chain. All older internal nodes can be retained in a proof index, written to a content-addressed store, or regenerated from archived leaves if that is acceptable for the system.',
         'Publishing a root requires bagging the peaks. Bagging means combining all current peak roots in a deterministic order so clients see one digest rather than a list. The order and hash framing must be specified. If one implementation bags left to right and another bags right to left, they will disagree even when they store the same leaves.',
@@ -261,6 +264,7 @@ export const article = {
       paragraphs: [
         'An inclusion proof identifies the leaf index, the leaf value or leaf hash, the sibling hashes needed to climb to the containing peak, and the other peak roots needed to recompute the bagged commitment. The verifier hashes upward inside the peak, then bags the result with the rest of the frontier and compares it with the signed root.',
         'A consistency or append-only proof compares two checkpoints. The old checkpoint commits to an old prefix. The new checkpoint should contain that prefix plus later leaves. The proof shows where the old peaks appear in the newer structure: either still as peaks, or as descendants inside newer merged peaks. If an old entry was changed, the old peak root cannot be preserved.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt: 'Directed acyclic graph arranged in topological order with edges pointing forward', caption: 'Checkpoint history should move forward in one append-only order; audits check that later roots extend earlier roots. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Topological_Ordering.svg.'},
         'The evidence is compact compared with replaying the whole log. A proof grows with the height of the containing peak and with the number of peaks needed for the bagged root. That is why MMRs are useful for clients that store a small checkpoint but do not mirror the entire log.',
       ],
     },

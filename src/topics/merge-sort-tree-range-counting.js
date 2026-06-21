@@ -218,6 +218,7 @@ export const article = {
       paragraphs: [
         'Some range questions are not about a single aggregate like sum or min. They ask about value ranks inside an index interval: how many values are <= x, what is the successor, or which values fall under a threshold.',
         'A merge-sort tree exists for static range value queries. It adds sorted catalogs to segment-tree nodes so each canonical range can answer by binary search.',
+        {type: 'callout', text: 'A merge-sort tree is a two-axis index: the tree chooses positions, and each sorted catalog answers value thresholds.'},
         'The structure is useful because many arrays have two meanings at once. The position may be time, document order, customer index, genomic coordinate, or row number. The value may be price, score, latency, size, or rank. A query such as "how many orders between days 20 and 80 were at most 50" is not just a range query over positions and not just a search over values. It is both at the same time.',
         'A normal segment tree is excellent when every covered segment can be summarized by one value. Range sum stores a sum. Range min stores a minimum. Range counting under a threshold needs more information: it needs part of the value distribution inside each covered position interval. The merge-sort tree stores that distribution in the simplest useful form, a sorted list.',
       ],
@@ -243,6 +244,7 @@ export const article = {
       paragraphs: [
         'Keep the segment-tree range decomposition, but store a sorted list at each node instead of one aggregate. The index dimension is handled by canonical nodes; the value dimension is handled by binary search inside catalogs.',
         'The build is literally merge sort that keeps every intermediate merge result.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Merge_sort_algorithm_diagram.svg/600px-Merge_sort_algorithm_diagram.svg.png', alt: 'Merge sort diagram showing sorted runs merging into larger runs', caption: 'The build keeps every intermediate merge result instead of discarding it after sorting. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Merge_sort_algorithm_diagram.svg.'},
         'That is why the name is so good. A segment tree gives the node hierarchy over positions. Merge sort gives the sorted catalogs. During build, every internal node merges the sorted lists from its children. The root has the entire array sorted. A node covering [4, 7] has only those positions sorted. A leaf has one value. Every level preserves a different granularity of the same array.',
       ],
     },
@@ -258,6 +260,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Build the segment-tree shape over positions. A leaf catalog contains one value. An internal catalog is the sorted merge of its child catalogs. Each value appears once per tree level.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt: 'Binary tree diagram with parent and child nodes', caption: 'The position index is a binary range tree; each selected node owns one disjoint interval. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Binary_tree.svg.'},
         'To answer count <= x in [l, r], decompose [l, r] into O(log n) canonical nodes. For each node, binary-search its catalog for the last value <= x and add the counts.',
         'Successor queries use the same catalogs differently. For each canonical node, binary-search for the first value >= x. That gives one local candidate per node. The answer for the whole range is the minimum of those candidates. Predecessor queries search for the last value <= x and take the maximum local candidate. Range count in [a, b] is count <= b minus count < a.',
         'Kth-smallest queries are possible, but they add another layer. One common method binary-searches over the value domain and asks the merge-sort tree how many values in [l, r] are <= mid. That costs an extra logarithmic factor over the value range or coordinate-compressed domain. A wavelet tree often serves kth and rank queries more directly, which is one reason this topic leads naturally into wavelet trees.',
@@ -303,6 +306,7 @@ export const article = {
       paragraphs: [
         'It fails when frequent updates matter, when memory is tight, or when a specialized Wavelet Tree gives cleaner rank/select/quantile operations.',
         'It can also be overkill. Square-root decomposition may be easier for moderate n and custom block-local logic.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt: 'B-tree with grouped sorted keys in internal nodes', caption: 'Mutable database indexes solve a broader problem than a static merge-sort tree, including inserts, deletes, and changing row order. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:B-tree.svg.'},
         'It can fail through bad value-domain assumptions. If kth queries binary-search over raw 64-bit values without coordinate compression, the value search can add unnecessary work. If floating-point values are involved, boundary and equality semantics need extra care. If the query wants top-k values rather than counts or successors, each catalog may need a different stored summary.',
         'It is also not a general replacement for an ordered database index. A merge-sort tree is built over one fixed array order. If the position dimension changes because rows are inserted, deleted, resorted, or filtered by arbitrary predicates, the static tree no longer represents the query space. At that point the system may need a database index, a Fenwick tree of ordered sets, a persistent segment tree, or a rebuilt snapshot.',
       ],

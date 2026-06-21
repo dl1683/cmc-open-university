@@ -135,6 +135,7 @@ export const article = {
         "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
         "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
         "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        {type: 'callout', text: 'A Merkle tree lets one trusted root stand for many blocks because every parent hash commits to its full subtree.'},
       ],
     },
     {
@@ -155,6 +156,7 @@ export const article = {
       heading: 'The core insight',
       paragraphs: [
         `Hash the data at the leaves, then hash child hashes upward until one root remains. Each parent commits to the entire subtree below it. A matching subtree hash proves that every descendant can be skipped.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt: 'Merkle hash tree with data blocks at leaves and hashes combined upward to a root', caption: 'The parent hash commits to both children; repeating that rule makes one root cover every leaf. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Hash_Tree.svg.'},
         `The important word is "commits," not "compresses." A cryptographic hash is not lossless; it is collision-resistant enough that finding a different subtree with the same hash should be infeasible.`,
       ],
     },
@@ -191,6 +193,7 @@ export const article = {
       heading: 'Cost and behavior',
       paragraphs: [
         `Construction takes O(n) hash operations and O(n) space if the tree is stored. Equality checking is one root comparison when both roots are already known. A balanced inclusion proof or single-difference search uses O(log n) hashes.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Cryptographic_Hash_Function.svg', alt: 'Cryptographic hash function avalanche diagram with different outputs for small input changes', caption: 'Merkle proofs depend on hash avalanche behavior: a changed block should change every ancestor digest on its path. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Cryptographic_Hash_Function.svg.'},
         `A Hash Table also uses hashes, but for bucket lookup. A Merkle tree uses hashes to authenticate a hierarchy. A Bloom Filter answers membership compactly with false positives; a Merkle proof verifies membership relative to a trusted root.`,
         `Updates are local but not free. Changing one leaf recomputes every ancestor up to the root. That is O(log n) for a balanced tree, which is cheap compared with rebuilding the full tree, but still important in high-write systems. Append-only logs often use specialized variants such as Merkle mountain ranges so append proofs and consistency proofs stay efficient.`,
       ],
@@ -206,6 +209,7 @@ export const article = {
       heading: 'How it works (3)',
       paragraphs: [
         `Anti-entropy repair is the cleanest operational use. Replicas exchange roots, then descend only into mismatching subtrees. The repair job transfers changed blocks instead of the full dataset, which is why the structure is useful when divergence is rare but data volume is huge.`,
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'Replica repair is a directed exchange of roots, child hashes, and changed blocks, not a full data copy. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         `Transparency logs use a different angle. The log publishes a root, and clients ask for inclusion or consistency proofs. The proof does not make the log honest by itself; witnesses, monitors, signatures, and policy decide whether a suspicious root should be trusted.`,
       ],
     },

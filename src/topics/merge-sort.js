@@ -102,6 +102,7 @@ export const article = {
         'The animation shows merge sort in two phases. In the split phase, the array is divided in half repeatedly until every piece is a single element. Highlighted ranges show which subarray is being split, and the active marker sits on the midpoint.',
         'In the merge phase, two sorted runs are combined into one. The active marker highlights the position currently being written. The range highlight covers the two runs being merged. When a merge finishes, those positions turn to the sorted color, meaning that run is in final order and ready to merge with a neighbor at the next level up.',
         'Watch for the two-pointer pattern during merges: the algorithm compares the front elements of the left and right runs, takes the smaller one, and advances that pointer. On ties, it takes from the left run to preserve stability.',
+        {type: 'callout', text: 'Merge sort wins by delaying movement until two sorted runs can be merged in one linear pass.'},
       ],
     },
     {
@@ -129,6 +130,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         'Merge sort sidesteps local movement entirely. Instead of shifting elements one position at a time, it divides the array in half, sorts each half recursively, and merges the two sorted halves.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Merge_sort_algorithm_diagram.svg/600px-Merge_sort_algorithm_diagram.svg.png', alt: 'Merge sort diagram showing recursive splitting and merging of sorted runs', caption: 'The diagram shows the key shape: split to singletons, then merge sorted runs upward. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Merge_sort_algorithm_diagram.svg.'},
         'The recursion bottoms out at single elements, which are trivially sorted. Then the merge phase builds sorted runs from the bottom up: pairs of single elements merge into sorted pairs, pairs of sorted pairs merge into sorted quads, and so on until the whole array is one sorted run.',
         'The merge procedure is the key operation. Given two sorted runs, place a read pointer at the front of each. Compare the two front elements. Copy the smaller one to the output and advance that pointer. Repeat until one run is exhausted, then copy the remainder of the other run. This always takes O(n) time for n total elements across the two runs, because each element is read once and written once.',
         'The recurrence is T(n) = 2T(n/2) + O(n). Two subproblems of half the size, plus linear merge work. By the Master Theorem (or by counting levels), the solution is O(n log n).',
@@ -150,6 +152,7 @@ export const article = {
       paragraphs: [
         'Time: O(n log n) in all cases. The recursion tree has log₂(n) levels because each split halves the range. At each level, every element participates in exactly one merge, so the total work per level is O(n). Multiplying: O(n) work per level times log₂(n) levels equals O(n log n). There are no bad inputs -- reverse-sorted, already sorted, all duplicates, adversarial permutations all cost the same.',
         'Space: O(n) auxiliary memory for the merge buffer, plus O(log n) stack frames for the recursive version. Production implementations allocate one buffer and reuse it across all merge calls rather than slicing new arrays at each level.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/0c/ComputerMemoryHierarchy.svg', alt: 'Computer memory hierarchy from registers through caches to storage', caption: 'Merge sort spends predictable comparison work, but the auxiliary buffer still moves data through the memory hierarchy. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:ComputerMemoryHierarchy.svg.'},
         'Stability: yes. Equal keys keep their original relative order, provided ties are broken in favor of the left run.',
         'Doubling behavior: when n doubles, the work roughly doubles plus one extra level of merging. 1,000 elements take about 10,000 operations. 1,000,000 elements take about 20,000,000. Doubling the input adds one merge level, contributing n more operations.',
       ],
@@ -158,6 +161,7 @@ export const article = {
       heading: 'Where it wins',
       paragraphs: [
         'External sorting. When data is too large for memory, sort chunks that fit in RAM, write sorted runs to disk, then merge runs in passes. Merge sort\'s sequential access pattern is friendly to disks and SSDs. This is the algorithm behind Unix sort, database bulk-load operations, and MapReduce\'s shuffle phase.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/b6/MapReduce.svg', alt: 'MapReduce execution diagram with map tasks shuffle reduce tasks and output', caption: 'MapReduce shuffle uses the same sorted-run idea at cluster scale: partition, sort locally, then merge grouped streams. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:MapReduce.svg.'},
         'Linked list sorting. Merging two sorted linked lists requires only pointer rewiring, not copying to an auxiliary buffer. Merge sort on linked lists uses O(1) extra space beyond the list nodes themselves, removing its main disadvantage compared to quicksort.',
         'Stable sorting requirements. When sorting records by multiple fields (sort by date, then stably sort by department), stability is essential. Merge sort provides it naturally. Python\'s Timsort and Java\'s Arrays.sort for objects are hybrid merge sorts that exploit natural runs and use insertion sort on small segments.',
         'Guaranteed worst case. In systems where latency spikes are unacceptable (real-time scheduling, database query plans), merge sort\'s O(n log n) worst case is safer than quicksort\'s O(n²) worst case, even though quicksort is often faster in practice.',

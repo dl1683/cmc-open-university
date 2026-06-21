@@ -183,12 +183,14 @@ export const article = {
       paragraphs: [
         'Ordinary SSA gives each register-like value a clear definition. Memory is harder: a load from `*p` may depend on a store through `*p`, a store through an alias, a call that writes unknown memory, or a path-specific write from another block.',
         'Optimizers still need direct answers. Can this load reuse an earlier value? Is this store dead? Can this memory operation move out of a loop? MemorySSA exists so those questions start from a sparse graph of memory accesses instead of a new search through raw control flow every time.',
+        {type: 'callout', text: 'MemorySSA makes memory effects searchable by naming every may-reaching write before alias analysis decides which one can actually matter.'},
       ],
     },
     {
       heading: 'The naive baseline and its wall',
       paragraphs: [
         'The naive baseline is a backward scan from each load. Walk previous instructions, then predecessor blocks, until a store or call that might affect the loaded address appears. In a straight-line toy program, that is easy to explain and easy to implement.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Some_types_of_control_flow_graphs.svg/250px-Some_types_of_control_flow_graphs.svg.png', alt: 'Several control-flow graph shapes showing branches and loops', caption: 'Branches and loops are why a raw backward memory scan keeps revisiting the same control-flow structure. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Some_types_of_control_flow_graphs.svg.'},
         'The wall is repeated dense work. Branches create joins, loops create backedges, calls may write broad memory, and pointers may alias. A pass that scans the CFG for every load can rediscover the same candidate writes again and again. Worse, every pass has to encode its own version of the same memory walk.',
       ],
     },
@@ -196,6 +198,7 @@ export const article = {
       heading: 'Core insight',
       paragraphs: [
         'MemorySSA names memory state the way SSA names values. Stores and write-like calls become `MemoryDef` nodes. Loads and read-like calls become `MemoryUse` nodes. Control-flow joins that merge possible memory states get `MemoryPhi` nodes. Memory that existed before the function is represented by `liveOnEntry`.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/23/Directed_graph_no_background.svg', alt: 'Directed graph with nodes connected by arrows', caption: 'MemorySSA is a directed access graph over memory state, not a rescan of source order. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Directed_graph_no_background.svg.'},
         'The key split is structure versus precision. MemorySSA tells a query where to start walking and which memory definitions may reach it. Alias analysis answers whether a candidate definition can actually clobber the queried address. A `MemoryPhi` is a may-reach merge, not proof that every incoming write aliases the later load.',
       ],
     },
@@ -210,6 +213,7 @@ export const article = {
       heading: 'Mechanism',
       paragraphs: [
         'Construction starts from the control-flow graph and dominance information. Memory-affecting instructions are mapped to access nodes, and blocks that need to merge different incoming memory states receive `MemoryPhi` nodes. The result is not a full memory version for every variable; it is a sparse access graph for operations that can read or write memory.',
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/Control_flow_graph.svg', alt: 'Control-flow graph with basic blocks connected by directed edges', caption: 'Memory access nodes are placed on top of CFG and dominance structure; the graph controls which memory states can reach a load. Source: Wikimedia Commons, https://commons.wikimedia.org/wiki/File:Control_flow_graph.svg.'},
         'A clobber query starts from the defining memory access of a load or read-like operation. The walker moves backward through candidate `MemoryDef` and `MemoryPhi` nodes. `NoAlias` candidates are skipped because they cannot affect the queried address. `MustAlias` candidates stop the walk with a precise clobber. `MayAlias` candidates stop conservatively unless a more expensive walker can refine the answer.',
         'Calls fit the same model. A call that may write memory is a broad `MemoryDef`; a readonly call can be modeled as a `MemoryUse`. The precision depends on side-effect summaries and alias information, but the graph shape still gives the optimizer one place to start.',
       ],
