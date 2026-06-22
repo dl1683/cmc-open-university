@@ -93,6 +93,14 @@ export const article = {
       ],
     },
     {
+      heading: 'The core insight',
+      paragraphs: [
+        'The LIFO (Last In, First Out) rule is the only invariant you need. When you push, the new item becomes the top. When you pop, the top item leaves. The structure itself enforces that you can only touch one item — the most recently pushed one that has not yet been popped. No index bookkeeping, no manual bounds checks, no way to reach underneath.',
+        'This works because the newest unfinished item is always the next one that must finish. Function A started first, called B, and B called C. C must return to B before B can return to A. The newest address (C's return to B) is the next one used. The stack does not need to know anything about functions or nesting — it only needs to enforce the newest-first order.',
+        'The single insight: a list that only allows operations on one end, in newest-first order, makes nested lifetimes trivial to track. Push when a new nesting begins. Pop when it ends. The stack tracks everything in the right order automatically.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'A stack exposes three operations. Push places a new item on top. Pop removes the top item and returns it. Peek reads the top item without removing it. Some implementations add isEmpty to guard against popping an empty stack (underflow).',
