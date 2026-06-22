@@ -26,8 +26,8 @@ export function* run(input) {
       state: sequenceState('linked-list', list),
       highlight: { active: [`n${i}`] },
       explanation: i === 0
-        ? `Insert ${values[i]}: the list was empty, so this node becomes the head. The head pointer is the only entry point; lose it and the chain is unreachable.`
-        : `Append ${values[i]}: without a tail pointer, the list must walk from head to the last node before it can attach the new one. Keeping a tail pointer would make append O(1).`,
+        ? `Insert ${values[i]}: the list was empty, so this node becomes the head. The head pointer is the only entry point into the chain; lose it and the chain is unreachable. The tail is null until another node is appended.`
+        : `Append ${values[i]} at tail: without a tail pointer, the code must walk from head through every node to reach the last one before attaching. This is the O(n) cost of append without tail pointer optimization.`,
       invariant: 'Each node knows only one thing about the rest of the list: where the next node is.',
     };
   }
@@ -39,7 +39,7 @@ export function* run(input) {
     yield {
       state: sequenceState('linked-list', list),
       highlight: { active: [list[i].id], visited: list.slice(0, i).map((n) => n.id) },
-      explanation: `Looking for ${target} to remove it. ${i === 0 ? 'Start at the head' : `Follow the next pointer to node ${i}`}: ${list[i].value} ${isMatch ? 'matches.' : 'does not match, so keep following pointers.'} Unlike an array, there is no jump to position k.`,
+      explanation: `Search step ${i + 1}/${list.length}: checking node with value ${list[i].value}. ${i === 0 ? 'The head pointer gives the starting node.' : 'Follow the next pointer from the previous node.'} ${isMatch ? 'Match found -- will remove this node.' : 'No match, so follow next pointer to continue search. There is no arithmetic shortcut to any position; every step is a pointer follow.'} This is O(n) worst case: every node may need inspection before finding the target or confirming absence.`,
     };
     if (isMatch) { foundIndex = i; break; }
   }
@@ -59,15 +59,15 @@ export function* run(input) {
     state: sequenceState('linked-list', list),
     highlight: { removed: [removed.id], active: prev ? [prev.id] : [] },
     explanation: prev
-      ? `To remove ${removed.value}, no data moves. Node ${prev.value} re-aims its next pointer past the removed node, so one pointer change repairs the chain.`
-      : `Removing the head (${removed.value}) is even simpler: the head pointer moves to the second node. One pointer change.`,
+      ? `Removing node at index ${foundIndex} (value ${removed.value}): no array elements shift. The predecessor at index ${foundIndex - 1} re-aims its next pointer to skip the target and point directly to the target's successor. One pointer update repairs the chain. The insertion coordinate was ${foundIndex}; removal at that coordinate is O(1) once the predecessor is known.`
+      : `Removing the head (value ${removed.value}): the head pointer moves to head.next (the second node). This is the special case for deletion at coordinate 0. One pointer change, no traversal needed.`,
   };
 
   list.splice(foundIndex, 1);
   yield {
     state: sequenceState('linked-list', list),
     highlight: prev ? { active: [prev.id] } : {},
-    explanation: `${removed.value} is gone and the chain is whole again. Arrays pay for middle removal by shifting later items; linked lists pay earlier by finding the right pointer.`,
+    explanation: `${removed.value} is unlinked and the chain is intact. Arrays pay O(n) to shift bytes when removing from the middle; linked lists pay O(n) to find the right pointer during search, then O(1) to re-link. The tradeoff is explicit: search is expensive because pointers give no arithmetic shortcut.`,
   };
 }
 
@@ -102,6 +102,14 @@ export const article = {
         'Inserting into the middle of an array forces every later element to shift one position right to preserve contiguous order. Deleting from the middle forces every later element to shift left. Both operations are O(n). For a 10,000-element array, inserting at position 0 moves all 10,000 values.',
         'Resizing hits the same wall from a different angle. When a dynamic array runs out of capacity, it allocates a larger block and copies everything over. The amortized cost is O(1) per append, but the single worst-case copy can be expensive in latency-sensitive code, and the new block temporarily doubles memory usage.',
         'These costs are acceptable when insertions and deletions cluster at the end. They become painful when the workload demands frequent changes at the front or middle, or when the data must never relocate in memory because other parts of the system hold pointers into it.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Order lives in the pointers, not in the memory layout. An array places values next to each other in a predetermined sequence; changing that sequence requires moving bytes. A linked list decouples the logical order from the physical layout by storing only one piece of information per node: where the next node lives. The head pointer gives entry to the chain; every subsequent node is reached by following pointers.',
+        'This means insertion at a known position is one pointer update: set the new node\'s next to point to the old successor, then have the predecessor point to the new node. No elements shift. No bytes move. The cost is O(1) provided the code already holds the right node reference.',
+        'The tradeoff is access. Array element k lives at address base + k * element_size, computable without looking at any other elements. Linked list node k requires k pointer follows, one after another, because there is no arithmetic shortcut to a node\'s address. Every lookup is a traversal.',
       ],
     },
     {
