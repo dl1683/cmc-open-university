@@ -189,91 +189,79 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a controller comparing a schedule ledger with the current clock. A CronJob is a Kubernetes object that creates Jobs at times described by a cron expression, and a Job is a finite workload that runs Pods until completion. Active ticks are schedule times being considered, compare ticks are missed or stale times, and found nodes are the Job creation, skip, or cleanup result.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Many production tasks are finite but repeated: nightly backups, hourly reports, certificate refreshes, cleanup passes, and scheduled exports. A plain Job can run one occurrence, but it does not remember the next due time.',
-        'A CronJob adds a schedule ledger around Jobs. It stores the cron expression, evaluates due ticks, creates Jobs from a template, and keeps enough history to debug recent successes and failures.',
+        'Many cluster tasks are finite but repeated: backups, reports, cleanup, certificate renewal, and exports. A plain Job can run one occurrence, but it does not remember the next due time or what to do after controller downtime. CronJob adds a schedule cursor, missed-start policy, overlap policy, and history cleanup around those Jobs.',
         {type:'callout', text:'A CronJob is a schedule ledger, not a running loop: each due tick is judged against cursor, deadline, concurrency, and history policy before a Job is created.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simple approach is to put cron inside a container, run a sleep loop, or have a human create the next Job. That works until the process dies, the cluster controller restarts, the clock crosses a time-zone edge, or the previous run is still active when the next tick arrives.',
-        'The wall is ambiguity. After downtime, should the system run every missed tick, only the latest tick, or none because the work is stale? If a backup is still running, should the next one overlap, be skipped, or replace it?',
+        'The obvious approach is to run cron inside a container or put a sleep loop in an application process. That works while the process keeps running, clocks are simple, and no one cares about missed ticks. It fails as soon as the container restarts, a controller is down for an hour, or the previous run is still active when the next tick arrives.',
       ],
     },
     {
-      heading: 'The core mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'The data structure is a schedule cursor plus a Job history ledger. The controller compares current time with the schedule and last scheduled time, finds missed starts, applies startingDeadlineSeconds, checks concurrencyPolicy, creates or skips a Job, records status, and trims old successful and failed Jobs.',
-        'The official CronJob documentation covers schedule syntax, deadlines, concurrency policy, suspension, history limits, time zones, name limits, and missed-start behavior: https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/. The automated task guide shows the basic pattern of a CronJob creating Jobs: https://kubernetes.io/docs/tasks/job/automated-tasks-with-cron-jobs/.',
+        'The wall is ambiguity after time has passed. If a 02:00 backup was missed and the controller returns at 03:10, the system needs a policy answer: run late, skip as stale, or record failure for a human. If a previous run is still active, the next tick needs an overlap rule rather than an accident.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        "In the schedule-cursor view, follow the controller's question: which scheduled times exist between the last recorded schedule and now, and which of those times are still fresh enough to create a Job? The cursor is what keeps a controller restart from becoming amnesia.",
-        "In the concurrency-policy view, the active Job list is the state that matters. `Allow` creates a new Job even if an older one is still running. `Forbid` skips the new run. `Replace` deletes the older run and starts a fresh one. Each option encodes a different answer to what overlap means for the workload.",
-        "The highlighted skips are not bugs by themselves. A skipped tick can be the correct outcome when work is stale, when the CronJob is suspended, or when concurrency policy says overlapping work would be unsafe.",
+        'The core insight is that scheduled work is a ledger problem, not a background loop. The controller stores the last scheduled time, computes due times from the cron expression and time zone, filters missed starts through `startingDeadlineSeconds`, applies `concurrencyPolicy`, creates Jobs from a template, and trims history. Each tick is judged against durable Kubernetes state before new work exists.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'How it works',
       paragraphs: [
-        'Suppose a report CronJob should run every hour. The controller last scheduled 10:00, then it is unavailable until 12:20. On the next reconciliation, it sees missed ticks at 11:00 and 12:00. With a 30-minute starting deadline, 11:00 is stale and 12:00 may still be eligible. With no deadline, both may be considered, subject to Kubernetes missed-schedule limits.',
-        'Now add `concurrencyPolicy: Forbid` and an 11:00 Job that is still active. The 12:00 tick is not created because the old run has not finished. With `Replace`, the controller treats the new tick as more important and replaces the active Job. With `Allow`, the two runs overlap. None of those choices is universally correct; the right policy depends on whether the task is idempotent, whether results are time-sensitive, and whether overlap can corrupt shared state.',
+        'On each reconciliation, the CronJob controller finds schedule times between the last recorded schedule and now. It discards ticks that are too old under `startingDeadlineSeconds`, stops new creation when `suspend` is true, and applies `Allow`, `Forbid`, or `Replace` when a previous Job is active. It then creates a Job, records status, and uses successful and failed history limits to keep old Job objects bounded.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The invariant is that each schedule tick is judged against the same ledger before any Job is created. A tick may be eligible, too late, blocked by an active Job, replaced, or skipped because the CronJob is suspended. The decision is recorded through Job creation and history, not left in a running process memory.',
-        'This design is intentionally approximate, not exactly-once execution. Kubernetes bounds missed-start recovery and documents that too many missed schedules are skipped rather than replayed forever. That protects the control plane from a backlog storm after long downtime.',
+        'The correctness invariant is that every candidate tick passes through the same ledger before a Job is created. A tick is either eligible, stale, blocked by active work, replacing active work, suspended, or created as a Job. The design does not promise exactly-once side effects; it promises repeatable controller decisions from stored schedule state and current Job state.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Controller work grows with CronJobs, missed ticks to evaluate, active Jobs, and retained history. A bad schedule can create many API objects, and a stuck Job can convert a harmless schedule into repeated skips or overlapping work depending on concurrencyPolicy.',
-        'startingDeadlineSeconds is both a freshness rule and a safety valve. Very small deadlines can miss the controller polling window, while very large deadlines can backfill stale work. ResourceQuota is a cluster-level guard because poorly configured CronJobs can create too many Jobs in a namespace: https://kubernetes.io/docs/concepts/policy/resource-quotas/.',
+        'Controller cost grows with the number of CronJobs, missed ticks to inspect, active Jobs, and retained history. A CronJob that runs every minute creates 1,440 opportunities per day, while a nightly CronJob creates one; the control-plane object churn is not the same. Very large deadlines can backfill stale work, while tiny deadlines can miss normal controller polling delay.',
+        'The behavioral cost is side-effect risk. If a Job writes to a database and then crashes before Kubernetes observes success, a replacement or manual rerun may repeat the write. CronJob schedules time; the workload still needs idempotent output, unique run ids, checkpoints, or external locks when repeated execution is dangerous.',
       ],
     },
     {
-      heading: 'Operational review checklist',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Review a CronJob as a small controller design. The schedule says when work becomes eligible. The deadline says how long that eligibility remains useful. The concurrency policy says what to do when time and reality disagree. History limits say how much evidence to keep. Resource requests and limits say how much cluster capacity each run can consume.',
-        'The workload container needs its own safeguards. CronJob does not make side effects exactly once. Use idempotent writes, external locks, unique run ids, checkpoints, or compare-and-swap guards when repeated execution can damage data. A retry-safe Job matters more than a tidy schedule string.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'CronJob wins when the work is time-triggered, finite, and safe to express as independent Job runs. Backups, report generation, cleanup, cache warming, certificate renewal, and scheduled exports are natural fits because each occurrence has a clear due time and terminal result.',
-        'It is especially useful when the schedule policy is part of operations: do not overlap backups, do not backfill stale reports after an outage, and keep only enough Job history for audit.',
+        'CronJob fits time-triggered work with a clear terminal result: backups, billing exports, cleanup passes, report generation, cache warming, and certificate renewal. It is strongest when lateness and overlap have simple business meanings, such as do not overlap backups or skip a report after it is 30 minutes stale. It also gives operators standard Job status and logs instead of a private scheduler hidden inside an application.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'CronJob is a poor fit for exactly-once money movement, workflows with dependencies, high-frequency event processing, and tasks whose next run depends on the previous run output. Use a queue, workflow engine, or application scheduler when time ticks are not the real unit of work.',
-        'The common operational failures are overlap, missed starts, unbounded history, name length surprises, and stale backfills. The workload itself must still be idempotent because retries, replacement, or manual reruns can repeat effects.',
-        'It also fails when the schedule is used as a hidden dependency graph. If task B must wait for task A, or if a missed task must trigger compensation, the system needs explicit workflow state. CronJob gives you time-based eligibility and Job creation, not a durable model of multi-step business progress.',
+        'CronJob is a poor fit for exactly-once money movement, dependency graphs, high-frequency event streams, and work whose next step depends on the previous output. A queue or workflow engine is better when the unit of progress is an event, item claim, approval, or dependency edge. CronJob also fails when users treat schedule text as a substitute for retry-safe application code.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'A nightly backup runs at 02:00 with Forbid concurrency, a one-hour starting deadline, and history limits of three successes and one failure. If the previous backup is still active, the 02:00 run is skipped rather than overlapping against the same database. If the controller restarts at 03:10, the missed 02:00 run is too late and is skipped. The history ledger retains enough Jobs for audit without accumulating forever.',
-        'The review is a policy review, not just a YAML review: schedule, time zone, deadline, overlap behavior, suspend behavior, history limits, resource quota, and whether backup writes are safe under retry.',
-        'A second example is an hourly cache warmer. It may use `Allow` because overlapping runs are harmless and freshness matters more than strict serialization. A certificate renewal job may use a long deadline because missing a renewal is worse than running late. A billing export may avoid CronJob entirely if downstream accounting requires a workflow ledger with approvals, retries, and reconciliation.',
-        'These examples show why the controller knobs are business semantics. The same missed tick can mean "run late," "skip because stale," or "page someone because the task is critical." A good CronJob article, runbook, or code review should name that meaning directly.',
+        'A report CronJob runs hourly. The controller last scheduled 10:00 and is unavailable until 12:20, so it sees missed ticks at 11:00 and 12:00. With `startingDeadlineSeconds: 1800`, the 11:00 tick is stale at 80 minutes late, while the 12:00 tick is 20 minutes late and still eligible.',
+        'Now set `concurrencyPolicy: Forbid` and assume the 11:00 Job is still active. The 12:00 eligible tick is skipped because overlapping reports would corrupt the output file. With `Replace`, the old Job would be deleted and the 12:00 Job started; with `Allow`, both Jobs would run and the output layer would need dedupe.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Kubernetes Job Indexed Completion Ledger for the Jobs a CronJob creates, Kubernetes ResourceQuota and LimitRange Admission for namespace caps, Queue and Rate Limiter for controller pacing, and Write-Ahead Log for retry-safe scheduled side effects.',
+        'Use the official Kubernetes CronJob concept page and automated tasks guide as primary sources. They define cron syntax, time zones, missed schedules, deadlines, concurrency policy, suspension, history limits, and generated Job behavior.',
+        'Study Kubernetes Job completion ledgers next because CronJob creates Jobs as its execution unit. Then study queues, workflow engines, resource quotas, and write-ahead logs to understand when a schedule is not enough state.',
       ],
     },
   ],

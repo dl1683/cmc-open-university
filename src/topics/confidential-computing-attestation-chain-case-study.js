@@ -194,95 +194,93 @@ export function* run(input) {
   else throw new InputError('Pick a confidential-attestation view.');
 }
 
+
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The quote-chain view shows a secret moving from impossible to releasable. Active nodes are the current evidence path: code is measured, the trusted execution environment makes a report, the report becomes a signed quote, and the verifier checks it before any key leaves.',
+        'The policy view shows the verifier as a row of predicates. Found nodes are claims already accepted, compare nodes are claims still being checked, and removed nodes are denial paths such as stale nonce, unknown root, or measurement drift.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Confidential computing is for the moment when encrypted data has to be used. Encryption at rest protects bytes on disk. TLS protects bytes on the network. Neither one answers the question a key server cares about before it releases a secret: what code is running right now, with what configuration, inside what isolation boundary?',
-        'Remote attestation is the answer shape. A workload asks the platform for signed evidence about its measured state. A verifier checks that evidence against policy. Only then does it release a key, model shard, data token, or other narrow capability. The point is not trust in a machine name. The point is trust in measured runtime state.',
+        'Confidential computing protects data while a workload is running, not only while bytes are stored or sent. A trusted execution environment, or TEE, is a hardware-backed isolation boundary that tries to keep the host, hypervisor, or cloud operator from reading protected memory.',
+        'The hard question is secret release. A key server needs proof that the expected code is running in the expected TEE mode before it releases a database key, model shard, or data token.',
         {type:'callout', text:'Remote attestation turns secret release into a predicate over fresh, signed runtime evidence rather than a credential check on a named machine.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/93/Trust_boundary_illustration_confidential_computing.jpg', alt:'A comparison of trust boundaries for no confidential computing, VM isolation, process isolation, and function isolation.', caption:'Trust boundary illustration of confidential computing. Source: Wikimedia Commons, HudsonAttests, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to give the secret to a VM, pod, service account, or TLS client certificate that has the right name. That is easy to automate, but it proves the caller has some credential, not that the expected workload booted in the expected protection mode. A copied credential, a misconfigured launch, or a stale host can still look like the right service.',
-        'Build provenance helps but stops before runtime. It can say which image was built and signed. It cannot prove that this image, with these flags, in this trusted execution environment, is the thing asking for the key at this time. The wall is the gap between artifact identity and live execution identity.',
+        'The obvious approach is to trust the machine name, service account, TLS client certificate, or cloud role. That can prove the caller has a credential, but it does not prove which image booted, whether debug mode is off, or whether the request came from the intended isolation boundary.',
+        'Build signing is another reasonable step. It proves that an artifact was produced by an approved pipeline, but it does not prove that this live process booted that artifact with the right flags at this moment.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The wall',
       paragraphs: [
-        'Treat secret release as a policy decision over signed runtime claims. The verifier asks whether the quote is signed by a trusted root, fresh for this challenge, measured against an allow list, configured with required security flags, bound to the expected tenant or workload identity, and scoped to the requested secret.',
-        'The invariant is strict: no secret leaves the verifier unless every required claim is present, fresh, authenticated, and policy-matching. Missing evidence is a denial, not a warning. A valid quote for the wrong image, wrong debug flag, wrong tenant, or wrong secret scope is still a denial.',
+        'The wall is the gap between artifact identity and runtime identity. A signed image can be copied, launched with weak flags, attached to the wrong tenant, or paired with a stale credential.',
+        'Replay is the second wall. A valid quote from yesterday cannot justify a key release today, so the verifier needs freshness, usually a nonce, inside the signed evidence.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        'The quote-chain view shows the difference between a workload and evidence about that workload. Code becomes measurements. Measurements become a TEE report. The report becomes a signed quote. The verifier combines that quote with a nonce, a trust root, and policy before it releases anything.',
-        'The policy view turns attestation into gates. Signature, freshness, measurement, configuration, identity, and scope all have to line up. The reject cells are not decoration. They are the denial reasons an operator needs when a deployment changed, a root rotated, a nonce was replayed, or a request asked for the wrong secret.',
+        'Treat key release as a policy decision over signed runtime claims. A quote is a signed evidence packet that usually contains measurements, configuration, a nonce, optional public key material, and a certificate chain rooted in a platform authority.',
+        'The invariant is strict: no secret leaves unless the quote is authentic, fresh, measured against an allow list, configured correctly, bound to the expected identity, and scoped to the requested secret. Missing evidence is a denial, not a warning.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'A workload starts from a measured image, launch configuration, and isolation mode. The platform records those facts in a local report. Depending on the technology, a device key, platform attestation service, or cloud attestation service turns the report into a quote signed through an endorsement chain.',
-        'The verifier creates a nonce or challenge so old evidence cannot be replayed as fresh evidence. The workload includes that nonce in the report. The quote can also include an ephemeral public key so the released secret can be encrypted to a key controlled by the attested workload instance.',
-        'Verification is a sequence of checks: parse the quote, validate the signature chain, check trust-root status, check freshness, compare measurements and flags to an allow list, check workload identity, check tenant identity, check requested secret scope, then record the allow or deny decision with enough detail for audit.',
+        'The workload boots inside a TEE and the platform records measurements such as image hash, launch configuration, security flags, and sometimes role or tenant data. The workload asks the platform for an attestation report, then turns that report into a signed quote through the platform or vendor attestation chain.',
+        'The verifier sends a nonce first. The workload includes that nonce, and often an ephemeral public key, so a successful decision can encrypt the released secret to this session instead of creating a reusable bearer token.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The signature check authenticates the platform evidence. The measurement check connects that evidence to a specific booted workload. The nonce check blocks replay. The policy check decides whether this measured state may receive this secret. Public-key binding keeps a valid quote from becoming a transferable bearer token.',
-        'Correctness comes from refusing to collapse those checks into one vague trust bit. Each predicate protects a different edge in the chain. If the root is unknown, the evidence is unauthenticated. If the nonce is stale, the evidence may be replayed. If the measurement drifts, the verifier no longer knows what code it is trusting.',
+        'Correctness comes from preserving a chain of claims. The signature authenticates the platform, the measurement names the workload, the nonce proves freshness, and policy matching decides whether that exact state may receive that exact secret.',
+        'Each predicate covers a different failure. If the root is unknown, the evidence is not trusted; if the nonce is stale, the evidence may be replayed; if the measurement changed, the verifier no longer knows which code it is trusting.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The online cost is an extra protocol before useful work begins. A verifier may add 10 ms to 200 ms depending on quote generation, certificate validation, network path, and cache state, so systems often cache accepted measurements while still requiring fresh nonces for key release.',
+        'The operational cost is policy maintenance. Every compiler change, base image update, kernel update, firmware update, or debug flag can change measurements, so teams need staged allow-list updates, denial telemetry, root rotation, and audit storage.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Attestation fits data clean rooms, payment processing, confidential databases, private model-weight release, regulated analytics, and customer-controlled key release in cloud services. The common shape is one party owning data or keys while another party operates infrastructure.',
+        'It also fits supply-chain gates. Provenance says what was built, while attestation says what is running, and a release policy can require both before data enters the workload.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Attestation does not prove that the application is bug-free. SQL injection, prompt injection, side channels, excessive logging, and bad authorization can leak data after a correct key release.',
+        'It also fails when policies are broad. An allow list that ignores debug flags, tenant labels, requested secret scope, driver state, or expired roots can release secrets to states that were never intended to receive them.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose a payment enclave may receive a card-processing key only when image hash H_pay is running with debug disabled for tenant T. The verifier sends nonce N. The enclave asks the platform for a quote that includes H_pay, the launch flags, N, tenant identity, and ephemeral public key K.',
-        'The verifier accepts the trust root, sees nonce N, matches H_pay and debug-off against policy, checks tenant T, checks that the request is for the card-processing key, and encrypts a short-lived key to K. The audit record stores the quote digest, policy version, measurement, nonce, tenant, and release decision.',
-        'If a rebuild changes the image hash to H_new before policy is updated, the verifier denies release with a measurement-drift reason. If an attacker replays an old quote with nonce N_old, the verifier denies release with a freshness reason. If the quote is valid but asks for a settlement key instead of a processing key, the verifier denies release with a scope reason.',
+        'A payment enclave may receive key K_pay only when image hash H1 runs with debug disabled for tenant T7. The verifier sends nonce N44, and the enclave returns a quote containing H1, debug=false, tenant T7, nonce N44, and public key P_tmp.',
+        'The verifier checks the AWS Nitro-style certificate chain, sees nonce N44, matches H1 to policy version 12, verifies debug=false, and encrypts K_pay to P_tmp for 15 minutes. If a rebuild changes the hash to H2, the same request is denied until policy version 13 explicitly admits H2.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Attestation wins when the party releasing the secret should not trust the host by default. That includes data clean rooms, payment workloads, confidential databases, model-weight release, regulated analytics, agent sandboxes, and workloads split across cloud, vendor, and customer trust boundaries.',
-        'It is strong when paired with supply-chain evidence. Provenance says what was built. Attestation says what is running. A release policy can require both: a signed build from the expected pipeline and a fresh quote showing the expected measurement in the expected protection mode.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'Attestation does not prove that the application is bug-free, safe from injection, free of side channels, or authorized to do every action after it gets a key. It proves a narrower claim: this configured workload is running in an attested environment recognized by the verifier.',
-        'It fails when policies are too broad. An allow list that accepts a family of images without separating debug builds, driver versions, GPU modes, tenant scopes, and requested secrets can release data to states that were never meant to receive it.',
-        'It also fails when released secrets live too long. A one-time attestation followed by a long-lived bearer token weakens the chain. Prefer short-lived capabilities, binding to an ephemeral public key, renewal with fresh evidence, and revocation paths for root or measurement changes.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Keep the verifier small and boring. Parse quote formats with tested libraries when possible. Validate the full endorsement chain. Pin allowed roots. Treat parsing errors, unknown critical fields, missing flags, stale nonces, and policy misses as denial paths.',
-        'Version policy. A deployment that changes compiler flags, kernel, firmware, container base image, model package, or driver stack may change measurements. Operators need a staged path: observe new measurements, review them, approve policy updates, and roll back when a bad measurement appears.',
-        'Bind release to intent. The quote should not merely prove that a workload exists. The verifier should check which tenant, which workload, which requested secret, which policy version, and which public key will receive the secret. This keeps a valid quote from being reused in a different context.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Store denial reasons. A verifier that only returns false creates slow incidents because operators cannot tell whether the root is unknown, the nonce is stale, the measurement drifted, or the requested secret scope is wrong. Good denial telemetry turns attestation from mystery gate into a controlled release system.',
-        'Plan for root rotation and emergency deny lists. Vendor roots, cloud endorsement chains, and device firmware can change. A production verifier needs root bundles, expiry handling, revocation intake, policy rollback, and an audit trail showing exactly which evidence allowed each release.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study AWS Nitro Enclaves attestation, AWS KMS attestation conditions, AMD SEV-SNP, Intel TDX, NVIDIA confidential GPU attestation, Azure confidential computing, Sigstore keyless signing, software supply-chain provenance, OPA policy evaluation, and secret-release policy design. The shared pattern is evidence, policy, narrow release, and audit.',
+        'Primary sources: AWS Nitro Enclaves attestation document validation, AMD SEV-SNP attestation reports, Intel TDX quote verification, Azure Attestation, NVIDIA Attestation, and RFC 8949 for CBOR. Study certificate chains, nonces, public-key binding, and OPA-style policy evaluation next.',
+        'Then compare this topic with Confidential GPU Inference Attestation, Private RAG Confidential Enclave, Sigstore keyless signing, SLSA provenance, and secret-management systems such as KMS or Vault. The repeated idea is evidence first, policy second, narrow release third.',
       ],
     },
   ],

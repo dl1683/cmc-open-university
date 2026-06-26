@@ -221,89 +221,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Ordinary vector RAG is good at finding passages similar to a question. It is weaker when the question asks for structure across a whole corpus: main themes, recurring risks, common actors, hidden clusters, or relationships that appear across many documents. There may be no single nearest chunk that answers the question.`,
-        `GraphRAG exists to move more organization into the index before the user asks. It extracts entities, relationships, and claims from text, builds a graph, detects communities, writes community reports, and then uses those reports and graph neighborhoods during retrieval. The goal is not to replace source evidence. The goal is to create a retrieval surface for broad questions that chunk search alone handles poorly.`,
-        {type:`callout`, text:`GraphRAG moves structure into the index: entities, relationships, communities, and summaries become retrieval artifacts before the query arrives.`},
-        {type:`image`, src:`https://upload.wikimedia.org/wikipedia/commons/8/82/Louvain_Step2.png`, alt:`Network graph with nodes grouped into colored communities.`, caption:`Louvain community detection step. Wikimedia Commons, Louvain_Step2.png.`},
+        'Read the pipeline as two indexes built from the same corpus. The vector index finds nearby text chunks, while the graph index stores entities, relationships, claims, communities, and generated community summaries.',
+        'The safe inference is that broad questions need structure before query time. If no single chunk contains the answer, the system needs graph neighborhoods and community reports to organize evidence before final synthesis.',
+        {type:'callout', text:'GraphRAG moves structure into the index: entities, relationships, communities, and summaries become retrieval artifacts before the query arrives.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/82/Louvain_Step2.png', alt:'Network graph with nodes grouped into colored communities.', caption:'Louvain community detection step. Wikimedia Commons, Louvain_Step2.png.'},
       ],
     },
     {
-      heading: 'The naive approach and why it fails',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to split documents into chunks, embed the chunks, retrieve the top k, and ask the model to answer. That works for narrow factual questions when the needed passage is close to the query in embedding space. It breaks down for global questions because the answer is distributed. Ten relevant passages may each contain one small piece, and the most representative passage may not exist.`,
-        `Another naive fix is to increase k and stuff more chunks into context. That raises cost and still gives the model an unordered pile. It may miss cross-document patterns, overweight repeated wording, or produce a summary from whichever chunks happen to fit. GraphRAG pays indexing cost so query time can use graph structure instead of raw proximity alone.`,
+        'Retrieval-augmented generation, or RAG, answers by retrieving evidence and giving it to a language model. Plain vector RAG is strong when a question is close to one or a few chunks in embedding space.',
+        'GraphRAG exists for questions whose answers are distributed across a corpus. Themes, recurring risks, common actors, and cross-document patterns may not live in one nearest passage.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach splits documents into chunks, embeds each chunk, retrieves the top k chunks for a question, and asks the model to answer from those chunks. That is often enough for narrow factual lookup.',
+        'A second obvious fix is to increase k. More chunks can help recall, but it also raises token cost and gives the model an unordered pile instead of a structured view of the corpus.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is global synthesis. A question such as what recurring risks appear across two years of incident reports may require ten small pieces spread across many documents, with no single representative chunk.',
+        'Another wall is repeated work. If every query has to rediscover entities, relationships, and themes from raw chunks, broad analysis becomes slow, expensive, and inconsistent.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `GraphRAG treats the corpus as a graph-shaped memory, not just a bag of chunks. Entities become nodes. Relationships become edges. Claims and source spans preserve evidence. Community detection groups related parts of the graph. Community summaries compress those groups into natural-language reports that can answer broad questions more directly than raw chunks can.`,
-        `This is a data-structure choice. RAPTOR builds a hierarchy of chunk summaries. LightRAG keeps graph and vector retrieval paths active together. GraphRAG builds an entity graph and a community-report hierarchy. All three designs move some reasoning into indexing, but GraphRAG makes relationships and communities first-class artifacts.`,
+        'Move structure into the index before the user asks. Extract entities, relationships, and claims; build a graph; detect communities; and write summaries of those communities with links back to source text.',
+        'A community summary is a compressed retrieval artifact. It is not a replacement for evidence, but it gives broad search a unit larger than a chunk and more organized than a raw top-k list.',
       ],
     },
     {
-      heading: 'How the index is built',
+      heading: 'How it works',
       paragraphs: [
-        `Indexing starts with documents and text units, just like a normal RAG pipeline. The next step is extraction. An LLM or extraction system identifies entities, relationships, and claims from each text unit. Those records should keep source ids, spans, document metadata, and confidence or quality signals, because later summaries will depend on them.`,
-        `The extracted records are assembled into a graph. Entity resolution merges aliases and duplicate nodes. Edge weights may represent co-occurrence, extracted relationship strength, or repeated evidence. Community detection, often with algorithms such as Leiden or Louvain, groups densely connected entities. Then another generation pass writes reports for each community, ideally with citations back to the text units that support the claims.`,
-      ],
-    },
-    {
-      heading: 'Community summaries',
-      paragraphs: [
-        `Community summaries are the compression layer. A community report might describe a group of entities, the recurring relationships among them, major claims, internal contradictions, and source-backed examples. That report gives global search a useful unit of retrieval: not one raw passage, but a synthesized view of a related subgraph.`,
-        `The danger is summary drift. If extraction misses an entity, entity resolution merges the wrong names, community detection cuts through the wrong boundary, or the report invents unsupported claims, every query using that report inherits the error. A production GraphRAG index needs provenance and audit paths from report sentence to source text.`,
-      ],
-    },
-    {
-      heading: 'Query modes',
-      paragraphs: [
-        `Global search is the signature mode. It selects relevant community reports, asks each report for a partial answer, and reduces those partial answers into a final response. This map-reduce shape is useful for questions such as "What are the main risks across these documents?" because the system already has a summary hierarchy.`,
-        `Local search starts from entities. For a question about a person, project, product, or incident, the system retrieves the entity record, neighboring relationships, source text, and related community context. DRIFT combines the two styles: use broader community context to generate focused follow-up questions, then run local retrieval for those subquestions before synthesizing.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The indexing visual proves that GraphRAG is not a single vector table. Documents become chunks, chunks feed extraction, extraction creates nodes, edges, and claims, and communities produce reports. Each layer adds retrieval power and also adds a place where errors can enter.`,
-        `The query visual proves that the right retrieval path depends on the question. Broad synthesis should not be forced through one nearest passage. Entity lookup should not rely only on community summaries. DRIFT exists because many questions need both: enough global context to know what to ask next, and enough local evidence to stay grounded.`,
+        'Indexing starts with documents and text units. An extraction step identifies entities, relationships, claims, source spans, and metadata, then entity resolution merges aliases that refer to the same real object.',
+        'The graph stores entities as nodes and relationships or claims as edges or attached records. Community detection groups densely connected parts of the graph, and a generation step writes a report for each community.',
+        'At query time, global search retrieves relevant community reports and reduces partial answers. Local search starts from entities and neighborhoods, while DRIFT-style search combines broad community context with focused follow-up retrieval.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `GraphRAG works when graph structure is more informative than text similarity alone. If a corpus contains recurring actors, organizations, incidents, dependencies, or themes, community detection can reveal groups that a raw embedding search may not surface. Community reports then turn those groups into compact retrieval units.`,
-        `It also works because it shifts repeated synthesis out of the hot path. Instead of asking every query to rediscover the corpus structure from chunks, the system precomputes some of that structure during indexing. Query time can spend more budget comparing relevant reports, traversing neighborhoods, and checking source evidence.`,
+        'GraphRAG works when graph structure captures information that embedding similarity alone misses. Repeated actors, dependencies, incidents, organizations, and themes become connected objects rather than isolated text chunks.',
+        'The correctness argument is provenance. A community report is usable only when its statements can be traced back to extracted claims and source spans, and final answers should cite or check those sources before presenting exact claims.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The cost is real. GraphRAG performs extraction, entity resolution, graph construction, community detection, report generation, and quality checks before query time. That may be worth it for stable corpora and global analysis, but it is expensive for tiny corpora, frequently changing documents, or workloads dominated by exact lookup.`,
-        `GraphRAG also has operational tradeoffs. Updates can invalidate reports. Access control has to apply to text units, graph records, and summaries. Prompt injection defenses still matter because retrieved source text may contain hostile instructions. Evaluation has to score extraction, retrieval, summary support, final answer faithfulness, latency, and cost separately.`,
+        'GraphRAG pays more at indexing time. Extraction, entity resolution, graph construction, community detection, report generation, and evaluation all add compute and model cost before any query arrives.',
+        'The cost can be worth it for stable corpora with repeated global questions. It is often wasteful for tiny corpora, fast-changing documents, or workloads dominated by exact lookup where top-k chunk retrieval already works.',
+        'Updates are expensive because one changed document can alter entities, edges, communities, and summaries. Access control is also harder because permissions must apply to raw text, graph records, summaries, and final answers.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `GraphRAG is useful for enterprise knowledge bases, incident archives, investigative document sets, policy libraries, support ticket corpora, legal discovery, market research, and scientific literature review. These are settings where users often ask for patterns across many records, not only facts from one page.`,
-        `For example, an engineering organization may have years of incident reports, Slack exports, deployment notes, and service documents. Vector RAG can answer "what happened in incident INC-742?" if it retrieves that report. GraphRAG is better suited to "what recurring coordination failures appear across payment incidents?" because the graph can surface communities around ownership, dependencies, alerts, rollout controls, and mitigation patterns.`,
+        'GraphRAG fits enterprise knowledge bases, incident archives, investigative document sets, policy libraries, legal discovery, market research, support tickets, and scientific literature review. These corpora often ask for patterns across many records.',
+        'An engineering organization can use it to ask which coordination failures recur across payment incidents. Vector RAG may retrieve one incident report, while GraphRAG can surface communities around ownership, rollout controls, alerts, dependencies, and mitigations.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `Do not treat the graph as objective truth. It is an extracted index, often built with LLM calls. It can contain duplicate entities, hallucinated relationships, missing claims, stale communities, unsupported reports, and broken source links. A fluent community summary can be less reliable than a dull raw passage if it lacks provenance.`,
-        `The worst production mistake is to answer audit-heavy questions from summaries alone. Community reports are good for orientation and synthesis, but exact claims need source text. A second mistake is to benchmark only final answer style. A proper evaluation set should check whether the right entities were extracted, whether relationships are supported, whether retrieval found the needed evidence, and whether the final answer cites what it says.`,
+        'It fails when the extracted graph is treated as objective truth. Entity extraction can miss names, merge different people, invent relationships, or produce summaries that sound fluent but lack source support.',
+        'It also fails when summaries answer audit-heavy questions without returning to evidence. Community reports are good orientation layers, but exact claims still need source spans and freshness checks.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Primary sources: Microsoft GraphRAG paper at https://arxiv.org/abs/2404.16130, GraphRAG docs at https://microsoft.github.io/graphrag/, Microsoft GraphRAG GitHub repository at https://github.com/microsoft/graphrag, Microsoft Research project page at https://www.microsoft.com/en-us/research/project/graphrag/, GraphRAG overview blog at https://www.microsoft.com/en-us/research/blog/graphrag-new-tool-for-complex-data-discovery-now-on-github/, DRIFT blog at https://www.microsoft.com/en-us/research/blog/introducing-drift-search-combining-global-and-local-search-methods-to-improve-quality-and-efficiency/, local search docs at https://microsoft.github.io/graphrag/query/local_search/, and DRIFT docs at https://microsoft.github.io/graphrag/query/drift_search/.`,
-        `Study RAG Pipeline, Multi-Index RAG, Leiden & Louvain Community Detection, GraphBLAS Sparse Matrix Graph Case Study, Compressed Sparse Row Graph, Embeddings & Similarity, HNSW, LightRAG Dual-Level Retrieval Case Study, Prompt Injection Threat Model, Zanzibar Authorization Case Study, and LLM Evaluation Golden Sets next.`,
+        'Suppose 1,000 incident reports are split into 20,000 chunks. Plain vector search for recurring payment failures retrieves 20 chunks, of which 8 mention deploys, 5 mention alerts, and 4 mention ownership, but the pattern is left for the model to infer from a small sample.',
+        'GraphRAG extracts 6,000 entities and 18,000 relationships, then detects 40 communities. One community report covers payment deploys, alert routing, and rollback ownership across 73 source chunks, so the global answer starts from an organized subgraph instead of a random top-k pile.',
+        'If each query would otherwise stuff 20 chunks of 500 tokens, that is 10,000 context tokens per broad query. A 900-token community report plus five cited source chunks may cost fewer tokens while preserving the evidence path.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary references are the Microsoft GraphRAG paper at https://arxiv.org/abs/2404.16130, the GraphRAG docs at https://microsoft.github.io/graphrag/, the GraphRAG repository at https://github.com/microsoft/graphrag, the Microsoft Research project page at https://www.microsoft.com/en-us/research/project/graphrag/, and DRIFT search documentation at https://microsoft.github.io/graphrag/query/drift_search/.',
+        'Study RAG pipelines, embeddings, HNSW, Leiden and Louvain community detection, GraphBLAS, entity resolution, prompt injection defenses, authorization systems, and evaluation golden sets next. The central habit is to separate retrieval structure from evidence truth.',
       ],
     },
   ],

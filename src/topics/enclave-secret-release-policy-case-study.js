@@ -177,109 +177,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the flow as a decision about authority. Active means evidence or policy is being checked, visited means a claim has been validated or rejected, and found means a secret is wrapped to an enclave-held key after policy approval.',
+        'The safe inference rule is bound release. A secret may be usable only by the measured workload instance whose fresh attestation and public key were accepted. The host may carry messages, but it must not receive plaintext authority.',
+        {type:'callout', text:'Secret release turns attestation into authority only when the policy binds measurement, caller, scope, freshness, and an enclave-held key before any secret becomes usable.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `A confidential workload is only useful if the sensitive capability arrives after the workload proves what it is. If a database password, model key, signing key, or API token is baked into the image, mounted from the host, or attached only to the VM identity, the enclave boundary is mostly decorative. The surrounding host may be able to read the material before the protected code starts.`,
-        `Secret release is the bridge between remote attestation and practical authority. Attestation provides signed evidence about the measured program and environment. A release policy decides whether that exact measured program, under that caller, tenant, requested scope, freshness window, and public key binding, may receive a narrow secret.`,
-        {type:`callout`, text:`Secret release turns attestation into authority only when the policy binds measurement, caller, scope, freshness, and an enclave-held key before any secret becomes usable.`},
+        'An enclave is a protected execution environment that tries to keep code and data isolated from the surrounding host. Remote attestation is signed evidence about what code and platform are running. A secret-release policy decides whether that evidence is good enough to receive a key, token, or credential.',
+        'Confidential workloads still need authority. A model server may need a decryption key, a payment worker may need a signing key, and an analytics job may need a scoped token. Releasing those secrets to the host identity alone defeats much of the enclave boundary.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is to give the VM or Pod an IAM role and let the application call KMS directly. The application starts, asks for the secret, decrypts it in memory, and tries to keep plaintext away from logs and disk. This is a normal design for many services where the VM or container boundary is the trusted boundary.`,
-        `That design fails for confidential computing because the authority is attached to the host context, not to the measured enclave state. A parent process, copied credential, debug shell, stale image, or compromised deployment path can ask for the same secret without proving that the approved workload is running inside the expected protected boundary.`,
+        'The obvious approach is to give the virtual machine, pod, or service account permission to call a key-management system. The application starts, authenticates as that identity, and decrypts the secret. This is normal for many services.',
+        'That approach trusts the host boundary. A copied credential, debug shell, stale deployment, or compromised parent process can request the same secret. The request proves who called, but not which measured enclave code will use the material.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is authority without measurement. KMS can know who called it, but if policy stops there, it cannot distinguish a production enclave image from a debug build, a stale binary, a different tenant image, or a host process replaying a request that once looked legitimate.`,
-        `The second wall appears after the first successful release. Workloads often derive session keys, cache decrypted model shards, build indexes, or write resumable state. If that state is stored without sealing policy, a future run can recover old authority after the measurement, tenant grant, model version, or key policy has changed.`,
+        'The wall is authority without measurement. A key service that checks only IAM identity cannot distinguish a production enclave image from a debug build or a host process replaying a request. The wrong code can receive the right secret.',
+        'The second wall is resume state. After a valid release, the workload may cache decrypted shards, session keys, or indexes. If sealed state can reopen after policy revocation, the system has recreated old authority through storage.',
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The core insight',
       paragraphs: [
-        `The invariant is: no accepted attestation and policy decision, no usable secret. The service can receive requests from an untrusted host, but the response must be useful only to the enclave instance whose evidence was accepted. That means the decision must bind code measurement, caller identity, tenant, requested secret, freshness, and an enclave-controlled public key or session key.`,
-        `The host may transport the request and response. It should not be able to unwrap the released secret. The release service should return ciphertext bound to the attested key, not plaintext for the caller to pass along. This keeps the host in the data path without making it part of the trust boundary for the secret material.`,
+        'Bind the release to evidence, policy, freshness, and an enclave-held key. The verifier checks the attestation document, code measurement, caller, tenant, requested secret, policy version, nonce, and public key binding. Only then does it wrap a narrow secret to that key.',
+        'The invariant is no accepted evidence, no usable secret. The host can forward the request and response, but it should see only ciphertext that the enclave can unwrap. Policy controls authority before plaintext exists outside the release service.',
       ],
     },
     {
-      heading: 'Evidence and policy',
+      heading: 'How it works',
       paragraphs: [
-        `The release decision is a predicate over evidence. A typical row includes a signed attestation document, vendor or platform certificate chain, nonce or challenge, enclave measurement, image or code hash, caller identity, tenant id, requested secret id, policy version, expiration, and public key binding. Some platforms expose these as KMS condition keys or as claims evaluated by a verifier.`,
-        `Policy should be narrow. A rule that says "this role may decrypt this key" is too broad for the confidential-computing case. A better rule says "this caller may receive this secret only when the quote is fresh, the measurement is in the allowed set, the tenant matches, the secret scope is correct, the policy version is active, and the response is wrapped to the enclave public key."`,
-      ],
-    },
-    {
-      heading: 'Release mechanics',
-      paragraphs: [
-        `A common flow has five steps. First, the enclave generates a key pair or session key inside the protected boundary. Second, it asks the platform for an attestation document that includes a fresh challenge and the public key or a digest of it. Third, the host sends the document, requested secret, and caller context to the release service. Fourth, the verifier checks the evidence and policy. Fifth, the service wraps the secret to the enclave-bound key and records the decision.`,
-        `Freshness is not optional. Without a nonce or challenge, an old quote can be replayed after the approved workload has stopped. Public-key binding is not optional either. Without it, the host can substitute its own public key and receive a ciphertext it can decrypt. Scope matters because a successful release should not become general decrypt authority for every secret in the account.`,
-      ],
-    },
-    {
-      heading: 'Sealed state',
-      paragraphs: [
-        `After release, the workload may need to persist derived state. It might cache decrypted model partitions, an embedding index, an authorization token, a short-lived session secret, or a progress checkpoint. Sealing encrypts that state so it can be recovered only under an approved measurement, key ladder, tenant, version, and expiration.`,
-        `Sealing is not just "encrypt before writing to disk." It is policy for future authority. If the state omits tenant, model version, data version, policy version, or TTL, a future resume can silently bypass a revocation. If the workload changes but old sealed state still opens, the system may keep using authority that the current policy would no longer release.`,
-      ],
-    },
-    {
-      heading: 'Audit trail',
-      paragraphs: [
-        `The audit log is part of the security mechanism, not an afterthought. A release event should store the quote or quote digest, measurement, caller, tenant, requested secret, policy version, decision, reason, public key digest, expiration, and any emergency override or deny-list match. Operators need enough evidence to explain why a key was released or denied.`,
-        `Good audit data also supports incident response. If a measurement is later revoked, the team can ask which releases used it, which tenants were affected, which sealed-state blobs may need invalidation, and which policy versions permitted the release. Without that ledger, secret release becomes a black box that is hard to trust during an incident.`,
+        'The enclave generates a key pair inside the protected boundary. It asks the platform for an attestation document that includes a fresh challenge and the public key or a digest of it. The host forwards that document and the requested secret id to the release service.',
+        'The release service validates the platform certificate chain, measurement, nonce, caller, tenant, scope, and policy version. If the decision is allow, it encrypts the secret to the enclave public key and logs the decision. If any required claim fails, it denies release.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Measurement binding makes the request about code state, not just caller identity. Freshness prevents old evidence from being replayed as current evidence. Public-key binding prevents the host from replacing the enclave as the real recipient. Scope and TTL limit damage when the release is valid but later abused by application logic.`,
-        `Sealing extends the same logic across restarts. The workload should only recover durable sensitive state when the future environment still satisfies the policy that made the state safe. Rotation, deny lists, and measurement revocation are supposed to break old state. A clear denial is better than a quiet resume under stale authority.`,
+        'Measurement binding makes the request about running code, not just infrastructure identity. Freshness prevents replay of old evidence. Public-key binding prevents the host from substituting itself as the recipient.',
+        'Sealing extends the same logic across restarts. Durable sensitive state should reopen only when the future environment still satisfies the policy. If measurement, tenant, model version, or policy version no longer matches, denial is the correct behavior.',
       ],
     },
     {
-      heading: 'Cost and operations',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The hard part is usually operational precision. Every deployment may change image hashes, signer certificates, enclave measurements, driver claims, model digests, or expected policy rows. If rollout and policy update are not coordinated, the correct workload cannot decrypt. If policy is loosened to avoid outages, the security boundary decays.`,
-        `Incident handling also needs design before the incident. Teams need deny-list distribution, emergency key rotation, policy rollback, measurement revocation, audit retention, sealed-state migration, and a user-facing explanation for denied releases. The cryptographic primitive is small compared with the lifecycle around it.`,
+        'The cryptographic operation is usually smaller than the lifecycle cost. Rollouts change image hashes, signer certificates, measurements, driver claims, and policy rows. If policy lags code, correct workloads fail to decrypt; if policy is too broad, secrets leak across boundaries.',
+        'When tenants double, policy rows, audit volume, revocation paths, and sealed-state migration work can roughly double. The dominant operational cost is keeping allowlists narrow while deployments keep moving. Emergency revocation must be tested before it is needed.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `This pattern fits private inference, data clean rooms, payment signing, regulated analytics, secure build workers, and agent tool credentials. In each case, the owner wants to release a capability to a measured worker without trusting the surrounding host as much as the worker.`,
-        `It gives useful blast-radius control. A copied disk, leaked host token, stolen deployment credential, or compromised parent process should still lack the accepted measurement and key binding needed to unwrap the protected secret. That does not remove every risk, but it moves the secret release decision closer to the code that will actually use the secret.`,
+        'This pattern fits private inference, data clean rooms, payment signing, regulated analytics, secure build workers, and agent tool credentials. In each case, the owner wants to release capability to a measured worker without fully trusting the host.',
+        'It also gives blast-radius control. A stolen disk, copied host token, or compromised parent process should still lack the measurement and enclave key needed to unwrap the secret. The policy narrows who can turn evidence into authority.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `Secret release does not prove the code is correct, safe, or free of exfiltration paths. It proves that the released key went to an environment with certain measured claims. Bugs, malicious inputs, side channels, overly broad outbound network access, bad logging, and prompt injection in a higher-level system can still leak sensitive data after a valid release.`,
-        `It is also a poor fit when the workload changes too often to maintain meaningful measurements. If every plugin, script, model file, and debug flag forces a new allowlist entry, operators may start allowing broad patterns just to keep deployments moving. At that point attestation has become ceremony rather than a useful gate.`,
+        'Secret release does not prove the code is bug-free or unable to leak data after it receives the key. Side channels, bad logging, prompt injection, broad outbound access, and application flaws remain possible. Attestation proves claims about environment, not moral behavior.',
+        'It also fails when measurements are too dynamic to manage. If every plugin, script, model shard, and debug flag requires a new exception, operators may loosen policy until it means little. A broad attestation policy can become ceremony.',
       ],
     },
     {
-      heading: 'Concrete failures',
+      heading: 'Worked example',
       paragraphs: [
-        `A KMS rule that checks only IAM role lets the parent host call decrypt directly. A request that does not bind the enclave public key lets the host substitute its own key and unwrap the response. A quote without a nonce can be replayed after the approved workload has stopped. A policy that accepts debug measurements can release production secrets to a build that was never meant to be trusted.`,
-        `A sealing policy without tenant, data version, policy version, or TTL can resurrect old decrypted state after revocation. An audit log that stores only "allowed" without claims and policy version cannot support incident response. A rollout process that updates code before policy can cause outages; a process that updates policy too broadly can cause leaks.`,
+        'A model-serving enclave needs key model-prod-7. The attestation says measurement M1, tenant acme, nonce 4812, and public key digest K1. Policy allows M1 for acme to receive only model-prod-7 for 15 minutes, so the service returns ciphertext encrypted to K1 and logs audit id 9004.',
+        'Now a host process replays the same request six hours later. The nonce is stale, so release is denied. If the host substitutes public key K2, the public-key digest no longer matches the attested evidence, so the service denies that request too.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Model the release request as a typed object: evidence, freshness, workload identity, caller identity, tenant, requested secret, public key binding, policy version, and desired TTL. Validate each field explicitly and record the decision reason. Keep the release response narrow: one scoped ciphertext, wrapped to the enclave-bound key, with expiration and audit id.`,
-        `Separate deploy policy from emergency policy. Normal rollout should add new measurements deliberately and remove old ones after traffic drains. Emergency policy should revoke measurements or key versions quickly and make sealed-state failures explainable. Test with negative cases: stale quote, wrong tenant, wrong public key, debug measurement, revoked measurement, expired policy, and mismatched secret scope.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: AWS KMS Nitro Enclave condition keys at https://docs.aws.amazon.com/kms/latest/developerguide/conditions-nitro-enclave.html, AWS Nitro Enclaves cryptographic attestation at https://docs.aws.amazon.com/enclaves/latest/user/set-up-attestation.html, and Google Confidential Space resource authorization at https://docs.cloud.google.com/confidential-computing/confidential-space/docs/create-grant-access-confidential-resources.`,
-        `Study Confidential Computing Attestation Chain Case Study for the quote and certificate path, Confidential GPU Inference Attestation Case Study for accelerator-backed release, Capability Security Attenuation for scoped authority, OPA Rego Policy Decision Graph for policy predicates, and Key Rotation for the lifecycle side of revocation.`,
+        'Primary sources: AWS KMS Nitro Enclave condition keys at https://docs.aws.amazon.com/kms/latest/developerguide/conditions-nitro-enclave.html, AWS Nitro Enclaves attestation at https://docs.aws.amazon.com/enclaves/latest/user/set-up-attestation.html, and Google Confidential Space resource authorization at https://docs.cloud.google.com/confidential-computing/confidential-space/docs/create-grant-access-confidential-resources. Use the vendor docs for claim names and policy hooks.',
+        'Study Confidential Computing Attestation Chain, Confidential GPU Inference Attestation, Capability Security Attenuation, OPA Rego Policy Decision Graph, Key Rotation, and Audit Logs to connect release decisions with lifecycle control. The release decision is only one part of key safety.',
       ],
     },
   ],

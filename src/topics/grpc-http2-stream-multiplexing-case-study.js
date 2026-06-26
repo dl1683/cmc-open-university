@@ -192,85 +192,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read each moving request as an RPC, or remote procedure call: one program asks another program to run a named method. The visual separates the generated client stub, the HTTP/2 connection, the per-call stream, the server handler, and the final status so you can see which layer owns each decision.',
+        'Active streams are calls that still have frames, messages, deadlines, or flow-control credit in play. A safe inference is that one TCP connection can carry many logical calls, but each stream keeps its own order, metadata, message sequence, and final status.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'gRPC exists because distributed systems need something more disciplined than hand-written HTTP calls with loosely shaped JSON. Services need typed contracts, generated clients, streaming, deadlines, cancellation, status codes, metadata, load balancing, tracing, and backpressure.',
-        'HTTP/2 matters because it lets many logical streams share one connection. A client can run many calls without opening a new TCP connection for each one, and a single call can carry a sequence of messages instead of just one request and one response.',
-        'The case study is useful because gRPC is not just an interface definition. It is a live state machine: channels, streams, protobuf frames, flow-control windows, deadlines, cancellation handles, application queues, and final status trailers all have to agree.',
+        'gRPC exists because service-to-service calls need more structure than ad hoc JSON over HTTP. A large system wants typed method contracts, generated clients, streaming calls, deadlines, cancellation, metadata, status codes, and backpressure to behave the same way across languages.',
+        'HTTP/2 is the transport reason this works well. It splits one connection into numbered streams, then sends headers and data as frames so several calls can share the same socket without opening a new TCP connection for each request.',
         {type:'callout', text:'gRPC is a stream lifecycle discipline: contracts, frames, windows, deadlines, cancellation, and status must remain consistent across one shared transport.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to expose REST endpoints and let every client hand-write request and response code. That works for many public APIs, but internal service meshes often need stricter contracts, streaming methods, and generated code across several languages.',
-        'Another shortcut is to treat a stream as a socket and buffer freely until the application catches up. That defeats HTTP/2 flow control. A slow consumer should push pressure back through the stream, not convert protocol credit into unbounded process memory.',
-        'A third mistake is to ignore deadlines and cancellation. If the caller has gone away, server work should stop. Otherwise failed calls leave zombie work in queues, CPU pools, database transactions, and model-serving batches.',
+        'The obvious approach is to expose REST endpoints and let every client hand-write request and response code. That is reasonable for many public APIs because plain HTTP and JSON are easy to inspect, cache, proxy, and debug.',
+        'A second simple approach is to treat a long interaction as a raw socket. The application writes bytes when it wants and reads bytes when they arrive, with custom rules for message boundaries, retries, timeouts, and errors.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that every call is a stream with explicit lifecycle state. A generated stub hides the transport, but the runtime still tracks method, metadata, serialized protobuf messages, per-stream window, connection window, deadline, cancellation, compression, inbound queue, outbound queue, and final status.',
-        'HTTP/2 multiplexing separates logical stream order from connection order. Frames from different streams can share one connection, while each stream preserves its own message sequence. That gives efficient connection reuse without erasing per-call state.',
-        'Flow control is credit accounting. Receivers grant credit as they consume bytes. Senders must stop when credit runs out. This is the bridge between protocol mechanics and application backpressure.',
+        'The wall is contract drift and uncontrolled queues. If every team writes its own client shape, then field meanings, retry rules, status handling, and timeout behavior drift until failures become hard to reproduce.',
+        'Streaming adds another wall: a fast sender can overwhelm a slow receiver. If the runtime reads from the network into an unbounded application queue, protocol flow control has already lost, because memory becomes the real buffer.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is that each call is a stream with explicit lifecycle state. The runtime tracks method name, request metadata, serialized protobuf messages, per-stream window, connection window, deadline, cancellation handle, inbound queue, outbound queue, and final status.',
+        'HTTP/2 multiplexing separates connection sharing from call identity. Frames from many streams can interleave on one connection, while each stream preserves the order of its own messages and trailers.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A proto file defines services and messages. Code generation creates a client stub and server interface. The client stub serializes protobuf messages, attaches metadata, sends them over a channel, and receives messages or final status from the server.',
-        'At the transport layer, gRPC over HTTP/2 maps the call onto headers, data frames, and trailers. Request metadata starts the stream. Serialized messages travel in data frames. Final status normally returns in trailers. The application sees a method call, but the runtime sees a framed stream.',
-        'Streaming methods change the lifecycle. Unary RPC is one request and one response. Server streaming is one request and many responses. Client streaming is many requests and one response. Bidirectional streaming lets both sides send sequences, so handlers must coordinate reads, writes, cancellation, deadlines, and flow-control readiness.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The RPC-stream view proves the split between contract and runtime. The proto contract gives a typed method. The stub hides serialization. The channel carries many calls. HTTP/2 frames each stream. The server handler runs application logic. Final status comes back as part of the stream lifecycle.',
-        'The flow-control view proves that counters and queues are the real data structures. Connection windows, stream windows, inbound queues, outbound queues, deadline timers, and cancellation handles decide whether the service remains stable under load.',
-        'The telemetry-uploader case proves why this matters. A fleet agent sending log batches should respect flow-control readiness, message-size limits, retry budgets, idempotent batch ids, tenant quotas, and deadlines. Otherwise a recovery event becomes a retry storm.',
+        'A proto file defines service methods and message fields. Code generation creates a client stub and a server interface, so the caller sees a method call while the runtime serializes protobuf messages and writes HTTP/2 frames.',
+        'A unary RPC sends one request message and receives one response message. Server streaming sends one request and many responses, client streaming sends many requests and one response, and bidirectional streaming lets both sides send ordered message sequences until the call ends.',
+        'Flow control is credit accounting. The receiver grants byte credit as it consumes data, and the sender must stop when stream or connection credit reaches zero.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Typed contracts work because client and server agree on service shape before runtime. Generated code reduces drift between languages and makes breaking changes visible. Protobuf gives compact binary messages and schema evolution rules when fields are managed carefully.',
-        'Multiplexing works because streams share a connection without sharing one queue of application work. A slow stream should not force every other stream to wait behind it at the application layer, though TCP-level head-of-line effects can still exist below HTTP/2.',
-        'Deadlines and cancellation work when they propagate. A client deadline should become a server timer, queue admission signal, downstream RPC deadline, and cleanup trigger. A status code is only useful if the system stops spending resources after failure is known.',
+        'Typed contracts work because the client and server agree on method and message shape before runtime. Generated code reduces manual drift, and protobuf field rules let old and new clients coexist when fields are added carefully.',
+        'Multiplexing works because the connection scheduler does not erase stream identity. A slow stream can run out of credit without changing the order or status of another stream, although TCP-level loss can still affect the whole connection below HTTP/2.',
+        'Deadlines and cancellation work only when they propagate through the full call graph. A client deadline should become a server timer, a queue admission limit, a downstream RPC deadline, and a cleanup trigger.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'gRPC adds tooling and operational complexity. Teams need proto design discipline, generated-code pipelines, compatibility rules, observability, load-balancer support, gateway behavior, and language runtime understanding. It is not automatically simpler than HTTP JSON.',
-        'Binary protocols are harder to inspect casually. Proxies, browser clients, debugging tools, and public API consumers may prefer JSON over HTTP. Many organizations expose JSON externally while using gRPC internally where typed contracts and streaming are worth the cost.',
-        'Flow control is necessary but not sufficient. If application code reads from the network into an unbounded queue, the protocol has already granted credit and memory is now the limiter. Backpressure must reach the producer before queues, memory, or downstream services saturate.',
-        'A useful design review asks four questions for every method: what is the deadline, what is the retry policy, what makes a request idempotent, and what happens when the receiver stops reading. If the proto contract cannot answer those questions, the service is underspecified even if the message fields compile.',
+        'The cost is not just CPU for serialization. Teams pay for proto design, compatibility review, generated-code pipelines, gateway behavior, load-balancer support, observability, and runtime-specific debugging.',
+        'For behavior, consider 100 concurrent unary calls. Opening 100 separate TLS connections repeats handshakes, socket buffers, congestion windows, and load-balancer state; multiplexing can keep those calls on one warm connection while preserving 100 stream ids.',
+        'The dominant cost changes with payload size. For tiny control-plane calls, header compression, connection reuse, and generated code matter; for large streaming uploads, flow-control windows, receiver memory, and backpressure dominate.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'gRPC wins in internal service-to-service calls, typed control planes, model-serving APIs, telemetry uploaders, database gateways, streaming inference, watch APIs, and systems where deadlines and generated clients matter.',
-        'It is especially useful when the method shape is not simple request/response. Server streaming fits feeds and watches. Client streaming fits uploads and telemetry. Bidirectional streaming fits synchronization, chat-like flows, and interactive inference where both sides produce messages over time.',
-        'It connects naturally to distributed tracing, circuit breakers, rate limiters, retry budgets, load balancing, and service mesh policy. The RPC abstraction is useful only when the surrounding reliability controls understand the stream lifecycle.',
-        'It also wins when APIs are owned by several teams. The proto file becomes a shared contract, code generation removes a class of manual client drift, and compatibility review can focus on field evolution, method shape, status behavior, and deadline expectations instead of reverse-engineering ad hoc payloads.',
+        'gRPC fits internal service meshes, typed control planes, model-serving APIs, telemetry uploaders, database gateways, watch APIs, and streaming inference. The common pattern is a closed ecosystem where typed contracts and deadlines are worth more than casual browser inspection.',
+        'It is especially useful when one request/one response is too narrow. A fleet agent can stream batches, a watch API can stream changes, and an inference service can stream partial outputs while still returning one final status.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'gRPC is not automatically faster in every setting. It shines when typed contracts, binary messages, streaming, deadlines, and generated clients solve real problems. Browser support, human debugging, gateway translation, load-balancer behavior, and organizational familiarity still matter.',
-        'Retries can be dangerous. UNAVAILABLE may be retryable, but only within a deadline, with idempotency, backoff, jitter, and a retry budget. Otherwise an outage creates more traffic exactly when the service is weakest.',
-        'A final failure is forgetting final status. Application success is not just receiving some bytes. The call is complete when the stream closes with status, and callers need to distinguish OK, DEADLINE_EXCEEDED, CANCELLED, UNAVAILABLE, INTERNAL, and domain-level errors.',
-        'Also watch version drift. Removing fields, changing meanings, or reusing field numbers can break clients silently.',
+        'gRPC is a poor default when the audience is browsers, partners, or humans using command-line tools. JSON over HTTP may be easier to inspect, cache, document, and debug when streaming and generated clients are not central requirements.',
+        'Retries can make outages worse. A retryable status is safe only with a deadline, idempotency, backoff, jitter, and a budget, because otherwise clients add traffic while the service is already failing.',
+        'It also fails when final status is ignored. Receiving bytes is not the same as success; the call is complete only when the stream closes with an OK status or a precise error such as CANCELLED, DEADLINE_EXCEEDED, UNAVAILABLE, or INTERNAL.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: gRPC core concepts at https://grpc.io/docs/what-is-grpc/core-concepts/, the gRPC introduction at https://grpc.io/docs/what-is-grpc/introduction/, and the official gRPC over HTTP/2 protocol notes at https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md. Study Protobuf Wire Format for payload encoding, HPACK Dynamic Table HTTP/2 for header compression, HTTP/3 QUIC Stream Multiplexing for the next transport generation, Backpressure for pressure propagation, Circuit Breakers for failure isolation, Rate Limiter for quotas, Message Queue for buffering, and Distributed Tracing for end-to-end RPC visibility.',
+        'Suppose a telemetry agent has one HTTP/2 connection with a 65,535-byte stream window and sends 4 KB protobuf batches. The receiver consumes 32 KB and sends WINDOW_UPDATE, so the sender earns eight more 4 KB messages of credit without opening another connection.',
+        'Now place three calls on the connection: stream 1 uploads logs, stream 3 checks configuration, and stream 5 sends metrics. If stream 1 stalls because the server is slow to read logs, stream 3 can still finish its small response as long as connection-level credit and scheduler fairness remain available.',
+        'The correctness rule is local to each stream. Frames may interleave as 1, 3, 1, 5, 1, but messages for stream 1 still arrive in stream-1 order, and the final status for stream 1 does not complete stream 3 or stream 5.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources are the gRPC core concepts guide, the gRPC introduction, the gRPC over HTTP/2 protocol notes, the Protocol Buffers language guide, and RFC 9113 for HTTP/2. Read them to separate the RPC model from the transport details.',
+        'Study Protobuf Wire Format for payload encoding, HPACK Dynamic Table HTTP/2 for header compression, HTTP/3 QUIC Stream Multiplexing for the next transport layer, Backpressure for pressure propagation, and Distributed Tracing for visibility across RPC chains.',
       ],
     },
   ],

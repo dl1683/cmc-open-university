@@ -330,103 +330,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a KV-cache eviction policy. A KV cache stores key and value tensors from previous tokens so the model can generate the next token without recomputing the whole prefix. Active regions are the prefix sink tokens and the recent rolling window that remain visible to attention.',
+        'Removed middle tokens are no longer directly available to the model. Found markers mean the bounded cache can still produce the next token. The safe inference is limited: the policy preserves streaming stability and local context, not all old facts.',
+        {type:'callout', text:'StreamingLLM bounds KV memory by pinning attention-sink prefix tokens while sliding a recent suffix and evicting the middle.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A decoder-only language model stores key/value tensors for previous tokens so each new token can attend to the past without recomputing the whole prefix. That KV cache is essential for fast generation, but it grows linearly with sequence length. A long-running chat, transcript, monitoring stream, or agent session cannot keep every past token in GPU memory forever.',
-        'A pure sliding window seems like the simple answer: keep only the most recent tokens and evict everything older. StreamingLLM shows why that can fail. Many decoder-only models rely heavily on a small set of initial tokens that act as attention sinks. Drop those tokens and generation can become unstable even if the recent window remains.',
-        'StreamingLLM exists to make long streams practical with bounded cache. Keep the first few sink tokens, keep a rolling recent window, and evict the middle. The cache stops growing with total conversation length while preserving the prefix anchors and local context the model needs for fluent continuation.',
-        {type:'callout', text:'StreamingLLM bounds KV memory by pinning attention-sink prefix tokens while sliding a recent suffix and evicting the middle.'},
+        'Decoder-only language models generate one token at a time and reuse the KV cache for earlier tokens. That makes decoding fast, but cache memory grows with sequence length. A long chat or transcript can eventually spend more GPU memory on history than the serving system can afford.',
+        'StreamingLLM exists because a simple sliding window can damage model behavior. The paper observes that many models attend heavily to early tokens that act as attention sinks, even when those tokens are not semantically important. Keeping a small prefix plus a recent window can keep generation stable with bounded memory.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious serving approach is to keep the full KV cache. That preserves direct attention to all previous tokens and avoids quality surprises from eviction. It also makes memory grow with every generated token. At enough length, the request becomes too expensive or impossible to serve.',
-        'The other obvious approach is a simple rolling window. Keep the last W tokens and discard the rest. That bounds memory, but it changes the attention pattern the model was trained to use. The first tokens can function as sinks that absorb attention mass. Removing them can degrade long-stream generation more than their semantic content alone would suggest.',
-        'A third tempting mistake is to call any bounded-window method "infinite context." It is not. Tokens evicted from the middle are no longer directly available. If the model must remember a fact from that region, another system must preserve it through retrieval, summaries, notes, or explicit memory.',
+        'The obvious high-quality approach is to keep the full KV cache. Every previous token remains available, and the model sees the same context it would see in ordinary decoding. The cost is linear memory growth with total tokens.',
+        'The obvious memory-saving approach is to keep only the last W tokens. That bounds memory but removes the initial sink positions the model may rely on. The model can remain grammatical for a while and then drift because its attention pattern has changed.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is GPU memory. KV cache memory grows with layers, heads, head dimension, batch size, and sequence length. In high-throughput serving, KV blocks compete with model weights, activations, batch capacity, and other users. A single long request can crowd out many ordinary requests if the cache is unbounded.',
-        'The second wall is model behavior. A windowing policy is not only a memory policy; it changes what the attention mechanism can see. If eviction removes tokens the model uses as positional anchors or attention sinks, generation can become less stable even when local context remains.',
-        'The third wall is product truthfulness. A model can keep generating fluent text while forgetting important old facts. Fluency is not memory. StreamingLLM solves bounded-cache continuation, not the full problem of long-term factual recall.',
+        'The wall is GPU memory under continuous decoding. KV memory scales with layers, heads, head dimension, precision, batch size, and cached token count. In a shared server, one unbounded stream can reduce batch capacity for many other requests.',
+        'The behavioral wall is that eviction changes the computation. Dropping old semantic content may be acceptable for local continuation, but dropping sink tokens can destabilize attention. Fluency can also hide forgotten facts, so serving metrics must separate stable generation from long-term recall.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Use a two-region KV cache: pinned prefix plus rolling suffix. The pinned prefix preserves the attention sink tokens from the beginning of the sequence. The rolling suffix preserves recent local context. The middle is evicted as the stream grows.',
-        'The data structure is simple: keep sink_count tokens from the start, keep window_size recent tokens, append each new token, and recycle blocks that fall out of the middle. Memory becomes proportional to sink_count + window_size rather than total generated length.',
-        'The conceptual distinction is the important part. Attention sinks stabilize the model mechanics. They do not summarize everything that happened after them. A deployment that needs old facts must combine the cache policy with retrieval, summarization, or another memory layer.',
+        'Keep two regions: a pinned prefix and a rolling suffix. The pinned prefix contains the first sink_count tokens. The suffix contains the most recent window_size tokens. The middle is evicted as the stream advances.',
+        'The memory formula changes from total_tokens to sink_count + window_size. If sink_count is 4 and window_size is 1024, the model attends to 1028 cached positions no matter whether the stream has produced 10,000 or 1,000,000 tokens. Old facts outside that window need another memory system.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
-        'The sink-window view shows the two retained regions. The prefix is pinned because the model uses those early positions as attention anchors. The suffix is retained because recent tokens carry local coherence: syntax, topic, current instruction, and immediate references.',
-        'The cache-eviction ledger shows the step-by-step policy. At each new token, append new KV, preserve the sink prefix, slide the recent window forward, and free the newly old middle blocks. In a serving system, that policy must connect to the KV allocator.',
-        'The serving-ledger view shows the real production question. Bounded memory alone is not enough. You have to measure KV blocks per request, tokens per second, p99 latency, long-stream task quality, style drift, and old-fact recall through the external memory path.',
-      ],
-    },
-    {
-      heading: 'How the cache policy works',
-      paragraphs: [
-        'During prefill, the model processes the prompt and creates KV entries for each token. StreamingLLM keeps the KV entries for the first few tokens. These are the attention sinks. It also keeps a fixed-size recent window near the end of the stream.',
-        'During decode, each generated token adds new KV entries. If the recent window exceeds its limit, entries just after the sink prefix and outside the suffix are evicted. The attention mask and position handling must ensure the model attends to the retained prefix and retained suffix consistently.',
-        'In production, the policy is usually implemented over blocks, not individual tokens. Systems inspired by PagedAttention allocate KV cache in pages or blocks. Sink blocks remain pinned, suffix blocks roll forward, and evicted middle blocks return to the allocator. That makes the idea a serving-system data structure, not only a paper trick.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose a request has four sink tokens and a recent window of eight tokens. At one moment, the retained cache contains tokens 0..3 and 20..27. When token 28 is generated, it is appended to the suffix. The cache now wants tokens 0..3 and 21..28, so token 20 can be evicted.',
-        'After many more steps, the retained cache may be tokens 0..3 and 10020..10027. Memory is still about twelve tokens worth of KV per layer for this toy example, not 10028 tokens. The model remains locally coherent because it sees the recent suffix and remains mechanically stable because the sink prefix is still present.',
-        'But if the user stated an account number at token 4000, that fact is gone from direct attention. The model may answer fluently and still forget it. A real assistant should store important facts in a summary, retrieval index, task state, or structured memory rather than trusting the sink-window cache.',
+        'During prefill, the model creates KV entries for the prompt. The cache manager marks the first few entries as pinned sinks. During decode, each new token appends KV entries to the recent region.',
+        'When the recent region exceeds its limit, the cache manager evicts entries after the pinned prefix and before the rolling suffix. In a paged KV allocator, this means preserving sink blocks, recycling evicted middle blocks, and keeping attention masks consistent with the retained positions.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'StreamingLLM works because the first tokens often receive disproportionate attention even when they are not semantically important. They act like anchors or sinks in the attention distribution. Keeping them preserves a pattern the model is comfortable using.',
-        'The recent window works for a different reason. Most next-token dependencies in normal conversation and text continuation are local: the current sentence, nearby entities, the active instruction, and the immediate discourse state. Keeping the suffix preserves that local information.',
-        'The method succeeds when the task can tolerate losing direct access to the middle or when another system preserves the important middle facts. It is a cache policy for stable long streaming, not a universal long-context reasoning solution.',
+        'The correctness claim is not that the answer is identical to full-context decoding. The claim is that the retained cache is exactly the cache defined by the policy: prefix sinks plus recent suffix. Each decode step preserves the invariant by appending one token and evicting only from the middle when the suffix is too large.',
+        'The quality argument comes from the attention-sink observation. If the model uses early tokens as attention anchors, retaining them preserves a mechanical pattern that a pure sliding window destroys. The recent suffix preserves local syntax and instruction context, while external retrieval or summaries must preserve older facts.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The main benefit is flat KV memory after the window fills. That can increase maximum stream length, protect batch capacity, and reduce out-of-memory failures. It can also reduce scheduler pressure because long requests no longer grow without bound.',
-        'The cost is information loss. Middle tokens are evicted from direct attention. The model can no longer quote, verify, or reason over those tokens unless they were summarized or retrieved elsewhere. The serving system also becomes more complex because the allocator, attention mask, batching, and metrics must understand pinned and rolling regions.',
-        'Quality behavior is task dependent. Open-ended continuation may remain stable. Tasks requiring precise old facts may fail. Long-context evaluation must include both fluency and recall, because StreamingLLM can improve one while leaving the other unsolved.',
+        'Full KV cache memory is O(total tokens). StreamingLLM cache memory is O(sink_count + window_size) per sequence, multiplied by model layers and KV dimensions. Doubling the stream length after the window is full does not double KV memory.',
+        'The extra complexity is in cache management and evaluation. The scheduler must pin some blocks, evict others, batch requests with different windows, and avoid fragmentation. Quality tests must include long-stream language modeling, task performance, style drift, and old-fact recall.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'StreamingLLM wins for long-running generation where recent context matters most: live transcripts, monitoring streams, coding assistants with explicit project memory, customer-support chats with external CRM state, and agents that summarize or store durable facts outside the KV cache.',
-        'It also wins as a systems lesson. Long-context serving is not only model architecture. It is cache allocation, eviction, batching, metrics, and memory policy. The paper makes attention behavior legible as an engineering constraint.',
+        'The fit is streaming generation where recent context matters more than exact recall of the whole past: long chats, live transcripts, monitoring logs, agent loops, and continuous assistants. The serving goal is stable continuation with bounded memory.',
+        'It composes with PagedAttention-style allocators and external memory. The cache policy handles attention mechanics, while retrieval, summaries, or notes handle facts that fell out of the window. Production systems need both layers if users expect old details to remain available.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when the application needs direct access to arbitrary old tokens and has no retrieval or summarization path. Legal review, exact transcript QA, long mathematical proofs, and tasks with important early constraints can break if the needed information falls into the evicted middle.',
-        'It also fails when teams measure only smooth generation. A model that sounds coherent can still forget facts, violate early instructions, or drift in task state. Evaluation should include old-fact recall, long-range instruction following, adversarial middle facts, and comparisons against full-cache baselines where possible.',
+        'It fails when the task requires exact access to evicted middle tokens. A legal clause, earlier user preference, code definition, or numerical fact outside the window is gone unless another system preserved it. The model may still sound confident.',
+        'It can also fail across model families, position schemes, fine-tunes, and multimodal settings. The right sink count and window size are empirical choices. A deployment should measure against its own model and workload instead of assuming the paper setting transfers unchanged.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Worked example',
       paragraphs: [
-        'Remember the formula: retained cache equals sink prefix plus recent window. That is the data structure.',
-        'Remember the boundary: attention sinks preserve generation mechanics, not semantic memory. If old facts matter, build memory explicitly.',
+        'Consider a 32-layer model with 32 KV heads, head dimension 128, and fp16 KV values. One token costs 32 layers * 2 tensors * 32 heads * 128 values * 2 bytes = 524,288 bytes, or 0.5 MB, for one sequence before allocator overhead. A 64,000-token full cache would be about 32 GB.',
+        'With 4 sink tokens and a 2048-token window, the cache holds 2052 tokens, or about 1.0 GB for the same sequence. At token 50,000, the retained positions are 0..3 and 47,952..49,999 before appending the next token. The middle is not compressed inside the cache; it is absent.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Efficient Streaming Language Models with Attention Sinks at https://arxiv.org/abs/2309.17453 and the official implementation at https://github.com/mit-han-lab/streaming-llm. Study KV Cache, LLM Serving: PagedAttention, Sliding-Window Attention Context Policy, LongRoPE Non-Uniform RoPE Scaling, Infini-Attention Compressive Memory, RAG Pipeline, Agent Memory & Context Engineering, and Lost in the Middle next.',
+        'Primary sources start with the StreamingLLM paper at https://arxiv.org/abs/2309.17453. Then inspect the MIT HAN Lab implementation at https://github.com/mit-han-lab/streaming-llm to see how the cache policy is exposed in code.',
+        'Study KV Cache for stored tensors and PagedAttention for block allocation. Then connect RoPE, RAG, Long Context Evaluation, and Cache Eviction Policy to the difference between stable streaming and old-fact recall.',
       ],
     },
   ],

@@ -188,99 +188,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the graph as the scheduler reducing a pending Pod to a placement decision. A Pod is a request to run one container group, a node is a machine that can run Pods, and a topology domain is a failure bucket such as a hostname or zone. Active nodes are rules or domains being evaluated, compare nodes are alternatives that remain possible, and found nodes are the chosen or rejected result.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A Kubernetes scheduler cannot treat every node as interchangeable. CPU and memory fit are necessary, but they do not capture failure domains, hardware needs, storage locality, latency, compliance boundaries, or the risk of putting every replica on the same host. A Pod can fit perfectly on a node and still be a bad placement.',
-        'Affinity, anti-affinity, and topology spread constraints give the scheduler structured placement rules. Node affinity talks about node labels. Pod affinity and anti-affinity talk about existing Pods in topology domains. Topology spread constraints count matching Pods across domains such as hostname, zone, or region and try to keep skew bounded. The case study is useful because it turns vague placement goals into filter and score data structures.',
+        'The Kubernetes scheduler must choose a node for each pending Pod, but capacity is not the only constraint. A service can fit on a node and still be unsafe if every replica lands in one zone, invalid if it requires a GPU node, or slow if it is far from a storage system. Affinity, anti-affinity, and topology spread constraints let operators express placement rules as labels, selectors, domain counts, filters, and scores.',
         {type:'callout', text:'Kubernetes placement is a two-phase ledger: hard rules define the feasible nodes and soft rules rank the survivors by resilience, locality, and policy.'},
       ],
     },
     {
-      heading: 'The naive baseline',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The baseline scheduler is a bin packer. For each pending Pod, filter nodes that lack enough CPU, memory, ports, or required resources. Score the survivors for utilization or balance. Bind the Pod to the best node. This is a reasonable starting point because resource feasibility is real and easy to measure.',
-        'The baseline fails because production risk is correlated. Six replicas can all fit in one zone, but a zone outage then removes the whole service. Two database replicas can fit on one node, but a node reboot then loses quorum. A GPU job can fit by memory on a CPU-only node if hardware labels are not part of the filter. A cache-heavy service can land far from the cache it was designed to use. Placement needs semantic rules, not only capacity arithmetic.',
+        'The first scheduler design is resource bin packing: discard nodes without enough CPU, memory, ports, or devices, then pick the least loaded survivor. That is reasonable because resource feasibility is easy to measure and it prevents the most obvious failure, a Pod landing where it cannot start. It works for a small cluster where all nodes are interchangeable and failure domains do not matter.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that some placement rules are correctness constraints and some are preferences. "This Pod must run on Linux nodes" is not the same as "prefer a node in the same zone as the cache." If the scheduler treats both as hard rules, rollouts get stuck. If it treats both as soft rules, Pods can land somewhere invalid.',
-        'The second wall is that placement depends on other Pods. Anti-affinity asks where matching Pods already run. Topology spread asks how many matching Pods are in each domain. Those answers change as Pods start, stop, crash, and roll through deployments. The scheduler needs a current ledger of existing placements, not just a static list of node capacities.',
+        'The wall is that some placement statements are correctness rules and others are preferences. Required node affinity saying linux only is a hard validity rule, while preferring the cache zone is a ranking hint. If both are hard, rollouts can get stuck during outages; if both are soft, Pods can land somewhere invalid.',
+        'The second wall is that placement depends on other Pods. Pod anti-affinity asks where matching Pods already run, and topology spread asks how many matching Pods exist in each domain. Those answers change during scale-up, failure, and rollout, so the scheduler needs a live placement ledger rather than a static node table.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'Kubernetes placement is two ledgers at once: a feasible set and a score vector. Required rules remove candidate nodes. Preferred rules keep nodes in the candidate set but change their ranking. Topology spread constraints add a count ledger over topology domains and ask whether placing the pending Pod on a candidate node would preserve an acceptable skew.',
-        'This separation is the key idea. Hard affinity and hard anti-affinity express invariants that must not be violated at bind time. Soft affinity, soft anti-affinity, and ScheduleAnyway spread constraints express pressure. They can steer placement without making the Pod unschedulable during a partial outage or a small cluster expansion.',
+        'The core insight is to split placement into a feasible set and a ranking vector. Required rules remove nodes before scoring, preferred rules keep nodes alive but change their score, and topology spread constraints add a count table over failure domains. A rule is safe only when its strength matches its meaning: correctness belongs in filtering, preference belongs in scoring.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'Node affinity evaluates labels on candidate nodes. A required node affinity term filters out nodes that do not match. A preferred node affinity term contributes a weighted score. This is the cheapest form because it mostly reads node metadata. It is commonly used for operating system, architecture, GPU type, node pool, zone, compliance class, or custom hardware labels.',
-        'Pod affinity and anti-affinity evaluate labels on already-running Pods and group the result by a topologyKey such as `kubernetes.io/hostname` or `topology.kubernetes.io/zone`. Pod affinity attracts the pending Pod toward domains containing matching Pods. Pod anti-affinity repels it from those domains. Required forms filter nodes; preferred forms score nodes. The `IgnoredDuringExecution` part of common rule names matters: if labels later change, Kubernetes does not automatically evict the already-running Pod just because the original scheduling rule would no longer match.',
-        'Topology spread constraints start with a labelSelector, a topologyKey, a maxSkew, and a whenUnsatisfiable policy. The scheduler counts matching Pods in eligible domains, simulates placing the pending Pod on a candidate node, computes the resulting skew between domains, and either filters or scores the node. DoNotSchedule makes excessive skew a hard failure. ScheduleAnyway keeps the node feasible but scores better placements higher.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine a web Deployment with label `app=web` and three zones. The current counts are zone A: 3, zone B: 2, zone C: 1. A topology spread constraint uses topologyKey `topology.kubernetes.io/zone`, labelSelector `app=web`, maxSkew 1, and ScheduleAnyway. The next Pod should strongly prefer zone C because that placement moves the counts toward balance. Zone A may still be feasible, but it receives a worse score because it increases skew.',
-        'Now make the same rule DoNotSchedule. If placing a Pod in zone A would make skew exceed maxSkew, nodes in zone A are filtered out for that Pod. This may be exactly what a critical service wants under normal capacity. During a zone outage, however, the same hard rule may prevent replacement Pods from running anywhere. The rule strength has to match the failure model and the cluster size.',
-        'For a database, the team might use hard pod anti-affinity by hostname so two replicas never land on one node. It may use preferred anti-affinity by zone if the cluster sometimes has fewer available zones than replicas. It may also use node affinity for storage-optimized nodes. The scheduler combines these as filters and scores rather than as one monolithic rule.',
-      ],
-    },
-    {
-      heading: 'What the animation shows',
-      paragraphs: [
-        'The affinity-filter view shows a pending Pod flowing through selector rules into a hard filter and a soft score. The important distinction is feasibility versus ranking. A required rule removes a node before scoring. A preferred rule leaves the node alive and changes how attractive it is. Anti-affinity in the graph is a protection against correlated failure, not just a desire to make a diagram look balanced.',
-        'The spread-scoring view shows the count ledger. Zone A, zone B, and zone C have different numbers of matching Pods. The scheduler asks what would happen to those counts if the pending Pod were placed in each domain. The chosen domain is not special by name; it is the domain that best preserves the skew invariant under the current state.',
+        'Node affinity evaluates labels on candidate nodes, so a required term can demand `kubernetes.io/os=linux` or a GPU label before scoring begins. Pod affinity and anti-affinity evaluate labels on existing Pods inside a topology key such as `kubernetes.io/hostname` or `topology.kubernetes.io/zone`. Topology spread uses a label selector, topology key, maxSkew, and `whenUnsatisfiable` policy to simulate each candidate placement and compute the resulting domain skew.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The hard-rule invariant is simple: a Pod should not be bound to a node that fails a required placement rule at scheduling time. That makes required node affinity, required pod affinity, and required pod anti-affinity part of the feasibility phase. If the rule is correct, every surviving node is valid with respect to that rule.',
-        'The spread invariant is a count bound. For each topology spread constraint, the scheduler can compute domain counts before and after a candidate placement. If a hard constraint would exceed maxSkew, the candidate is removed. If a soft constraint would improve balance, the candidate gets a better score. This converts a resilience goal into ordinary scheduling data: counts, domains, filters, and scores.',
+        'The correctness argument is an invariant over the candidate set. After the filter phase, every surviving node satisfies every required placement rule checked at scheduling time; after the score phase, the highest-ranked survivor is the best node under the configured preferences. For a hard topology spread constraint, a candidate is safe only if the simulated placement keeps skew within `maxSkew`; for a soft one, the score records how close it gets.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Node affinity is usually cheap because it is label matching against candidate nodes. Inter-pod affinity, anti-affinity, and topology spread are more expensive because they inspect existing Pods and topology domains. Their cost grows with the number of candidate nodes, matching Pods, namespaces, selectors, and topology buckets. Large clusters need careful use of broad hard inter-pod rules.',
-        'The hidden cost is label quality. Missing topology labels, inconsistent zone labels, stale node labels, or selectors that count the wrong Pods make the scheduler do precise math over bad data. If some nodes lack the topologyKey, a spread rule can produce surprising results. If the labelSelector accidentally counts old canary Pods or excludes new version Pods, the skew ledger no longer matches the intended workload.',
-        'Hard rules reduce scheduling freedom. That is sometimes the point, but it can also block rollouts during outages, upgrades, or cluster scale-downs. Soft rules preserve liveness but may allow a placement that violates the operator\'s mental model. The design choice is not "affinity good" or "affinity bad"; it is whether a rule expresses correctness or preference.',
+        'Node affinity is cheap because it mostly reads labels from each candidate node. Inter-pod affinity, anti-affinity, and topology spread cost more because the scheduler must inspect existing Pods, selectors, namespaces, and topology buckets. If candidates double from 500 to 1,000 and each rule scans broad Pod state, scheduling latency can grow with both node count and matching Pod count rather than with node count alone.',
+        'The hidden cost is bad metadata. Missing zone labels, stale node labels, or selectors that count canary Pods by accident make the scheduler compute precise answers over the wrong set. Hard rules also spend availability: they can keep Pods pending during partial outages when a soft score would have allowed degraded but useful placement.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Topology spread wins for stateless replicated services that should survive node or zone loss. It gives the scheduler a direct count-based target instead of hoping replicas naturally scatter. It also works well for large Deployments where exact per-replica hand placement would be fragile and too slow for operators to maintain.',
-        'Affinity wins when placement has a real relationship. GPU workloads should land on GPU nodes. Storage clients may need the same zone as their volumes. Cache-heavy services may prefer nodes or zones near the cache tier. Security-sensitive Pods may require a dedicated node pool. Replicas may need anti-affinity by hostname so one node failure does not remove multiple copies.',
+        'Topology spread fits stateless replicated services that should survive node or zone loss. Hard pod anti-affinity by hostname fits quorum systems that must not place two voting replicas on the same machine. Node affinity fits hardware, compliance, storage, or operating-system requirements where the wrong node is not merely slower but invalid.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Hard inter-pod anti-affinity can be too rigid in small or damaged clusters. If there are fewer eligible topology domains than required replicas, the last replicas may remain pending forever. Hard zone spreading can also fight autoscaling if the autoscaler cannot create capacity in the required domain quickly enough.',
-        'Topology spread fails when the topology model is wrong. A balanced count across zones does not help if all zones depend on one shared storage system or one overloaded network device. A balanced count across the wrong labelSelector is not reliability; it is clean-looking bad data. Placement rules protect only the failure domains they actually encode.',
-        'It can also fail after scheduling. Many rules are checked when the Pod is placed, not continuously enforced by eviction. If labels drift, topology changes, or other Pods are deleted, already-running Pods may no longer match the placement shape an operator expects. Scheduling constraints are not a complete runtime policy engine.',
+        'It fails when operators encode wishes as hard laws. A three-zone hard spread rule can block recovery when one zone is down and only two zones have capacity. It also fails when the topology model is false: balancing across zones does not protect a service if all zones depend on the same overloaded storage system.',
+        'The rules are scheduling-time checks, not a complete runtime policy engine. The common `IgnoredDuringExecution` forms do not evict a running Pod just because labels later drift. If the world changes after placement, another controller or operator process must decide whether to repair it.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Common failures include Pods stuck Pending because required affinity has no matching nodes, hard anti-affinity blocking a rollout, topology spread counting the wrong Pods, nodes missing the topologyKey, taints interacting with spread counts in unexpected ways, and preferred rules being ignored because stronger scoring plugins or resource pressure dominate the final score.',
-        'Debugging should follow the scheduler pipeline. First ask whether a node was filtered and by which rule. Then ask how surviving nodes were scored. Then inspect the labels on nodes and Pods that feed the selectors. Finally check whether the topology domains in the rule match the real failure domains the service cares about.',
+        'A web Deployment has replicas labeled `app=web` across three zones with counts A=3, B=2, C=1. A topology spread constraint uses `topology.kubernetes.io/zone`, selector `app=web`, and `maxSkew: 1`. Placing the next Pod in C changes counts to 3,2,2 with skew 1, while placing it in A changes counts to 4,2,1 with skew 3, so a hard rule filters A and a soft rule scores C higher.',
+        'Add a hard hostname anti-affinity rule for a database with three replicas on nodes n1, n2, and n3. If n3 is drained and only n1 and n2 remain eligible, the replacement stays Pending because either placement would put two replicas on one host. That is correct for quorum safety if same-host failure is unacceptable, and wrong if temporary degraded service is better than no replacement.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Kubernetes assigning Pods to nodes at https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/ and Kubernetes topology spread constraints at https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/.',
-        'Study Kubernetes Scheduler PriorityQueue & Preemption for the scheduling loop, Kubernetes Taints and Tolerations Node Pool for repulsion, Kubernetes PV/PVC Storage Binding for topology-aware storage, Sparse Set and Filtered Vector Search Bitset for feasible-set filtering, Bin Packing First Fit Decreasing for the resource baseline, and Graph BFS for reasoning about topology domains.',
+        'Use the official Kubernetes pages on assigning Pods to nodes and topology spread constraints as the primary sources. They define node affinity, pod affinity, anti-affinity, topology keys, `maxSkew`, `DoNotSchedule`, `ScheduleAnyway`, and node inclusion policy behavior.',
+        'Study scheduler filtering and scoring next, then taints and tolerations, persistent-volume topology binding, and PodDisruptionBudget behavior. Those topics show how placement rules combine with repulsion, storage locality, and voluntary disruption limits.',
       ],
     },
   ],

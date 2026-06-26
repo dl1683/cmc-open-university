@@ -179,82 +179,91 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'Why this exists', paragraphs: [
-      'Physical qubits are noisy. A useful quantum computer needs logical information to survive bit flips, phase flips, measurement error, leakage, and hardware drift. The surface code is one of the main proposals for doing that with local checks on a two-dimensional layout.',
-      'The quantum hardware does not hand the control system a neat list of errors. It hands over repeated stabilizer measurements. The classical decoder has to infer a correction from those measurements quickly enough that the logical computation can continue.',
-      'This is why the topic is both quantum and classical. The protected state lives in a code, but the decision problem is an online graph problem running on ordinary hardware. The decoder is part of the machine, not an optional analysis tool after the experiment.',
-      {type:'callout', text:'Surface-code decoding turns noisy stabilizer histories into a fast classical matching problem whose answer keeps logical state alive.'},
-      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/a2/ToricCodeLattice.png', alt:'Square toric-code lattice with a highlighted vertex stabilizer and plaquette stabilizer.', caption:'Toric code lattice with vertex and plaquette stabilizers; Woottonjames, CC BY 3.0, via Wikimedia Commons.'},
-    ] },
-    { heading: 'Why the obvious approach fails', paragraphs: [
-      'The obvious approach is to find the qubit that flipped and flip it back. That cannot work because the code deliberately avoids measuring the data qubits directly. Measuring them would reveal and damage the logical information. Instead, the machine measures stabilizer checks that say whether local parity constraints changed.',
-      'A syndrome is therefore indirect evidence. It tells the decoder that something changed near a check at a round in time, not which data qubit was hit. Measurement itself can also be wrong, so a changed check might come from a data error, a measurement error, or a short-lived hardware fault. Correcting the nearest visible qubit is not a well-defined strategy.',
-      'The next naive approach is to make every local syndrome change disappear independently. That also fails because errors create patterns. A single physical error can produce two detection events. A chain of errors can connect distant events. Some chains can end at boundaries. The decoder must explain the whole syndrome history, not each event in isolation.',
-    ] },
-    { heading: 'The core insight', paragraphs: [
-      'A change in syndrome is a detection event. Possible physical error chains become weighted edges between events and boundaries. Decoding becomes a graph problem: pair events with low total error cost.',
-      'The decoder does not observe the true error directly. It chooses a likely correction consistent with the syndrome history and noise model. If the correction and the real error differ only by stabilizers, the logical state survives. If their combination forms a logical operator, the code fails.',
-      'Minimum-weight matching is useful because many common surface-code noise models produce endpoint-pairing problems. Detection events appear in pairs or terminate at boundaries, and lower-weight paths represent more likely error chains.',
-    ] },
     {
-      heading: 'Visual guide',
+      heading: 'How to read the animation',
       paragraphs: [
-        'In the syndrome-graph view, each event is a changed stabilizer outcome across rounds. The event is not the physical error. It is a clue that some error chain ended nearby in space-time.',
-        'In the matching view, edges are hypotheses. A low-weight edge means the noise model thinks that chain is plausible. The chosen matching is the lowest-cost explanation among candidates, not a guarantee that the real hardware error was exactly that chain.',
-        'The boundary nodes matter. A visible event does not always need a visible partner. Some error chains can disappear into a code boundary, and a decoder that forgets boundaries will force bad pairings.',
+        'Read each check round as a measurement of stabilizers, which are parity checks that detect error effects without directly measuring the protected logical qubit. A detection event means a check outcome changed between rounds; it is evidence of an error chain, not the physical error itself.',
+        'Edges are hypotheses about which events could share a cause. The safe inference rule is that a correction must have the same syndrome boundary as the observed events, while the exact microscopic error may remain unknown.',
+        {type:'callout', text:'Surface-code decoding turns noisy stabilizer histories into a fast classical matching problem whose answer keeps logical state alive.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/a2/ToricCodeLattice.png', alt:'Square toric-code lattice with a highlighted vertex stabilizer and plaquette stabilizer.', caption:'Toric code lattice with vertex and plaquette stabilizers; Woottonjames, CC BY 3.0, via Wikimedia Commons.'},
       ],
     },
-    { heading: 'How it works', paragraphs: [
-      'Repeated syndrome rounds produce detection events across space and time. The decoder builds a matching graph, weights edges by error likelihood, and finds a low-weight matching. The matched paths update a Pauli frame or trigger physical correction.',
-      'With four events, the decoder compares pairings such as d1-d2 plus d3-d4 against alternatives. The lowest-weight pairing is the correction that best fits the assumed noise model.',
-      'Boundaries matter because not every event must pair with another event. Some error chains can terminate at a code boundary. A realistic graph therefore includes boundary nodes and time-like edges as well as space-like edges.',
-      'The graph is usually built from a detector error model or an equivalent noise model. A candidate edge says: if this kind of physical fault happened, these detection events would appear. The edge weight is commonly related to the negative log likelihood of that fault. Matching then turns maximum-likelihood intuition into a shortest-total-weight pairing problem.',
-    ] },
-    { heading: 'Syndrome rounds and time', paragraphs: [
-      'Surface-code decoding is not just a two-dimensional picture. Repeated check rounds add time as a third axis. A data error can create neighboring events in space. A measurement error can create neighboring events in time because one round disagrees with the rounds before and after it.',
-      'That time structure is important operationally. The decoder receives a stream of check outcomes, converts changes into events, and keeps enough recent history to match events whose partners may arrive in later rounds. It has to decide when an event is old enough to finalize and when waiting for more context is worth the latency.',
-      'A clean implementation records round number, check identity, coordinates, detector type, boundary options, and raw measurement references. Without that ledger, a decoded correction cannot be audited after a logical failure.',
-    ] },
-    { heading: 'Boundary and degeneracy', paragraphs: [
-      'Boundaries are not special cases bolted onto the algorithm. They are part of the code geometry. Rough and smooth boundaries allow certain error chains to terminate without another detection event. Matching to a boundary can be the correct low-cost explanation.',
-      'Degeneracy is the other important idea. Many different physical error chains can have the same syndrome and the same logical effect. The decoder does not need to recover history exactly. It needs to choose a correction class that returns the state to the code space without applying a logical operator.',
-      'This is why a matching decoder can succeed even when its guessed chain is not the real chain. If the guessed correction and the actual error differ by stabilizers, the logical information is unchanged. If they differ by a logical X or Z, the syndrome can look fixed while the encoded qubit has failed.',
-    ] },
-    { heading: 'Why it works', paragraphs: [
-      'Errors create syndrome endpoints. Pairing endpoints proposes chains whose boundary matches the observed syndrome. If the proposed correction and actual error differ only by stabilizers, the logical state is preserved.',
-      'Failure happens when the decoder chooses a correction that combines with the real error into a logical operator. That can happen even when the syndrome is matched perfectly.',
-      'Minimum-weight matching works for the simplified model because the syndrome constraints require endpoints to be paired, and edge weights encode how unlikely each connecting chain is. Choosing the minimum total weight gives the most likely explanation under that model. The model can be wrong, but the optimization problem is clear.',
-    ] },
-    { heading: 'Cost and behavior', paragraphs: [
-      'Decoding has a latency budget. Syndrome rounds arrive continuously, and the classical decoder must keep up with the quantum hardware. Better matching accuracy can cost more time.',
-      'A production decoder needs a ledger: rounds, events, edge weights, chosen matchings, correction frame, and logical-failure indicators. Without it, failures are almost impossible to debug.',
-      'Cost grows with code distance, number of rounds, event density, and graph construction. Matching itself is only part of the system. The pipeline also has measurement ingestion, event generation, edge weighting, batching, hardware feedback, and audit logging.',
-      'There is also a memory tradeoff. Keeping more history helps match delayed partners and diagnose faults, but it increases buffering and can delay decisions. Streaming decoders often commit old regions after a window, accepting that some rare long-range ambiguity will be resolved approximately.',
-    ] },
-    { heading: 'Implementation guidance', paragraphs: [
-      'Start by making the data model explicit. Store raw check outcomes separately from detection events. Store detection events separately from candidate edges. Store chosen matchings separately from the Pauli frame. Those separations make it possible to test each layer and to replay a failure with the same inputs.',
-      'Use weights that match the hardware you are actually modeling. A toy distance weight is useful for learning, but production decoding needs measurement-error rates, data-error rates, boundary behavior, leakage handling, and sometimes correlated faults. If the weights are stale or too simple, the graph algorithm can be perfect and still choose poor corrections.',
-      'Test with injected errors whose logical effect is known. Include single data errors, measurement errors, boundary-ending chains, chains near corners, repeated rounds with no events, high-density event bursts, and ambiguous cases where several matchings have similar weight. The confidence gap between best and second-best matching is often as important as the best matching itself.',
-    ] },
-    { heading: 'Where it wins', paragraphs: [
-      'Matching decoders work well for surface-code noise models that can be represented as weighted event graphs. They make quantum error correction a concrete graph algorithm.',
-      'They also win pedagogically. The surface code can feel abstract until syndrome changes become graph nodes and candidate corrections become edges. Once framed that way, the decoder is recognizably a weighted graph problem.',
-      'They are also useful because the result is inspectable. Engineers can look at events, candidate weights, boundary choices, and correction chains instead of treating the decoder as a black box. That makes calibration, benchmarking, and hardware bring-up much easier.',
-    ] },
-    { heading: 'Where it fails', paragraphs: [
-      'Matching decoders struggle when the noise model is wrong, correlations matter, leakage appears, or latency constraints force approximate decisions.',
-      'They also hide degeneracy if explained too simply. Many physical errors can produce the same syndrome. The decoder is not reconstructing history; it is choosing a correction class that is likely to preserve the logical state.',
-      'A final failure mode is operational. If syndrome timestamps drift, edge weights are stale, boundary handling is wrong, or the Pauli frame ledger is inconsistent, the graph algorithm can look correct while the control system applies the wrong logical update.',
-      'Matching can also be the wrong abstraction for richer noise. Correlated errors, biased noise, erasures, leakage, and circuit-level effects may require modified graphs, belief propagation, union-find variants, tensor-network methods, neural decoders, or hybrid decoders. The matching graph is a powerful model, not a universal law.',
-    ] },
-    { heading: 'A worked case', paragraphs: [
-      'Suppose four detection events appear: d1, d2, d3, and d4. The graph assigns weight 3 to d1-d2 and weight 2 to d3-d4, for total 5. Alternative pairings through boundaries cost 7 or 9. Minimum-weight matching chooses the total-5 explanation.',
-      'That does not prove the hardware suffered exactly those two chains. It means that, under the current noise model, applying the matching correction is the most likely way to return to the code space without changing the logical qubit. The distinction between "most likely correction" and "true error" is central to quantum error correction.',
-      'If the real error plus the chosen correction forms only stabilizers, the logical qubit is safe. If the combination crosses the code in a way that implements a logical operator, the syndrome can be cleared and the computation can still be wrong. That is the difference between matching the syndrome and preserving the encoded information.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Primary sources: surface-code introduction at https://arthurpesah.me/blog/2023-05-13-surface-code/, Error Correction Zoo surface code page at https://errorcorrectionzoo.org/c/surface, and Riverlane decoding tutorial at https://textbook.riverlane.com/en/latest/notebooks/ch5-decoding-surfcodes/decoding-surface-codes.html.',
-      'Study Hopcroft-Karp for matching vocabulary, Min-Cost Max-Flow for weighted pairing intuition, Graph BFS and Dijkstra for path costs, Quantum Circuit DAG Transpiler for the compiler side of quantum systems, and Quantum Statevector Amplitude Array for the simulation model that error correction is trying to protect.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Physical qubits are noisy devices, so one encoded logical qubit must be protected by many physical qubits. The surface code is a quantum error-correcting code, which means it stores logical information in a pattern where local parity checks reveal error symptoms without revealing the encoded value.',
+        'The hardware produces a stream of check outcomes. A classical decoder must turn that stream into a correction quickly enough for the quantum computation to continue.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to find the qubit that flipped and flip it back. That fails as a direct measurement strategy because measuring data qubits would destroy the quantum information the code is trying to protect.',
+        'A second simple approach is to fix each changed check locally. That also looks reasonable because the events are local, but errors create patterns across space and time rather than isolated labels.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'A syndrome, meaning the set of changed checks, is indirect evidence. One data error can create two detection events, one measurement error can create time-separated events, and a boundary can absorb a single visible event.',
+        'Many physical error chains can produce the same syndrome. The decoder must choose a correction class that preserves the logical qubit, not reconstruct the exact history of every hardware fault.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Convert syndrome changes into a weighted graph. Detection events and boundaries become nodes, and possible error chains become edges with weights based on distance or measured error likelihood.',
+        'Decoding becomes minimum-weight matching. The decoder pairs events, or pairs events with boundaries, so the chosen correction is the lowest-cost explanation under the current noise model.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The control system repeats stabilizer checks in rounds. When a check changes from one round to the next, the decoder records a detection event with space coordinates, time coordinate, check type, and boundary options.',
+        'A graph builder connects plausible pairs of events and boundary matches. Weights are often related to negative log likelihood, so lower weight means a more likely fault path under the assumed device noise.',
+        'A matching solver chooses a set of edges that accounts for all events. The correction is then applied physically or tracked in a Pauli frame, which is a software record of pending Pauli X or Z corrections.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The invariant is syndrome agreement. The proposed correction must create the same visible detection-event boundary as the observed syndrome, so applying it returns the measured checks to the code space.',
+        'The logical state survives when the real error and the chosen correction differ only by stabilizers. It fails when their combination forms a logical operator across the code, even if every visible syndrome event was matched.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Cost grows with code distance, number of rounds held in memory, event density, and graph edge count. If distance doubles, the number of checks and recent event positions grows roughly with area and time window, not as a single line.',
+        'The solver is only part of the bill. Ingestion, event generation, edge weighting, matching, Pauli-frame updates, latency budgeting, and audit logging all sit on the critical path of a running quantum machine.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Surface-code matching decoders are used in quantum error-correction experiments and simulators because they turn hardware noise records into a concrete classical optimization problem. They are also useful during device bring-up because engineers can inspect events, weights, boundaries, and chosen corrections.',
+        'The pattern generalizes as a lesson in probabilistic recovery. The system cannot observe the hidden fault directly, so it chooses the cheapest correction consistent with the evidence and keeps a ledger for later failure analysis.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Matching can be the wrong model when errors are strongly correlated, leakage matters, erasures are available, noise is highly biased, or latency forces approximate local decisions. The graph can be perfect for the simplified model and still bad for the actual device.',
+        'It also fails operationally when timestamps drift, boundary rules are wrong, weights are stale, or the Pauli-frame ledger is inconsistent. In those cases the algorithm can match the visible syndrome while the control system applies the wrong logical update.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose four detection events appear: d1, d2, d3, and d4. The graph gives d1-d2 weight 3 and d3-d4 weight 2, so that pairing costs 5; two boundary matches cost 4 and 3, so that alternative costs 7; a crossed pairing costs 9.',
+        'Minimum-weight matching chooses cost 5. If the real error plus that correction is a stabilizer, the logical qubit is safe; if their combination crosses the code as a logical X or Z, the syndrome disappears but the encoded computation is wrong.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources include surface-code introductions at https://arthurpesah.me/blog/2023-05-13-surface-code/, the Error Correction Zoo surface-code page at https://errorcorrectionzoo.org/c/surface, and Riverlane decoding material at https://textbook.riverlane.com/en/latest/notebooks/ch5-decoding-surfcodes/decoding-surface-codes.html. Study graph matching, min-cost flow, Dijkstra, stabilizer codes, Pauli frames, and detector error models next.',
+      ],
+    },
   ],
 };

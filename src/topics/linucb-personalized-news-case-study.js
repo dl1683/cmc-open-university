@@ -310,74 +310,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'LinUCB is a contextual bandit algorithm for choosing among actions when the system sees features before acting and receives reward only for the action it chose. The Yahoo personalized news case is the canonical example: a visitor arrives, a pool of eligible news articles is available, the system chooses one story, and the only immediate reward is whether that visitor clicked the displayed story.',
-        'The algorithm combines a linear reward estimate with an uncertainty bonus. For each candidate article, it asks two questions: how good does this article look for this visitor, and how uncertain is the estimate in this feature direction? The selected article is the one with the highest upper confidence bound, not necessarily the one with the highest current mean. That optimism is how LinUCB explores without choosing randomly all the time.',
+        'The animation shows a contextual bandit, which is a learner that sees context, chooses one action, and only receives feedback for that action. Active nodes are the score components being used now, found nodes are the selected article or observed reward, and compare nodes separate estimated reward from uncertainty. The safe inference rule is that an article with little evidence may deserve traffic only when its upper confidence bound is high enough to beat known alternatives.',
         {type: 'callout', text: 'LinUCB explores through uncertainty geometry, choosing the action with the best upper confidence bound instead of random novelty.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is greedy ranking. Estimate click-through rate for every article and show the story with the highest estimate. This works when the estimates are already reliable. It fails badly for fresh news, where articles appear and disappear before the system can collect much direct evidence. A newly published article may look weak only because nobody has seen it yet. A greedy ranker can bury it forever and never learn whether it was valuable.',
-        'A second obvious approach is random exploration. Give new articles traffic until the estimates stabilize. That solves the blindness problem but wastes attention. Users see irrelevant stories, product metrics drop, and the system explores articles even when their upside is small. The wall is partial feedback. After showing one article, the system does not observe whether the user would have clicked the others. Learning requires exploration, but exploration has to be targeted.',
+        'Personalized news has to choose before it knows what a visitor would click. A front page may have 20 eligible stories, but the system shows one and learns only whether that one was clicked. LinUCB exists for this partial-feedback setting: it uses visitor and article features to learn while it is already serving users.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is greedy ranking: estimate click-through rate for each story and always show the highest estimate. That works after the system has enough clean evidence for every story. It fails for news because stories arrive cold, expire quickly, and can be buried before the model ever learns their value.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is missing counterfactual feedback. If the system shows a sports story, it does not learn whether the same visitor would have clicked a finance story. Random exploration fixes blindness but spends user attention badly, so the system needs exploration that is aimed at uncertain but plausible winners.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is optimism under uncertainty. LinUCB does not explore every unknown action equally. It explores actions whose estimated upper confidence bound is high. An article with a moderate mean but large uncertainty can beat an article with a higher mean and low uncertainty, because the uncertain article might turn out to be better after a small amount of traffic.',
-        'This is different from epsilon-greedy exploration. Epsilon-greedy usually flips a coin between exploitation and broad random exploration. LinUCB uses geometry. It asks whether the current visitor-article feature vector points through a well-known region of the data or through a region where the model still has little evidence. The uncertainty term is largest in directions the model has not learned well.',
+        'LinUCB uses optimism under uncertainty. For each action, it adds a confidence bonus to the current reward estimate, then chooses the largest upper bound. The bonus is large in feature directions where the model has little evidence and small where repeated examples have already reduced uncertainty.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'How it works',
       paragraphs: [
-        'The disjoint version stores one ridge-regression state per action. For each article, keep a d by d matrix A, a d-vector b, and often A inverse for fast scoring. A starts as lambda times the identity matrix. b starts at zero. After the system shows article a with feature vector x and observes reward r, it updates only that article: A_a <- A_a + x x^T and b_a <- b_a + r x. The estimate is theta_a = A_a^-1 b_a.',
-        'The uncertainty for a candidate feature vector is sqrt(x^T A_a^-1 x). This is the matrix expression behind the confidence bonus. It is not merely a count of impressions. Ten examples can reduce uncertainty a lot if they cover the relevant feature direction, or very little if they all lie somewhere else. In production, a system may update A inverse with a Sherman-Morrison rank-one update instead of recomputing a matrix inverse after every click.',
-      ],
-    },
-    {
-      heading: 'Mechanism step by step',
-      paragraphs: [
-        'For each visitor, the news system builds a candidate pool of eligible articles. It constructs a feature vector for each visitor-article pair. Features can include user segment, geography, article topic, article age, time of day, and cross features such as topic by user segment. For every candidate, LinUCB computes score(a) = theta_a dot x_a + alpha * sqrt(x_a^T A_a^-1 x_a). The first term is expected reward. The second is the exploration bonus.',
-        'The article with the highest score is served. The logger records the context, eligible pool, chosen action, score, exploration parameters, timestamp, and propensity if the system uses randomized logging. When the reward arrives, usually a click or no click, only the chosen article receives an update. The unchosen articles are counterfactuals. This is why contextual bandit systems care so much about logs: without a faithful decision log, later evaluation cannot reconstruct what the policy knew and what it could have chosen.',
-      ],
-    },
-    {
-      heading: 'Disjoint and hybrid models',
-      paragraphs: [
-        'The disjoint model treats each article as its own action with its own parameters. That is simple and useful when there is enough traffic per action. It also matches the intuition of a small regression model attached to each arm. The weakness is cold start. A brand-new article has little direct evidence, and news articles often expire quickly. By the time the model is confident, the story may no longer matter.',
-        'The hybrid model adds shared parameters across user and article features. Shared structure lets a new politics article borrow signal from earlier politics articles, or lets a topic-segment interaction carry over to a fresh story. This is why LinUCB belongs in a curriculum on data structures and generalization. The stored state is not just a scoreboard of arms. It is a set of matrices that encode what the system has learned about feature directions.',
+        'For each article, the disjoint LinUCB model stores a matrix A and vector b for ridge regression, where ridge regression is linear regression with a penalty that keeps estimates stable. A starts as lambda times the identity matrix, and b starts at zero. For a visitor-article feature vector x, the model computes theta = A^-1 b and score = theta dot x + alpha * sqrt(x^T A^-1 x).',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'LinUCB works when the reward is approximately linear in the chosen features and the uncertainty estimate is meaningful. The ridge state summarizes past evidence compactly. A grows in directions where examples have accumulated, so A inverse shrinks in those directions. The confidence bonus therefore fades where the system has evidence and remains large where it is still ignorant. This is targeted exploration expressed as linear algebra.',
-        'The method also fits the news setting because content is dynamic. Collaborative filtering often needs repeated interactions with stable items. Front-page news has fast turnover. Contextual features let the system make useful guesses before direct click history exists. A new article is not completely unknown if its topic, age, source, and audience features resemble things the system has already seen.',
+        'The correctness argument is an invariant about evidence. Every observed reward updates only the chosen article with A = A + x x^T and b = b + r x, so A records which feature directions have been tested and b records the rewards seen in those directions. As A grows along a direction, A^-1 shrinks there, which lowers the bonus and shifts traffic toward either proven winners or genuinely under-tested directions.',
       ],
     },
     {
-      heading: 'Where it is useful and where it fails',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'LinUCB is useful for recommendations, ads, notifications, ranking modules, experiment allocation, and any setting where the system must learn from partial feedback while serving users. It is especially useful when actions have features, new actions arrive frequently, and random exploration is too expensive. The algorithm gives product teams a clear knob, alpha, for exploration strength and a clear state update after each observed reward.',
-        'It fails when the linear model is a poor approximation, when features omit the real signal, when rewards are delayed or joined incorrectly, or when unlogged eligibility makes evaluation impossible. It can also become unfair or unstable if sensitive features, feedback loops, or popularity bias are handled casually. A high confidence bound is not a moral claim that an article deserves exposure. It is an optimization rule under assumptions that must be checked.',
+        'With d features and k candidate articles, scoring costs O(k d^2) if each uncertainty term is computed as x^T A^-1 x. Updating one chosen article costs O(d^2) with a rank-one inverse update, or O(d^3) if the inverse is recomputed from scratch. Doubling the candidate pool doubles scoring work, while doubling feature count roughly quadruples matrix-vector work.',
       ],
     },
     {
-      heading: 'Operational and evaluation signals',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Track click-through rate, regret proxies, exploration rate, average and tail bonus size, article cold-start performance, time-to-learn for new stories, reward delay, update lag, matrix conditioning, feature drift, eligible-pool coverage, and slice metrics by topic, user segment, geography, device, and article age. Watch for alpha settings that create too much random-looking traffic or too little discovery. Watch for stale articles whose old state keeps them over-ranked.',
-        'Offline evaluation needs special care. The Yahoo replay protocol used random traffic logs: if the candidate policy would have chosen the same article that was randomly shown, keep the row and reveal the reward; otherwise skip it. More general logged-policy evaluation uses propensities, inverse propensity weighting, doubly robust estimators, support checks, and effective sample size. A contextual bandit without replayable logs is hard to improve safely.',
+        'LinUCB fits news ranking, ad selection, notification choice, search result exploration, and experiment allocation when actions have features and fresh actions appear often. The method is useful when random exploration would waste attention but a pure winner-take-all ranker would starve new options. Production systems pair it with strict logging because later evaluation needs the context, candidate pool, chosen action, reward, and policy parameters.',
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Study the Yahoo LinUCB paper and the companion offline evaluation paper. Then study multi-armed bandits, Thompson sampling, contextual bandit logged-policy evaluation, inverse propensity weighting, doubly robust estimation, regularization, ridge regression, Sherman-Morrison updates, eigenvalues and eigenvectors, PCA, and online learning systems such as FTRL-Proximal. Vowpal Wabbit and Open Bandit Pipeline are useful implementation references.',
-        'For data structures, focus on matrices, vectors, rank-one updates, feature stores, append-only decision logs, replay filters, and evaluation ledgers. LinUCB is a small formula sitting on top of a larger operational contract: choose with context, log what was possible, learn only from observed rewards, and evaluate future policies against data that preserves support.',
+        'LinUCB fails when rewards are not close to linear in the provided features, when important features are missing, or when delayed rewards are joined to the wrong decision. It also fails if the log omits eligible actions, because offline replay cannot know what the policy could have chosen. Bias can feed itself if the model keeps sending traffic to the same slice and treats the resulting data as neutral evidence.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a visitor has feature vector x = [1, 0.6] for a politics story. Article A has theta dot x = 0.030 and uncertainty sqrt(x^T A^-1 x) = 0.020; article B has theta dot x = 0.036 and uncertainty = 0.004. With alpha = 0.5, A scores 0.040 and B scores 0.038, so LinUCB shows A even though its current mean is lower.',
+        'If the visitor clicks A, r = 1 and the system updates only A with A = A + x x^T and b = b + x. If the same feature direction appears again, the uncertainty term for A is smaller because that direction now has evidence. Exploration cost becomes behavior: traffic shifts away from A unless its observed reward supports the optimistic bet.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study Li et al., A Contextual-Bandit Approach to Personalized News Article Recommendation, and the Yahoo logged-policy evaluation work that uses random traffic for replay. Then study ridge regression, Sherman-Morrison rank-one updates, inverse propensity scoring, doubly robust estimation, Thompson sampling, feature stores, and append-only decision logs. The next practical exercise is to write a replay evaluator that rejects any row where the candidate policy would not have chosen the logged action.',
       ],
     },
   ],

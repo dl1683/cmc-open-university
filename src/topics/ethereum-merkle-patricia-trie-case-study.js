@@ -216,322 +216,104 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The animation has two views. "State root" traces how Ethereum converts raw account keys into a single root hash: key, secure hash, nibble path, branch/extension/leaf nodes, and the root digest. "Proof path" traces how a verifier walks encoded nodes from a trusted root down to a claimed value.',
-        {
-          type: 'bullets',
-          items: [
-            'Active (highlighted) nodes are the current pipeline stage: the key being hashed, the nibble being consumed, the node being encoded.',
-            'Found (green) nodes are committed outcomes: the root hash in the state-root view, or the verified leaf in the proof-path view.',
-            'Compare (blue) nodes show contrast cases: transaction and receipt roots alongside the state root, or sibling hashes alongside the proof path.',
-          ],
-        },
-        'In the matrix views, rows are node types or trie roles and columns are properties. Watch the "purpose" column: every node type exists to solve a specific structural problem.',
-        {
-          type: 'note',
-          text: 'The animation uses a small trie with a handful of keys. Ethereum mainnet has over 250 million accounts, each with a 32-byte hashed key producing a 64-nibble path. The data structure is identical; the scale is six orders of magnitude larger.',
-        },
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Ethereum executes thousands of transactions per block. Each transaction can change account balances, contract storage slots, nonces, and code hashes. After execution, the block header must commit to the entire resulting state -- roughly 250 million accounts and hundreds of millions of storage slots -- in a single 32-byte value.',
+    { heading: 'How to read the animation', paragraphs: [
+      'The animation follows Ethereum state through a Merkle-Patricia trie, or MPT. A trie is a key-directed tree, a Merkle structure hashes children into parents, and Patricia compression collapses single-child paths. Active nodes are the path selected by the account key, found nodes are hashes or values that prove membership, and compare nodes are sibling choices that a proof must rule out.',
+      'The safe inference rule is hash commitment. If a proof node hashes to the value named by its parent, and each path segment matches the searched key, then the final value is committed by the state root. A light client can verify that path without storing the full state database.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Hash_Tree.svg/800px-Hash_Tree.svg.png',
           alt: 'Merkle tree structure with hash nodes forming a binary tree over data blocks',
           caption: 'A Merkle tree: each leaf holds data, each internal node holds the hash of its children. Changing any leaf changes the root hash, providing tamper evidence. The Merkle-Patricia trie adapts this idea from a binary tree over a list to a radix trie over a key-value map. Source: Wikimedia Commons.',
         },
-        {
-          type: 'quote',
-          text: 'The state is stored not in the blockchain itself, but in a separate modified Merkle Patricia tree.',
-          attribution: 'Ethereum Yellow Paper (Appendix D)',
-        },
-        'That 32-byte value is the state root. It must satisfy three requirements simultaneously: it must change whenever any committed value changes, it must allow a verifier to check a single account without downloading the full database, and it must be deterministic so that every node computing the same state produces the same root.',
-        {
-          type: 'table',
-          headers: ['Requirement', 'What breaks without it'],
-          rows: [
-            ['Deterministic root', 'Nodes disagree on state after the same block; consensus fails'],
-            ['Incremental update', 'Changing one account rehashes the entire state; blocks take minutes'],
-            ['Compact proofs', 'Light clients must download the full state to verify anything; phones cannot participate'],
-          ],
-        },
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Ethereum needs every full node to agree on account balances, contract code hashes, nonces, and storage roots after each block. A state root is a single hash in the block header that commits to that whole key-value map. Without a root, a node would need to trust whoever sends an account value.',
         {
           type: 'callout',
           text: 'The state root is the single value that makes Ethereum verifiable without trusting the sender. Without it, every participant would need the full 80+ GB state database to check any claim about any account.',
         },
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The first instinct is a sorted key-value list hashed as a Merkle tree. Sort accounts by address, build a binary Merkle tree over the list, and put the root in the block header. This is how certificate transparency logs and Git tree objects work.',
-        {
-          type: 'diagram',
-          text: 'Sorted Merkle list:\n\n  H(H(A,B), H(C,D))       <-- root\n       /         \\\n   H(A,B)      H(C,D)\n    / \\          / \\\n   A   B        C   D      <-- accounts in sorted order\n\nTo update account B:\n  Recompute H(A,B), then H(H(A,B), H(C,D))\n  Proof for B: [A, H(C,D)]  -- O(log n) siblings',
-          label: 'A sorted Merkle list supports proofs but not efficient key-addressed lookup',
-        },
-        'This works for static or append-only data. Bitcoin uses it for transactions within a block. But Ethereum state is not a list -- it is a mutable sparse map. Accounts are addressed by 20-byte addresses (160 bits). Insertions and deletions happen every block. A sorted list means finding the insertion point costs O(log n) comparisons, and every insertion shifts the positions of later elements, invalidating cached proofs and requiring O(n) rehashing in the worst case.',
+      'The structure must support updates and proofs. Blocks change only a small fraction of accounts, but every changed account must produce a new root. Light clients and bridges then need compact proof paths from a trusted root to a claimed account or storage slot.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is a hash table from account address to account record. It gives fast lookup for a full node that already has the table. It does not give a canonical root hash or a compact path proof for a verifier that lacks the table.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Patricia_trie.svg/640px-Patricia_trie.svg.png',
           alt: 'PATRICIA trie showing compressed prefix paths and branching nodes',
           caption: 'A PATRICIA trie compresses single-child chains into shared-prefix edges. This is the radix-trie foundation that Ethereum adapts: keys are split into nibbles, shared prefixes are collapsed into extension nodes, and branch points fan out 16 ways. Source: Wikimedia Commons.',
         },
-        'The second instinct is a hash table: O(1) lookup, O(1) update. But a hash table has no canonical ordering and produces no compact proof. Two nodes with the same key-value pairs in different insertion orders get different internal layouts. There is no root to commit to.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'No single standard data structure satisfies all three requirements.',
-        {
-          type: 'table',
-          headers: ['Structure', 'Key lookup', 'Deterministic root', 'Compact proof', 'Incremental update'],
-          rows: [
-            ['Hash table', 'O(1)', 'No -- order depends on insertion sequence', 'No', 'O(1)'],
-            ['Sorted list + Merkle', 'O(log n)', 'Yes', 'Yes -- O(log n) siblings', 'O(n) for insertion/deletion'],
-            ['Binary trie', 'O(key length)', 'Yes', 'Yes', 'O(key length) -- but deep and sparse'],
-            ['PATRICIA trie + hashing', 'O(key length)', 'Yes', 'Yes', 'O(key length) with compression'],
-          ],
-        },
-        'The binary trie comes closest, but with 256-bit keys (Keccak hashes of addresses), the trie is 256 levels deep and overwhelmingly sparse. Most internal nodes have exactly one child. Without compression, the database stores hundreds of millions of single-child nodes that exist only to connect two real branch points.',
+      'A plain Merkle tree over a sorted list solves commitment but makes updates awkward. Inserting one key can shift many positions, changing hashes unrelated to the changed account. A plain trie gives key-directed lookup but does not authenticate the path unless every node is hashed into the root.',
+    ] },
+    { heading: 'The wall', paragraphs: [
         {
           type: 'callout',
           text: 'The wall is three-dimensional: lookup performance, canonical commitment, and proof compactness must all hold at once. Every obvious structure solves two and fails the third. The Merkle-Patricia trie is Ethereum\'s answer to the three-way constraint.',
         },
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Combine a radix trie (key-directed path traversal) with path compression (skip single-child chains) and cryptographic hashing (parent commits to child). The result is a data structure where the key determines the path, compression removes wasted nodes, and hashing produces a deterministic root that changes only along modified paths.',
-        {
-          type: 'diagram',
-          text: 'Key: 0xCAFE...  (hashed address)\nNibbles: C, A, F, E, ...\n\n  root\n   |-- nibble C --> extension [A, F] --> branch\n                                          |-- nibble E --> leaf (account data)\n                                          |-- nibble 3 --> leaf (different account)\n\nInserting a key starting with C, A, F, 7:\n  The branch at [C, A, F] gains a new child at slot 7.\n  Only the branch node, the extension, and the root are rehashed.\n  Everything else is untouched.',
-          label: 'Path compression skips the 62 nibbles where only one key exists; hashing propagates changes upward',
-        },
+      'The hard part is making the map canonical. Two nodes with the same account set must compute the same root byte-for-byte, independent of insertion order or database layout. If roots could differ for the same state, consensus would fail even when balances matched.',
+      'The structure also has to handle sparse keys. Ethereum account addresses become hashed keys, which behave like random 64-nibble paths. A naive 16-way trie would have long chains with one child, wasting space and proof bytes.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Hash the account key, split it into nibbles, and store the key-value map in a compressed radix trie whose nodes are content-addressed. A nibble is half a byte, so each step chooses one of 16 possible branches. Extension nodes compress shared path segments, branch nodes represent divergence, and leaf nodes hold final values.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/71/Trie_example.svg/600px-Trie_example.svg.png',
           alt: 'Trie data structure showing key-directed path traversal through character nodes',
           caption: 'A standard trie routes each key character to a child node. Ethereum\'s MPT operates on nibbles (half-bytes, 0-F) instead of characters, producing 16-way branching at each level. Extension nodes compress the long single-child chains that dominate a sparse 64-nibble keyspace. Source: Wikimedia Commons.',
         },
-        'The root is deterministic because the trie layout depends only on the set of keys and values, not on insertion order. Two nodes that process the same transactions in the same order produce identical tries with identical roots. If a single storage slot changes, only the nodes on its nibble path are rewritten and rehashed -- typically 8-12 nodes out of hundreds of millions.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Ethereum uses four node types, RLP encoding, and Keccak-256 hashing to build the trie.',
-        {
-          type: 'table',
-          headers: ['Node type', 'Structure', 'Purpose'],
-          rows: [
-            ['Branch', '17-element array: 16 child slots (one per nibble 0-F) + 1 value slot', 'Fanout -- routes the path based on the next nibble'],
-            ['Extension', '[encoded-path, child-reference]', 'Compression -- skips a shared prefix of nibbles to avoid single-child chains'],
-            ['Leaf', '[encoded-path, value]', 'Termination -- stores the remaining key suffix and the account/storage data'],
-            ['Hash reference', '32-byte Keccak digest', 'Commitment -- replaces any node whose RLP encoding exceeds 32 bytes'],
-          ],
-        },
-        'The key pipeline: take a 20-byte account address, hash it with Keccak-256 to get a 32-byte "secure key," then split the secure key into 64 nibbles (each nibble is 4 bits, values 0-F). The nibble sequence is the path through the trie.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Secure key derivation\nconst address = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";\nconst secureKey = keccak256(address);\n// secureKey = 0x1c5e3a7b...  (32 bytes, 64 nibbles)\n// nibbles  = [1, c, 5, e, 3, a, 7, b, ...]\n\n// Path traversal pseudocode\nfunction get(root, nibbles) {\n  let node = db.load(root);\n  let i = 0;\n  while (i < nibbles.length) {\n    if (node.type === "branch") {\n      node = db.load(node.children[nibbles[i]]);\n      i += 1;\n    } else if (node.type === "extension") {\n      // extension.path must match the next nibbles\n      assert(nibbles.slice(i, i + node.path.length) === node.path);\n      node = db.load(node.child);\n      i += node.path.length;\n    } else if (node.type === "leaf") {\n      assert(nibbles.slice(i) === node.path);\n      return node.value;  // account: [nonce, balance, storageRoot, codeHash]\n    }\n  }\n}',
-        },
+      'The root hash commits to every node below it. Changing one account rewrites the leaf, then each ancestor hash along that key path. Unchanged subtrees keep their hashes, so the update is local even though the root changes globally.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'Ethereum first transforms an account address or storage key with Keccak-256. The 32-byte hash becomes 64 nibbles, and traversal follows those nibbles from the root. Branch nodes have 16 child slots plus an optional value slot, while extension and leaf nodes carry encoded path fragments.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/Bitcoin_Block_Data.svg/800px-Bitcoin_Block_Data.svg.png',
           alt: 'Block header linking to Merkle root over transactions',
           caption: 'Bitcoin uses a binary Merkle tree over an ordered transaction list. Ethereum extends this idea: block headers carry a state root (the MPT over all accounts), a transactions root, and a receipts root. Each root authenticates a different dimension of the block. Source: Wikimedia Commons.',
         },
-        'Ethereum nests tries. The global state trie maps account addresses to account records. Each contract account record contains a storageRoot field that points to a separate storage trie mapping 32-byte storage slots to 32-byte values. Block headers also carry separate roots for transactions and receipts.',
-        {
-          type: 'diagram',
-          text: 'Block header fields:\n  stateRoot   ---> state trie ---> account record\n                                     |-- nonce\n                                     |-- balance\n                                     |-- storageRoot ---> storage trie ---> slot values\n                                     |-- codeHash\n  transactionsRoot ---> tx trie ---> encoded transactions\n  receiptsRoot     ---> receipt trie ---> logs, gas used, status',
-          label: 'A single block header commits to four separate tries through three root hashes',
-        },
-        'Proof construction: to prove an account value, the full node collects every encoded node on the path from the state root to the target leaf. The proof is just the list of RLP-encoded nodes. The verifier decodes each node, follows the nibble path, hashes each node with Keccak-256, and checks that each hash matches the child reference in the parent. If the chain reaches the root, the value is authentic.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Correctness rests on three properties working together.',
-        {
-          type: 'bullets',
-          items: [
-            'Determinism: the trie layout is a pure function of the key-value contents and the encoding rules. No insertion-order dependence, no randomness, no tie-breaking. Two nodes with the same state produce the same root byte-for-byte.',
-            'Collision resistance: Keccak-256 makes it computationally infeasible to find two different nodes that hash to the same digest. A parent that commits to a child hash commits to exactly one child content.',
-            'Path integrity: the nibble path is derived from the key hash. A verifier consuming nibbles and matching them against extension/leaf paths cannot be redirected to a different key without breaking the hash chain.',
-          ],
-        },
-        {
-          type: 'quote',
-          text: 'The trie requires that the key-value binding set stored in the trie is uniquely determined by the single root hash.',
-          attribution: 'Ethereum Yellow Paper (Section 4.1)',
-        },
+      'Nodes are serialized with RLP, Ethereum\'s Recursive Length Prefix encoding, then either embedded directly when small or referenced by hash when large. A proof is the list of encoded nodes along the path. The verifier hashes each encoded node and checks that it matches the reference from the previous node.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/Merkle_Tree.svg/800px-Merkle_Tree.svg.png',
           alt: 'Merkle tree diagram showing how leaf changes propagate upward through hash recomputation to the root',
           caption: 'Hash propagation in a Merkle structure: changing any leaf forces recomputation of every hash on the path to the root. In the MPT, this path is determined by the key\'s nibble sequence, so a single account update rewrites only the ~8-12 nodes along that nibble path. Source: Wikimedia Commons.',
         },
-        'If any node is tampered with -- a value changed, a nibble path altered, a child reference swapped -- the Keccak hash of that node changes. That change propagates upward: every ancestor recomputes a different hash until the root changes. A valid proof under root R proves that the value existed in the exact state committed by R. A forged proof under root R would require finding a Keccak collision.',
-        'Path compression (extension nodes) preserves determinism because the compressed path is stored inside the node and included in its hash. The trie cannot silently skip nibbles -- the extension node declares exactly which nibbles it skips, and that declaration is part of the commitment.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        {
-          type: 'table',
-          headers: ['Operation', 'Cost', 'What drives it'],
-          rows: [
-            ['Lookup', 'O(64) nibble steps, ~8-12 DB reads', 'Key length is fixed at 64 nibbles; compression reduces actual node fetches'],
-            ['Insert/Update', 'O(64) in theory, ~8-12 node writes + rehashes', 'Only the nodes on the modified path are rewritten'],
-            ['Proof size', '~1-3 KB for one account', 'Each node on the path is included; branch nodes are 532 bytes RLP-encoded'],
-            ['State size', '~80 GB (mainnet 2024)', 'Every unique node is stored; historical state multiplies this further'],
-            ['Write amplification', '~8-12x per key update', 'Each touched node is re-encoded, rehashed, and written to the DB'],
-          ],
-        },
-        'The practical bottleneck is database I/O. Each node lookup is a LevelDB or PebbleDB read with a 32-byte hash key. Branch nodes are large (up to 532 bytes RLP-encoded), and the working set rarely fits in cache during block processing. Client teams spend enormous engineering effort on node caching, batch writes, and pruning strategies.',
-        {
-          type: 'note',
-          text: 'Updating one key rewrites ~8-12 nodes. A block with 200 transactions touching 1,000 distinct keys rewrites ~8,000-12,000 nodes. At ~200 bytes average per node, that is 1.6-2.4 MB of database writes per block, every 12 seconds. State growth means the trie never shrinks even when accounts are emptied -- tombstone nodes persist until garbage collection.',
-        },
-        'Proof size is the other cost that matters at scale. An MPT proof for one account is roughly 1-3 KB (the encoded nodes on one path). For a bridge verifying 100 accounts, that is 100-300 KB of proof data. Verkle trees, Ethereum\'s planned replacement, reduce proof size to roughly 150 bytes per account by using polynomial commitments instead of hash-based inclusion.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A light client wants to verify that account 0xd8dA...6045 has a balance of 1.5 ETH at block 19,000,000.',
-        {
-          type: 'diagram',
-          text: 'Step 1: Obtain block header #19000000 from a trusted source\n  header.stateRoot = 0x7a8b...3c4f  (32 bytes, trusted)\n\nStep 2: Request proof from a full node\n  eth_getProof(0xd8dA...6045, [], 19000000)\n  Response: [\n    node0: branch [16 children + value]  (RLP ~400 bytes)\n    node1: extension [path: "c5e3", child: 0xab...]  (RLP ~40 bytes)\n    node2: branch [16 children + value]  (RLP ~450 bytes)\n    node3: leaf [path: "a7b9...remaining", value: RLP(account)]  (RLP ~120 bytes)\n  ]\n\nStep 3: Verify\n  hash(node3) == node2.children[nibble] ?  yes\n  hash(node2) == node1.child ?              yes\n  hash(node1) == node0.children[nibble] ?  yes\n  hash(node0) == header.stateRoot ?         yes\n  => account data is authentic under stateRoot 0x7a8b...3c4f',
-          label: 'Four encoded nodes, four hash checks, one trusted root',
-        },
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Simplified proof verification\nfunction verifyProof(stateRoot, key, proofNodes) {\n  const nibbles = toNibbles(keccak256(key)); // 64 nibbles\n  let expectedHash = stateRoot;\n  let nibbleIndex = 0;\n\n  for (const encodedNode of proofNodes) {\n    // Check: does this node hash to what the parent committed?\n    if (keccak256(encodedNode) !== expectedHash) {\n      return { valid: false, reason: "hash mismatch" };\n    }\n    const node = rlpDecode(encodedNode);\n\n    if (node.length === 17) {\n      // Branch node: follow the next nibble\n      expectedHash = node[nibbles[nibbleIndex]];\n      nibbleIndex += 1;\n    } else if (node.length === 2) {\n      const { path, isLeaf } = decodeHexPrefix(node[0]);\n      if (isLeaf) {\n        // Leaf: remaining path must match, return value\n        if (matchPath(nibbles, nibbleIndex, path)) {\n          return { valid: true, value: rlpDecode(node[1]) };\n        }\n        return { valid: false, reason: "path mismatch at leaf" };\n      } else {\n        // Extension: consume shared path, follow child\n        if (!matchPath(nibbles, nibbleIndex, path)) {\n          return { valid: false, reason: "path mismatch at extension" };\n        }\n        nibbleIndex += path.length;\n        expectedHash = node[1];\n      }\n    }\n  }\n  return { valid: false, reason: "proof too short" };\n}',
-        },
-        'The light client never downloaded the state database. It verified one account with four encoded nodes (~1 KB total) and one trusted root hash. If the full node had altered the balance, the leaf hash would change, breaking the chain at node2.',
-        {
-          type: 'note',
-          text: 'Absence proofs work similarly. If the requested key does not exist, the proof leads to a branch node with an empty child at the expected nibble, or to a leaf/extension whose path diverges from the requested key. The verifier confirms that the trie has no entry at that path under the given root.',
-        },
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        {
-          type: 'table',
-          headers: ['Consumer', 'What they prove', 'Trust anchor', 'Failure risk'],
-          rows: [
-            ['Light client (Helios, Lodestar)', 'Account balance, nonce, code', 'Beacon chain finalized header', 'Stale root if sync lags finality'],
-            ['Cross-chain bridge', 'Token balance on source chain', 'Relayed header or oracle', 'Fake header = forged proof; oracle compromise'],
-            ['Indexer (Etherscan, Dune)', 'Spot-check RPC responses', 'Local full node header', 'Missing history if node is pruned'],
-            ['Smart contract (on-chain verifier)', 'Storage slot in another contract', 'block.stateRoot (EVM opcode)', 'Gas cost ~200K+ for on-chain RLP decode + Keccak'],
-            ['State sync (snap sync)', 'Bulk account ranges', 'Pivot block state root', 'Incomplete sync if peers drop'],
-          ],
-        },
-        'The common pattern: a party that cannot or should not store the full state needs to verify one fact about it. The MPT proof is the mechanism. The trust anchor is always a block header, and the proof is only as trustworthy as the header source.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'Correctness comes from deterministic routing plus collision-resistant hashing. Deterministic routing means a key has one path under the encoding rules. Hashing means any change to a node changes its hash, and that change propagates to the root.',
+      'A membership proof is checked from root to leaf. At each node, the verifier confirms the hash reference and consumes the next matching path fragment. If the final leaf matches the remaining key and value, the proof is valid for that state root.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Lookup cost behaves like the number of trie nodes on the compressed key path. A 64-nibble key has at most 64 branch decisions, but extension nodes often compress long single-child runs. Proof size grows with path length and encoded sibling information, not with the full number of accounts.',
+      'Updates are local but write-amplified. If one account change touches 9 nodes on its path, all 9 encoded nodes and hashes must be rewritten even though only one account value changed. When a block changes 2,000 accounts, the trie work is roughly the sum of those path rewrites plus database writes for retained nodes.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'The MPT backs Ethereum account state, contract storage tries, transaction roots, and receipt roots. It lets block headers commit to large maps while proof users verify small claims. The access pattern is keyed lookup and update with authenticated proofs.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Ethereum_logo_2014.svg/400px-Ethereum_logo_2014.svg.png',
           alt: 'Ethereum diamond logo',
           caption: 'The Merkle-Patricia trie is not just one data structure inside Ethereum -- it is the verification backbone. Every light client query, every cross-chain bridge proof, every snap sync range check ultimately bottoms out at an MPT proof against a trusted state root. Source: Wikimedia Commons.',
         },
-        {
-          type: 'note',
-          text: 'EIP-1186 (eth_getProof) standardized the JSON-RPC method for requesting MPT proofs. Before it, light clients had to reconstruct proofs from raw node data. The standard made proof-based verification practical for wallets, bridges, and off-chain verifiers.',
-        },
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Proof size: an MPT inclusion proof for one account is 1-3 KB. Proving 1,000 accounts for a state sync or bridge checkpoint means 1-3 MB of proof data. Verkle proofs for the same 1,000 accounts would be roughly 150 KB. The polynomial commitment structure amortizes witness cost across multiple keys.',
-            'State bloat: every account ever created adds nodes to the trie. Ethereum mainnet state exceeds 80 GB. Empty accounts (zero balance, no code, no storage) still occupy trie nodes unless explicitly cleaned, and cleanup itself costs gas.',
-            'Write amplification: updating one storage slot rewrites the full path of nodes, re-encodes them in RLP, and rehashes each one. Under heavy DeFi activity, a single block can trigger tens of thousands of node writes. Client implementors build custom caching layers (Geth\'s snapshot layer, Erigon\'s flat database) to absorb this.',
-            'Implementation complexity: the encoding rules are consensus-critical. RLP encoding, hex-prefix path encoding, the leaf terminator flag (0x20), branch value slots, embedded short nodes (RLP < 32 bytes stored inline rather than hashed), and empty-node semantics are all sources of implementation bugs. A verifier that mishandles one edge case can accept a forged state claim.',
-            'Root trust is external: the trie proves nothing about whether the root is canonical, finalized, or safe. A valid proof under a reorged or forged root proves the wrong world. Bridges and light clients need a separate consensus-trust mechanism.',
-          ],
-        },
-        {
-          type: 'table',
-          headers: ['Problem', 'MPT cost', 'Verkle tree cost', 'Improvement factor'],
-          rows: [
-            ['Single-account proof', '~1-3 KB', '~150 bytes', '~10-20x smaller'],
-            ['1,000-account proof', '~1-3 MB', '~150 KB', '~10-20x smaller'],
-            ['Stateless block witness', '~1-2 MB', '~100-200 KB', '~10x smaller'],
-            ['Node storage overhead', 'High (hash references everywhere)', 'Lower (commitments compress)', 'Moderate'],
-          ],
-        },
+      'The same design idea appears in authenticated databases and blockchain bridges. A small root travels through a consensus or messaging layer, and a proof shows that a specific key-value claim belongs under that root.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'The MPT is expensive for high-write workloads because hashing and node persistence happen on every changed path. The trie also creates storage growth because historical nodes may remain needed for old blocks, snapshots, or recovery. That is why Ethereum research has explored Verkle tries and other commitment structures.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Blockchain.svg/800px-Blockchain.svg.png',
           alt: 'Blockchain structure showing linked blocks each containing a hash pointer to the previous block',
           caption: 'Each block header contains the state root that commits to the full account trie at that block height. As state grows across blocks, the MPT accumulates nodes -- old nodes from previous states persist in the database even when accounts are emptied, driving the 80+ GB storage footprint. Source: Wikimedia Commons.',
         },
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Use a mature client library for production. EthereumJS (@ethereumjs/trie), Go-Ethereum (trie package), and Reth (alloy-trie) have been battle-tested against consensus. Rolling your own RLP + hex-prefix encoder is a bug farm.',
-            'Test against the Ethereum Foundation\'s official test vectors (ethereum/tests repository, TrieTests directory). These cover insertion ordering, deletion, branch collapsing, extension splitting, and proof of absence.',
-            'Separate header trust from proof verification. The proof checker answers "does value V exist under root R?" It cannot answer "is R the canonical finalized state root?" Header trust comes from the consensus layer -- beacon chain sync committee signatures for post-merge Ethereum.',
-            'Profile database I/O, not hash computation. Keccak-256 is fast (~500 MB/s on modern CPUs). The bottleneck is random LevelDB reads for each node on the path. Batch reads, node caching, and flat-storage overlays dominate real client performance work.',
-            'Handle proof-of-absence explicitly. A key that does not exist in the trie produces a proof that ends at a divergence point -- a branch with an empty child or an extension/leaf whose path does not match. The verifier must accept this as a valid "not found" answer, not treat it as an error.',
-          ],
-        },
-        {
-          type: 'code',
-          language: 'text',
-          text: 'Hex-prefix encoding (consensus-critical detail):\n\n  nibbles [1, 2, 3]     + leaf flag --> 0x20 | (0x10 for odd length) | first nibble\n  even leaf:   [1, 2, 3, 4]  --> [0x20, 0x12, 0x34]\n  odd leaf:    [1, 2, 3]      --> [0x31, 0x23]\n  even ext:    [1, 2, 3, 4]  --> [0x00, 0x12, 0x34]\n  odd ext:     [1, 2, 3]      --> [0x11, 0x23]\n\n  The first nibble of the encoded byte encodes two flags:\n    bit 1 (0x20): 1 = leaf, 0 = extension\n    bit 0 (0x10): 1 = odd number of nibbles (first nibble packed into this byte)\n  Getting this wrong means a leaf is decoded as an extension or vice versa.',
-        },
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'table',
-          headers: ['Source', 'What it covers'],
-          rows: [
-            ['Ethereum Yellow Paper, Appendix D', 'Formal specification of the Modified Merkle Patricia Trie, RLP encoding, hex-prefix encoding. https://ethereum.github.io/yellowpaper/paper.pdf'],
-            ['ethereum.org Patricia Merkle Trie docs', 'Illustrated walkthrough of node types, encoding, and proof verification. https://ethereum.org/developers/docs/data-structures-and-encoding/patricia-merkle-trie/'],
-            ['EthereumJS trie implementation', 'Production TypeScript implementation with proof generation and verification. https://github.com/ethereumjs/ethereumjs-monorepo/tree/master/packages/trie'],
-            ['Vitalik Buterin, "Merkling in Ethereum" (2015)', 'Design rationale for choosing MPT over alternatives. https://blog.ethereum.org/2015/11/15/merkling-in-ethereum'],
-            ['EIP-1186: eth_getProof', 'JSON-RPC standard for requesting Merkle-Patricia proofs from a node. https://eips.ethereum.org/EIPS/eip-1186'],
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: study Merkle Tree for the hash-upward commitment pattern and PATRICIA Trie for the radix-based path compression that MPT extends.',
-            'Encoding layer: study RLP Encoding to understand the serialization that makes node hashing deterministic and consensus-compatible.',
-            'Evolution: study Verkle Trees to see how polynomial commitments replace hash-based witnesses for smaller proofs, which is Ethereum\'s planned MPT replacement.',
-            'Contrast: study Hash Array Mapped Trie (HAMT) for a different approach to hash-based persistent maps, used in Clojure and IPFS but without the cryptographic commitment property.',
-            'Application: study Git Internals for another system that uses Merkle-style content addressing (tree objects, blob hashes) for a different purpose -- version control instead of consensus state.',
-          ],
-        },
-      ],
-    },
+      'It also fails as a general key-value store choice when proof generation is not needed. A normal LSM tree or B-tree can be faster and smaller for local storage. The MPT earns its cost only when remote verification against a root is part of the contract.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Suppose a block changes one account from balance 7 ETH to 9 ETH. The account address hashes to a 64-nibble key, and the current compressed path from root to leaf has 10 encoded nodes. The client rewrites the leaf with the new account record, then recomputes the 9 ancestor hashes back to the root.',
+      'A light client later receives a proof with those 10 encoded nodes and a block header containing the state root. It hashes the first proof node and checks that it equals the header root. It then follows each nibble fragment until the leaf proves the account value with balance 9 ETH.',
+      'If one byte in the balance is changed back to 7 ETH inside the proof, the leaf hash changes. The parent hash no longer matches its stored child reference, and the mismatch propagates before the verifier reaches the root. The forged proof fails without the verifier knowing the full database.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: the Ethereum.org Merkle Patricia Trie documentation, the Ethereum yellow paper, go-ethereum trie code, and Ethereum research notes on Verkle trie migration. For encoding details, study RLP and hex-prefix compact encoding.',
+      'Study next: tries, Merkle trees, content-addressed storage, authenticated data structures, Verkle trees, and sparse Merkle trees. The central lesson is that a root hash can make a large mutable map externally verifiable, but the proof and update costs become part of the system design.',
+    ] },
   ],
 };

@@ -208,88 +208,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Mesos is a resource manager for a shared compute cluster. Its central question is not how to run one job well. The question is how to let many different compute frameworks use the same machines without forcing every framework into one scheduler model. A data center might run Hadoop batch jobs, Spark interactive analytics, MPI jobs, long lived services, and experimental systems. Each workload has different placement needs, data locality concerns, task lifetimes, and failure recovery rules.',
-        'The painful baseline is static partitioning. Team A owns one group of machines, team B owns another, and each framework schedules only inside its slice. That is easy to reason about, but it wastes capacity whenever one slice is idle while another has queued work. It also makes data locality worse because the machines holding useful data may sit outside the framework partition that currently needs them. Mesos attacks that waste by making the cluster a shared resource pool while still letting framework-specific schedulers keep their specialized logic.',
+        'The resource-offers view shows Mesos between machines and compute frameworks. A framework is a system such as Spark or Hadoop that knows how to run its own jobs. Active arrows are offers moving from the Mesos master to a framework; found tasks are tasks the framework accepted and launched.',
+        {type:'callout', text:'Mesos keeps the common cluster layer thin by offering resources while framework schedulers keep workload-specific placement logic.'},
+        'The coexistence view shows several frameworks sharing one cluster. The safe inference is about responsibility: Mesos decides which framework gets a chance at resources, and the framework decides whether those resources fit its current work.'
       ],
     },
     {
-      heading: 'Naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'One naive approach is to build one giant scheduler that understands every workload. The scheduler would know how Spark stages work, how Hadoop map tasks prefer data blocks, how MPI jobs need gang scheduling, how service tasks should be restarted, and how every future framework will express its needs. In small environments this can look attractive because one control plane can enforce one policy. At cluster scale, it becomes a bottleneck for innovation. Every new framework has to teach the central scheduler a new set of concepts.',
-        'Another naive approach is to expose raw machines and let frameworks compete directly. That avoids central policy work, but it pushes fairness, isolation, recovery, and utilization into the wrong layer. A greedy framework can consume machines while peers wait. A failed worker can leave stale state. Operators lose the ability to apply quota and priority consistently. Mesos sits between those extremes. It is not a full framework scheduler, and it is not a free-for-all machine pool.',
-        {type:'callout', text:'Mesos keeps the common cluster layer thin by offering resources while framework schedulers keep workload-specific placement logic.'},
+        'A data-center cluster often runs many workload types on the same machines. Batch analytics, interactive Spark jobs, long-running services, and MPI-style jobs have different placement rules. Static machine partitions waste capacity when one team is idle and another has queued work.',
+        'Mesos exists to share cluster resources without forcing every workload into one scheduler. It provides a common resource layer and lets specialized frameworks keep their own scheduling logic. The design goal is high utilization without a giant central scheduler that must understand every job type.'
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is static partitioning. Give Hadoop one set of machines, Spark another, and services another. This is simple, but idle machines in one partition cannot help a busy framework in another partition.',
+        'Another obvious approach is one universal scheduler. It would know every task dependency, locality rule, restart policy, and future framework feature. That makes the central layer too complex and slows adoption of new compute systems.'
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that cluster scheduling has two kinds of knowledge. The cluster layer knows global availability: which agents have free CPU, memory, disk, ports, and local resources. The framework layer knows job semantics: which task can run next, whether locality matters, whether partial allocation is useful, whether a task is speculative, and how failures should be repaired. If all decisions are centralized, framework knowledge gets flattened. If all decisions are delegated, global fairness and isolation get weak.',
-        'The Mesos paper turns that wall into an interface design problem. The shared layer should own the facts that are common across frameworks: resource accounting, offers, isolation hooks, failure reports, and allocation policy. The framework should own the facts that only it understands. The difficult part is keeping the shared layer thin without making it powerless.',
+        'The wall is split knowledge. The cluster layer knows global availability: CPU, memory, ports, disk, and which agents are alive. The framework layer knows job meaning: which stage can run, whether locality matters, and whether partial resources are useful.',
+        'If all decisions move into the cluster layer, framework meaning is flattened. If all decisions move into frameworks, fairness and isolation become weak. Mesos turns that conflict into a protocol.'
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'The core insight is two-level scheduling through resource offers. Mesos does not ask each framework to submit a complete declarative plan for the whole cluster. Instead, the Mesos master allocates available resources to a framework as an offer. The framework scheduler can accept the offer and launch tasks, or decline it and wait for a better match. The common layer says, in effect, "these resources are available to you now." The framework answers, "these are the tasks I can use them for."',
-        'This is deliberately asymmetric. Mesos chooses which framework gets a chance to use a resource, but the framework chooses the tasks. That lets the allocation module enforce fairness and quota while preserving framework-specific placement logic. Spark can care about cached RDD partitions and stage dependencies. Hadoop can care about block locality. A service framework can care about restart policy and health checks. Mesos does not have to become all of them.',
+        'Use two-level scheduling. The Mesos master allocates resource offers to frameworks. A resource offer names available resources on particular agents. The framework accepts the offer with tasks or declines it and waits.',
+        'This keeps the common layer thin but useful. Mesos owns accounting, allocation policy, failure reports, and isolation hooks. Frameworks own workload-specific placement. The interface is the offer, not a universal job plan.'
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'A Mesos cluster has masters, agents, frameworks, schedulers, and executors. Agents run on worker machines and report resource availability to the master. A framework registers a scheduler with the master. The master uses an allocation policy, often discussed with dominant resource fairness, to decide which framework should receive offers. An offer names resources on particular agents. The framework scheduler replies with tasks to launch, and executors on those agents run the tasks.',
-        'The master also tracks task status, failed agents, framework disconnects, and resource recovery. If a task finishes, its resources return to the pool. If an agent fails, the framework is told that its tasks were lost so it can rebuild application-level state. Mesos can integrate with isolation mechanisms such as containers and cgroups, but the educational point is the resource protocol: report capacity, allocate an offer, let the framework bind tasks, then recover resources as tasks end.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose a cluster has three agents. Agent A has free CPU and holds input blocks for a Spark job. Agent B has free CPU but no useful local data. Agent C has enough memory for a service task but would be a poor fit for the Spark stage. The Mesos master might offer resources from A and B to the Spark framework. Spark accepts A because locality will save network reads and declines B because the current stage would run slowly there. Later, B can be offered to a Hadoop framework or to another Spark job that does not need those blocks.',
-        'Now add an idle framework and a bursting framework. In a static split, the idle framework keeps its machines while the bursting framework queues. Under Mesos, the idle slice can be offered to the framework with queued work, subject to fairness and policy. The win is not magic scheduling optimality. The win is that unused capacity becomes visible to work that can use it, while each framework still applies its own judgment before launching tasks.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The first view shows Mesos as a thin layer between agents and frameworks. The important visual move is the offer path from the master to a framework. The master is not directly placing every Spark or Hadoop task. It is exposing a bundle of available resources. The framework scheduler then decides whether the offer fits the tasks it has ready.',
-        'The framework coexistence view shows why the design matters. Spark, Hadoop, MPI-like jobs, and services do not want the same scheduler policy. The table of failure and fairness surfaces is the operational counterweight: delegation helps framework intelligence, but the shared substrate must still control quota, isolation, failed agents, and greedy behavior. The animation is best understood as a division of responsibility, not as a claim that offers always find the globally best placement.',
+        'Agents run on worker machines and report available CPU, memory, disk, and ports to the Mesos master. Frameworks register schedulers with the master. The allocation module chooses which framework should receive an offer.',
+        'A framework scheduler inspects the offer and replies with tasks to launch or declines the offer. Executors on the selected agents run the tasks. When tasks finish or fail, resources return to the pool and status updates flow back to the framework.',
+        'Dominant resource fairness is one allocation idea associated with Mesos. It compares each framework by its largest share of any resource, such as CPU or memory. That helps prevent a memory-heavy framework from looking small just because it uses fewer CPUs.'
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Mesos works when the offer abstraction is rich enough for frameworks to make useful choices and narrow enough for the master to stay general. The framework does not need a complete copy of the cluster scheduler. It needs enough information to answer whether a specific resource bundle is useful now. That keeps the common layer stable while frameworks evolve independently.',
-        'The design also improves utilization by reducing hard boundaries. Idle capacity can move toward frameworks with queued tasks. Fine-grained sharing lets short jobs and long jobs coexist better than a fixed machine split. Data locality can improve because offers are tied to particular agents, so a framework can prefer resources near its data rather than accepting anonymous CPU from anywhere.',
+        'Correctness here means preserving the responsibility boundary. Mesos must never allocate the same resource to two frameworks at the same time. A framework must launch only tasks that fit the offered resources. If both rules hold, cluster accounting stays coherent.',
+        'Utilization improves because idle resources can move to frameworks with work. Locality can still matter because an offer names the agent, not anonymous CPU. A framework can accept resources near its data and decline resources that would make the job slower.'
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The tradeoff is that Mesos can be less globally optimal than a scheduler that sees every task and every job constraint at once. Offers may be declined, which adds latency. Resources can become fragmented across agents in shapes that no framework wants. Some workloads need all-or-nothing placement, and a stream of partial offers can be a poor fit unless the framework or allocation policy handles that case carefully.',
-        'The model also pushes real work into framework schedulers. A framework that accepts bad offers can hurt its own performance. A framework that declines too much can delay itself and waste allocation cycles. Operators still need isolation, quotas, authentication, accounting, and policy. Mesos simplifies the common substrate, but it does not remove the need for disciplined cluster operations.',
+        'Offers add control-plane latency. If a framework declines many offers, the cluster spends cycles proposing resources that do not launch tasks. If offer round trips take 50 ms and a framework declines 1,000 offers during a burst, that is 50 seconds of aggregate control work even before useful scheduling happens.',
+        'The model can fragment resources. A cluster may have enough total CPU and memory but spread across agents in shapes no framework can use. More frameworks increase sharing opportunity, but they also increase policy, quota, authentication, and debugging work.',
+        'Scaling the cluster does not remove framework responsibility. A framework that accepts poor offers can hurt its own runtime. A framework that hoards or declines too aggressively can reduce overall utilization unless the allocator and quotas push back.'
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Mesos is strongest in a mixed cluster where different execution engines need to coexist. It fits environments with batch analytics, interactive jobs, services, and research frameworks that change faster than the central resource manager. The more varied the frameworks, the more valuable it is to avoid encoding every scheduling rule in one monolith.',
-        'It also teaches a durable systems pattern: put common resource accounting in the platform, but leave domain-specific decisions near the domain. The same pattern appears in storage systems, query engines, browser schedulers, Kubernetes operators, and LLM serving control planes. A thin common layer can be more adaptable than a thick layer that tries to predict every future workload.',
+        'Mesos fits mixed clusters where several execution engines must coexist. It was used to run Hadoop, Spark, services, and research frameworks on shared data-center resources. The common access pattern is many frameworks competing for machines while each framework needs its own placement logic.',
+        'The design also teaches a platform pattern. Put common accounting in the substrate and leave domain-specific decisions near the domain. Similar boundaries appear in Kubernetes operators, storage systems, query engines, and LLM serving control planes.'
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Mesos is a poor fit when one scheduler really does need a global view of every task dependency and placement constraint. Some workloads need gang scheduling, topology-aware placement, or rapid conflict resolution that an offer loop may express awkwardly. A two-level interface can also struggle when framework choices interact badly, because each scheduler optimizes locally while the allocator tries to preserve cluster-level fairness.',
-        'Common failure modes include low offer acceptance, resource fragmentation, stale framework state after failures, weak isolation, misconfigured quotas, and incentives that reward frameworks for hoarding offers. A cluster can also become harder to debug because a bad placement may involve both the master allocation policy and framework scheduling code. The operational question is always where a decision was made and which layer had enough information to make it well.',
+        'Mesos is awkward when one scheduler needs a full global view of every task dependency. Gang scheduling, tight topology placement, and fast conflict resolution can be hard to express through an offer loop. Local framework choices can interact badly even when each framework is rational.',
+        'Operational failures include stale framework state, low offer acceptance, weak isolation, resource fragmentation, and quota mistakes. Debugging can cross two layers because a bad placement may involve both Mesos allocation and framework scheduler code.'
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Mesos paper PDF at https://people.eecs.berkeley.edu/~alig/papers/mesos.pdf, USENIX page at https://www.usenix.org/conference/nsdi11/mesos-platform-fine-grained-resource-sharing-data-center, and Berkeley AMPLab PDF at https://amplab.cs.berkeley.edu/wp-content/uploads/2011/06/Mesos-A-Platform-for-Fine-Grained-Resource-Sharing-in-the-Data-Center.pdf.',
-        'Study Borg Cluster Scheduler Case Study for the integrated cluster OS approach, Omega Scheduler Case Study for shared-state scheduling, Spark RDD Case Study for why data locality matters, Ray Distributed Execution Case Study for dynamic task and actor workloads, Bulkheads and Resource Isolation for containment, Backpressure and Flow Control for admission pressure, and Kubernetes-oriented control-plane topics for the later industry direction.',
+        'Suppose a cluster has three agents. Agent A has 8 CPUs and 32 GB memory and stores Spark input blocks. Agent B has 8 CPUs and 32 GB memory but no local data. Agent C has 2 CPUs and 64 GB memory.',
+        'Spark needs 4 CPUs and 16 GB near its input data, so it accepts an offer on A and declines B. A service framework needs memory more than locality, so it can later accept C. Static partitioning might have left C idle while Spark waited, but Mesos can keep offering unused capacity.',
+        'Now add fairness. If Spark already uses 60 percent of cluster CPU and the service framework uses 10 percent of memory, the allocator may offer the next free resources to the service framework. The offer does not force a task; it gives the framework a chance to use a fair share.'
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: Mesos: A Platform for Fine-Grained Resource Sharing in the Data Center, https://people.eecs.berkeley.edu/~alig/papers/mesos.pdf. Study dominant resource fairness, Borg, Omega, Kubernetes scheduling, Spark RDD locality, resource isolation, and backpressure next.'
       ],
     },
   ],

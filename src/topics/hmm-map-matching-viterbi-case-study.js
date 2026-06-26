@@ -200,117 +200,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read each GPS dot as an observation and each nearby road position as a hidden-state candidate. A hidden Markov model, or HMM, is a model where the real state is not observed directly but emits noisy observations.',
+        'Active candidates are still possible route positions at that time step. A safe inference is that the best local snap can lose if it creates an impossible or unlikely transition from the previous road candidate.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A map app receives points, not roads. Each GPS sample has sensor noise, clock gaps, and a location that may fall between lanes, beside a highway, inside a building, or several meters away from the vehicle.',
-        'The product needs a road sequence. ETA, tolling, traffic inference, mileage, turn-by-turn replay, and fleet compliance all depend on knowing which edge in the road graph the vehicle used. A dot on a map is not enough.',
-        'The problem is hard because geometry and legality are different things. Two roads can be close in latitude and longitude while being separated by a barrier, elevation, one-way rule, private-access restriction, or missing turn. Map matching exists to turn noisy observations into a plausible path through the road graph, not merely to draw points on nearby lines.',
+        'A map app receives points, not roads. Each GPS sample has sensor noise, clock gaps, and a location that may fall between lanes, beside a highway, inside a building, or several meters from the vehicle.',
+        'The product needs a road sequence for ETA, tolling, mileage, traffic inference, fleet compliance, and route replay. Map matching turns noisy observations into a plausible path through a road graph.',
         {type:'callout', text:'HMM map matching wins by scoring whole paths, not isolated points: emissions explain local GPS fit while transitions enforce route plausibility.'},
       ],
     },
     {
-      heading: 'Baseline and wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The first baseline is nearest-road snapping. For every GPS sample, find the closest road segment and call that the answer. It is fast, easy to explain, and often works on quiet streets with dense samples.',
-        'The wall appears on roads that are close in geometry but far in the graph. A frontage road may sit five meters from a freeway. A bridge may cross a road without connecting to it. A phone may report one sample every 30 seconds. Nearest-road snapping can jump across barriers, alternate between parallel roads, or create turns the vehicle could not have made.',
-        'Another simple baseline is to snap each point and then smooth the polyline. That can make the drawing nicer but still ignores route feasibility. Smoothing a wrong sequence of road edges does not make it legal. The matcher needs a model that scores local fit and path continuity together.',
+        'The obvious approach is nearest-road snapping. For each GPS point, find the closest road segment and call that the answer.',
+        'That approach is reasonable on quiet streets with frequent accurate samples. It is fast, simple, and often good enough when geometry and legal route connectivity agree.',
       ],
     },
     {
-      heading: 'Core model',
+      heading: 'The wall',
       paragraphs: [
-        'HMM map matching treats the true road position as hidden state and the GPS sample as noisy observation. Each observation gets a small candidate set: road edge, offset along the edge, heading if available, and a score for how well that candidate explains the sample.',
-        'The model has two scores. The emission score measures local fit, usually distance from the GPS point adjusted by reported accuracy. The transition score measures path fit: whether the road-network distance between two candidates matches the observed movement and elapsed time.',
-        'Viterbi is the dynamic program over this lattice. It chooses the highest-scoring candidate sequence without enumerating every possible route.',
-        'The core invariant is sequence score. The best candidate at one time step is not necessarily part of the best route. A slightly farther road can win if it creates a much more plausible transition sequence. That is the central reason HMM matching beats independent nearest-road decisions.',
+        'The wall appears when nearby geometry is not reachable road motion. A frontage road can sit five meters from a freeway, a bridge can cross a road without connecting, and a one-way rule can make the closest segment illegal.',
+        'Sparse sampling makes the wall larger. If samples arrive every 30 seconds, the vehicle may have taken many legal paths between points, so independent snapping cannot explain continuity.',
       ],
     },
     {
-      heading: 'Candidate lattice',
+      heading: 'The core insight',
       paragraphs: [
-        'The lattice is built one observation at a time. Each column is a timestamp. Each node in a column is a candidate road position for that observation. Edges between adjacent columns represent possible movement through the road network. This shape is small enough to optimize, but rich enough to express ambiguity.',
-        'Candidate recall is the first correctness gate. If the true road edge is not in the candidate set, Viterbi cannot choose it later. Search radius, spatial index accuracy, GPS accuracy, heading filters, map version, and mode rules all influence recall. Over-pruning early can make the final route confidently wrong.',
-        'Candidate precision still matters. If every point produces hundreds of candidates, transition scoring becomes expensive and ambiguity rises. Good matchers widen the radius for uncertain samples and narrow it for accurate samples, instead of using one fixed radius everywhere.',
+        'The core insight is to score sequences, not points. Emission scores measure how well one road candidate explains one GPS sample, while transition scores measure whether movement between two candidates is plausible in the road network.',
+        'Viterbi is the dynamic program that finds the best hidden-state sequence under those scores. It avoids enumerating every possible route by keeping only the best prefix ending at each candidate.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Candidate generation starts with a spatial index over road geometry. For each GPS point, the matcher asks for nearby road positions inside a search radius. Low-quality samples get wider radii, but a wider radius increases the number of candidates the dynamic program must compare.',
-        'The transition step calls routing logic between candidate pairs. If two samples are 80 meters apart in straight-line distance but the legal road path between their candidates is 1.5 kilometers, the transition gets a low score. If the path requires a forbidden turn, it should be rejected or heavily penalized.',
-        'For time step t and candidate c, Viterbi stores the best score ending at c and the predecessor that produced it. After the last GPS point, the matcher follows backpointers to recover the route and can expand the road path between matched candidates.',
-        'In practice, implementations use log scores. Multiplying many small probabilities can underflow, while adding log probabilities is stable and turns the maximization into a sum of emission and transition terms. Impossible transitions can be represented as negative infinity or by omitting the lattice edge.',
-        'The matcher also needs gap handling. If the time between samples is too large, the route between them may be underdetermined. Some systems split the trace, lower confidence, or allow several plausible connectors instead of pretending one path is certain.',
-      ],
-    },
-    {
-      heading: 'Concrete example',
-      paragraphs: [
-        'Suppose a delivery van drives on a highway with a service road beside it. Three GPS samples land between the two roads. The nearest segment alternates highway, service road, highway because the phone noise moves a few meters each time.',
-        'The HMM can keep the van on the highway. Switching to the service road would require an exit ramp, a local segment, and a re-entry ramp that do not fit the elapsed time. The local emission is slightly worse on one point, but the sequence score is better.',
+        'Candidate generation uses a spatial index over road geometry. For each GPS point, the matcher finds nearby road positions and records edge id, offset, snapped coordinate, heading compatibility, road class, and access rules.',
+        'The emission score usually decreases as distance from the GPS point increases, often adjusted by reported accuracy. The transition score compares observed movement and elapsed time with legal road-network distance between candidates.',
+        'For time t and candidate c, Viterbi stores the best score ending at c and the predecessor that produced it. After the last sample, backpointers recover the chosen candidate sequence and the road paths between candidates.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Viterbi is correct for the model because the best sequence ending at a candidate only needs the best sequence ending at each predecessor. Once those predecessor scores are known, no older history can improve the current state except through the predecessor score already stored.',
-        'That optimal-substructure rule lets the matcher discard weaker prefixes. It is not proving the road truth directly. It is proving that, under the emission and transition scores, the returned path is the highest-scoring hidden-state sequence.',
-        'This distinction matters. The algorithm can be exact while the model is wrong. If the map is stale, the GPS is biased, or the transition cost ignores turn restrictions, Viterbi will faithfully optimize a bad scoring problem. Correctness of the dynamic program is not correctness of the product result.',
+        'Viterbi is correct for the HMM scoring model because of optimal substructure. Once the best score ending at each predecessor is known, older history can affect candidate c only through those predecessor scores.',
+        'That lets the algorithm discard weaker prefixes safely. It proves the returned route is the highest-scoring hidden-state sequence under the model, not that the map, GPS, or scoring assumptions are always true.',
+        'The product correctness invariant is candidate recall. If the true road never enters the candidate set, no dynamic program can recover it later.',
       ],
     },
     {
-      heading: 'Reliability contract',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A production matcher needs candidate recall. If the correct road never enters the candidate set, Viterbi cannot recover it later. Search radius, map freshness, heading filters, and road-access rules decide whether the true state is even available.',
-        'The output should include confidence, not only a polyline. Useful signals include best-versus-second-best score gap, GPS accuracy, number of candidates, impossible transition count, route feasibility, and map version. Low confidence should degrade the user experience instead of pretending the route is certain.',
-        'The contract should also include provenance. A disputed trip should be replayable from raw samples, candidate sets, emission scores, transition scores, chosen backpointers, routing engine version, map version, and policy flags. Without those artifacts, engineers cannot distinguish a sensor problem from a map problem or a scoring problem.',
+        'Let T be the number of GPS samples and k be the average candidates per sample. The dynamic program is roughly O(T * k^2) before pruning because each candidate can connect to each candidate in the next column.',
+        'Transition scoring usually dominates cost because it can require shortest-path queries. Systems use radius caps, beams, cached route distances, contraction hierarchies, or other routing indexes to keep cost bounded.',
+        'Behavior changes with signal quality. Worse GPS accuracy increases k, sparse samples increase transition uncertainty, and both raise latency while lowering confidence.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Let T be the number of GPS samples and k the average candidates per sample. The dynamic program is roughly O(T * k^2) before pruning because every candidate can transition to every candidate at the next time step.',
-        'Candidate lookup is usually cheap with a spatial index. Transition scoring dominates because it may require many shortest-path queries. Systems use radius caps, beams, cached route distances, contraction hierarchies, or other route indexes to keep k and transition cost bounded.',
-        'When sampling becomes sparse, transition scoring becomes more important and less certain. When GPS accuracy gets worse, the candidate set grows. Both cases raise cost and lower confidence.',
-        'There is a latency split between online and offline matching. A navigation app needs quick incremental updates and may accept a provisional match that changes as more samples arrive. A fleet analytics pipeline can batch a full trip, use slower routing, and produce a cleaner final trace. The same HMM idea can serve both, but the buffering and confidence policy differ.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Start with clean coordinate handling. Project coordinates into a metric space before distance calculations, keep units explicit, and account for reported GPS accuracy when computing emissions. A meter/kilometer mix-up or a latitude-degree distance shortcut can dominate every later model choice.',
-        'Make the road candidate object rich enough: edge id, offset, side of street when relevant, heading compatibility, access mode, road class, and snapped coordinate. Transition scoring should use the routing graph, not just Euclidean distance between snapped points.',
-        'Use beam pruning carefully. Dropping low-scoring candidates keeps latency bounded, but it can remove the true road during noisy segments. A good implementation records when pruning happened and treats narrow score gaps as low-confidence rather than definitive.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'HMM matching fits trip reconstruction, ETA modeling, toll detection, route replay, traffic-speed inference, fleet analytics, and geofence preprocessing. These systems care about route continuity, not just the nearest geometry to each point.',
-        'It also gives engineers an audit path. A disputed match can be replayed from observations, candidates, emissions, transitions, backpointers, and map version.',
-        'It is especially strong when samples are moderately noisy but still frequent enough to constrain movement. In that regime, emissions narrow local candidates and transitions reject impossible jumps. The two signals correct each other.',
+        'HMM map matching fits navigation traces, ETA modeling, toll detection, route replay, traffic-speed inference, fleet analytics, and geofence preprocessing. These systems care about route continuity, not just closest geometry.',
+        'It also gives an audit path. A disputed trip can be replayed from raw samples, candidate sets, emission scores, transition scores, map version, routing engine version, and chosen backpointers.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Sparse traces can hide the actual path between samples. Tunnels and urban canyons can produce long gaps or biased points. Parallel roads, stacked roads, private roads, missing map edges, wrong turn restrictions, and ferries can all beat the scoring model.',
-        'The model also depends on the travel mode. A pedestrian, cyclist, truck, and car may have different legal paths through the same map. A good matcher makes the mode and policy explicit.',
-        'It can also fail silently when confidence is hidden. A clean-looking polyline may be the best of several weak alternatives. Products should expose uncertainty through degraded displays, delayed finalization, manual review flags, or downstream filters instead of treating every matched route as equally trustworthy.',
+        'It fails when the right road is absent from the candidate set. Bad map data, too-small search radius, wrong travel mode, heading filters, and stale access rules can remove truth before Viterbi runs.',
+        'It also fails when the scoring model ignores real constraints. Tunnels, urban canyons, stacked roads, ferries, private roads, truck restrictions, and missing turn restrictions can make a clean-looking route wrong.',
+        'Confidence can fail silently. The best route may be only slightly better than the second-best route, so downstream products should degrade or flag low-confidence matches instead of treating every polyline as equally certain.',
       ],
     },
     {
-      heading: 'What to tune',
+      heading: 'Worked example',
       paragraphs: [
-        'Tune the emission model to the sensor, not to an ideal GPS. Phones, vehicle trackers, watches, and embedded modules have different noise patterns. Reported accuracy may be missing or miscalibrated. Heading may be reliable at speed and noisy while stopped.',
-        'Tune the transition model to the road network and product. A delivery fleet may need truck restrictions. A cycling app needs paths and bike lanes. A tolling system needs policy around ramps and gantries. A traffic analytics system may care more about segment speed than exact lane-level geometry.',
-        'Evaluate with labeled traces that include hard cases: parallel roads, bridges, tunnels, stops, sparse sampling, urban canyons, private roads, map gaps, and mode changes. Aggregate accuracy is not enough if the failures concentrate in expensive product scenarios.',
+        'A van drives on a highway beside a service road. Three GPS points land between them, producing two candidates per point: H for highway and S for service road.',
+        'At point 1, H is 6 meters away and S is 4 meters away, so nearest-road snapping chooses S. At point 2, H is 5 meters away and S is 7 meters away, and at point 3 H is 4 meters away and S is 6 meters away, so snapping produces S, H, H.',
+        'The HMM keeps H, H, H if the transition from S to H requires a 900-meter ramp detour but the samples are only 80 meters and 5 seconds apart. A slightly worse local emission loses to a much better sequence score.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Read Newson and Krumm, Hidden Markov Map Matching Through Noise and Sparseness, then study Dijkstra, A* Search, Contraction Hierarchy Route Planner, Geofence Point-in-Polygon, R-tree spatial indexing, HMM/Viterbi dynamic programming, Kalman filtering, and confidence calibration.',
+        'Start with Newson and Krumm, Hidden Markov Map Matching Through Noise and Sparseness. Then compare implementations and routing-engine notes that discuss candidate search, transition scoring, and confidence reporting.',
+        'Study Viterbi Dynamic Programming, Dijkstra, A* Search, Contraction Hierarchy Route Planner, R-tree Spatial Indexing, Kalman Filtering, Geofence Point-in-Polygon, and Confidence Calibration next.',
       ],
     },
   ],

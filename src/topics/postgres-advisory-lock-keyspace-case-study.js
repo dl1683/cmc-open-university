@@ -200,96 +200,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the keyspace-design view as a naming test. Active workers are not fighting over a row; they are computing integer keys that PostgreSQL treats as lock names.',
+        'Read the lifetime view as a release test. A session lock stays attached to the database session until it is unlocked or the connection ends, while a transaction lock releases at commit or rollback.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Some critical sections are real even though they do not map cleanly to one database row. A tenant billing run, migration runner, scheduled job, cache warmer, data backfill, or cross-table maintenance task may need exactly one owner.',
-        'A row lock works when the row is the resource. Advisory locks exist for the cases where the application has to define the resource itself. The application chooses an integer key, asks PostgreSQL to coordinate that key, and agrees that every conflicting worker will use the same key before doing the protected work.',
-        'PostgreSQL manages lock compatibility, waiting, and release behavior. Your code defines what the key means.',
+        'Some critical sections do not map to one row. A tenant billing job, migration runner, cache rebuild, or shard backfill may need exactly one owner even though the protected work spans many tables.',
+        'Advisory locks exist so the application can name that resource and let PostgreSQL coordinate it. PostgreSQL serializes lock keys; the application defines what each key means.',
         {type:'callout', text:'Advisory locks are only as correct as the key convention: PostgreSQL serializes integer names, but the application defines what those names mean.'},
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The crude solution is a global mutex: only one worker in the whole system may run the job. That is safe, but it wastes concurrency. Tenant 17 does not need to wait because tenant 42 is billing.',
-        'Another common solution is a lock row in a table. That can work, but it adds schema, cleanup rules, stale-owner handling, timestamps, compare-and-swap updates, and race-prone application logic.',
-        'The wall is naming. The database already has a lock manager, but it cannot guess that `tenant 42 billing` or `monthly invoice backfill shard 7` is the resource being protected. Advisory locks let the application name that resource directly.',
+        'The obvious approach is a global mutex. Only one billing job runs anywhere in the system, so duplicate billing cannot happen.',
+        'That is safe but wasteful. Tenant 17 does not need to wait because tenant 42 is billing, and a global lock turns unrelated work into one long queue.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is resource naming. PostgreSQL cannot infer that tenant 42 billing is the thing being protected unless every worker turns that business concept into the same lock key.',
+        'A table row used as a homemade lock adds schema and stale-owner cleanup. A cache lock outside PostgreSQL may not share the same failure boundary as the data being changed. Advisory locks put the coordination point next to the data, but only if the key convention is exact.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The keyspace is the data structure. A 64-bit key, or a pair of 32-bit keys, names the protected application resource. Good key design is exact: broad enough that all conflicting work chooses the same key, narrow enough that unrelated work can proceed.',
-        'PostgreSQL does not validate the meaning. If every worker uses tenant_id as the billing key, tenant-level serialization works. If one service uses tenant_id and another uses tenant_id plus region, the locks do not meet.',
-        'The convention is part of the correctness proof. Advisory locks are not magic; they coordinate code that agrees on the same names.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the keyspace-design view, watch both workers flow into the same key. That is the whole point. If the key differs, PostgreSQL sees two unrelated locks and both workers run.',
-        'The key table is not decoration. It shows the design tradeoff: too broad kills concurrency; too narrow fails to protect the invariant; inconsistent key construction silently disables coordination.',
-        'In the lifetime-rules view, focus on release semantics. Session locks survive commits and rollbacks until explicit unlock or connection end. Transaction locks release automatically at transaction end. That difference matters a lot in connection-pooled applications.',
+        'The keyspace is the data structure. A 64-bit integer key, or a pair of 32-bit keys, names a protected application resource.',
+        'Good key design is narrow enough to preserve concurrency and broad enough to catch every conflict. If one service locks by tenant_id and another locks by tenant_id plus region, PostgreSQL sees two different resources and no coordination happens.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A worker computes a key and requests an advisory lock. Exclusive locks allow one holder. Shared locks allow multiple compatible holders. Try-lock variants return immediately when the key is busy, which is useful for optional jobs. Blocking variants wait, which is useful when the work must run before proceeding.',
-        'Session-level advisory locks survive transaction boundaries. They release when explicitly unlocked or when the database session ends. That is useful for work that spans transactions, but dangerous with connection pools if cleanup is sloppy.',
-        'Transaction-level advisory locks release automatically at commit or rollback. They are often safer for web applications because the lock lifetime matches the database transaction.',
+        'A worker computes a key and calls an advisory lock function. Exclusive locks allow one holder, shared locks allow compatible holders, try-lock variants return immediately, and blocking variants wait.',
+        'Session-level locks survive transaction boundaries. Transaction-level locks release automatically when the transaction ends, which is often safer in web applications that use connection pools.',
+        'The lock manager handles compatibility, waiting, wakeups, and deadlock detection. It does not validate the business meaning of the key, so the application must make the naming rule part of the contract.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The invariant is voluntary agreement. Every participant that might violate the protected rule must acquire the same key before doing the work. When that is true, the PostgreSQL lock manager serializes conflicting participants.',
-        'It works especially well when PostgreSQL is already the shared coordination point. The lock lives in the same system that stores the data being protected, so a worker can acquire a transaction-level advisory lock and perform the guarded write in one database transaction.',
-        'This is also the main limitation. Advisory locks do not protect code that skips the convention. They coordinate cooperating actors; they do not make non-cooperating writes impossible.',
+        'The correctness argument is voluntary exclusion. If every actor that can violate the invariant takes the same exclusive advisory lock before acting, PostgreSQL grants the critical section to only one actor at a time.',
+        'The invariant fails if any writer skips the convention or computes a different key. Advisory locks coordinate cooperating code; they do not prevent a rogue write the way a unique index prevents duplicate values.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A billing system runs one job per tenant. Workers compute key = hash("billing", tenant_id) or use a two-part key where the first part names the subsystem and the second part names the tenant. Worker A locks tenant 42 and starts billing. Worker B tries tenant 42 and waits or skips. Worker C locks tenant 17 and can run concurrently.',
-        'The key design is doing the work. A global billing key would serialize all tenants and waste capacity. A key based on invoice_id might allow two workers to bill the same tenant at the same time. The correct key matches the business invariant: one billing run per tenant.',
+        'The lock operation is cheap compared with most protected jobs, but waiting can dominate behavior. A broad key turns many independent jobs into one queue, while a narrow key gives false safety.',
+        'Blocking locks need timeouts and retry policy. Try-locks need a skip path. Session locks need cleanup discipline because a pooled connection can return to the pool while still holding a lock if the application forgets to unlock.',
+        'Deadlocks remain possible when code takes multiple advisory locks in different orders. The fix is the same as row locks: define a total order, such as subsystem id then tenant id, and acquire keys in that order everywhere.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Advisory locks are cheap enough for coarse coordination, but they can still create wait queues, deadlocks, and connection-pool pressure. A key that is too broad becomes a bottleneck. A key that is too narrow gives a false sense of safety.',
-        'Blocking locks need timeout and retry policy. Try-locks need a clear skip path. Session locks need explicit unlock discipline and pool hygiene. Transaction locks need the protected work to fit inside one transaction.',
-        'Deadlock rules still matter. If one job takes tenant lock then report lock, and another takes report lock then tenant lock, blocking advisory locks can deadlock. Use a consistent lock acquisition order when multiple keys are needed.',
-      ],
-    },
-    {
-      heading: 'Operational checklist',
-      paragraphs: [
-        'Write the key convention down before using the lock. Name the subsystem, key parts, hash method if any, lifetime choice, blocking or try-lock behavior, timeout, retry policy, and the invariant the lock is meant to protect. Treat that convention like schema, because changing it changes correctness.',
-        'Add observability for waits and skips. A slow advisory lock can mean healthy serialization, a stuck worker, a connection-pool leak, a deadlock pattern, or a key that is too broad. Metrics should include lock wait time, try-lock failures, transaction age, and the job or tenant key family.',
-        'Review the convention whenever a second service starts using the same protected resource. Advisory locks fail quietly when one code path uses a different key, a different database, or no lock at all. The operational test is whether every writer that can violate the invariant is visible in the same coordination boundary before production traffic depends on it. Document the owner and escalation path before rollout.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Advisory locks work well for one-at-a-time tenant jobs, migration runners, singleton background tasks, distributed cron inside one database cluster, cache warmers, and short critical sections where PostgreSQL is already the coordination point.',
-        'They are also useful for optional work with try-locks. If another worker already owns the cleanup job, the second worker can skip instead of waiting.',
+        'Advisory locks fit singleton background jobs, tenant-scoped maintenance, migration guards, distributed cron inside one PostgreSQL cluster, and optional cleanup with try-locks. The access pattern is coarse cooperative coordination near PostgreSQL data.',
+        'They are useful when row locks are the wrong shape. A backfill may touch thousands of rows, but the invariant can be one backfill for shard 7 rather than lock every row before reading it.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'They are the wrong tool when the resource spans systems that do not all use the same PostgreSQL database, when you need fencing tokens against stale owners, or when correctness must hold even if a code path forgets to take the lock.',
-        'They also fail as a substitute for constraints. If duplicate rows must never exist, use a unique index. If retries must be safe, use idempotency keys. If stale workers can write after losing ownership, use fencing tokens. Use advisory locks for cooperative scheduling, not as the only line of data correctness.',
+        'Advisory locks fail when correctness must hold against code that does not cooperate. If duplicate rows must never exist, a unique index is the guard; the advisory lock is at most a scheduling aid.',
+        'They also fail across boundaries that do not share the same database session space. If two services write to different databases or one path writes through a queue that never takes the lock, the key convention is incomplete.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A billing system has 800 tenants and 16 workers. Each billing job computes a two-part key: subsystem 10 for billing and tenant_id for the tenant. Worker A locks (10, 42), Worker B tries (10, 42), and Worker C locks (10, 17).',
+        'A and C can run together because their tenant keys differ. B waits or skips because it conflicts with A on the exact same key. If a tenant bill takes 20 seconds, the system can process different tenants in parallel instead of running all 800 tenants through one 4.4 hour global queue.',
+        'The key choice matches the invariant: one billing run per tenant. A key based on invoice_id would allow two jobs for the same tenant, while a global billing key would waste 15 of the 16 workers.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: PostgreSQL advisory locks in explicit locking at https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS and advisory lock functions at https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADVISORY-LOCKS.',
-        'Study PostgreSQL Lock Manager & Deadlock Detector for the underlying queues and wait-for graph, Distributed Locks for cross-node leases and fencing, Idempotency & Exactly-Once Delivery for retry safety, Web Locks API Lock Manager for a browser-scoped cousin, Transaction Isolation Levels for correctness guarantees, and Transaction Savepoint Stack for transaction-scoped rollback behavior.',
+        'Study PostgreSQL Lock Manager & Deadlock Detector for wait queues, Distributed Locks for leases and fencing, Idempotency & Exactly-Once Delivery for retry safety, Transaction Isolation Levels for database guarantees, and Web Locks API Lock Manager for another named-lock system.',
       ],
     },
   ],

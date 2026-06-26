@@ -194,96 +194,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the ingest path as a conversion from labels to a series identity. A series is one metric name plus one exact label set, and a sample is one timestamped value in that series. Active nodes show the current write path; found nodes show durable storage structures that now contain the sample.',
+        'In the compaction view, time moves from a mutable head block into immutable blocks. The write-ahead log, or WAL, protects recent in-memory state after a crash. Retention removes old blocks, so the same structure that makes queries fast also defines what history still exists.',
+        {type:'callout', text:'Prometheus scales operational metrics by separating label-based series lookup from compressed time-ordered chunks.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Prometheus is built for operational metrics: counters, gauges, histograms, and summaries scraped repeatedly from running services. The database has to ingest many small timestamped samples, answer recent range queries quickly, and recover after crashes without turning monitoring into a large distributed database project.',
-        'The Prometheus TSDB is deliberately local. It stores recent samples in a mutable head block, protects that state with a write-ahead log, writes immutable time blocks, indexes labels, and compacts older blocks. That local shape is why Prometheus is easy to run, and also why global long-term metrics systems usually add remote write and separate storage layers.',
-        {type:'callout', text:'Prometheus scales operational metrics by separating label-based series lookup from compressed time-ordered chunks.'},
+        'Prometheus stores operational metrics: counters, gauges, histograms, and summaries scraped repeatedly from running services. The storage engine must ingest many small samples, answer recent range queries, and recover after crashes without becoming a large distributed database project.',
+        'A row store is a poor fit for that shape. Metrics arrive in ordered streams, and most queries first select series by labels and then scan values over time. The Prometheus TSDB exists to make that access pattern cheap on one local server.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The naive storage design is one row per sample in a general database: metric name, labels, timestamp, and value. That is easy to understand, but it wastes the fact that samples arrive in ordered streams and that queries usually ask for time ranges over many points in the same series.',
-        'Another tempting design is an event log. Append every scrape result and replay it when needed. That preserves history, but metrics queries need fast label selection and range scans, not just replay. Alerting rules also need repeated queries over recent windows, so the storage layout must make common PromQL patterns cheap.',
+        'The obvious design is one database row per sample with columns for metric name, labels, timestamp, and value. That is easy to inspect and easy to explain. It also uses a familiar general database instead of a specialized time-series engine.',
+        'Another obvious design is an append-only event log. Every scrape result goes at the end, and later queries replay what they need. That preserves history, but it does not by itself answer label selection and repeated range queries quickly.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is cardinality. A metric name plus an exact label set identifies one series. `http_requests_total{method="GET",status="200"}` and the same metric with a different route or instance are different series. Add a user id, request id, raw URL, or pod UID label, and the number of active series can explode.',
-        'The second wall is mutable recent data. Prometheus has to accept new samples into memory quickly while still surviving a crash. Fully rewriting on every scrape would be too slow, but keeping only memory would lose the most recent metrics exactly when operators need them after an incident.',
+        'The first wall is cardinality. Every distinct label set is a different series, so adding user_id, request_id, or raw_url can create millions of active series. Each active series needs memory, index entries, and chunk bookkeeping even when it receives few samples.',
+        'The second wall is recent mutable data. Prometheus must accept new samples quickly, but a crash cannot lose the last minutes of monitoring data. Rewriting large files on every scrape is too slow, while memory alone is not durable enough.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Make the series the primary storage object. Once labels identify a series, samples append in timestamp order into compressed chunks. The label index finds series; the chunks provide the numeric values over time. This separation is why Prometheus can handle operational queries without acting like a row store.',
-        'Use two storage modes: a mutable head for recent data and immutable blocks for older data. The write-ahead log protects the head. Periodic block creation and compaction turn recent mutable state into durable time ranges that are easier to query, retain, and delete.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The ingest-path view should be read as labels becoming a series identity, then samples appending to that series. The point is not just that Prometheus stores numbers. It stores streams of numbers keyed by label sets, and every new label combination creates another stream with memory and index cost.',
-        'The compaction-retention view shows time moving from hot mutable state to immutable blocks and eventually deletion. The WAL is for crash recovery of the head, not a permanent history layer. Blocks are the long-lived query unit, and retention policy decides when old blocks disappear.',
+        'Make the series the primary object. The label index finds matching series; compressed chunks store the time-ordered values for each series. This splits the problem into identity lookup and numeric range scanning.',
+        'Use two storage modes. The head block handles recent mutable samples and is protected by the WAL. Older samples are cut into immutable blocks that are easier to query, compact, retain, and delete.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Prometheus scrapes targets at intervals. Each sample belongs to a series identified by metric name and labels. Recent samples append to the head block and to the WAL. The head keeps active series, in-memory chunks, and recent index state. The WAL lets Prometheus rebuild recent state after a crash.',
-        'Periodically, the head is cut into immutable blocks. A block contains chunks, an index, tombstones, and metadata for a time range. Compaction merges smaller blocks into larger ones to reduce query overhead and improve storage layout. Retention deletes blocks that fall outside the configured time or size budget.',
-        'A query has two broad phases. First, the label index narrows the candidate series using matchers. Then the engine reads relevant chunks over the requested time range and applies PromQL functions or aggregations. Bad labels hurt twice: they create more series and they make selectors scan more postings lists.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A service exports `http_request_duration_seconds_bucket{method="GET",route="/checkout",le="0.5"}`. Prometheus scrapes it every fifteen seconds. The metric name and labels identify one counter series for one histogram bucket. Each scrape appends another timestamped value to that series.',
-        'An alert asks whether checkout latency is burning the SLO budget. The query first finds the matching bucket series by label matchers, reads recent chunks, calculates rates, combines buckets into a histogram quantile or burn-rate expression, and compares the result to a threshold. The TSDB has to make that repeated range query cheap enough to run every evaluation interval.',
+        'On each scrape, Prometheus maps the metric name and labels to a series ID. It appends the sample to the head block and writes enough information to the WAL for recovery. The head keeps active series, recent chunks, and index state in memory.',
+        'Periodically the head is written as an immutable block. A block contains chunks, an index, tombstones for deletions, and metadata for a time range. Compaction merges smaller blocks into larger time ranges, and retention deletes blocks outside the configured time or size budget.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design works because metrics are append-heavy and time-ordered. Once a series is identified, new samples usually arrive near the end. Chunk compression can exploit timestamp and value patterns. Immutable blocks make older data stable, cacheable, and easier to compact or delete.',
-        'The local-first model also works operationally. A single Prometheus server can scrape local targets and evaluate alerts with few moving parts. Remote write, federation, Thanos, Cortex, Mimir, or vendor systems can extend the model later, but the core TSDB remains understandable as a local engine.',
+        'The design works because metrics are append-heavy and time-ordered. Once labels identify a series, new samples usually arrive at the end, where chunk compression can exploit small timestamp deltas and repeated value patterns.',
+        'Immutable blocks give old data stable boundaries. Queries can use label postings to find candidate series and then read only the chunks overlapping the requested range. Crash recovery is bounded because the WAL rebuilds recent head state rather than replaying the full history.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The dominant cost is active series cardinality. Each active series needs memory for labels, postings, chunks, and bookkeeping. Samples per second matter, but a small stream for a million series can be worse than a high-rate stream for a disciplined label set.',
-        'WAL replay creates startup cost after restarts. Compaction creates disk and CPU work. Queries that match too many series can load many chunks and stress memory. Retention saves disk by deleting old blocks, but it also defines how far back local incident analysis can go.',
+        'The main cost is active series cardinality, not only samples per second. One million active series scraped every 30 seconds can be harder than ten thousand high-rate series because every series carries labels, postings, chunks, and bookkeeping. Doubling label combinations roughly doubles that active-series burden.',
+        'Compaction spends CPU and disk bandwidth to reduce future query overhead. WAL replay spends startup time after a crash. A regex matcher or broad query that touches many series can dominate runtime even when the graph eventually displays a small aggregate.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Prometheus wins for service metrics, Kubernetes monitoring, alerting, SLO dashboards, infrastructure visibility, and incident response. It is strong when teams can instrument metrics intentionally and keep label cardinality under control.',
-        'It also wins as a teaching system because its boundaries are clear. It is not trying to be a universal analytics warehouse. It is optimized for recent operational metrics, label selection, range queries, local alerting, and simple failure recovery.',
+        'Prometheus TSDB is used for service monitoring, Kubernetes metrics, infrastructure dashboards, alert rules, and local incident response. It fits teams that can instrument metrics intentionally and keep labels bounded.',
+        'It also works as the local engine under larger systems. Remote write, federation, Thanos, Cortex, Mimir, and vendor backends extend retention or tenancy, but the core local shape remains series lookup plus chunk scans.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Prometheus is not a general event log, tracing backend, or high-cardinality analytics warehouse. If labels contain user ids, request ids, raw URLs, session ids, or arbitrary payload fields, cardinality will dominate memory, index size, query cost, and operational pain.',
-        'It also fails when operators assume the WAL is durable long-term storage. The WAL protects the mutable head; blocks and retention define the durable query history. Long-term global storage needs remote write and a backend designed for multi-tenant scale, compaction, downsampling, and object storage.',
+        'It fails as a general event log. A metric sample says how a number changed at scrape time; it does not preserve each request, trace span, or business event. High-cardinality labels are usually a sign that the data wants logs, traces, or analytics storage.',
+        'It also fails when operators treat the WAL as long-term history. The WAL protects the mutable head, while blocks and retention define queryable history. Long-term multi-tenant storage needs a backend designed for object storage, downsampling, sharding, and tenant isolation.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Common failures are cardinality explosions, expensive regex matchers, unbounded label values, slow WAL replay after a crash, compaction backlogs, disk exhaustion, and alert rules that repeatedly query too much data. Good monitoring of Prometheus includes active series, samples appended, WAL fsync behavior, compaction duration, query latency, and rule evaluation duration.',
-        'A subtler failure is bad instrumentation design. A metric that answers no operational question still costs storage and query work. A label that helps one debugging session may damage every scrape afterward. The TSDB rewards teams that treat metrics as a schema, not as free-form logging.',
+        'Suppose 200 pods each export 500 series every 15 seconds. That is 100000 active series and about 6667 samples per second. If a team adds path labels with 50 raw paths per pod, the same metric family can jump toward 5000000 series, even if traffic did not increase.',
+        'A query for rate(http_requests_total{service="checkout"}[5m]) first uses the label index to find matching series. It then reads roughly 20 samples per matching series for a five-minute window at a 15-second scrape interval. The query is cheap when service selects 300 series and expensive when sloppy labels make it select 300000.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Prometheus storage documentation at https://prometheus.io/docs/prometheus/latest/storage/, Prometheus querying basics at https://prometheus.io/docs/prometheus/latest/querying/basics/, and Cortex blocks storage documentation at https://cortexmetrics.io/docs/blocks-storage/ for a related remote block-storage architecture.',
-        'Study Metric Label Cardinality Control, SLO Error Budget Burn Rate Alert, Write-Ahead Log, Kafka Log Case Study, LSM Tree, t-digest, Mimir Distributor Ingester Hash Ring, Prometheus Remote Write WAL Shards, and Monarch Time-Series Case Study next.',
+        'Primary sources: Prometheus storage documentation, Prometheus querying basics, and the Prometheus TSDB design materials in the project repository. Study metric label cardinality control before adding labels to production metrics.',
+        'Next, study write-ahead logs, LSM trees, SLO burn-rate alerting, Prometheus remote write, and distributed time-series systems such as Monarch, Cortex, Mimir, or Thanos. Those topics show what changes when one local TSDB is no longer enough.',
       ],
     },
   ],

@@ -190,89 +190,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the visual as two connected data structures. The render path turns chart templates and values into Kubernetes manifests, while the release ledger records each named install, upgrade, failure, and rollback as a numbered revision.',
+        'Active nodes are the current operation. A safe inference is that rollback chooses a previous Helm revision as input, applies that stored release state, and then records a new revision for the rollback operation.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Kubernetes gives operators a powerful object API, but raw YAML does not by itself solve packaging, environment-specific configuration, upgrade history, or rollback. A real service usually needs a Deployment, Service, ConfigMap, Secret references, ingress or gateway configuration, service accounts, probes, autoscaling, and sometimes hooks or jobs. Copying those manifests between environments quickly turns into drift: one cluster has a different image tag, another changed a probe, and a third carries a manual hotfix nobody can explain.',
-        'Helm exists to make that deployment shape reusable and to keep a release ledger for a named installation. A chart is a package of templates, defaults, metadata, optional dependencies, schema, and lifecycle hooks. Values customize the chart for a tenant, region, stage, or cluster. Rendering turns chart plus values into concrete Kubernetes manifests. Install, upgrade, history, and rollback then operate on a release: a named sequence of revisions for one deployment instance.',
-        'The data-structure idea is not just "templates for YAML." It is a render pipeline plus an append-only release ledger. The render pipeline explains what Kubernetes should receive. The ledger explains what Helm believes it has released before and which previous revision can be reapplied during rollback.',
+        'Kubernetes gives operators an object API, but raw YAML does not solve packaging, environment overrides, upgrade history, or rollback. A real service may need a Deployment, Service, ConfigMap, Secret references, probes, RBAC, ingress, hooks, jobs, and autoscaling.',
+        'Helm exists to package that shape and keep a release ledger for one named installation. A chart is the reusable package; a release is one installed instance with its own values, namespace, status, and revision history.',
         {type:'callout', text:'Helm makes deployment recoverable by pairing a render pipeline with a release ledger: templates produce manifests, revisions preserve prior applied states.'},
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive approach is to keep a directory of YAML files and run kubectl apply. That can work for a small service in one cluster. It becomes fragile when the same application has dev, staging, production, regional overrides, canary settings, and customer-specific options. People copy files, edit literal values, and lose track of which differences are intentional.',
-        'A second naive approach is to generate YAML with a script and treat the output as disposable. This reduces duplication, but it often loses release identity. After an outage, the operator needs to know which exact chart version, values, image tag, and rendered objects were applied. A script that prints YAML does not automatically answer "what changed between revision 23 and revision 24?" or "which previous version should we roll back to?"',
-        'A third naive approach is to rely on Git alone as rollback. Git is essential for desired state, but Git history and cluster release history are not the same object. A Git revert changes a repository. A Helm rollback applies a previous release revision to a live cluster and records a new revision.',
+        'The obvious approach is to keep a directory of YAML files and run kubectl apply. That works for a small service in one cluster because the operator can still understand every object by inspection.',
+        'A second simple approach is to generate YAML from a script. That reduces duplication, but it often loses release identity unless the script also records what it rendered, what it applied, and what prior state can be restored.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is to separate reusable package shape from release instances. The chart describes a parameterized application. Values describe one desired configuration. Rendering produces the Kubernetes objects for that configuration. The release ledger records the sequence of applied rendered states for a named release. This lets one chart support many deployments without pretending they are all the same deployment.',
-        'A Helm revision is not a Git commit number or Kubernetes resource version. It is Helm\'s record of a release operation. Install creates revision 1. Upgrade creates revision 2, revision 3, and so on. Rollback selects an older revision, applies that older release state, and records another revision representing the rollback. The history tells what Helm did to this release.',
-        'That ledger is why rollback can be a command rather than an archeology project. The operator can list release history, inspect prior values or manifests, choose a revision, and ask Helm to apply it. The command still works through the Kubernetes API; it writes a new desired object state into a cluster that may also contain controllers, hooks, manual edits, and external systems.',
+        'The wall is drift plus recovery. Dev, staging, production, regional overrides, canary settings, and customer-specific patches create many nearly identical manifests that differ in ways nobody can audit quickly during an incident.',
+        'Git history is not the same object as live release history. A Git revert changes a repository, while a cluster rollback must apply a previous release state to running Kubernetes resources and record that recovery action.',
       ],
     },
     {
-      heading: 'How rendering works',
+      heading: 'The core insight',
       paragraphs: [
-        'A chart contains files that describe the package: Chart metadata, default values, templates, optional dependencies, tests, schema, and hooks. Templates are usually written with Go template syntax and helper functions. Values are layered from chart defaults, values files, and command-line overrides. Rendering evaluates the templates with the merged values and produces ordinary Kubernetes YAML.',
-        'The Kubernetes API never receives the template as a template. It receives rendered manifests: Deployments, Services, ConfigMaps, Jobs, RBAC objects, CRDs, or whatever the chart emits. This boundary matters. A chart can be elegant and still render invalid or unsafe YAML. Schema validation, helm lint, template tests, dry runs, and admission policies all exist because the generated manifest is the real contract with the cluster.',
-        'Values are powerful because they let the same chart express different environments. They are dangerous for the same reason. A boolean might disable a NetworkPolicy, a string might change an image repository, and a list might replace tolerations. Chart authors should treat values as an API.',
-        'Dependencies compose charts. Hooks run jobs around install, upgrade, test, rollback, or delete events. Hooks help with migrations and smoke tests, but they are side effects. Helm can order and record hooks, but it cannot make arbitrary side effects reversible.',
+        'The core insight is to separate package shape from release instances. The chart describes a parameterized application, values choose one configuration, rendering produces ordinary Kubernetes objects, and the release ledger records applied rendered states.',
+        'A Helm revision is Helm\'s record of a release operation, not a Git commit and not a Kubernetes resource version. Install creates revision 1, upgrade creates later revisions, and rollback creates another revision that applies an older stored state.',
       ],
     },
     {
-      heading: 'How the ledger works',
+      heading: 'How it works',
       paragraphs: [
-        'A release is identified by name and namespace. Helm stores release records in the cluster using its configured storage backend, commonly Kubernetes Secrets in Helm 3 defaults. Each record contains enough information for Helm commands such as history, status, get values, get manifest, upgrade, and rollback to reason about the release. Operators can also limit or prune history, so the ledger is useful but not infinite by default.',
-        'On install, Helm renders the chart with values, sends the manifests to Kubernetes, runs hooks according to their lifecycle, and records revision 1. On upgrade, Helm renders a new target state, applies changes, and records the next revision. Options such as --wait and --atomic define when Helm treats the operation as successful and what happens after failure.',
-        'Rollback selects a previous revision and applies that previous release state. The rollback itself creates a new revision. If revision 8 was good, revision 9 failed, and the operator rolls back to 8, the release may now show revision 10 as the rollback operation. That is not a contradiction. The current release state resembles revision 8, but the ledger also remembers that a rollback happened after revision 9.',
+        'A chart contains metadata, default values, templates, optional dependencies, schema, tests, and hooks. Values are layered from chart defaults, values files, and command-line overrides, then templates render into Kubernetes manifests.',
+        'The Kubernetes API never receives the chart as a chart. It receives rendered Deployments, Services, ConfigMaps, Jobs, RBAC objects, CRDs, or other resources, so validation must examine the rendered output.',
+        'Helm stores release records in the cluster through its configured storage backend, commonly Kubernetes Secrets in Helm 3. Commands such as history, status, get values, get manifest, upgrade, and rollback read that ledger.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The release ledger works because Helm treats a deployment as a named sequence of rendered states, not as a set of disconnected kubectl commands. Each revision records enough chart, values, manifest, and status information to explain what Helm tried to install or upgrade. That history gives rollback a concrete target instead of asking operators to reconstruct the last working YAML by memory.',
-        'The invariant is revision order. A release name points to an ordered chain of attempts: deployed, superseded, failed, rolled back, or uninstalled. When an upgrade fails, Helm can compare the failed revision with the previous deployed revision and apply the older manifest set again. The ledger does not make Kubernetes resources magically safe, but it gives the operator a durable control-plane record to recover from.',
+        'The ledger works because a release name points to an ordered sequence of attempts. Each revision records enough chart, values, manifest, and status information for Helm to reason about what it tried to install or upgrade.',
+        'Rollback is correct for Helm-owned manifests because it has a concrete target: the earlier rendered release state. Kubernetes controllers then converge objects toward that state just as they would after any other apply.',
+        'The correctness boundary is important. Helm can restore Kubernetes object definitions, but it cannot automatically undo a database migration, reverse a queue side effect, or make an unsafe hook reversible.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The chart-render view is proving that there are two transformations before Kubernetes acts. First, chart and values combine into rendered manifests. Second, those manifests are applied through the Kubernetes API and reconciled by controllers. A value change can alter the rendered object even when the chart is unchanged; a template change can alter object shape with the same values.',
-        'The release-ledger view is proving that history is tied to a named release, not to a generic chart. The chart may have many installations. Each installation has its own values, namespace, current revision, and prior revisions. Rollback chooses from that release\'s ledger. It does not ask "what did this chart look like somewhere else?" It asks "what previous state did this release record?"',
-        'The rollback view is proving the boundary between Kubernetes objects and external reality. Helm can reapply an older manifest set, but it cannot automatically reverse a database migration, delete messages already sent to a queue, or undo writes made by a hook. The path from revision to API to live state is real, but it is not the whole production system.',
+        'The cost is maintaining a chart API. Values need names, defaults, schema, documentation, compatibility discipline, and tests, because users depend on those keys as much as they depend on function parameters.',
+        'Revision history also has cost. Keeping 50 revisions gives better audit and rollback options than keeping 5, but it consumes cluster storage and can preserve old sensitive values if secret handling is careless.',
+        'Flags such as wait, timeout, atomic, cleanup-on-fail, and history-max change behavior under failure. Those flags are not decoration; they define when an upgrade is considered successful and what cleanup is attempted after a bad release.',
       ],
     },
     {
-      heading: 'Failed upgrade case study',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Consider a payments service chart running as revision 18. The team upgrades to revision 19 with a new image tag, a ConfigMap value, and a pre-upgrade migration hook. Readiness fails because the new image expects a feature flag absent in one region. Helm history now shows the failed or pending revision according to how the operation completed, and the live cluster may contain a mix of old and new resources.',
-        'A careful rollback starts by choosing the last known good revision, not by guessing at YAML. The operator runs history, inspects values and manifest differences if needed, then rolls back to revision 18 with readiness checks. Helm applies the older release state and records a new revision for the rollback. Kubernetes controllers converge the workload toward that state.',
-        'The hard part is the migration hook. If revision 19 changed a database schema compatibly, revision 18 may still run. If it made a destructive change, manifest rollback is not enough. Serious charts treat hooks as idempotent, observable, and compatible across rollback windows.',
+        'Helm fits platform teams that ship the same service shape into many clusters or environments. It is common for ingress controllers, monitoring stacks, databases, operators, internal services, and vendor packages.',
+        'It also fits teams that need human-readable release history during incidents. Operators can ask which chart version and values produced revision 24, compare it with revision 23, and roll back without reconstructing YAML by hand.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Where it fails',
       paragraphs: [
-        'Helm reduces repetition, but it introduces a chart API that must be maintained. Values need names, defaults, validation, documentation, and compatibility discipline. Too many conditionals become a programming language hidden inside YAML. Too few options force forks.',
-        'Release history and failure flags are tradeoffs. Keeping many revisions helps audit and rollback but consumes storage; pruning saves space but removes targets. Flags such as --wait, --timeout, --atomic, and --cleanup-on-fail define when an operation is successful and what cleanup happens after failure.',
+        'Helm fails when templates become a hidden programming language. Too many conditionals make rendered behavior hard to predict, while too few options force users to fork the chart.',
+        'It also fails when ownership is unclear. Manual kubectl edits, mutating webhooks, GitOps controllers, and platform operators can change live fields in ways the Helm ledger did not produce.',
+        'Rollback fails as recovery when the release included irreversible side effects. Destructive migrations, external API writes, CRD schema breaks, and non-idempotent hooks need their own rollback design.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Worked example',
       paragraphs: [
-        'The most common failure mode is template complexity. Charts can render valid YAML that expresses unsafe combinations: a disabled probe, an impossible resource request, a missing selector, or a value that changes immutable fields. Kubernetes may reject some errors, but many bad combinations are valid objects with bad operational behavior. Linting and schema help, but they do not replace review of the rendered manifest.',
-        'The second failure mode is drift. Manual kubectl edits, mutating webhooks, controller-added fields, GitOps reconciliation, and emergency patches can make live state diverge from Helm\'s release record. Operators must know whether Helm, GitOps, or a platform controller owns each field.',
-        'The third failure mode is assuming rollback equals recovery. Rollback is useful for bad images, bad environment variables, bad ConfigMaps, and many workload mistakes. It is weak for irreversible side effects, external services, data migrations, queue consumers, and CRD schema transitions. Production readiness means testing rollback paths and designing changes to be compatible across at least one release window.',
+        'A payments chart is deployed as revision 18 with image pay:v18 and replicas set to 6. The team upgrades to revision 19 with image pay:v19, a new ConfigMap key, and a pre-upgrade migration hook.',
+        'Readiness fails in one region because pay:v19 expects a feature flag that is absent. The operator checks history, chooses revision 18, and runs rollback; Helm reapplies the stored revision-18 manifest set and records revision 20 as the rollback action.',
+        'The worked number is the ledger sequence: 18 is the last good state, 19 is the failed upgrade, and 20 is the rollback event. The current manifest may resemble 18, but the history still proves that 19 happened and that 20 reversed it at the Kubernetes-object layer.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary references are the Helm using guide at https://helm.sh/docs/intro/using_helm/, the chart template guide at https://helm.sh/docs/chart_template_guide/, helm upgrade at https://helm.sh/docs/helm/helm_upgrade/, helm rollback at https://helm.sh/docs/helm/helm_rollback/, and helm history at https://helm.sh/docs/helm/helm_history/. In this curriculum, study Kubernetes Reconciliation Case Study, Kubernetes Deployment Rolling Update State Machine Case Study, Argo CD GitOps Application Reconcile Case Study, Flagger Progressive Delivery Canary Case Study, Git Internals, Transaction Savepoint Stack, Idempotency & Exactly-Once Delivery, and OpenAPI Contract Schema Evolution.',
+        'Primary sources are the Helm using guide, chart template guide, helm upgrade documentation, helm rollback documentation, and helm history documentation. Read them with the distinction between rendered manifest and release record in mind.',
+        'Study Kubernetes Reconciliation, Kubernetes Deployment Rolling Update State Machine, Argo CD GitOps Application Reconcile, Progressive Delivery Canary, Transaction Savepoint Stack, Idempotency, and OpenAPI Contract Schema Evolution next.',
       ],
     },
   ],

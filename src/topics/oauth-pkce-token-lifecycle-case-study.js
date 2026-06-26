@@ -208,172 +208,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for OAuth PKCE Token Lifecycle Case Study. A security-state case study: code verifier, code challenge, state, authorization code, access token, refresh token, scopes, and rotation..",
+        'Read the PKCE flow as two linked proofs. The authorization code travels through the browser redirect, while the verifier stays with the client until the token exchange. Active marks the value currently being created or checked. Visited marks a value that has already been bound into the protocol.',
         {type:"callout", text:"PKCE works by separating the browser-carried code from the client-held verifier, then binding the token exchange to both."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'PKCE means Proof Key for Code Exchange. A code verifier is a high-entropy secret created by the client. A code challenge is a derived value sent earlier to the authorization server. A safe inference rule is this: a stolen authorization code is useless unless the attacker also has the matching verifier.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'OAuth exists because users should not hand their passwords to every application that wants API access. A photo-printing app should be able to read selected photos without learning the user\'s account password. A CLI tool should receive limited repository access without becoming the identity provider.',
-        'PKCE exists because many clients are public. A mobile app, desktop app, browser app, or local agent host cannot keep a client secret in the same way a server can. If an attacker intercepts an authorization code on the redirect path, the code alone should not be enough to mint tokens.',
-        'The authorization-code-with-PKCE flow is therefore a state-machine lesson. It separates browser redirects, one-time codes, verifier binding, token exchange, scope, expiry, refresh, revocation, and audit. Each value has a different lifetime and blast radius.',
+        'OAuth lets an application obtain delegated access without collecting the user password. The authorization code flow sends the user to an authorization server, receives a short-lived code, and exchanges that code for tokens. A token is a bearer credential, which means whoever holds it can use it until it expires or is revoked.',
+        'Public clients such as native apps and browser apps cannot keep a permanent client secret. The redirect step can also pass through operating-system or browser surfaces where another app may intercept the authorization code. PKCE adds a per-login secret so the code alone is not enough.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious bad approach is password sharing: ask the user for their password and call the API directly. That gives the client too much power, makes revocation awkward, and trains users to type credentials into untrusted surfaces.',
-        'A second shortcut is to put powerful access tokens directly in the browser redirect or URL fragment. That avoids a backend exchange but exposes credentials to browser history, logs, extensions, referrers, and interception paths. Modern OAuth guidance has moved away from that pattern for good reason.',
-        'A third mistake is treating login as the end of the story. The hard part is the token lifecycle after login: where tokens are stored, which scopes they carry, how long they last, when they rotate, how they are revoked, and what the resource server checks on every request.',
+        'The obvious approach is to send the user through login, receive an authorization code, and immediately trade that code for an access token. That is reasonable for a confidential server-side client because the server can authenticate itself with a stored client secret. The code is short-lived and travels over TLS.',
+        'For a public client, the stored secret assumption fails. Anyone can inspect the app package or browser code. If an attacker catches the redirect code, the token endpoint may not be able to distinguish the real app from the attacker.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is code interception. The authorization code is not the final token, but it can be exchanged for one. On a device with custom URI schemes, app links, browser extensions, logs, or misconfigured redirects, another component may see the code before the real client uses it.',
+        'The other wall is token lifetime. Access tokens should be short-lived, refresh tokens should be protected more carefully, and revocation must have a way to stop future use. Without a lifecycle model, a login flow that looks correct can still leak long-lived authority.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is proof by separation. The authorization code travels through the browser redirect. The code verifier stays with the client until token exchange. The authorization server stores or reconstructs a challenge derived from that verifier. A stolen code is not enough unless the attacker also has the verifier.',
-        'The flow also separates identity, authorization, and resource access. The authorization server issues tokens. The resource server validates the access token, audience, issuer, expiry, and scope before serving an API request. The client should not decide its own authority.',
-        'The client is maintaining a small security-critical cache: state, verifier, redirect URI, code challenge method, requested scopes, issuer, token expiry, optional refresh token, and audit correlation. Losing track of one field can turn a login flow into a confused-deputy bug.',
+        'The core insight is to bind the authorization code to a secret that never travels through the redirect. The client creates a random verifier, hashes it into a challenge, and sends the challenge with the authorization request. Later, the client sends the original verifier to the token endpoint.',
+        'The server stores or derives the challenge relationship. If hash(verifier) matches the earlier challenge, the exchanger is likely the same client that started the flow. The authorization code becomes a locked receipt rather than a bearer credential by itself.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The client starts by generating a high-entropy code verifier. It derives a code challenge, usually with S256, and sends that challenge with the authorization request. It also sends state, redirect URI, client id, requested scope, and other protocol fields.',
-        'After the user authorizes, the authorization server redirects back with an authorization code and state. The client checks state against the pending request. Then it sends the code and original verifier to the token endpoint. The server recomputes the challenge and compares it to the stored challenge before issuing tokens.',
-        'After token issuance, the access token is presented to the resource server. A refresh token, if issued, is kept more carefully because it can mint new access tokens. Rotation turns refresh into a chain: each use replaces the old token, and reuse of an old refresh token can signal compromise.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'The PKCE-flow view proves which values are allowed to travel. The challenge can go through the browser redirect because it is derived from the verifier. The verifier stays with the client until the back-channel token exchange. The authorization code is short-lived and single-use.',
-        'The token-lifecycle view proves that tokens are not interchangeable. A code, access token, refresh token, scope string, and state value all have different purposes. Losing an expired code is different from losing a refresh token that can mint new access.',
-        'The storage-choice matrix proves that token handling is threat-model dependent. Memory-only storage reduces persistence but loses sessions on reload. httpOnly cookies protect against JavaScript reads but require CSRF and SameSite design. Browser storage that JavaScript can read is exposed to XSS.',
+        'The client creates a verifier with enough entropy that guessing is impractical. It computes a challenge, usually with SHA-256 and base64url encoding, then redirects the user to the authorization endpoint with the challenge and method. The authorization server authenticates the user and returns an authorization code to the registered redirect URI.',
+        'The client sends the code, verifier, redirect URI, and client identity to the token endpoint. The server checks that the code is valid, unexpired, unused, and issued for that client and redirect URI. It then derives the challenge from the verifier and compares it with the stored challenge.',
+        'If the check passes, the server returns tokens according to policy. The access token is used at resource servers. The refresh token, when issued, is stored more carefully and exchanged later for new access tokens without sending the user through login again.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'PKCE works because an intercepted authorization code is only half the proof. The attacker also needs the verifier, which was not sent in the authorization request. The server binds the code to the challenge and accepts only the matching verifier at exchange time.',
-        'State works because it correlates the redirect to an outstanding authorization attempt. Without state, a client can accept a response that belongs to a different request or attacker-controlled login flow. Exact redirect URI validation narrows where a code can land.',
-        'Short lifetimes and scopes work by reducing blast radius. A leaked access token should expire soon and carry only the authority needed for the resource. Refresh rotation and revocation make persistent compromise easier to detect and stop.',
+        'The correctness argument is a binding invariant. The authorization server must accept a token exchange only when the code, client, redirect URI, and verifier all match the same authorization transaction. An attacker who sees only the code cannot satisfy the verifier check.',
+        'Single-use codes close the replay path. Expiration closes the delayed-use path. Redirect URI matching closes a route-swapping path. PKCE handles code interception, while token storage, rotation, expiration, and revocation handle the later credential lifecycle.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'PKCE adds state management. The client must generate and store verifiers, handle redirects, validate state, exchange codes once, track token expiry, and recover cleanly from failed flows. That complexity is the price of avoiding password sharing and front-channel tokens.',
-        'Storage choices are tradeoffs, not universal answers. In-memory tokens reduce persistence but hurt user experience after reload. Cookies can be httpOnly but need careful CSRF design. LocalStorage is simple but easy to steal after XSS. Native apps have platform credential stores, but still cannot hide embedded secrets perfectly.',
-        'Refresh tokens improve user experience but increase blast radius. Long-lived authority must be rotated, constrained, stored carefully, and revoked on logout or compromise. Some deployments avoid refresh tokens in browser clients and use server-side sessions instead.',
+        'PKCE adds constant work to each login: generate one random verifier, hash it once, store one challenge, and compare once at the token endpoint. That is O(1) per authorization transaction. The practical cost is implementation discipline, not CPU.',
+        'Token lifecycle cost grows with sessions. One million active refresh tokens means one million records to store, rotate, revoke, audit, and expire. Shorter access-token lifetimes reduce damage from theft but increase refresh traffic and make clock skew or token-store outages more visible.',
       ],
     },
     {
-      heading: 'Where it appears',
+      heading: 'Real-world uses',
       paragraphs: [
-        'PKCE is used in mobile apps, desktop apps, browser-based clients, command-line tools, device flows around user authorization, and agent hosts that need delegated access to protected APIs. The common shape is a public client that needs limited authority without holding a durable secret.',
-        'In a remote MCP-style tool system, the host can open an authorization flow, receive scoped authority, and present access tokens when calling protected endpoints. The model protocol defines tool calls; OAuth decides whether those calls are authorized.',
-        'The pattern also appears around enterprise SSO, SaaS integrations, developer tools, and API platforms. The details differ, but the same token lifecycle questions remain: scope, audience, expiry, storage, refresh, revocation, and audit.',
+        'PKCE is used by native mobile apps, desktop apps, single-page applications, command-line login flows, and any client that cannot keep a traditional secret. It is also useful for confidential clients because it adds defense in depth around authorization codes.',
+        'The lifecycle model matters in enterprise apps, developer tools, cloud CLIs, and financial integrations. These systems often separate user login, short-lived access tokens, long-lived refresh tokens, device binding, consent, and revocation into explicit states.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'PKCE is not a client secret. It protects the code exchange against interception, but it does not make a public client confidential. It does not remove the need for exact redirect URI validation, TLS, state correlation, scope minimization, token expiry, and storage hardening.',
-        'Do not put access tokens in URLs. Do not log Authorization headers. Do not request broad scopes because they are convenient. Do not store long-lived tokens where a short-lived session would work. Do not treat refresh tokens like harmless session IDs.',
-        'Do not confuse authentication with authorization. A signed-in user may still lack the scope, tenant relationship, group membership, or object-level permission needed for a resource. Zanzibar Authorization Case Study covers that resource-level decision model.',
+        'PKCE does not protect a stolen access token. Once a bearer access token leaks, the resource server may accept it until expiration or revocation. It also does not fix an open redirect, a malicious authorization server, weak TLS, bad token storage, or a compromised device.',
+        'PKCE can be weakened by poor randomness, accepting the plain challenge method when S256 is available, reusing verifiers, failing to bind redirect URI, or allowing authorization codes to be reused. These bugs break the binding invariant that makes the flow useful.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: RFC 7636 PKCE at https://datatracker.ietf.org/doc/html/rfc7636, RFC 6749 OAuth 2.0 at https://datatracker.ietf.org/doc/html/rfc6749, RFC 9700 OAuth 2.0 Security Best Current Practice at https://datatracker.ietf.org/doc/rfc9700/, OAuth.net PKCE at https://oauth.net/2/pkce/, OAuth.net OAuth 2.0 overview at https://oauth.net/2/, and OAuth.net refresh token grant overview at https://oauth.net/2/grant-types/refresh-token/. Study JWT Verification, WebAuthn Passkeys, TLS 1.3 Handshake, JSON-RPC Protocol Case Study, Model Context Protocol Case Study, Zanzibar Authorization Case Study, Macaroon Caveat Chain Case Study, UCAN Delegation Proof Chain, OPA Rego Policy Decision Graph, SameSite Cookies & CSRF, IndexedDB Object Store Case Study, and Distributed Tracing next.',
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        "Show where this approach appears in products, libraries, or service designs.",
-        "Tie each use case to a workload shape, not a brand name.",
-        "The learner should know exactly when this pattern should be chosen next.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Suppose a mobile app creates a 64-character random verifier and sends challenge = base64url(SHA-256(verifier)) with challenge method S256. The authorization server stores that challenge under transaction T with a 5 minute code lifetime. After login, it returns code C to the app redirect URI.',
+        'An attacker intercepts C after 30 seconds. The attacker calls the token endpoint with C but has no verifier. The server computes the challenge from the submitted verifier, sees that it does not match transaction T, and rejects the exchange.',
+        'The real app submits C with the original verifier at 45 seconds. The server verifies the match, marks C as used, and returns a 10 minute access token plus a refresh token. A replay of C at 60 seconds fails because the code is already consumed.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Primary sources are RFC 7636 for PKCE at https://www.rfc-editor.org/rfc/rfc7636, RFC 6749 for OAuth 2.0 at https://www.rfc-editor.org/rfc/rfc6749, and the OAuth 2.0 Security Best Current Practice at https://www.rfc-editor.org/rfc/rfc9700. Use these for normative behavior rather than blog summaries.',
+        'Next, study authorization code flow, redirect URI validation, bearer tokens, refresh-token rotation, token introspection, token revocation, OpenID Connect nonce handling, and WebAuthn. The reusable lesson is that a protocol value should be accepted only when all bindings prove the same transaction.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why OAuth PKCE Token Lifecycle Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

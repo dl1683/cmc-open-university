@@ -373,68 +373,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Operational transformation, usually shortened to OT, is a way to make collaborative editing feel local while still converging across users. Each editor applies the user's own change immediately. The network later delivers other people's changes, and those changes may have been written against an older document. OT rewrites the incoming operation so it means the same thing in the local document's current coordinate system.`,
-        `The small example is the whole problem in miniature. Alice and Bob both start with ABCD. Alice inserts X after A, producing AXBCD. Bob deletes C, producing ABD. Bob's delete was written as delete position 2 in the original document, but position 2 in Alice's current document is now B. Alice must transform Bob's delete so it targets position 3. Bob must transform Alice's insert against his local delete. If the transform rules are correct, both users end at AXBD without waiting for locks.`,
-        {type:'callout', text:`OT works by translating remote operations from their original base version into the current local coordinate system, preserving intent without locking editors.`},
+        'The animation shows operational transformation, usually called OT. OT is a method for collaborative editing where each user applies local edits immediately, then rewrites remote edits so they still mean the right thing after concurrent local changes.',
+        'Active nodes are operations being applied or transformed. Compare nodes are concurrent operations with different base versions. Found nodes are transformed operations that preserve intent. Removed nodes are stale coordinates that would edit the wrong character if applied directly.',
+        'The safe inference rule is coordinate translation. An operation such as insert X at position 1 is valid relative to the document version where it was created. If another operation changed positions first, the incoming operation must be translated before it runs.',
+        {type:'callout', text:'OT works by translating remote operations from their original base version into the current local coordinate system, preserving intent without locking editors.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/58/Basicot.png', alt:'Diagram showing concurrent edits transformed so replicated documents converge.', caption:'Basic operational transformation example, by Nusnus, CC BY-SA 3.0 or GFDL, via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is locking. Let one user edit a paragraph, row, object, or whole document at a time. That is simple and can be correct, but it destroys the experience users expect from a shared editor. People type in the same region, work offline, reconnect, undo, and paste large spans. Waiting for a lock or a server round trip on every keystroke turns collaboration into remote control.`,
-        `The next obvious approach is diffing. Let everyone edit freely, compare final document versions, and merge the diffs. That can work for source control with human review. It fails inside a live editor because the system has already lost the operation intent. A final diff does not know whether a deleted character was meant to remove the old C, remove the new X, shrink a bold range, or undo a prior local change. OT keeps the operations themselves and transforms them before applying them.`,
+        'Collaborative editors need local responsiveness and shared convergence at the same time. A user expects typing to appear immediately, even if the network is slow and another user is editing nearby. The replicas still need to end at the same document.',
+        'A document operation is an edit with intent and a base version. Insert, delete, style change, table merge, and object move are not just byte patches. They are actions authored against a specific document state.',
+        'OT exists because concurrent edits shift coordinates. If Alice inserts text before Bob deletes, the original Bob position may now point at the wrong character. The system must preserve what Bob meant, not only replay what Bob typed.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is locking. Let one user edit a document, paragraph, row, or object at a time. That can be correct, but it destroys the feel of a shared live editor.',
+        'Another approach is final-state diffing. Let everyone edit freely, compare document versions later, and merge the diffs. That works better for source control with human review than for live keystrokes.',
+        'Diffing loses operation intent. A final diff cannot always tell whether a deletion meant to remove the old C, the newly inserted X, a formatting mark, or the target of an undo operation. OT keeps operations and transforms them while intent is still visible.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is concurrent coordinate drift. Alice and Bob both start with ABCD. Alice inserts X after A, producing AXBCD. Bob deletes C, which was position 2 in the original document.',
+        'If Alice applies the Bob delete at position 2 without transformation, she deletes B, not C. The Bob operation was correct in its base version and wrong in the Alice current coordinate system.',
+        'Rich documents make the wall larger. Text ranges, marks, comments, tables, embeds, selections, and undo history all need transform rules. A collaborative editor is only as correct as its operation matrix.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is that an edit is not only a patch to bytes. It is an operation with a base version. Insert X at position 1 means something relative to the document where it was authored. When another concurrent operation has already changed that document, the incoming operation must be translated through the local change. The transform function preserves intent while changing coordinates.`,
-        `For text, the transform rules are mostly about positions and ranges. Insert before my position shifts me right. Delete before my position shifts me left. Concurrent inserts at the same position need a deterministic tie-breaker. Overlapping deletes must not delete the same character twice. Rich editors add marks, comments, tables, embeds, schema changes, and undo operations. OT is not one rule; it is a matrix of operation-pair rules that must agree on convergence and intention preservation.`,
+        'Transform a remote operation through concurrent local operations before applying it. The transformed operation should produce the effect the author intended, but in the current local document coordinates.',
+        'For text, the rules are position rules. An insert before my position shifts me right. A delete before my position shifts me left. Concurrent inserts at the same position need a deterministic tie-breaker. Overlapping deletes must not delete the same character twice.',
+        'A central server can choose a canonical operation order. Clients apply local edits optimistically, send operations to the server, and transform remote operations over any local work that the server has not acknowledged yet.',
       ],
     },
     {
-      heading: 'Mechanism and data structures',
+      heading: 'How it works',
       paragraphs: [
-        `A practical OT editor usually has three layers. The local editing layer uses a buffer structure such as a gap buffer, piece table, or rope so typing and rendering are fast. The operation layer represents semantic edits: insert text, delete a span, apply a style, move an object, or update a JSON field. The collaboration layer keeps enough history to transform operations that were created from different base revisions.`,
-        `In a central-server design, the server maintains a revision log and a current document state. A client stores the latest server revision it has seen, a queue of local operations not yet sent, and a sent operation waiting for acknowledgement. Google described this shape for Docs: clients apply local edits immediately, send changes to the server, and process remote changes as they arrive. The server chooses a canonical order, while clients transform remote operations over their own unacknowledged local work.`,
-        `A stop-and-wait protocol makes the state easier to reason about. The client sends one operation, keeps later local edits in a pending queue, and applies them locally anyway. If a remote operation arrives before the acknowledgement, the client transforms that remote operation over the sent operation and any pending operations that already changed the local view. When the acknowledgement arrives, the sent operation is removed from the queue and the client can advance its revision number. More aggressive systems batch and compose operations to reduce network chatter, but the bookkeeping problem is the same.`,
+        'A client stores the latest server revision it has seen, a sent operation waiting for acknowledgement, and a queue of later local operations. The user sees local edits immediately because the editor applies them before the server responds.',
+        'When a remote operation arrives, the client checks which local operations have already changed the local view but are not yet part of the remote operation base. It transforms the remote operation over those local operations, then applies the transformed result.',
+        'When the server acknowledgement arrives, the client removes the acknowledged operation from the sent slot and advances its revision. More aggressive systems batch and compose operations, but the bookkeeping problem remains base versions plus transform rules.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument starts with a shared base. If two operations are concurrent, neither was authored with knowledge of the other. A transform pair takes the remote operation and the local concurrent operation and returns a remote operation that is valid after the local one. If both clients use compatible transform rules and the server gives every accepted operation a single revision order, each client can replay a history that is equivalent to the server history plus its own optimistic edits.`,
-        `Convergence alone is not enough. A bad transform function can make every replica agree on the same wrong document. The stronger goal is intention preservation: an insertion should still insert the intended text at the intended logical place, and a deletion should delete the intended existing content rather than a neighboring character created by someone else. OT systems earn trust through a combination of algebraic properties, exhaustive operation-pair tests, randomized concurrent-edit testing, and production telemetry for divergence.`,
+        'The correctness argument has two goals: convergence and intention preservation. Convergence means all replicas end with the same document after receiving the same accepted operations. Intention preservation means each accepted operation still edits the logical content its author meant.',
+        'Transform rules preserve the coordinate invariant. Before applying a remote operation, its positions must refer to the current local document, not to an older base. If every client and server uses compatible rules, operation replay stays equivalent to the server order plus local optimistic edits.',
+        'Convergence alone is not enough. A bad transform can make every replica agree on the same wrong text. Mature OT systems use algebraic properties, operation-pair tests, randomized concurrent edits, and divergence checks to catch bad rules.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The cost of OT is not usually asymptotic in the way a sorting algorithm is. The cost is the amount of concurrent history an operation must cross and the size of the operation matrix. A short pending queue keeps transforms cheap. A long offline branch can force many transforms or a server-side rebase. Rich document operations increase constant factors because one user action may touch text, marks, comments, embedded objects, selections, and undo state.`,
-        `The deeper cost is specification. Every operation type needs transform rules against every other operation type. Insert against delete is easy to explain. Delete against overlapping delete, table-cell merge against text insert, style range against pasted block, and undo against remote delete are where bugs live. Mature OT systems compose adjacent operations, compress history, snapshot documents, and test generated operation sequences because manual examples do not cover the edge cases.`,
+        'The runtime cost depends on how much concurrent history an operation crosses. If a remote edit must transform over 5 pending local edits, cost is small. If an offline client reconnects with 2,000 edits, rebasing can become expensive.',
+        'The specification cost is larger. Each operation type needs rules against every other operation type. Insert against delete is simple. Delete against overlapping delete, style range against pasted block, table merge against text insert, and undo against remote delete are where bugs live.',
+        'Systems reduce cost by composing adjacent operations, snapshotting documents, limiting offline branches, and using efficient local buffers such as ropes or piece tables. Those help performance but do not remove the need for correct transform semantics.',
       ],
     },
     {
-      heading: 'Where it is useful and where it fails',
+      heading: 'Real-world uses',
       paragraphs: [
-        `OT fits centralized collaborative products where low-latency local editing matters and a service can maintain the canonical revision log. Browser documents, spreadsheets, shared JSON applications, and some design tools can use that shape. ShareDB is a JavaScript example of an OT-based backend for realtime JSON documents, with document types defining the operation semantics.`,
-        `OT is a poor fit when offline peer-to-peer editing is the dominant requirement, when there is no trusted ordering service, or when the document model changes faster than the transform rules can be specified. Sequence CRDTs solve the same user problem by giving elements stable identities and making operations commute through metadata rather than through position rewrites. CRDTs have their own costs: identifiers, causal metadata, deleted-element handling, and rich-text mark semantics. The choice is not OT good or CRDT good. It is where the product wants to pay for coordination.`,
+        'OT fits centralized collaborative products where low-latency local editing matters and a service can maintain the canonical revision log. Shared documents, spreadsheets, JSON applications, and some design tools use this shape.',
+        'ShareDB is a JavaScript example of an OT backend for realtime JSON documents. Document types define the operation semantics, and the server orders accepted operations.',
+        'OT also fits products that already trust a central service for storage, permissions, and history. The central order simplifies reasoning compared with peer-to-peer offline collaboration.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Where it fails',
       paragraphs: [
-        `Useful signals include pending queue length, age of sent operations, reconnect rebase count, transform failures by operation pair, server revision lag, document divergence checks, rejected operations, undo conflicts, and the number of remote operations applied while a local edit is unacknowledged. A collaboration system should also sample full-document hashes or structural checks after replay. Silent divergence is worse than a visible reject because users may build more work on a corrupt document.`,
-        `When investigating an incident, ask which base revision the bad operation was authored against, which local operations it crossed, which transform pair ran, and whether the server and client agreed on revision order. Most OT bugs are not mysterious; they are missing cases in the operation matrix or stale assumptions about what counts as concurrent.`,
+        'It fails when there is no trusted ordering service and offline peer-to-peer editing is the main requirement. Sequence CRDTs often fit that shape better because operations commute through stable element identities rather than position rewrites.',
+        'It fails when the document model evolves faster than transform rules. Rich text, tables, comments, embeds, and undo can create operation interactions that are hard to specify and test.',
+        'It fails silently if divergence is not checked. Users may keep editing a corrupted replica. Production systems should sample document hashes, validate structure after replay, and alert on rejected or untransformable operations.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Alice and Bob start with ABCD at revision 10. Alice creates operation A: insert X at position 1. Bob creates operation B: delete one character at position 2, intending to delete C.',
+        'Alice applies A locally and sees AXBCD. Bob applies B locally and sees ABD. The server accepts A first at revision 11, then receives B based on revision 10. Before applying B after A, the server transforms B because A inserted before the target of B.',
+        'B shifts from delete position 2 to delete position 3. The server document becomes AXBD. Bob receives A and transforms it against his local delete; inserting at position 1 still yields AXBD. Both clients converge while preserving the intent to delete C.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Google Docs collaboration protocol at https://drive.googleblog.com/2010/09/whats-different-about-new-google-docs.html, Google Docs conflict resolution at https://drive.googleblog.com/2010/09/whats-different-about-new-google-docs_22.html, Apache Wave operational transform notes at https://svn.apache.org/repos/asf/incubator/wave/whitepapers/operational-transform/operational-transform.html, ShareDB docs at https://share.github.io/sharedb/, and the Jupiter collaboration paper. Study Sequence CRDTs for Collaborative Text for the stable-identifier alternative, Peritext Rich-Text CRDT Case Study for mark semantics, Logical Clocks for causality, Piece Table Text Buffer and Text Rope Data Structure for local editing, and Fractional Indexing for collaborative ordering outside plain text next.`,
+        'Primary sources include the Jupiter collaboration paper, Apache Wave operational transform notes, Google Docs collaboration writeups, and ShareDB documentation. Use them to compare central-server OT protocols and document-type-specific operation rules.',
+        'Study Piece Table and Rope for local text buffers, Logical Clocks for causality, Sequence CRDTs for the stable-identifier alternative, Peritext for rich-text CRDT semantics, and Fractional Indexing for collaborative ordering outside plain text.',
       ],
     },
   ],

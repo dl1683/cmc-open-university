@@ -215,107 +215,89 @@ export function* run(input) {
 }
 
 export const article = {
-  references: [
-    { title: 'Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models', url: 'https://arxiv.org/abs/2503.09573' },
-    { title: 'Discrete Diffusion Language Model Primer', url: '#discrete-diffusion-language-model-primer' },
-    { title: 'Fast-dLLM Project', url: 'https://nvlabs.github.io/Fast-dLLM/' },
-  ],
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        {type:'callout', text:'Block diffusion is a serving compromise: keep block order causal so length and streaming still work, but denoise several uncertain tokens inside the current block at once.'},
-        'Autoregressive LLMs are easy to serve because they grow text left to right. The prefix is fixed, the KV cache is reusable, and the model can stop at an end token. The cost is serial generation: one token decision depends on the previous token decision.',
-        'Discrete diffusion language models offer a different promise. They can refine several masked tokens in parallel and can revise uncertain positions. The cost is that plain diffusion is awkward for arbitrary-length text, streaming, and cache-based serving. Block diffusion exists to bridge those two worlds.',
+        'Read the animation as generation by repair instead of generation by one-token extension. A token is a small text unit, and a block is a group of token positions decoded together. The active block contains masked or noisy positions, and each denoising step makes those positions more certain.',
+        'The safe inference rule is that a token should become fixed only when the model and schedule agree that it is confident enough. Earlier positions are not automatically more important than later positions. The animation is showing certainty spreading through a block, not a cursor moving left to right.',
       ],
     },
     {
-      heading: 'The baseline approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The first baseline is ordinary autoregressive decoding. It handles length naturally: keep sampling the next token until the model emits EOS or a max-token limit fires. Serving systems are built around this pattern, especially KV-cache reuse.',
-        'The second baseline is full-sequence discrete diffusion. It starts with a masked or noisy sequence and repeatedly denoises positions. That can expose parallel token work, but it usually assumes a fixed or preselected sequence length and does not stream prefixes as naturally as autoregressive decoding.',
+        'Standard large language models usually generate text autoregressively, meaning each new token depends on all previous tokens and is produced one at a time. That gives a clean probability factorization, but it makes long output latency grow with the number of generated tokens. A 200-token answer requires about 200 sequential decoding steps.',
+        'Block diffusion exists to reduce that strict sequence. It asks whether a model can fill or refine several positions in a block through denoising, which means removing uncertainty from a noisy or masked state. If enough positions can be decided per step, the system can trade more computation per step for fewer sequential steps.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to keep autoregressive decoding and optimize it. Use key-value cache reuse, batching, faster attention kernels, speculative decoding, or better serving hardware. That approach is strong because it preserves the training and inference contract used by most deployed LLMs.',
+        'It still has a serial wall. Even if each step is fast, token 120 cannot be finalized before token 119 exists. Hardware likes parallel work, but the decoding dependency chain exposes only a small amount of work at each position.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Autoregressive decoding hits a latency wall because the dependency chain is token by token. Even if every forward pass is efficient, the request still waits for many sequential decisions.',
-        'Plain diffusion hits a product wall. Text length is not known upfront, users expect streaming, and serving infrastructure wants stable prefixes and cache reuse. A model that denoises a whole fixed-length canvas can be hard to fit into an LLM endpoint.',
+        'The wall is sequential latency. If one decode step takes 20 ms, then 200 generated tokens take about 4 seconds before batching overhead and queueing. Cutting the step to 10 ms still leaves 2 seconds because the number of dependent steps did not change.',
+        'A second wall is error control. Filling many positions at once can create inconsistent text if later positions assume a word that earlier positions change. The model needs a schedule for which positions are tentative, which are fixed, and when a block is ready to emit.',
       ],
     },
     {
-      heading: 'The core mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        'Block diffusion decomposes a sequence into blocks. The model is autoregressive across blocks: block 1 conditions block 2, block 2 conditions block 3, and so on. Inside the active block, tokens are generated by masked denoising rather than strict left-to-right decoding.',
-        'The runtime state is a block ledger. Each row records the block id, token buffer, mask bitset, denoise step, confidence summary, cache version, sealed or active status, and stop eligibility. Sealed blocks become the fixed prefix for later blocks.',
-        'Block size is the interpolation knob. A block size of one behaves close to autoregressive decoding. Larger blocks move toward diffusion-style parallel refinement, but they also make within-block dependencies harder.',
+        'Replace the single moving frontier with a block-level uncertainty state. Instead of asking for exactly the next token, the model predicts or refines many masked positions and then commits the most reliable ones. The core object is no longer just a prefix; it is a partially resolved block.',
+        'This borrows the diffusion idea from generative modeling. Start with noise or masks, apply a learned denoising function repeatedly, and move toward a clean sample. For text, the hard part is that tokens are discrete, so confidence and commitment policy matter as much as the neural network.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The decoder chooses a block size, masks or initializes unresolved positions, and runs a denoising model over the block with context from the prompt and already accepted text. Each pass produces token distributions, which are probability scores over vocabulary items. A scheduler decides which positions to lock and which positions to revisit.',
+        'The system repeats until the block is complete, then emits the block or a safe prefix of it. Some designs use confidence thresholds, some use a fixed number of denoising rounds, and some remask low-confidence positions. The serving problem is to keep quality close to autoregressive decoding while reducing the number of sequential barriers.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The causal boundary between blocks keeps the serving contract readable. Past blocks are fixed. Future blocks do not exist yet. The active block is the only region where uncertainty is being refined.',
-        'That boundary allows cache reuse and flexible length. Once a block is sealed, its state can condition later blocks much like an autoregressive prefix. An EOS or stop gate decides whether another block should be opened, so the model is not trapped in a fixed-length canvas.',
-        'Inside the active block, parallel denoising can reveal several high-confidence tokens per model evaluation. The speed gain comes only when the system seals useful tokens faster than a token-by-token decoder would.',
+        'The correctness argument is not exact equality with autoregressive sampling. It is an invariant over commitment: once a position is emitted to the user, later denoising rounds cannot require changing it. If the model only commits positions whose local and contextual scores pass the policy, the output stream remains consistent with its own committed prefix.',
+        'Within an uncommitted block, revision is allowed. That is why the method can exploit parallelism: uncertain positions can influence each other across denoising rounds before any of them become public. The algorithm is safe only to the extent that the confidence rule separates stable choices from guesses.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The block-sampler view is a serving trace, not just a model diagram. Prefix and sealed blocks are stable context. The active block is a controlled uncertainty zone. The gate is the policy that decides when uncertainty is low enough to commit tokens, stream output, reuse cache, or open the next block.',
-        'The length-bridge view shows the product reason for the design. Full-sequence diffusion wants a canvas. Chat and code endpoints want a response that can grow, stream, and stop. Blocks make length a sequence of local commitments rather than one global guess made before generation starts.',
+        'If autoregressive decoding emits 128 tokens with one model pass per token, it needs 128 sequential passes. A block method with block size 16 and 4 denoising rounds per block needs 8 blocks times 4 rounds, or 32 sequential passes. Each pass may be heavier because it predicts many positions, but the latency chain is shorter.',
+        'The memory cost includes activations and attention over unresolved block positions, plus ordinary key-value cache for accepted context if the architecture uses it. Doubling block size can expose more parallel work, but it can also increase per-pass compute and make confidence harder. The practical cost is tuning the block size, denoising rounds, and commit rule for each quality target.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The main cost variables are block size, denoising steps per block, remasking rate, cache reuse, and batching quality. Larger blocks expose more parallel work, but they can require more refinement steps and create more disagreement among tokens.',
-        'A useful serving metric is sealed tokens per forward pass. If a block of eight tokens needs eight denoising passes and frequent repair, it may not beat autoregressive decoding. If a block of four seals in two passes with stable quality, the endpoint has a real latency path.',
-        'Batching is harder than it looks. Requests with different block sizes, denoise steps, and stop states can fragment GPU batches. Production systems need buckets, confidence thresholds, and cache-version checks rather than a single global block size.',
-      ],
-    },
-    {
-      heading: 'Operational router',
-      paragraphs: [
-        'A practical service would not use one block policy for every request. The router should choose block size and denoise budget from task shape, latency target, syntax risk, and observed repair rate. Predictable prose can tolerate larger blocks. Code, JSON, SQL, and math often need smaller blocks because one early token can constrain many later tokens.',
-        'The router also needs fallback behavior. If confidence stays low, if the EOS gate is unstable, or if the active block keeps being remasked, the system should shrink the block, spend more denoising steps, or route the request to a standard autoregressive decoder. Without that escape path, the method can turn a speed feature into a quality failure.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Block diffusion is promising when text has local chunks that can be refined together. Boilerplate, predictable code fragments, structured completions, and some editing tasks can benefit from denoising several slots inside the same block.',
-        'It also fits routes that value controllability or revision inside a small span. A code assistant, for example, may want to refine the current expression while keeping the already emitted prefix fixed.',
+        'The idea fits low-latency text generation research, assisted drafting, batch offline generation, and systems that can tolerate a different sampling contract for speed. It is also useful as a mental model for masked language modeling, edit-based generation, and non-autoregressive translation. The access pattern is refine a group, commit the stable part, then continue.',
+        'It is less natural for APIs that require exact compatibility with a deployed autoregressive model. Many production stacks depend on token-by-token streaming, logprob semantics, tool-call boundaries, and cache behavior. A block diffusion model changes those contracts.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Block diffusion is weak when the active block contains tight left-to-right dependencies. Syntax, quotes, brackets, variable names, and long-range references can make early token commitments expensive to repair.',
-        'A weak EOS gate creates hidden fixed-length behavior. The model may stop too early, keep adding low-value blocks, or learn length patterns from training buckets rather than the prompt.',
-        'Cache reuse can also become stale. If the active block is revised after a cache was built, the cache needs a version id. Otherwise later blocks may condition on a prefix that is no longer the real prefix.',
+        'It fails when confidence is badly calibrated. Locking weak tokens early can force later text into awkward repairs, while revising too much can erase the latency benefit. The method needs a commit policy that is conservative enough for quality and aggressive enough for speed.',
+        'It also fails when the task has tight left-to-right constraints. Code, JSON, tool calls, citations, and exact arithmetic often punish one wrong early token. For those tasks, autoregressive decoding or constrained decoding may be easier to validate.',
       ],
     },
     {
-      heading: 'Concrete example',
+      heading: 'Worked example',
       paragraphs: [
-        'Suppose a code assistant must complete `return user.profile;`. The sealed prefix contains `return user`. The active block starts with masks for `.profile`. Denoising fills several slots, the confidence gate seals the block, and the stop gate decides whether the semicolon finishes the sequence.',
-        'The router can use smaller blocks for brittle code or JSON and larger blocks for predictable prose or boilerplate. The block ledger makes that choice inspectable: block size, steps, committed tokens per step, remasks, cache hits, stop decisions, and final quality all live in one record.',
-      ],
-    },
-    {
-      heading: 'Evaluation questions',
-      paragraphs: [
-        'The serious evaluation question is not whether the sampler is more parallel on paper. Ask how many accepted tokens arrive per forward pass at the same quality, how often sealed blocks need repair, how much batching fragmentation appears under live traffic, and whether users see useful streaming latency.',
-        'A good benchmark should split tasks by dependency shape. JSON, code, math, long-form prose, and templated boilerplate stress different parts of the design. If one average score hides that block diffusion wins on boilerplate but fails on syntax-heavy completions, the serving router will learn the wrong lesson.',
-        'Also measure recovery, not just first-pass output. A block method can look fast until it has to repair bad commitments, undo an early stop, or regenerate a block whose cache version no longer matches the sealed prefix.',
+        'Assume a 64-token response and a baseline decode cost of 18 ms per token. Autoregressive latency is about 64 times 18 ms, or 1,152 ms before queueing. A block method uses block size 8 and 3 denoising rounds, so it needs 8 blocks times 3 rounds, or 24 sequential passes.',
+        'If each block pass costs 28 ms because it predicts 8 positions, total model latency is about 672 ms. That is a 480 ms improvement, but only if the commit policy preserves quality. If the system needs 6 rounds per block to avoid bad tokens, latency rises to 1,344 ms and the method loses to the baseline.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Block Diffusion at https://arxiv.org/abs/2503.09573, the project page at https://m-arriola.com/bd3lms/, and the BD3-LMs code at https://github.com/kuleshov-group/bd3lms. Fast-dLLM is a related project at https://nvlabs.github.io/Fast-dLLM/.',
-        'Study Discrete Diffusion Language Model Primer, Diffusion Models, KV Cache, Speculative Decoding Runtime Controller, Length-Aware Batching LLM Scheduler, and Diffusion LLM Serving Scheduler next. The key comparison is sealed tokens per forward pass, not whether the diagram contains parallel arrows.',
+        'Primary sources to study next are diffusion model papers, masked language modeling work, non-autoregressive translation papers, and current block-diffusion language-model papers. Compare their training objective, sampling schedule, and commitment rule. Do not treat the word diffusion as enough; the mechanism depends on how discrete tokens are noised and denoised.',
+        'Study next by role: autoregressive decoding for the baseline, speculative decoding for another latency trade, KV cache for prefix reuse, masked language models for bidirectional prediction, and constrained decoding for correctness-sensitive outputs. The transfer lesson is that latency is shaped by dependency depth, not only by raw FLOPs.',
       ],
     },
   ],

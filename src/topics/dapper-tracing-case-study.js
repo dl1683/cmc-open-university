@@ -1,4 +1,4 @@
-﻿// Dapper case study: propagate trace context through common RPC libraries,
+// Dapper case study: propagate trace context through common RPC libraries,
 // sample enough requests to keep overhead low, then reconstruct distributed
 // latency from span trees.
 
@@ -206,72 +206,28 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. "Trace propagation" follows a single user request as it fans out across services, showing how trace context travels through RPC boundaries and how the resulting span records reassemble into a tree. "Sampling and analysis" shows how sampling policies keep tracing affordable and how span trees become actionable latency analysis.',
-        {
-          type: 'bullets',
-          items: [
-            'Active (highlighted) nodes are the current focus: the service handling the request, the edge carrying context, or the span field under analysis.',
-            'Found (green) nodes are confirmed outcomes: the bottleneck edge in the trace view, or the useful analysis products in the sampling view.',
-            'Compare (blue) nodes show contrast: services not on the critical path, or alternative sampling strategies being weighed.',
-            'Removed (red) marks failures: requests dropped by sampling, or propagation gaps that break the tree.',
-          ],
-        },
-        'In the matrix views, rows are spans or strategies and columns are properties. Watch the "duration" column in the span table to identify which child dominates the root latency, and the "use" column in the sampling table to see why each strategy exists.',
-        {
-          type: 'note',
-          text: 'The animation uses a toy service graph with five services. Google runs Dapper across tens of thousands of services processing billions of requests per day. The data model is identical; the scale difference is what makes sampling and automatic instrumentation non-negotiable.',
-        },
+        'Read the animation as one request becoming a tree of timed operations. A trace is the whole request path, and a span is one timed operation inside that trace. Active nodes show the service or edge currently receiving trace context, found nodes show completed spans, and removed nodes show sampled-out requests or broken propagation.',
+        'The safe inference rule is parent linkage. If every child span carries the same trace ID and the parent span ID that created it, the collector can rebuild the causal tree. If one queue, thread pool, or RPC boundary drops that context, the trace is no longer a complete explanation of the request.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A single user request in a large service-oriented system is not a single event. It is a path through frontends, authentication services, search backends, ad servers, caches, storage shards, queues, and retries. Each service has its own logs and metrics. None of that automatically explains what happened to one request as it crossed the full graph.',
-        {
-          type: 'quote',
-          text: 'We built Dapper to provide Google\'s developers with more information about the behavior of complex distributed systems.',
-          attribution: 'Sigelman et al., "Dapper, a Large-Scale Distributed Systems Tracing Infrastructure" (2010)',
-        },
-        'The core debugging question is simple: where did the time go? In a monolith, a profiler answers that. In a distributed system, the answer is scattered across dozens of machines and teams. A frontend sees a slow request. A backend reports normal p99. A cache sees a miss. A storage shard sees a retry. The failure is in the path, not in any single dashboard.',
-        {
-          type: 'table',
-          headers: ['Signal type', 'What it tells you', 'What it cannot tell you'],
-          rows: [
-            ['Metrics', 'Aggregate rates, latency percentiles, error ratios', 'Which specific request was slow and why'],
-            ['Logs', 'Local event narrative for one service', 'How events on different machines relate causally'],
-            ['Traces', 'The full causal path of one request across services', 'Fleet-wide rates or why CPU burned inside one function'],
-          ],
-        },
-        'Dapper turned distributed tracing from a clever debugging trick into a fleet-wide infrastructure primitive. The hard part was not drawing a tree of spans. The hard part was making tracing cheap, automatic, and sampled so that enough of production was traceable to be useful without tracing itself becoming the performance problem.',
+        'Dapper exists because one user request in a large service system is not one event. It can pass through frontends, authentication, search, storage, caches, ad services, queues, retries, and shard fanout. Metrics show aggregate behavior, and logs show local events, but neither automatically explains where one request spent its time.',
+        'The debugging question is concrete: where did the 180 ms go. In a monolith, a profiler can answer by walking one process. In a distributed system, the answer is scattered across machines owned by different teams, so the request needs a portable identity that follows it.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first instinct is correlated logging: ask every team to include a request ID in their log lines. When something goes wrong, grep across all logs for that ID and reconstruct the path manually.',
-        {
-          type: 'diagram',
-          text: 'Correlated logging:\n\n  frontend.log:  reqID=abc123  start  t=0ms\n  auth.log:      reqID=abc123  check  t=5ms\n  search.log:    reqID=abc123  query  t=12ms\n  index.log:     ???  (different ID format, dropped correlation)\n  ads.log:       reqID=abc123  fetch  t=8ms\n\n  Manual reconstruction:\n    frontend --> auth (5ms)\n    frontend --> search (12ms)\n    frontend --> ads (8ms)\n    search --> index (???)   <-- lost: index uses internal IDs',
-          label: 'Correlated logging breaks at the first service that uses a different ID scheme or drops the header',
-        },
-        'This works for small systems with disciplined teams. It fails for three reasons. First, the request ID must survive every boundary: RPC calls, queue handoffs, thread pool dispatches, retries, and fanout. One missing propagation edge hides the slowest part of the request. Second, log schemas drift across teams -- different timestamp formats, different field names, different retention windows. Third, reconstructing a timeline from raw log lines requires manual work that does not scale to thousands of requests per second.',
-        'The second instinct is to trace everything in full detail. Record every function call, every RPC, every attribute. That fails on cost. A high-traffic fleet cannot afford to store every span for every request forever. At Google scale, full tracing would generate petabytes of span data per day. A system too expensive to leave on gets disabled during normal operation, which means it is absent when the incident arrives.',
+        'The obvious approach is correlated logging. Add a request ID to log lines, grep every service, sort by timestamp, and reconstruct the path by hand. This works in small systems when every team uses the same ID field and every boundary preserves it.',
+        'The next obvious approach is to trace everything in detail. Record every request, every service hop, every annotation, and every payload field. That gives rich data until the fleet is large enough that tracing becomes the performance and storage problem.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The fundamental constraint is three-way. Tracing must be (1) automatic enough to cover the fleet without per-team opt-in, (2) cheap enough to run continuously in production, and (3) complete enough to reconstruct causal paths across asynchronous boundaries. No naive approach satisfies all three.',
-        {
-          type: 'table',
-          headers: ['Approach', 'Automatic?', 'Cheap?', 'Causally complete?', 'Why it fails'],
-          rows: [
-            ['Correlated logging', 'No -- each team must adopt the ID', 'Yes', 'No -- broken at async boundaries', 'Adoption is voluntary; gaps are invisible'],
-            ['Full-detail tracing', 'Possible', 'No -- petabytes/day at scale', 'Yes', 'Cost forces it off; absent during incidents'],
-            ['Per-service profiling', 'Yes within one service', 'Yes', 'No -- no cross-service causality', 'Explains CPU, not request paths'],
-            ['Ad-hoc debug traces', 'No -- developer must trigger', 'Yes', 'Sometimes', 'Misses the first failure; no baseline'],
-          ],
-        },
+        'The wall is deployment economics plus causality. Tracing must be automatic enough to cover thousands of services, cheap enough to stay on, and complete enough to cross RPC, async, and queue boundaries. Correlated logs miss boundaries, while full capture creates too much data.',
         {
           type: 'callout',
           text: 'The wall is not technical complexity. It is deployment economics. Any team can build a tracer that works in a demo. The question Dapper answered is: how do you build a tracer that works across tens of thousands of services, stays on permanently, and costs so little that no one notices it?',
@@ -282,246 +238,78 @@ export const article = {
           alt: 'Google data center server racks',
           caption: 'At Google scale, a single user request touches dozens of services across thousands of machines. Full-detail tracing at this scale would generate petabytes per day. Dapper solved this with sampling and library-level instrumentation. Source: Wikimedia Commons.',
         },
-        'The invariant that must hold: every child span in a trace must carry the same trace ID and a reference to its parent span ID. If any service on the path fails to propagate this context, the resulting trace tree has a missing subtree. The trace looks shorter and simpler than reality, and the engineer debugging the incident draws the wrong conclusion about where the time went.',
+        'A missing propagation edge makes the trace tree shorter than reality. The engineer may optimize the visible path while the real delay sits behind an untraced async boundary. That is worse than no trace because the partial tree looks authoritative.',
       ],
-    },
-    {
+    },    {
       heading: 'The core insight',
       paragraphs: [
-        'Instrument the common libraries, not the applications. RPC frameworks, HTTP clients, thread pool executors, and queue consumers are the chokepoints where requests cross boundaries. If those shared layers automatically create spans and propagate trace context, tracing follows every request through every service without application teams writing a line of instrumentation code.',
-        {
-          type: 'diagram',
-          text: 'Dapper instrumentation model:\n\n  Application code (unchanged)\n       |\n       v\n  [RPC client library]  <-- instrumented: creates child span,\n       |                     injects (traceId, parentSpanId) into headers\n       | network\n       v\n  [RPC server library]  <-- instrumented: extracts context,\n       |                     creates server span with parent reference\n       v\n  Application code (unchanged)\n       |\n       v\n  [Thread pool / async]  <-- instrumented: carries context across threads\n       |\n       v\n  [Storage client]       <-- instrumented: creates leaf span',
-          label: 'Applications are unaware of tracing; shared libraries do all the work',
-        },
-        {
-          type: 'quote',
-          text: 'We were able to limit our instrumentation to a small set of common libraries, effectively achieving a monitoring platform that is nearly zero-cost to the average application developer.',
-          attribution: 'Sigelman et al., Dapper (2010), Section 3.2',
-        },
-        'The second insight is that sampling makes the cost manageable. Not every request needs a trace. A uniform random sample of 1 in 1,024 requests gives enough data for latency profiles, dependency graphs, and baseline understanding. Rare failures get covered by tail-biased sampling (keep traces with errors or high latency) or forced debug traces (a developer manually marks one request for full capture). The combination of automatic instrumentation and adaptive sampling is what lets tracing exist as always-on infrastructure rather than an opt-in debugging tool.',
+        'Instrument common libraries instead of asking every application team to write tracing code. RPC clients, RPC servers, HTTP middleware, queue clients, storage clients, thread pools, and retry wrappers are the boundaries where causality moves. If those layers create spans and propagate context, tracing becomes a platform property.',
+        'The second insight is coherent sampling. The root decides whether the request is sampled, and that decision travels with the trace context. A sampled request should produce the whole tree, while an unsampled request should avoid span emission work on every service.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Dapper defines three core data objects: traces, spans, and annotations.',
-        {
-          type: 'table',
-          headers: ['Object', 'Fields', 'Purpose'],
-          rows: [
-            ['Trace', 'traceId (64-bit)', 'Groups all spans belonging to one request into a single tree'],
-            ['Span', 'spanId, parentSpanId, traceId, serviceName, startTime, endTime', 'Records one timed operation; parent reference builds the tree'],
-            ['Annotation', 'timestamp, message (e.g. "cache miss", "retry #2")', 'Attaches structured events to a span without changing the tree shape'],
-          ],
-        },
-        'When a request arrives at the frontend, the RPC library checks for incoming trace context. If none exists, it generates a new traceId and creates the root span. When the frontend calls downstream services, the RPC client library injects the traceId and the current spanId (as parentSpanId) into the outgoing request headers. Each downstream service extracts this context and creates a child span linked to the same trace.',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'Trace context propagation through HTTP headers:\n\nFrontend -> Auth service:\n  X-Trace-Id: 7f000001a2b3c4d5\n  X-Parent-Span-Id: 0000000000000001\n  X-Span-Id: 0000000000000002\n  X-Sampled: 1\n\nFrontend -> Search service:\n  X-Trace-Id: 7f000001a2b3c4d5      (same trace)\n  X-Parent-Span-Id: 0000000000000001  (same parent: frontend)\n  X-Span-Id: 0000000000000003         (new span)\n  X-Sampled: 1\n\nSearch -> Index shard:\n  X-Trace-Id: 7f000001a2b3c4d5      (same trace)\n  X-Parent-Span-Id: 0000000000000003  (parent: search)\n  X-Span-Id: 0000000000000004         (new span)\n  X-Sampled: 1',
-        },
-        'Each service writes its completed span to a local log daemon. The daemon buffers spans and ships them asynchronously to a centralized collector -- Dapper used Google\'s Bigtable. The collector groups spans by traceId and reconstructs the tree by following parentSpanId references. Crucially, span emission is asynchronous and out-of-band; it does not add latency to the request path.',
-        {
-          type: 'diagram',
-          text: 'Span collection pipeline:\n\n  Service A        Service B        Service C\n    |                 |                 |\n  [span log]       [span log]       [span log]\n    |                 |                 |\n  local daemon     local daemon     local daemon\n    \\                |                /\n     \\               |               /\n      v              v              v\n        Centralized Collector (Bigtable)\n              |\n        [group by traceId]\n              |\n        Reconstructed trace tree\n              |\n        Dapper UI / analysis tools',
-          label: 'Spans travel out-of-band to avoid adding latency to the request',
-        },
-        'Sampling decides at the root span whether to keep a trace. All downstream services honor the sampling decision from the root (the X-Sampled header). This ensures that a sampled trace is complete -- you never get half a tree because one service decided to sample and another did not.',
+        'When a request enters the frontend, the tracing library creates a trace ID and a root span. When the frontend calls auth, search, or ads, the client library injects the trace ID and parent span ID into request metadata. Each downstream server extracts the metadata and creates a child span.',
+        'A completed span records span ID, parent span ID, service name, operation name, start time, end time, status, and annotations such as cache miss or retry. Services write spans to local buffers, and background daemons ship them to collectors. The request path does not wait for the collector, because tracing must not add user-visible latency.',
+        'The collector groups spans by trace ID and rebuilds the tree by following parent IDs. Analysis tools then compute critical paths, service dependencies, fanout patterns, and latency distributions. Dapper stored trace data in Bigtable and exposed it to interactive tools and programmatic analysis.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Three properties make Dapper effective as fleet-wide infrastructure.',
-        {
-          type: 'bullets',
-          items: [
-            'Transparency: application developers do not write tracing code. The shared RPC and threading libraries handle context propagation and span creation. Dapper deployed across Google\'s fleet by updating common libraries, not by filing tickets with every team.',
-            'Low overhead: span creation costs 176-204 nanoseconds per operation (the paper measured both root and child span creation). Span emission is asynchronous -- buffered locally, shipped in batches. At a 1/1024 sampling rate, the paper measured web-search latency impact within experimental error (~0.2% median change, within noise). The <0.01% figure often cited refers to network traffic overhead from trace collection, not compute overhead.',
-            'Coherent sampling: the sampling decision propagates with the trace context. Every service in a sampled trace emits its spans. Every service in an unsampled trace emits nothing. This avoids partial trees that mislead analysis.',
-          ],
-        },
-        'Traces answer the question that metrics and logs answer poorly: what is the causal shape of one request? Metrics aggregate across requests. Logs narrate one service\'s local events. Traces connect operations across service boundaries into a single directed graph with timing.',
-        {
-          type: 'note',
-          text: 'Dapper\'s design choice to instrument common libraries rather than application code is an instance of a broader principle: infrastructure that requires voluntary adoption will always have gaps in coverage. Infrastructure that rides on mandatory shared libraries gets coverage by default. The same principle appears in garbage collectors, memory allocators, and kernel-level security hooks.',
-        },
-        'The most important engineering principle is that tracing must be cheap enough to leave on permanently. A tracing system that engineers enable only after an incident begins misses the baseline behavior and often misses the first failure. Dapper made always-on operation a first-class design requirement by keeping overhead below the threshold where anyone would complain about it.',
+        'The invariant is that every span in one request shares the trace ID, and every non-root span names one parent. That is enough to rebuild the tree even if spans arrive out of order. Missing parents become visible as broken traces instead of hidden local log fragments.',
+        'Library instrumentation works because shared infrastructure has higher coverage than voluntary application code. Updating an RPC library can add tracing to many services at once. Sampling works because common behavior can be learned from a small fraction of requests when the sample is coherent across the whole tree.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Cost dimension', 'What grows', 'What stays bounded', 'What controls it'],
-          rows: [
-            ['CPU per request', 'Context extraction + span creation: ~1 us per span', 'Fixed per service hop', 'Library-level fast path; no allocation on unsampled requests'],
-            ['Network', 'Span log volume = sampled_requests x spans_per_trace x bytes_per_span', 'Proportional to sample rate', 'Sampling rate (e.g. 1/1024)'],
-            ['Storage', 'Bigtable rows for span records', 'Bounded by retention window', 'Retention policy (hours to days)'],
-            ['Collector capacity', 'Scales with ingested span volume', 'Proportional to sample rate x fleet RPS', 'Horizontal scaling of collector daemons'],
-            ['Analysis latency', 'Trace reconstruction from scattered spans', 'O(spans per trace), typically < 100', 'Index on traceId; spans are small'],
-          ],
-        },
+        'Tracing cost is dominated by spans. If a fleet handles 1,000,000 requests per second, a trace averages 20 spans, and each span averages 426 bytes, full capture emits about 8.5 GB per second, or about 734 TB per day. A 1 in 1,024 sample lowers that to about 8.3 MB per second, or about 717 GB per day.',
         {
           type: 'callout',
           text: 'The fundamental cost equation: ingest_bytes_per_sec = fleet_RPS x sample_rate x avg_spans_per_trace x bytes_per_span. Every variable except bytes_per_span grows with the system. Sampling is the only lever that keeps cost sublinear in traffic.',
         },
-        'Let us derive the numbers from first principles. The Dapper paper reports ~426 bytes per span (averaged across their fleet). A typical trace in a microservice architecture has 10-50 spans. Take 20 as a median. At 1 million RPS across the fleet with a 1/1024 sample rate:',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'First-principles cost model:\n\n  Fleet RPS:           1,000,000 req/sec\n  Sample rate:         1/1024 ~ 0.001\n  Sampled traces/sec:  ~976\n  Avg spans/trace:     20\n  Bytes/span:          426 (Dapper paper measurement)\n\n  Sampled spans/sec:   976 x 20 = 19,520\n  Ingest rate:         19,520 x 426 bytes = 8.3 MB/sec\n  Daily ingest:        8.3 x 86,400 = ~717 GB/day\n\n  Without sampling (full capture):\n  Spans/sec:           1,000,000 x 20 = 20,000,000\n  Ingest rate:         20M x 426 = 8.5 GB/sec = ~734 TB/day\n\n  Sampling reduces storage by 1024x.',
-        },
-        {
-          type: 'note',
-          label: 'Rare event coverage',
-          text: 'The probability of capturing at least one trace of a rare event: P(capture) = 1 - (1 - sample_rate)^n, where n is occurrences per time window. At 1/1024 sampling, an error that happens once per second has a 5.6% chance of capture in a minute (60 occurrences). An error happening 1000 times/sec has a >99.99% chance. Head sampling reliably captures common patterns but misses genuinely rare events -- hence tail-biased sampling for errors.',
-        },
-        'The Dapper paper reports that at a 1/1024 sampling rate, Google captured over 1 TB of sampled trace data per day. High-traffic services produced thousands of sampled traces per minute even at that rate. Low-traffic services (fewer than 1,024 RPM) needed higher sampling rates or had coverage gaps -- the paper notes some teams ran at 1/1 for debugging.',
+        'Cost changes behavior. A system that is too expensive to leave on will be disabled or sampled so aggressively that rare failures vanish. Dapper made low overhead a product requirement because tracing that starts after an incident misses the baseline and often misses the first failure.',
       ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A user search request enters the frontend. We trace its path to find a latency bottleneck.',
-        {
-          type: 'diagram',
-          text: 'Step 1: User sends HTTP GET /search?q=restaurants\n  Frontend creates root span:\n    traceId: 0x7f00a2b3  spanId: 0x01  parent: none\n    start: t=0ms\n\nStep 2: Frontend calls auth, search, ads in parallel\n  Auth span:   traceId: 0x7f00a2b3  spanId: 0x02  parent: 0x01  start: t=2ms\n  Search span: traceId: 0x7f00a2b3  spanId: 0x03  parent: 0x01  start: t=2ms\n  Ads span:    traceId: 0x7f00a2b3  spanId: 0x05  parent: 0x01  start: t=3ms\n\nStep 3: Search fans out to index shard\n  Index span:  traceId: 0x7f00a2b3  spanId: 0x04  parent: 0x03  start: t=15ms\n\nStep 4: Spans complete with end times\n  Auth:   end: t=20ms   duration: 18ms\n  Ads:    end: t=38ms   duration: 35ms\n  Index:  end: t=145ms  duration: 130ms\n  Search: end: t=147ms  duration: 145ms  (waited for index)\n  Root:   end: t=180ms  duration: 180ms',
-          label: 'All five spans share traceId 0x7f00a2b3; parentSpanId builds the tree',
-        },
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Reconstructing the span tree from collected spans\nconst spans = [\n  { spanId: "01", parent: null,  service: "frontend",    duration: 180 },\n  { spanId: "02", parent: "01",  service: "auth",         duration: 18  },\n  { spanId: "03", parent: "01",  service: "search",       duration: 145 },\n  { spanId: "04", parent: "03",  service: "index shard",  duration: 130 },\n  { spanId: "05", parent: "01",  service: "ads",          duration: 35  },\n];\n\n// Build tree: group children under parents\nconst tree = {};\nfor (const span of spans) {\n  tree[span.spanId] = { ...span, children: [] };\n}\nfor (const span of spans) {\n  if (span.parent) tree[span.parent].children.push(tree[span.spanId]);\n}\n\n// Critical path: root -> search -> index shard\n// 180ms total, 145ms in search, 130ms of that in index shard\n// Auth (18ms) and ads (35ms) ran in parallel and finished before search',
-        },
-        {
-          type: 'callout',
-          text: 'The critical path is root -> search -> index shard. The index shard consumed 130 ms of the 180 ms total. Without tracing, the frontend team sees a slow request and has no idea which downstream service to investigate.',
-        },
-        'Understanding why requires distinguishing inclusive and exclusive time:',
-        {
-          type: 'table',
-          headers: ['Span', 'Inclusive time', 'Exclusive time', 'What it means'],
-          rows: [
-            ['Frontend (root)', '180 ms', '180 - max(18, 145, 35) = 35 ms', 'Frontend spent 35 ms on its own work (serialization, template rendering)'],
-            ['Auth', '18 ms', '18 ms (leaf span)', 'All time spent inside auth; no downstream calls'],
-            ['Search', '145 ms', '145 - 130 = 15 ms', 'Search spent 15 ms on its own work; 130 ms waiting for index'],
-            ['Index shard', '130 ms (leaf)', '130 ms', 'The actual bottleneck: reading and scoring index data'],
-            ['Ads', '35 ms (leaf)', '35 ms', 'Ran in parallel with search; finished first, not on critical path'],
-          ],
-        },
-        'Summing child inclusive durations (18 + 145 + 35 = 198 ms) exceeds the root duration (180 ms) because auth and ads overlapped with search. This is the most common mistake in trace analysis. The critical path is the longest sequential dependency chain: frontend setup (2 ms) -> search dispatch (2 ms) -> index shard work (130 ms) -> search teardown (2 ms) -> frontend assembly (2 ms) = 138 ms of sequential work. The remaining 42 ms is parallelism overhead (goroutine scheduling, serialization, network round-trips).',
-        {
-          type: 'note',
-          label: 'The wrong conclusion',
-          text: 'If an engineer sums all spans and sees 198 ms > 180 ms, they might think there is a measurement error. If they look only at direct children and see auth (18 ms), they might optimize auth. Both are wrong. The trace tree answers the question correctly: the critical path runs through the index shard, and the only way to reduce the 180 ms request is to make the index shard faster or to not wait for it.',
-        },
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Symptom', 'Why it happens', 'Mitigation'],
-          rows: [
-            ['Broken propagation', 'Trace tree is truncated; slow work is invisible', 'A queue, thread pool, or async framework drops context headers', 'Instrument context-aware queues; wrap executors to carry trace context across threads'],
-            ['Sampling hides rare failures', 'Incident involves a request pattern not in any sampled trace', 'Head sampling decides before the request becomes interesting', 'Add tail-biased sampling for errors and high-latency outliers'],
-            ['Clock skew', 'Child span appears to start before parent or end after parent', 'Machines have different clock offsets', 'Use monotonic clocks within a service; tolerate skew in cross-service views'],
-            ['High-cardinality attributes', 'Storage and index costs explode', 'Spans record unbounded user IDs, raw URLs, or payload strings', 'Enforce bounded, typed, low-cardinality attributes'],
-            ['Missing async work', 'Background jobs, retries, and delayed tasks are absent from traces', 'Async work happens after the request RPC returns', 'Context-aware job schedulers; link async spans to originating trace'],
-          ],
-        },
-        'The most dangerous failure is invisible: broken propagation makes the trace look clean while hiding the slowest part of the request. An engineer sees a short, well-behaved trace and concludes nothing is wrong. The actual bottleneck was an async job that the trace could not follow because the queue consumer did not carry the trace context.',
-        {
-          type: 'bullets',
-          items: [
-            'A trace is not a profiler. It tells you a service call took 300 ms; it does not tell you which function burned CPU inside that service. Use traces to find the slow service, then use a profiler inside that service.',
-            'A trace is not a metric. It shows one request, not the fleet-wide error rate. Traces and metrics are complementary: metrics tell you something is wrong; traces tell you why.',
-            'A trace is sampled evidence, not ground truth. Absence of a trace does not prove absence of a problem. Serious analysis asks how the trace was sampled before drawing conclusions from it.',
-            'Retries in traces are ambiguous. A dependency that shows two sequential calls might be slow, or the first call might have failed and been retried. The trace shows timing; interpreting retries requires annotations that mark the retry reason.',
-          ],
-        },
-      ],
-    },
-    {
+    },    {
       heading: 'Real-world uses',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['System', 'How it uses Dapper-style tracing', 'Key design choice'],
-          rows: [
-            ['Google Dapper (2004+)', 'Fleet-wide production tracing via instrumented RPC libraries', '1/1024 head sampling; Bigtable storage; Dapper UI for trace browsing'],
-            ['Twitter Zipkin (2012)', 'Open-source Dapper clone; Finagle RPC library instrumentation', 'Thrift-based span transport; Cassandra or Elasticsearch backend'],
-            ['Uber Jaeger (2017)', 'Distributed tracing for microservices; OpenTracing-compatible', 'Adaptive sampling; Kafka span transport for high throughput'],
-            ['OpenTelemetry (2019+)', 'Vendor-neutral SDK merging OpenTracing and OpenCensus', 'W3C Trace Context standard (traceparent header); OTLP protocol'],
-            ['AWS X-Ray', 'Managed tracing for Lambda, API Gateway, ECS, EKS', 'Segment-based model; reservoir sampling; service map generation'],
-          ],
-        },
-        {
-          type: 'code',
-          language: 'text',
-          text: 'W3C Trace Context header format (OpenTelemetry standard):\n\ntraceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\n             |   |                                |                  |\n          version |                            parent-id          flags\n              trace-id (128-bit)                                (sampled)\n\ntracestate: vendor1=value1,vendor2=value2\n            (vendor-specific propagation data)',
-        },
-        'The Dapper vocabulary now appears everywhere: traces, spans, context propagation, baggage, sampling, collectors, exporters, service graphs, and exemplars. The W3C Trace Context standard ensures that traces can cross vendor boundaries -- a request starting in an AWS Lambda can propagate context through an on-premises service instrumented with OpenTelemetry and into a Google Cloud Run function.',
-        'The Dapper paper documents specific use cases that validated the design. Google\'s universal search team used traces to identify that 85% of tail latency came from a single poorly-performing backend. The Ads Review team used traces to verify that ad quality scoring happened within the ad-serving request path (a regulatory requirement). An exception monitoring system, built on top of Dapper, correlated exception stack traces with trace trees to identify which request patterns triggered crashes across services. Over 200 distinct internal tools consumed the Dapper API, and the paper reports that DAPI (the Dapper API) served trace data to both interactive browsers and programmatic analysis pipelines.',
+        'Dapper-style tracing is useful for microservices, RPC systems, serverless paths, queue workflows, streaming jobs, batch pipelines, CI systems, and agent workflows. The access pattern is a causal path that crosses ownership boundaries. Traces tell a team which dependency is on the critical path before the team opens a profiler inside that dependency.',
+        'The same model appears in Zipkin, Jaeger, AWS X-Ray, and OpenTelemetry. W3C Trace Context standardized headers such as traceparent so trace context can cross vendor and service boundaries. Dapper supplied the vocabulary that later systems generalized: traces, spans, propagation, sampling, collectors, and service graphs.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Microservices-based_architecture.png/800px-Microservices-based_architecture.png',
           alt: 'Microservice architecture with interconnected services',
           caption: 'Modern microservice architectures create the exact debugging problem Dapper solved: a single request traverses dozens of services, and no single service has enough context to explain end-to-end behavior. Source: Wikimedia Commons.',
         },
-        'The model extends beyond HTTP and RPC. Queues, streaming systems, batch jobs, workflow engines, serverless functions, CI pipelines, and AI agent systems all need causality across asynchronous steps. The more asynchronous the system, the more careful the propagation model must be. A trace that stops at the queue boundary is only half a trace.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Where it fails',
       paragraphs: [
+        'Tracing fails when propagation breaks. A queue consumer, thread pool, retry library, or sidecar can drop context and hide the slow work. The resulting trace is worse than missing data because it can look complete.',
+        'Head sampling misses rare failures because the sample decision is made before the request becomes interesting. Tail sampling can keep error and high-latency traces, but it needs buffering and later decision logic. High-cardinality attributes such as raw user IDs or full URLs can also explode storage and indexing costs.',
+        'A trace is not a profiler or a metric. It can show that search took 145 ms and index shard work took 130 ms, but it cannot identify the CPU function inside the index service. Use traces to find the slow dependency, then use service-local tools to explain that dependency.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A search request enters the frontend at t = 0 ms. The frontend creates root span 01, then starts auth span 02 at t = 2 ms, search span 03 at t = 2 ms, and ads span 05 at t = 3 ms. Search calls an index shard as span 04 at t = 15 ms.',
+        'The spans end at different times: auth at 20 ms, ads at 38 ms, index at 145 ms, search at 147 ms, and the root at 180 ms. Auth took 18 ms, ads took 35 ms, search took 145 ms, and the index shard consumed 130 ms inside search. The critical path is frontend -> search -> index shard, not the sum of every child duration.',
         {
-          type: 'bullets',
-          items: [
-            'Instrument boundary layers first: RPC clients and servers, HTTP middleware, queue producers and consumers, database client wrappers, cache clients, thread pool executors, and retry logic. Complete propagation across the system matters more than detailed spans inside one service.',
-            'Keep attributes bounded, typed, and low-cardinality. Good attributes: http.method, http.status_code, db.system, rpc.service. Bad attributes: raw URL with query parameters, user email, request body hash. High-cardinality attributes explode storage and indexing costs.',
-            'Honor the sampling decision from the root. If the root says "sampled," every downstream service must emit spans. If the root says "not sampled," no service should emit spans. Mixed decisions produce partial trees that mislead analysis.',
-            'Emit spans asynchronously. Span data should be written to a local buffer and shipped out-of-band. Never block the request path waiting for span delivery to a collector. Span loss is acceptable; request latency is not.',
-            'Build forced-trace capability for debugging. A developer should be able to set a header that forces full span capture for one specific request, regardless of the sampling policy. This is the escape hatch for debugging rare issues.',
-          ],
+          type: 'callout',
+          text: 'The critical path is root -> search -> index shard. The index shard consumed 130 ms of the 180 ms total. Without tracing, the frontend team sees a slow request and has no idea which downstream service to investigate.',
         },
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Minimal span data structure\nconst span = {\n  traceId:    "4bf92f3577b34da6a3ce929d0e0e4736",  // 128-bit, shared across trace\n  spanId:     "00f067aa0ba902b7",                    // 64-bit, unique to this span\n  parentId:   "b7ad6b7169203331",                    // 64-bit, links to parent span\n  name:       "GET /api/search",                     // operation name\n  service:    "search-service",                      // originating service\n  startTime:  1718000000000,                         // epoch microseconds\n  endTime:    1718000000145000,                      // epoch microseconds\n  status:     "OK",                                  // OK, ERROR, UNSET\n  attributes: {                                      // bounded key-value pairs\n    "http.method": "GET",\n    "http.status_code": 200,\n    "search.result_count": 42,\n  },\n  events: [                                          // timestamped annotations\n    { time: 1718000000012000, name: "cache.miss" },\n    { time: 1718000000015000, name: "index.fanout", attributes: { shard_count: 3 } },\n  ],\n};',
-        },
+        'The child durations add to 18 + 145 + 35 = 198 ms, which is larger than the 180 ms root duration because the children ran in parallel. That is why summing spans is the wrong analysis. The trace tree shows the longest dependency chain, which is the only chain that can reduce end-to-end latency if optimized.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Source', 'What it covers'],
-          rows: [
-            ['Sigelman et al., "Dapper, a Large-Scale Distributed Systems Tracing Infrastructure" (2010)', 'The original paper describing Google\'s design, instrumentation model, sampling strategy, and production deployment. https://research.google.com/archive/papers/dapper-2010-1.pdf'],
-            ['W3C Trace Context Specification', 'The standard format for propagating trace context across HTTP boundaries, adopted by OpenTelemetry. https://www.w3.org/TR/trace-context/'],
-            ['OpenTelemetry Documentation', 'The vendor-neutral observability framework that descended from Dapper\'s concepts via OpenTracing and OpenCensus. https://opentelemetry.io/docs/'],
-            ['Zipkin Architecture Overview', 'Twitter\'s open-source Dapper implementation, showing how the same ideas map to a concrete open-source system. https://zipkin.io/pages/architecture.html'],
-            ['Jaeger Documentation', 'Uber\'s distributed tracing system with adaptive sampling and Kafka-based span transport. https://www.jaegertracing.io/docs/'],
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: study Distributed Systems Basics and Trees to understand the service graph and span tree data structures that Dapper builds on.',
-            'Complement: study Tail Latency and p99 Thinking to understand why percentile analysis on sampled trace data requires care, and how tail-biased sampling targets the requests that matter most.',
-            'Extension: study t-digest Quantile Sketch for the data structure that summarizes latency distributions from sampled span durations without storing every individual value.',
-            'System context: study Borg Cluster Scheduler Case Study to see the infrastructure layer that runs the services Dapper traces, and Circuit Breakers and Deadlines for the fault-tolerance patterns that generate the retries and timeouts visible in trace data.',
-            'Contrast: study eBPF Ring Buffer Telemetry for a kernel-level observability approach that captures events without library instrumentation, trading application-level semantic context for zero-touch deployment.',
-          ],
-        },
+        'Read Sigelman et al., Dapper, a Large-Scale Distributed Systems Tracing Infrastructure, at https://research.google.com/archive/papers/dapper-2010-1.pdf, W3C Trace Context at https://www.w3.org/TR/trace-context/, OpenTelemetry docs at https://opentelemetry.io/docs/, Zipkin architecture at https://zipkin.io/pages/architecture.html, and Jaeger docs at https://www.jaegertracing.io/docs/. Then study tail latency, t-digest quantile sketches, eBPF telemetry, circuit breakers, deadlines, service meshes, and distributed logging.',
       ],
     },
   ],
 };
-

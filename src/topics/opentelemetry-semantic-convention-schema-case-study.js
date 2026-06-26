@@ -163,73 +163,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why semantic conventions exist',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Observability data is only useful when separate signals can be compared. During an incident, engineers move from a latency chart to a trace, from a trace to a log line, from a log line to a deployment, and from a deployment to the service owner. That movement depends on shared names. If one library says service, another says app, another says service_name, and another omits the field entirely, the backend has data but not structure. Search becomes manual and dashboards become fragile.',
-        'OpenTelemetry semantic conventions exist to define common names and meanings for telemetry attributes. They cover resources, instrumentation scopes, spans, metrics, logs, events, profiles, and domain-specific operations such as HTTP, databases, messaging, cloud infrastructure, and runtimes. The point is not decoration. The point is correlation. A stable service.name, deployment.environment, service.version, cloud.region, http.route, and error.type can join evidence across signals without guessing.',
+        'The animation shows telemetry fields becoming a schema. Telemetry means traces, metrics, logs, events, profiles, and resource metadata emitted by software. Semantic conventions are shared names and meanings for common attributes in that telemetry.',
+        'Active nodes show the attribute being attached, normalized, or queried. Found nodes show fields that can join signals correctly. Removed nodes show attributes dropped for safety, cost, or schema mismatch. Compare nodes show old and new names during migration.',
+        'The safe inference rule is that correlation needs matching meaning, not just matching text. If two services both emit http.route but one uses templated routes and one uses raw paths, the query can still be wrong.',
         {type:'callout', text:'Semantic conventions are the schema layer that lets traces, metrics, logs, and deployments join into one incident narrative.'},
       ],
     },
     {
-      heading: 'The naive approach and why it fails',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive approach is to let every team invent labels as needed. A metrics team chooses route. A tracing library emits http.target. A logging framework writes path. A deployment tool writes version. This can work inside one service for a while because the same engineers remember the local vocabulary. It fails when an outage crosses service boundaries. Query authors must know every synonym, every unit, every missing field, and every historical rename.',
-        'A second naive approach is to normalize everything in the backend after the fact. That also breaks down. Backends can rename fields, but they often receive data after cardinality has already exploded, PII has already been stored, units have already polluted charts, and alerts have already been written against old names. Semantic conventions push schema discipline upstream. Producers, collectors, and backends can all agree on the vocabulary before data becomes permanent operational evidence.',
+        'Observability data is useful only when separate signals can be compared. During an incident, engineers move from a latency chart to a trace, from a trace to a log line, from a log line to a deployment, and from a deployment to an owner.',
+        'That movement depends on shared names. If one library writes service, another writes app, another writes service_name, and another omits the field, the backend has data but no reliable join key.',
+        'OpenTelemetry semantic conventions define names and meanings for resources, spans, metrics, logs, events, and common domains such as HTTP, databases, messaging, cloud, containers, and runtimes. The purpose is correlation under pressure.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to let each team invent labels as needed. A metrics team chooses route, a tracing library emits http.target, a logging framework writes path, and a deployment tool writes version.',
+        'That works inside one service for a while because local engineers remember the vocabulary. It fails when an outage crosses service boundaries and query authors must know every synonym, unit, missing field, and historical rename.',
+        'A second approach is backend normalization after ingestion. That helps some queries, but it happens after data has been stored, alerts have been written, cardinality may have exploded, and sensitive fields may already be retained.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is schema drift. Names change, units change, route formats change, instrumentation libraries upgrade at different times, and some fields move from experimental to stable. Telemetry changes gradually because many services and libraries emit it.',
+        'Cardinality is a second wall. A metric label that includes raw user id or raw URL can create millions of streams. The name may be semantically understandable and still operationally dangerous.',
+        'Meaning is the third wall. Two teams can emit the same key with different conventions. If service.version is a git SHA in one service and a release train in another, rollup queries can mislead incident responders.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is that telemetry needs a schema even though it is not a database table. A Resource describes the entity that produced the telemetry: service, process, host, container, cloud instance, cluster, deployment, or library environment. An instrumentation scope identifies the library or component that emitted data. Spans describe operations. Metrics describe measurements. Logs describe events. Attributes provide the fields that make those objects queryable. Semantic conventions define which fields should be used for common ideas.',
-        'The schema must work across signals. A span attribute such as http.route helps explain a request. A metric with the same route dimension can show latency or error rate. A log record with the same service and deployment attributes can explain the failure. The shared naming model turns an incident investigation into joins instead of keyword search. Without it, traces, metrics, and logs are three disconnected piles of strings.',
+        'Telemetry needs a schema even though it is not a database table. A Resource describes the entity that produced telemetry, such as service, process, host, container, cloud instance, cluster, or deployment. An instrumentation scope identifies the library or component that emitted data.',
+        'Spans describe operations. Metrics describe measurements. Logs describe events. Attributes make those objects queryable. Semantic conventions define which attributes should represent common ideas.',
+        'The schema must work across signals. A metric with service.name, deployment.environment, and http.route can link to traces and logs that use the same meanings. The incident path becomes structured pivots instead of keyword search.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
-        'Instrumentation libraries attach attributes when they create spans, metrics, logs, or events. Resource detectors attach process, host, container, cloud, service, and deployment attributes. The SDK packages that data with schema information when available. The Collector can then enrich, drop, rename, hash, or route attributes before export. Backends store the resulting fields and expose them in queries, dashboards, alerts, exemplars, and correlation views.',
-        'Schema URLs and versions make evolution explicit. Semantic conventions change over time as names stabilize, old names are replaced, and units are clarified. A schema-aware pipeline can map older attributes to newer names so old and new telemetry still query together. This is the same idea as API versioning or schema registry compatibility, applied to observability. The difference is that telemetry changes are often rolled out gradually by many libraries and services, so drift is normal rather than exceptional.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The attribute-model visual is proving that resource attributes are the join key across signals. The resource node feeds spans, metrics, and logs because all of them need to say which service, version, environment, host, or region produced the evidence. The attributes node sits before the schema node because raw fields are not enough; fields need agreed names and meanings. The backend node is useful only if upstream producers provide stable attributes that can be queried together.',
-        'The schema-drift visual is proving that telemetry schemas have lifecycles. Renames split queries. Unit drift makes charts lie. Cardinality spikes make metric systems expensive or unusable. Mixed instrumentation scopes hide which library emitted a field. The fix column is the operating model: map old keys, normalize units, drop or hash dangerous dimensions, track instrumentation versions, and assign owners. Schema governance is operational work, not documentation trivia.',
+        'Instrumentation libraries attach attributes when they create spans, metrics, logs, or events. Resource detectors attach process, host, container, cloud, service, and deployment attributes. SDKs package the data with schema information when available.',
+        'The Collector can enrich, drop, rename, hash, or route attributes before export. Backends store the resulting fields and expose them in queries, dashboards, alerts, exemplars, and correlation views.',
+        'Schema URLs and versions make evolution explicit. A schema-aware pipeline can map older attributes to newer names so old and new telemetry query together during migration. That is observability schema evolution.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Semantic conventions work because they align independent producers before the incident starts. A Java HTTP library, a Go service, a Kubernetes detector, and a collector processor can all emit compatible resource and operation fields. A dashboard author can write one query for service.name and deployment.environment instead of maintaining a private dictionary for every team. A trace view can link to metrics and logs because the evidence shares stable dimensions.',
-        'They also work because conventions are specific enough to be useful but broad enough to cross vendors. OpenTelemetry does not require one backend or one storage engine. It defines the vocabulary that travels with the data. That gives teams portability. A company can change collectors, vendors, dashboards, or alert engines while preserving the semantic layer that makes the data understandable.',
+        'The correctness argument is stable join semantics. If traces, metrics, and logs use the same resource and operation attributes with the same meanings, then queries can connect evidence across signals without private dictionaries.',
+        'The conventions work because they align independent producers before the incident. A Java HTTP library, a Go service, a Kubernetes detector, and a Collector processor can all emit compatible fields that a backend can join.',
+        'Portability is a second benefit. OpenTelemetry does not require one storage engine. The data carries a shared vocabulary, so teams can change collectors, vendors, dashboards, or alert engines while keeping the semantic layer.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is governance. Someone must decide which attributes are required, which are optional, which are forbidden, which are too high-cardinality for metrics, and which are safe only in traces or logs. A perfect schema that nobody follows is useless. A loose schema that permits every user id, request id, and raw URL as a metric label can destroy the backend. The useful middle ground is an allowlist, review process, collector policy, and dashboard tests.',
-        'There is also migration cost. Libraries upgrade at different times. Old dashboards may depend on old names. Some semantic conventions are stable, while others are experimental or evolving. A good rollout may need dual-write periods, mapping processors, deprecation windows, and validation queries. The tradeoff is extra operational discipline in exchange for much lower incident friction and vendor lock-in.',
+        'The cost is governance. Someone must decide which attributes are required, optional, forbidden, too high-cardinality for metrics, or safe only in traces and logs. A schema that nobody follows is decoration.',
+        'Migration cost is real. Old dashboards may depend on old names, and libraries upgrade at different times. A rollout may need dual-writing, mapping processors, deprecation windows, and validation queries.',
+        'Cardinality cost is concrete. If a service emits 20 stable routes and 5 status classes, it creates about 100 route-status streams per metric. If it emits 50,000 raw URLs, the same metric can create 250,000 streams before other labels are counted.',
       ],
     },
     {
-      heading: 'Real uses',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A canary regression is the clean example. A new service.version causes p99 latency to rise for one http.route in production. The metric chart filters by service.name, deployment.environment, service.version, and route. Exemplars or trace links jump from the metric spike to representative traces. The traces show a database span with an error.type. Logs with the same resource attributes show the exact deployment and exception. The investigation is a sequence of structured pivots because the fields match.',
-        'Another use is platform-wide cost control. A team can define which resource attributes are allowed on metrics, which span attributes may contain user data, and which log fields must be redacted. The Collector can enforce those rules before export. Backends can alert on schema drift when new attributes appear. This makes semantic conventions part of the control plane for observability, not only a naming guide for instrumentation authors.',
+        'A canary regression is the clean use case. A metric shows p99 latency rising for one http.route on service.version 2026.06.25. Trace exemplars jump to slow requests with the same route and version. Logs with matching resource attributes show the exception.',
+        'Semantic conventions also support platform cost control. A team can allow service, environment, route, and status labels on metrics while hashing or dropping user identifiers. The Collector can enforce that policy before export.',
+        'They help ownership and compliance. Resource attributes can tie evidence to cluster, namespace, service, region, and deployment. That makes incident routing and audit review depend on data rather than naming guesses.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Where it fails',
       paragraphs: [
-        'Semantic conventions do not make telemetry cheap, safe, or correct by themselves. High-cardinality attributes can still break metrics. Sensitive fields can still leak through span attributes or log bodies. Units can still be wrong. A service can still emit the right key with the wrong meaning. A route label can still include raw IDs if instrumentation is careless. Conventions give names; they do not replace validation.',
-        'Another limit is false uniformity. Two services may both emit http.route, but one may use templated routes and another may use raw paths. Two teams may both emit service.version, but one uses a git SHA and the other uses a release train. These differences matter during incident response. Schema governance must include examples, tests, and ownership, not only a list of key names.',
+        'It fails when producers use the right key with the wrong value shape. Raw paths in http.route, mixed units in duration fields, and inconsistent version formats can make dashboards look structured while remaining wrong.',
+        'It fails when sensitive data is allowed into attributes or log bodies. Semantic conventions name fields, but they do not guarantee privacy. Validation, redaction, and allowlists must enforce the policy.',
+        'It fails when teams treat experimental fields as permanent without migration. Conventions evolve. Without schema version tracking, old and new telemetry split queries during the exact period when operators need continuity.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Read the OpenTelemetry semantic conventions overview, resource semantic conventions, metrics semantic conventions, and schema URL guidance. Then study OpenTelemetry Collector Case Study, Trace Context and Baggage Propagation, Metric Label Cardinality Control, Metric Exemplars Trace Correlation, Grafana Dashboard Query Transform Graph, Prometheus Rule Evaluation Alert State Machine, PII Redaction Token Span Pipeline, OpenAPI Contract Schema Evolution, and Schema Registry Compatibility. The durable lesson is that observability correlation is a schema problem before it is a dashboard problem.',
+        'A service emits latency metrics for checkout. With clean conventions, each point has service.name=checkout-api, deployment.environment=prod, service.version=2026.06.25, http.route=/checkout/{cartId}, and http.response.status_code=500.',
+        'The same request produces a trace with matching resource attributes and a database span with db.system=postgresql and error.type=timeout. The log line carries the same service, environment, and version. One query can move from a p99 bucket to a trace and then to the log.',
+        'If the service instead emits raw paths, 20 templated routes become 80,000 URL label values in a day. Query cost rises, dashboards split, and high-cardinality labels can be rejected. The schema problem becomes a cost problem.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources are the OpenTelemetry semantic conventions overview, resource conventions, HTTP conventions, metrics conventions, and schema URL guidance. Use them for stable names, units, attribute stability, and schema migration behavior.',
+        'Study OpenTelemetry Collector for enforcement, Trace Context and Baggage for propagation, Metric Label Cardinality Control for cost, Metric Exemplars for signal linking, PII Redaction for safety, and OpenAPI Contract Evolution for a parallel schema-governance pattern.',
       ],
     },
   ],

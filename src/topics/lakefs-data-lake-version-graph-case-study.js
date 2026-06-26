@@ -218,96 +218,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A data lake looks like a directory tree, but production data work needs more than paths. Teams need to publish tables, backfill partitions, test feature datasets, roll back bad releases, and prove which files a model or dashboard read. Plain object storage gives durable blobs and cheap listing, but it does not give a release process.',
-        'lakeFS adds a version-control layer over object stores. It gives data teams repositories, branches, commits, merges, tags, hooks, and reproducible reads while the physical bytes remain in S3, GCS, Azure Blob, or a compatible store. The system is best read as a metadata control plane that names and protects versions of lake objects.',
+        'The branch-commit graph view shows refs, commits, and parent edges. A ref is a name such as main or experiment that points to a commit. A commit is a durable snapshot of the logical object map.',
+        'The object-versioning view shows why the graph matters. Reads through a commit resolve paths through metadata to physical objects. The safe inference is that changing a branch later does not change what an older commit meant.',
         {type: 'callout', text: 'lakeFS turns object storage paths into versioned logical refs, so publication, rollback, and reproducibility become metadata operations instead of risky blob rewrites.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt: 'Directed acyclic graph shown with vertices ordered so each edge points from earlier to later.', caption: 'Topological ordering diagram by David Eppstein, Wikimedia Commons, CC0.'},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A data lake stores many files in object storage, but production data work needs release semantics. Teams publish tables, backfill partitions, test features, roll back bad data, and prove which files a model or dashboard used. Plain prefixes do not provide a transaction boundary.',
+        'lakeFS adds version control over object stores. It gives repositories, branches, commits, merges, tags, hooks, and reproducible reads while the bytes remain in S3, GCS, Azure Blob, or compatible storage. The system is a metadata control plane for data lake versions.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first approach is prefix discipline. Write incoming data under staging/date=2026-06-17, validate it, then copy or rename objects into production/date=2026-06-17. If something breaks, copy old files back or point jobs at yesterday. This works while the lake is small and one pipeline owns the files.',
-        'The approach is reasonable because object stores are simple and cheap. Prefixes are easy to explain, and many tools already know how to read them. The problem is that a prefix is not a transaction boundary. A reader can see half a release, a retry can mix old and new objects, and a rollback can become another unsafe batch of object mutations.',
+        'The obvious approach is prefix discipline. Write new data under staging/date=2026-06-25, validate it, then copy or rename objects into production/date=2026-06-25. If a problem appears, copy old files back or point jobs at yesterday.',
+        'That works when one pipeline owns a small number of files. It fails when a release spans many objects and readers run while writes are still happening. A prefix is a naming convention, not an atomic publication event.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is consistency across many objects. A table snapshot may involve hundreds of Parquet files, manifests, logs, checkpoints, and derived outputs. If publication is just a set of object writes, the lake has no single moment that means this version is now live.',
-        'The second wall is experimentation. Backfills, schema migrations, quality repairs, and feature engineering need isolation. Copying the whole lake for every experiment is too expensive. Mutating production in place is too risky. Teams need cheap branches that share unchanged data and record only what differs.',
+        'The wall is multi-object consistency. A table snapshot can include hundreds of Parquet files, manifests, checkpoints, and derived outputs. If publication is many independent object writes, readers can observe a mixed state.',
+        'The second wall is experimentation without full copies. A backfill may change 5 percent of a 100 TB lake. Copying 100 TB for every experiment is too expensive, but mutating production in place is unsafe.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Separate logical data identity from physical object addresses. A reader should ask for a ref and a path, not for whatever bytes happen to be under a mutable prefix at this moment. lakeFS resolves that ref and path through metadata to a concrete object version.',
-        'That indirection turns branch creation into metadata work. A branch can point at the same committed object map as main. When a pipeline changes one path, lakeFS records a new version for that path while unchanged paths remain shared. A commit freezes the branch state. A merge advances the target branch to a new committed state instead of copying every blob.',
+        'Separate logical identity from physical object addresses. A reader asks for a ref and path, and lakeFS resolves that pair through metadata to concrete object versions. The physical bytes can be shared while logical versions remain distinct.',
+        'This makes branches cheap when most data is unchanged. A new branch can point to the same committed map as main. Writing one path records a branch-local change, and merging advances the target ref only after validation and conflict checks.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A repository is a logical namespace for related data. A branch is a mutable reference to a committed state plus possible uncommitted changes. A commit records a reproducible point in the repository history. A merge incorporates changes from one ref into a destination branch and creates a new target commit.',
-        'The physical objects stay in the backing store. lakeFS keeps metadata that maps repository paths and refs to physical addresses. Reads through a commit see stable metadata. Writes on a branch update staging metadata for that branch. Commit and merge operations move the visible ref only after the metadata state is coherent.',
-        'Hooks make the merge boundary useful. A team can require schema checks, row-count checks, privacy scans, partition checks, table-format validation, or custom data quality tests before a branch can merge to main. The same idea appears in software delivery, but the artifact is a data lake snapshot rather than a binary or source tree.',
+        'A repository groups related data. A branch is a mutable ref. A commit freezes a metadata state and records parent history. A merge incorporates changes from one ref into another and creates a new target commit.',
+        'The backing store holds physical objects. lakeFS metadata maps repository paths and refs to those objects. Hooks can run schema checks, row-count checks, privacy scans, or table-format validation before a merge to main.',
       ],
-    },
-    {
-      heading: 'Data structures',
-      paragraphs: [
-        'The visible data structure is a version graph: repositories contain branch refs, branch refs point to commits, commits have parents, and merges create new commits on the target branch. Tags or commit identifiers let readers pin a historical state.',
-        'The hidden data structure is the object metadata map. It records logical paths, versions, physical addresses, checksums or identity fields, and enough reachability information to preserve objects still needed by live refs. Garbage collection and retention policy must respect that graph. An object that looks old physically may still be reachable from a tag, branch, or historical commit.',
-        'This is close to Git in user shape but not identical in implementation goals. Data files are large, object stores have different semantics than local disks, and table formats such as Delta Lake, Iceberg, Hudi, or plain Parquet may add their own metadata above the object files. lakeFS has to cooperate with those layers rather than pretend every dataset is just source code.',
-      ],
-    },
-    {
+    },    {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is a naming argument. If a reader uses a commit ref, the ref resolves to one committed metadata state. Later writes on a branch do not change that commit. Reproducibility comes from the fact that the logical name is bound to a stable object map.',
-        'Branch isolation works because branch writes create branch-local metadata changes. A writer on dev can replace path features/users.parquet without changing the object version that main resolves for the same path. Merge is the controlled point where the target branch is allowed to advance.',
-        'Rollback works for the same reason. If main moved from commit A to commit B and B is bad, the team can reset or revert to a known-good ref. The system is not guessing from timestamps or reconstructing state from object listings. It has an explicit history of named states.',
+        'Correctness is a naming invariant. If a reader pins commit C, path data/events resolves through the object map for C. Later writes to branch dev or main do not change C. Reproducibility comes from binding a logical name to a stable metadata state.',
+        'Rollback works for the same reason. If main moves from commit A to bad commit B, operators can reset or revert to A. The system is not guessing from timestamps or object listings; it has an explicit graph of named states.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Branches are cheap when they share most objects. Creating a branch does not require duplicating the lake. The cost appears when jobs rewrite data. A compaction job, full backfill, or table rewrite can create many new physical objects even if the logical change is one table version.',
-        'Metadata becomes part of the serving path. Path resolution, commit lookup, branch staging, conflict detection, hook execution, authorization, and garbage collection now matter to data reliability. A lakeFS deployment is not only storage; it is a stateful service whose metadata store must be backed up, monitored, and sized for the workload.',
-        'Retention is an explicit tradeoff. Long history improves audit and rollback but preserves more objects. Aggressive garbage collection lowers storage cost but reduces the time window for recovery. The right policy depends on compliance, incident response, model reproducibility, and object churn.',
+        'Branches are cheap when they share objects, but rewrites are not free. If a compaction job rewrites 20 TB of files, the version graph now preserves old and new objects until retention rules allow cleanup. Cost grows with changed bytes and retained history, not with branch count alone.',
+        'Metadata becomes part of the read path. Commit lookup, path resolution, conflict detection, hooks, authorization, and garbage collection must be monitored and backed up. Cost as behavior means safer publication in exchange for a stateful control plane.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'lakeFS fits data release workflows. A daily pipeline can write to a branch, run validation, commit, and merge only after the table passes. Downstream dashboards then see one published snapshot rather than a directory that changed while they were reading it.',
-        'It also fits ML feature pipelines. Training, evaluation, and online-serving backfills can pin exact refs. If a model was trained on commit X and evaluated on commit Y, that statement can be inspected later. This is stronger than saying the files came from some date prefix that may have been overwritten.',
-        'The pattern is useful for risky maintenance: GDPR deletes, partition rewrites, schema migrations, late-arriving data repairs, and multi-table releases. In each case the branch is a workspace, the commit is a reproducible checkpoint, and the merge is the publication event.',
+        'lakeFS fits data release workflows. A daily pipeline can write to a branch, run tests, commit, and merge only if checks pass. Dashboards then read one published snapshot instead of a prefix changing underneath them.',
+        'It also fits ML feature pipelines and risky maintenance. Training can pin commit X, evaluation can pin commit Y, and a GDPR delete or schema migration can be tested on a branch before publication. The graph records what changed and when.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'lakeFS does not make object storage transactional for readers that bypass lakeFS refs. If a query engine reads raw object paths directly, it can ignore the version graph. The benefit depends on integrating tools, catalogs, credentials, and job code so they resolve data through the versioned namespace.',
-        'It also does not replace data quality. A branch can isolate bad data, but it cannot know that a label column is semantically wrong unless a test checks it. Hooks are only as good as the checks behind them. A weak validation suite gives a well-versioned bad release.',
-        'Conflict handling is another boundary. Git-style names make conflicts visible, but data conflicts can be semantic. Two branches may both update a customer table in ways that do not collide by object path but still break a business rule. Versioning gives the place to detect the issue; it does not remove the need for domain checks.',
+        'lakeFS does not help readers that bypass versioned refs and read raw object paths. The value depends on integrating query engines, catalogs, credentials, and jobs so they resolve through lakeFS. One unversioned reader can break the reproducibility story.',
+        'It also does not prove data quality by itself. Hooks only catch what they test. Two branches can both update different paths and still create a semantic conflict in a business metric, so domain checks remain necessary.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Watch merge failures, hook failures, conflict rates, branch age, uncommitted object counts, commit latency, path-resolution latency, metadata-store errors, object-store request failures, and garbage-collection backlog. These are control-plane signals, not just storage signals.',
-        'For data correctness, compare release commits with downstream incidents. Track which jobs read by branch, tag, or commit and which jobs still read raw object paths. A single unversioned reader can undo the reproducibility story for a whole workflow.',
-        'For cost, track object churn per commit, retained bytes by ref, old branches that keep data alive, and compaction jobs that rewrite large table regions. Version graphs are cheap when changes are narrow and expensive when every release rewrites the world.',
+        'A lake has 100 TB under main. A fraud team creates branch risk-model from commit A. The branch creation is metadata only, so it does not copy 100 TB. The team backfills 500 GiB of new feature files and updates a manifest.',
+        'Tests show one partition has a bad row count, so the branch is not merged. Production readers pinned to main still resolve commit A and see none of the 500 GiB backfill. After fixing the partition, the team commits and merges, creating commit B on main.',
+        'If commit B breaks a dashboard, rollback means moving main back to A or creating a revert commit, depending on policy. The cost is retained bytes: both the old objects and the 500 GiB changed objects remain reachable until retention and garbage collection allow deletion.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Git Internals for refs, commits, and merges. Study Content-Addressed Merkle DAG Object Store for the storage identity pattern. Study S3 Object Storage, Parquet Columnar Format, Delta Lake, Apache Iceberg, Apache Hudi, Project Nessie, and OpenLineage for the surrounding lakehouse stack.',
-        'Official sources: lakeFS concepts and model at https://docs.lakefs.io/understand/model/, data structure documentation at https://docs.lakefs.io/understand/data-structure/, versioning internals at https://docs.lakefs.io/understand/how/versioning-internals/, and branch and merge documentation at https://docs.lakefs.io/understand/how/merge/.',
+        'Primary sources: lakeFS concepts at https://docs.lakefs.io/understand/model/, data structure at https://docs.lakefs.io/understand/data-structure/, versioning internals at https://docs.lakefs.io/understand/how/versioning-internals/, and merge documentation at https://docs.lakefs.io/understand/how/merge/.',
+        'Study Git refs and commits, object storage consistency, Parquet, Apache Iceberg, Delta Lake, Apache Hudi, Project Nessie, OpenLineage, data quality hooks, and garbage collection next.',
       ],
     },
   ],

@@ -216,90 +216,22 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'What the reference graph is',
-      paragraphs: [
-        `A modern video codec does not treat a movie as a folder of unrelated pictures. It treats many frames as predictions from other decoded frames plus a residual that fixes the prediction error. The reference-frame graph records those dependencies. A node is a frame or picture. An edge means the target frame cannot be reconstructed until the referenced frame has already been decoded and kept available.`,
-        `This graph is usually discussed through a group of pictures, or GOP. I-like frames are intra frames that can be decoded without earlier pictures. P-like frames predict from past references. B-like frames may use references before and after their display time, which means decode order and display order can differ. The GOP is therefore both a compression plan and a scheduling constraint.`,
-        {type:'callout', text:`A GOP is a dependency graph: better compression comes from keeping decoded reference frames alive until every dependent frame can be reconstructed.`},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/64/I_P_and_B_frames.svg', alt:'Diagram of I, P, and B video frames with arrows showing reference dependencies.', caption:'I, P, and B frames in a compressed video sequence. Image: Petteri Aimonen, Wikimedia Commons, public domain.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach and the wall',
-      paragraphs: [
-        `The obvious video format is a sequence of complete images. That design is simple. Seeking is easy, corruption is local, and each frame can be decoded independently. The wall is bitrate. Adjacent frames often share a background, object shapes, camera motion, lighting, and texture. Re-sending all of that information thirty or sixty times per second wastes the main structure in the data.`,
-        `Inter-frame prediction breaks through that wall. Instead of storing the whole next image, the encoder says which blocks can be predicted from already decoded pictures and stores the remaining error. Motion vectors describe where similar content came from. Residual coefficients describe what the prediction missed. The better the reference choice, the fewer bits the residual needs.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `The core insight is that compression creates dependencies, and dependencies need a data structure. A frame that predicts from another frame is no longer an isolated record. It is a node in a directed acyclic graph. The graph must stay acyclic because decoding cannot depend on a future reconstruction that itself depends back on the current frame. A valid decode schedule is a topological order of that graph.`,
-        `This explains why file order, decode timestamp, and presentation timestamp are separate ideas. A B frame can be displayed between two anchor frames while being decoded after the future anchor it references. Players and decoders must respect decode order to build the needed pictures, then use presentation order to show them at the right time. Confusing those orders is a common source of media bugs.`,
-      ],
-    },
-    {
-      heading: 'The decoded picture buffer',
-      paragraphs: [
-        `The decoded picture buffer, usually called the DPB, is the working set for the reference graph. When a frame is reconstructed, the decoder may display it, keep it as a future reference, or both. A displayed frame is not automatically dead. If a later frame still references it, the DPB must keep it until the last dependent picture has been decoded or until the bitstream marks it no longer needed.`,
-        `A useful DPB ledger tracks frame identity, reference slot, decode timestamp, presentation timestamp, frame type, reference list, output status, and release status. It also tracks whether a frame is a random-access point, whether it came from a clean segment boundary, and whether error concealment was used. The ledger is small compared with the pixels, but it is what keeps decoder state coherent.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `Video has temporal redundancy. If the camera is still and a person moves across a background, most pixels are predictable from nearby frames after motion compensation. If the camera pans, large regions can still be predicted by shifted references. Reference frames let the encoder spend bits on what changed instead of resending what stayed predictable.`,
-        `The graph also gives the encoder a controlled way to trade bitrate against latency and robustness. More references and deeper search can reduce residual bits, but they increase encoder work, decoder memory, and reorder delay. Shorter chains, more frequent intra frames, and smaller GOPs cost more bits but improve seeking, startup, live latency, and recovery after loss.`,
-      ],
-    },
-    {
-      heading: 'Encoder policy',
-      paragraphs: [
-        `The encoder chooses the graph shape. It decides how often to place random-access frames, how far references may reach, how many B frames to use, whether references cross segment boundaries, how many reference slots the target decoder can support, and how aggressively to spend compute on motion search. Those choices are product decisions as much as coding decisions.`,
-        `Offline video-on-demand encoders can tolerate long lookahead, expensive search, and deeper reference patterns because the viewer pays only the decode cost later. A video call, cloud game, remote desktop, or live stream has a tighter latency budget. It may avoid or limit B frames, shorten GOPs, constrain lookahead, and accept higher bitrate to keep glass-to-glass delay low.`,
-      ],
-    },
-    {
-      heading: 'Random access and segmentation',
-      paragraphs: [
-        `Random access cuts the dependency graph. A player that starts in the middle of a stream cannot decode frames that depend on references from minutes earlier unless it first fetches and decodes those references. Intra or IDR-style access points give the player a place to begin with bounded history. Adaptive streaming systems place segment boundaries around these constraints so a new rendition can be fetched and decoded cleanly.`,
-        `There is a cost. Every random-access point spends bits because intra prediction is less efficient than temporal prediction for most ordinary motion. A short GOP improves seeking and channel change time but raises bitrate. A long GOP improves compression but makes starts, scrubs, rendition switches, and error recovery more expensive. Good media systems choose this interval deliberately instead of inheriting a default.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `Reference mistakes propagate. If a packet loss, corrupt slice, wrong reference index, bad timestamp, or premature DPB eviction damages an anchor, every dependent frame can inherit visible errors until a clean access point resets the state. The symptom may be blockiness, smearing, ghosting, frozen regions, decode failure, or long recovery time.`,
-        `Another failure mode is hidden latency. A stream may report a healthy average bitrate while using a GOP structure that forces reorder delay or decoder buffering the product cannot afford. A stream may also look fine in a local player but fail on constrained devices if reference-slot count, level limits, memory bandwidth, or hardware-decoder support were ignored.`,
-      ],
-    },
-    {
-      heading: 'Operational signals',
-      paragraphs: [
-        `Evaluate a reference-frame policy with more than average bitrate. Track bitrate at equal quality, objective or perceptual quality scores such as PSNR, SSIM, or VMAF when appropriate, encode speed, decoder memory, DPB occupancy, reference-slot pressure, startup latency, seek latency, rendition-switch delay, dropped frames, decode errors, and recovery distance after loss. For live systems, include end-to-end latency and jitter under network stress.`,
-        `For debugging, log frame id, frame type, decode time, presentation time, reference list, DPB slot, output status, and segment id. When playback breaks, ask whether the referenced pictures existed, whether they were decoded before use, whether they were retained long enough, and whether the player tried to start from a frame that was not actually independently decodable.`,
-      ],
-    },
-    {
-      heading: 'Where it is useful',
-      paragraphs: [
-        `Reference-frame DAGs are central to video codecs, but the mental model travels. Any system that compresses state by referring to earlier state inherits a dependency graph and a retention policy. Delta files, incremental checkpoints, database snapshots, content-addressed build caches, and predictive telemetry all need to know which base objects must stay alive for dependents to be useful.`,
-        `In media specifically, this model explains GOP design, B-frame delay, DPB sizing, trick play, random access, adaptive-bitrate segment alignment, hardware-decoder constraints, and corruption recovery. It gives curriculum builders a concrete way to connect compression, graphs, buffers, scheduling, and product metrics.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `The DAG model is not the whole codec. It does not replace transform coding, quantization, entropy coding, in-loop filtering, rate control, tiling, packetization, or transport behavior. It also hides codec-specific details: reference-picture marking, frame types, refresh rules, prediction modes, and hardware limits differ across standards and implementations.`,
-        `It is also easy to overfit to average visual quality. A deep reference graph can be efficient for pristine on-demand playback and still be wrong for a lossy mobile network, a low-latency call, or a device with a small hardware DPB. The right graph is the one that satisfies the product constraints, not the one that minimizes bits in isolation.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study Entropy & Information, Arithmetic & ANS Coding, LZ77 Compression, and Quantization to understand why residuals become cheaper to store. Then study Graph Topological Sort for dependency scheduling, Ring Buffer and RTP Jitter Buffer for streaming state, AV1 Tile OBU Superblock for codec structure, and Adaptive Bitrate Manifest Ladder for the player-side decisions that sit on top of GOP boundaries.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read each frame as a node in a dependency graph. Active edges show reference requirements, found nodes show decoded pictures available for prediction, and removed nodes show frames that can be released.',
+      'A GOP is a group of pictures. An I frame is independent, a P frame predicts from earlier references, and a B frame may use references on both sides of its display time.',
+      {type:'callout', text:`A GOP is a dependency graph: better compression comes from keeping decoded reference frames alive until every dependent frame can be reconstructed.`},
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/64/I_P_and_B_frames.svg', alt:'Diagram of I, P, and B video frames with arrows showing reference dependencies.', caption:'I, P, and B frames in a compressed video sequence. Image: Petteri Aimonen, Wikimedia Commons, public domain.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: ['Video repeats itself across time. Reference frames let a codec store prediction plus residual error instead of resending every pixel in every frame.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious format stores each frame as an independent image. Seeking is simple and corruption is local, but bitrate is far too high for ordinary video.'] },
+    { heading: 'The wall', paragraphs: ['The wall is raw pixel volume. A 1920 by 1080 RGB frame is about 6.2 MB, so 30 raw frames per second exceeds 180 MB per second before audio.'] },
+    { heading: 'The core insight', paragraphs: ['The core insight is that compression creates a directed acyclic graph. A dependent frame cannot be reconstructed until every referenced frame has already been decoded and retained.'] },
+    { heading: 'How it works', paragraphs: ['The encoder chooses anchors and predicts other frames from decoded references. The decoder keeps reconstructed reference pictures in the decoded picture buffer, reads them for motion compensation, adds residuals, and updates retention state.'] },
+    { heading: 'Why it works', paragraphs: ['Correctness follows the dependency graph. If every frame decodes only after its references are reconstructed and retained, prediction reads the same pixels the encoder assumed.'] },
+    { heading: 'Cost and complexity', paragraphs: ['More references usually reduce residual bits but raise encoder search, decoder memory, and reorder delay. Four 1080p 8-bit 4:2:0 reference pictures need roughly 12 MB of pixel storage before overhead.'] },
+    { heading: 'Real-world uses', paragraphs: ['Reference DAGs shape H.264, HEVC, AV1, VP9, streaming startup, trick play, adaptive-bitrate segment boundaries, low-latency calls, and hardware decoder limits.'] },
+    { heading: 'Where it fails', paragraphs: ['The DAG model is not the whole codec. Transform coding, quantization, entropy coding, rate control, filters, packets, and network loss all add separate behavior.'] },
+    { heading: 'Worked example', paragraphs: ['Use display order I0, B1, B2, P3, B4, B5, P6. If I costs 90 units, P costs 45, and B costs 25, this GOP costs 255 units instead of 630 units for seven independent frames.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: RFC 6184 for H.264 RTP payload behavior at https://www.rfc-editor.org/rfc/rfc6184 and codec standard material for H.264, HEVC, AV1, and VP9 reference-picture rules. Study topological sort, ring buffers, entropy coding, and adaptive-bitrate manifests next.'] },
   ],
 };

@@ -191,89 +191,56 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'A federated client cohort sampler chooses which devices participate in each training round. It is part scheduler, part privacy guardrail, part fairness control, and part experiment ledger. The sampler has to pick enough eligible clients while avoiding battery drain, data-plan surprises, repeated participation, and population skew.',
-        'Federated Averaging showed that decentralized clients can train a shared model through local updates and server aggregation. In real deployments, the sampling process decides which local updates exist in the first place. A biased cohort can make the model converge faster on the wrong population.',
-        'This topic sits between machine learning and fleet operations. The optimizer only sees updates from clients the sampler admitted. The privacy accountant only spends budget for clients that participated. The product only benefits if the participating clients resemble the users the model is supposed to serve.',
+    { heading: 'How to read the animation', paragraphs: [
+      'The animation shows a federated learning round choosing client devices. Federated learning trains a shared model by sending work to devices, collecting local updates, and aggregating those updates on a server without centralizing raw user data. Active nodes are clients being filtered or selected, found nodes are admitted participants, and compare nodes are fairness or eligibility constraints.',
+      'The safe inference rule is distribution control. The cohort is not just a scheduling batch; it defines which data distribution contributes gradients this round. A biased sampler can make the model learn the wrong user population even if aggregation is mathematically correct.',
         {type:'callout', text:'Client selection is part of the training distribution, so the sampler is a model-quality control surface rather than neutral scheduling plumbing.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/11/Centralized_federated_learning_protocol.png', alt:'Diagram of a central server coordinating federated learning clients.', caption:'Centralized federated learning protocol by MarcT0K, CC BY-SA 4.0, via Wikimedia Commons.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious sampler is first come, first served: train on whichever devices are online right now. That is attractive because it fills rounds quickly. It also overrepresents users with reliable power, strong connectivity, recent app versions, and time zones that match the scheduler.',
-        'Another tempting approach is strict population quotas. That protects representation but can starve rounds when rare slices are unavailable, increase dropout, or repeatedly sample the same reachable clients from scarce groups. A real sampler balances eligibility, quota, cooldown, dropout, privacy, and training deadlines.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is that client selection is part of the training distribution. It is not neutral plumbing. The cohort sampler determines which data shapes, device classes, languages, regions, and app versions influence a round. If the cohort drifts, the model update drifts.',
-        'The second insight is that sampling needs a ledger. A cohort without records cannot be audited. The system should know target counts, draw counts, join counts, completion counts, stratum misses, repeat-use caps, dropout reasons, and whether the round was accepted or discarded. Those fields make later model regressions explainable.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The server publishes a task with model version, objective, minimum client count, time limit, and policy constraints. Clients become eligible only when local conditions pass: charging, idle, acceptable network, compatible software, and allowed geography or consent state. The eligible pool is then sampled with quotas, caps, cooldowns, and an overdraw buffer for expected dropout.',
-        'The data structure is a live queue plus a cohort ledger. The queue manages availability and deadlines. The ledger stores target count, drawn count, joined count, completion count, stratum coverage, dropout, and reasons for exclusion. Later systems can join that ledger to privacy spend and model metrics.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'In the eligibility-funnel view, follow the task from policy to queue to sample to training. The highlighted cells are not paperwork; they are the controls that decide whether the round is legal, fair, and useful. The ledger frame is the audit trail that lets someone later explain why the final 9,800 clients were accepted.',
-        'In the cohort-balance view, compare three distributions: the whole fleet, the devices online now, and the sampled cohort. The gap between online and fleet is the bug a naive sampler would ship. The quota and repair frames show how the sampler corrects that gap without pretending every missing slice can be filled cheaply.',
-        'The feedback loop at the end is important. Sampling decisions affect training quality, privacy spend, and future eligibility. Cooldowns, scarcity estimates, and dropout buffers should update from observed rounds rather than live forever as constants from the first launch.',
-      ],
-    },
-    {
-      heading: 'Why it matters',
-      paragraphs: [
-        'Federated learning is naturally non-IID. The people online at a given hour are not a random sample of all users. Device capability, language, region, app version, and network quality all affect who can participate. Client selection therefore changes both convergence and fairness.',
-        'A model can improve average validation accuracy while hurting rare slices if the sampler repeatedly misses them. Conversely, aggressively forcing rare slices can increase latency, dropout, and privacy exposure. The sampler exists to make those tradeoffs explicit before the optimizer ever runs.',
-        'It also matters for privacy. Reusing the same small group of reliable clients can increase exposure and consume privacy budget unevenly. Cooldowns and participation caps are not cosmetic fairness features; they reduce repeated influence by the easiest-to-reach clients.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'A cohort sampler works by making the hidden selection process measurable and adjustable. Eligibility filters protect the user experience. Stratified quotas protect population coverage. Overdraw buffers absorb expected dropout. Cooldowns reduce repeated use. Repair rules decide what to do when a stratum cannot be filled.',
-        'The sampler cannot make unavailable users available, but it can prevent the system from pretending availability is random. That distinction is the whole point. Once online skew is visible, the team can choose whether to wait longer, lower a quota, skip a round, or accept a known bias with an audit record.',
-      ],
-    },
-    {
-      heading: 'Case study',
-      paragraphs: [
-        'Consider a keyboard model round that needs 10,000 completed updates. The fleet has millions of devices, but only some are charging, idle, online, on Wi-Fi, and running the right model version. The sampler draws 13,000 clients because historical dropout is around 25 percent. It also caps repeated participation and repairs underrepresented language strata before the round starts.',
-        'The result is not just a model update. It is an auditable cohort record: who was eligible in aggregate, how many were sampled per stratum, how many dropped, and whether the final sample still matches the policy. That record becomes evidence for privacy accounting and post-training evaluation.',
-        'If a low-end device slice repeatedly drops after selection, the sampler should not silently replace it with high-end devices and call the round balanced. It should record the miss, adjust overdraw or scheduling, and let the model-release gate decide whether the final cohort is acceptable. The point of the sampler is honest selection, not hiding scarcity.',
-      ],
-    },
-    {
-      heading: 'What to measure',
-      paragraphs: [
-        'Useful metrics include eligibility rate, queue wait time, join rate, completion rate, dropout by slice, repeat participation, privacy-budget spend, update-norm distribution, and final cohort distance from the target population. These numbers should be attached to each model candidate.',
-        'The sampler should also be evaluated against downstream validation slices. If a cohort looks balanced by device class but regresses one language or region, the quota design is still wrong. Cohort health and model quality have to be read together.',
-      ],
-    },
-    {
-      heading: 'Pitfalls',
-      paragraphs: [
-        'Do not sample only the clients that are easiest to reach. Do not treat dropout as random if low-end devices, regions, or user groups drop more often. Do not reuse the same active clients every round without cooldown, because repeated participation can raise privacy risk and skew the model.',
-        'Do not hide sampling rules inside opaque scheduler code. The rules affect privacy, fairness, and convergence, so they deserve the same review as optimizer hyperparameters. A practical sampler should publish cohort ledgers, repeat-use caps, stratum misses, dropout assumptions, and repair decisions with the model candidate.',
-        'Do not evaluate the sampler only by whether a round filled. A full round can be bad if it is skewed, stale, privacy-heavy, or drawn from a subset that will not represent deployment. The right dashboard joins cohort metrics to model metrics.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Federated Averaging at https://arxiv.org/abs/1602.05629, TensorFlow Federated overview at https://www.tensorflow.org/federated, and client-selection survey material at https://arxiv.org/pdf/2211.01549. Study Federated Learning and Secure Aggregation, Differential Privacy SGD, Feature Freshness SLO Monitor, Training-Serving Skew Replay Diff, Backpressure, and Distributed Tracing next.',
-        'Then inspect one real cohort ledger end to end before trusting the model update.',
-      ],
-    },
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Mobile fleets can contain millions of devices, but a training round may need only thousands. Devices differ by battery level, network type, geography, app version, data distribution, and availability. Choosing clients poorly can waste battery and produce a model that mainly represents always-online users.',
+      'A cohort sampler exists to turn fleet chaos into a controlled training sample. It filters unsafe or unavailable devices, balances useful slices, limits repeated participation, and records which population actually trained the model. The optimizer only sees updates from clients the sampler admitted.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is uniform random sampling among currently available clients. It is easy to implement and gives a clean statistical story when availability is independent of user behavior. It also spreads work across the fleet.',
+      'The approach is reasonable as a baseline. If 100,000 clients are available and the server needs 1,000 updates, choose 1 percent at random and aggregate their local model deltas. The problem is that availability is rarely neutral.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is selection bias. Devices on Wi-Fi, charging, and recently active are more likely to be eligible, and those users may differ from the population the model serves. Uniform sampling from eligible clients is not the same as uniform sampling from all users.',
+      'The second wall is operational failure. Some selected clients drop out, some finish late, and some return updates after the aggregation deadline. The sampler must overselect or adapt while still protecting privacy and avoiding repeated burden on the same devices.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Treat client selection as a constrained sampling problem. The sampler first defines eligibility, then chooses a cohort that satisfies training size, slice balance, privacy limits, and device-health rules. Sampling probabilities become part of the experiment design.',
+      'The cohort ledger is as important as the sample. It records who was eligible, who was invited, who returned, which slice they represented, and how often similar clients were used recently. Without that ledger, model evaluation cannot separate optimizer behavior from sampler bias.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'The server starts with an eligibility funnel. A device may need sufficient battery, unmetered network, supported app version, recent local examples, and no recent participation. Each filter reduces the candidate pool before the sampler chooses a cohort.',
+      'The sampler then applies quotas or probabilities. It may target 40 percent Android region A, 30 percent Android region B, and 30 percent iOS if those slices matter for model quality. It may also cap repeat selection so one device is not trained every night.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'Correctness is about matching the intended training distribution. If the target is population-weighted learning, then each slice should contribute in proportion to its population or be reweighted during aggregation. If the target is fairness across slices, the sampler can deliberately balance slices and record that choice.',
+      'The key invariant is that every included update has a known selection path. Eligibility, invitation probability, dropout, and aggregation weight should be auditable. That makes it possible to reason about bias instead of treating the cohort as a black box.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Cost behaves with invited clients, not just successful updates. If the round needs 1,000 returned updates and the expected completion rate is 70 percent, the server may invite about 1,430 clients. The extra 430 invitations spend battery, bandwidth, privacy budget accounting, and coordination work.',
+      'Balancing slices adds variance and delay. If a rare slice has only 300 eligible clients and the round needs 100 of them, dropout can make the slice miss its quota. The sampler can wait longer, over-invite, or accept imbalance, and each choice changes training behavior.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Client cohort samplers fit keyboard models, ranking models, speech personalization, on-device recommendation, health sensing, and telemetry-limited product learning. The access pattern is many edge devices with private local examples and intermittent availability. The sampler decides which updates exist.',
+      'They are also used in federated evaluation. A model can be sent to a sampled cohort for local validation before rollout. The same sampling questions apply because an evaluation cohort biased toward high-end devices can hide failures on the broader fleet.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'The sampler fails when eligibility rules exclude the users most affected by the model. A rule requiring charging plus Wi-Fi may under-sample lower-connectivity regions. The resulting model can improve aggregate metrics while degrading the slices it barely trained on.',
+      'It also fails when privacy accounting and sampling are designed separately. Repeatedly selecting the same small group may spend their privacy budget faster and increase memorization risk. Participation caps and privacy ledgers need to be in the same control loop.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Suppose 1,000,000 devices exist, 120,000 are eligible tonight, and a training round needs 5,000 returned updates. Historical completion is 80 percent, so the server invites 6,250 devices. If completion matches history, about 5,000 updates arrive before the deadline.',
+      'Now split by region. Region A is 50 percent of the target population, region B is 30 percent, and region C is 20 percent, so the returned target is 2,500, 1,500, and 1,000 updates. If region C completion is only 50 percent, inviting 1,250 region C clients yields about 625 updates, short by 375.',
+      'The sampler must choose a behavior. It can over-invite region C to 2,000 clients, wait longer for late returns, or reweight the 625 updates. Each choice changes cost, fairness, and statistical variance, so the ledger must record it.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: the Federated Averaging paper by McMahan and coauthors, Google federated learning system papers, and client-selection research such as Power-of-Choice and surveys on federated client selection. Study partial participation and non-IID data before tuning sampler policy.',
+      'Study next: stochastic sampling, differential privacy accounting, secure aggregation, FedAvg, cohort balancing, dropout handling, and fairness metrics. The main lesson is that the sampler is part of the learning algorithm because it chooses the data the optimizer gets to see.',
+    ] },
   ],
 };

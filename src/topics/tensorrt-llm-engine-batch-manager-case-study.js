@@ -214,103 +214,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the engine-build view as the offline contract and the batch-manager view as the online scheduler. The engine fixes precision, tensor-parallel layout, plugins, shape limits, and KV-cache settings before requests arrive.',
+        'Read KV cache as a first-class memory resource. KV cache stores attention keys and values for prior tokens, and the safe inference rule is that a request cannot be admitted just because compute is free if there are not enough KV blocks to serve it.',
+        {type:'callout', text:`TensorRT-LLM serving is a compiled engine contract plus a live scheduler whose real capacity is bounded by KV memory as much as compute.`},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `A training checkpoint is not a production serving system. It is a set of weights and model metadata. A production LLM endpoint also needs kernels, precision choices, tensor-parallel layout, memory policy, batching policy, observability, rollback, and a way to keep latency inside a service goal while many users generate tokens at the same time.`,
-        `TensorRT-LLM is useful to study because it makes those hidden serving decisions explicit. The deployed object is not just the model. It is a built engine, runtime configuration, paged KV cache, scheduler policy, and backend boundary that operations can test, canary, and roll back.`,
-        {type:'callout', text:`TensorRT-LLM serving is a compiled engine contract plus a live scheduler whose real capacity is bounded by KV memory as much as compute.`},
+        'A training checkpoint is not a production LLM service. Serving also needs optimized kernels, precision choices, tensor parallelism, batching, memory policy, backend configuration, observability, rollback, and latency control.',
+        'TensorRT-LLM exists in this curriculum because it makes the deployment artifact visible. The serving system is a built engine plus a runtime scheduler, not only a model loaded into memory.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `A reasonable first stack loads a Hugging Face-style checkpoint in a flexible runtime, exposes an HTTP endpoint, and raises batch size until throughput looks acceptable. When latency rises, the team changes queue limits, adds GPUs, or reduces max tokens.`,
-        `That is fine for early validation. It breaks when the route needs predictable p99 latency, high tokens per second, quantized precision, multi-GPU sharding, reproducible performance, and clear behavior when KV memory is nearly full. At that point the endpoint is no longer just running a model. It is running a scheduling system.`,
+        'The obvious approach is to load a Hugging Face-style checkpoint in a flexible runtime, expose an endpoint, and increase batch size until throughput looks acceptable. That is a reasonable first validation path.',
+        'When latency rises, the simple response is to add GPUs, lower max tokens, or tune a queue size. Those controls help, but they do not explain engine specialization, prefill cost, decode cost, or KV memory pressure.',
       ],
     },
     {
-      heading: 'Where it breaks',
+      heading: 'The wall',
       paragraphs: [
-        `A generic runtime hides constraints that matter. Precision, tensor parallelism, plugin kernels, attention implementation, max sequence length, max batch size, speculative decoding settings, and KV-cache layout all affect what the server can do efficiently. If those choices are implicit, a benchmark result is hard to reproduce and a production regression is hard to explain.`,
-        `Naive batching also misses the shape of autoregressive generation. Prefill processes the prompt and creates KV cache in a burst. Decode advances each active sequence one token step at a time. Requests arrive and finish at different moments. The scheduler has to admit, pause, protect, or step requests based on live KV blocks, not just the number of HTTP requests in a queue.`,
+        'Autoregressive generation has two different phases. Prefill processes the prompt and creates KV cache in a burst, while decode advances active sequences one token step at a time.',
+        'Requests arrive with different prompt lengths and finish at different times. A fixed batch-size mental model misses the real bottleneck because live capacity depends on engine limits, active sequence count, token growth, and available KV blocks.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        `The system has two major record types. Build records describe the compiled contract: checkpoint revision, conversion metadata, dtype, quantization, tensor-parallel degree, plugin flags, attention mode, shape limits, engine files, and engine hash. Runtime records describe the live service: request state, prefill queue, decode set, KV block table, scheduler policy, backend config, and metrics.`,
-        `The invariant is that serving capacity is constrained by both the built engine and live KV state. If the engine was built for one set of shape limits, the runtime cannot pretend those limits are larger. If KV blocks are exhausted, raw GPU FLOPs do not make another long sequence safe to admit. Memory policy is part of capacity.`,
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        `The engine-build view follows the offline contract. Weights are converted, build knobs are selected, kernels and precision are fixed, an engine artifact is created, and the runtime or Triton backend serves from that artifact. The lesson is that specialization is purchased before the request arrives.`,
-        `The batch-manager view follows the online contract. Requests enter a queue, prefill creates KV cache, decode steps consume scheduler slots, KV blocks become the admission boundary, and metrics decide whether the policy is working. The lesson is that a fast engine without a correct scheduler is not a reliable service.`,
+        'Separate build-time specialization from runtime scheduling. Build records describe checkpoint revision, dtype, quantization, tensor-parallel degree, plugin flags, attention mode, shape limits, engine files, and engine hash.',
+        'Runtime records describe request state, prefill queue, decode set, KV block ownership, scheduler policy, backend config, and metrics. The invariant is that the runtime cannot safely exceed either the compiled engine contract or the live memory contract.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A typical deployment starts by converting a checkpoint into the format expected by the TensorRT-LLM build path. The team selects precision, quantization, tensor-parallel topology, context limits, plugin options, and attention/KV settings. The build creates an optimized engine artifact whose constraints become part of the deployment contract.`,
-        `The serving layer then loads the engine through the TensorRT-LLM runtime or the Triton TensorRT-LLM backend. The backend adds model repository structure, configuration files, endpoint behavior, scheduler options, KV-cache parameters, and a standard operations surface for rollout and observation.`,
-        `At request time, the batch manager handles in-flight batching. It can add new requests while older requests are already decoding, and it can remove finished requests between token steps. Prefill work is expensive and creates KV cache for the prompt. Decode work is repeated and usually advances one token per active sequence per step. The scheduler has to mix these phases without blowing memory or latency.`,
-        `Paged KV cache is central. Instead of treating each sequence as one large contiguous memory allocation, the runtime accounts for KV memory in blocks. A request owns blocks as its prompt and generated tokens grow. The scheduler can reason about admission, reuse, pause, or eviction using block counts rather than vague batch size.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Suppose a team serves a 70B chat model on multiple GPUs. Most prompts are short, but a few users paste long documents. If the server uses a fixed batch size, the long prompts can monopolize prefill time and KV memory. Short interactive chats then wait behind work that does not match their latency target.`,
-        `With an engine and batch manager, the team first builds a contract: tensor parallelism, dtype, max context length, KV settings, and backend config. At runtime, the scheduler admits requests based on the active decode set and available KV blocks. It may chunk prefill, protect active decode latency, or choose a policy that maximizes utilization while accepting some pauses.`,
-        `The correct metric is not only tokens per second. The team also watches time to first token, inter-token latency, p95 and p99 latency, KV block pressure, paused requests, rejected requests, and canary error rate. A policy that produces more total tokens but doubles p99 for chat traffic is a bad policy for that route.`,
+        'A deployment starts by converting the checkpoint into the TensorRT-LLM build path. The team selects precision, quantization, tensor parallelism, context limits, plugins, and attention or KV settings, then builds an optimized engine artifact.',
+        'The runtime or Triton TensorRT-LLM backend loads that engine and exposes a serving boundary. Backend configuration defines scheduling behavior, model repository layout, KV-cache parameters, endpoints, and operational settings.',
+        'The batch manager performs in-flight batching. New requests can enter while older requests decode, completed requests leave between token steps, and the scheduler mixes prefill and decode work while accounting for KV blocks.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Engine building works because specialization removes runtime uncertainty. Once precision, kernels, parallelism, and shape limits are fixed, the runtime can use optimized execution paths instead of rediscovering choices for every request. The cost of deciding moves from request time to build time.`,
-        `In-flight batching works because decode is stepwise. Requests do not all need to start together or finish together. They can enter and leave between token steps as long as the scheduler preserves request state, KV ownership, and ordering of generated tokens.`,
-        `Paged KV cache works because memory becomes countable. A scheduler can ask whether enough blocks exist for a prompt and its expected generation. It can also expose memory pressure as a metric. That is better than treating an out-of-memory error as a surprise after admission has already happened.`,
+        'Engine building works because many expensive decisions move out of the request path. Once precision, kernels, parallelism, and shape limits are fixed, execution can use specialized paths instead of rediscovering choices for every request.',
+        'In-flight batching works because decode is stepwise. The scheduler can update the active set between token steps as long as it preserves request state, token order, and KV ownership.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Specialization has a tax. Model changes, shape changes, precision changes, tensor-parallel changes, and some feature changes can become build-and-rollout events. A flexible runtime may accept a new variant immediately. A compiled engine may need conversion, build time, artifact storage, compatibility checks, and canarying.`,
-        `Quantization can improve throughput and memory use but can hurt quality if the calibration and workload do not match. Tensor parallelism can make large models fit but adds communication cost. More aggressive scheduling can raise utilization but increase pauses, time to first token, or p99 latency.`,
-        `A serious rollout ledger stores model revision, engine hash, dtype, quantization mode, tensor-parallel degree, max context, max batch settings, scheduler policy, KV-cache block size, backend version, time to first token, inter-token latency, tokens per second, p99, pause count, canary status, and rollback result. Without that ledger, performance becomes folklore.`,
+        'Specialization has a rollout cost. Model changes, context-limit changes, precision changes, tensor-parallel changes, and some feature changes can require conversion, engine build time, artifact storage, compatibility checks, canaries, and rollback plans.',
+        'Runtime cost is bounded by compute and memory together. A policy that raises total tokens per second can still be bad if time to first token, inter-token latency, p99 latency, pause count, or rejected requests violate the service goal.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `TensorRT-LLM-style serving wins when the model and workload are stable enough to justify a built artifact and demanding enough that kernel, memory, and scheduler efficiency matter. It fits high-throughput endpoints, latency-sensitive chat routes, quantized deployments, multi-GPU models, and teams that need a concrete artifact for canary and rollback.`,
-        `It is also useful when the platform team wants clear ownership boundaries. Model researchers own the checkpoint and quality evaluation. Platform engineers own engine builds, backend configuration, capacity tests, canary gates, and SLO metrics. The engine artifact becomes the handoff object between those worlds.`,
-        `This approach is not only about speed. It is about repeatability. If two canaries use different engine hashes, dtypes, or scheduler policies, their latency numbers are not comparable. A built engine makes the performance contract inspectable.`,
+        'TensorRT-LLM-style serving fits stable high-throughput or latency-sensitive LLM endpoints where optimized kernels, quantization, multi-GPU layout, and repeatable rollout matter. It is useful for chat, summarization, coding, retrieval-augmented generation, and other routes with measurable service goals.',
+        'It also creates a clean handoff between teams. Model owners provide checkpoint and quality gates, while platform owners manage engine builds, backend config, capacity tests, canary metrics, and rollback.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `This approach is a poor fit for rapid model experimentation where shapes, architectures, context lengths, and features change constantly. The build artifact can slow iteration. A flexible eager runtime may be better while the model is still moving every day.`,
-        `It also fails when teams confuse an engine with a platform. The engine does not replace admission control, routing, autoscaling, prompt length limits, abuse controls, canarying, rollback, or quality evaluation. It is one optimized piece inside the serving system.`,
-        `Operational failures often come from chasing aggregate throughput. A policy that maximizes tokens per second by admitting too much work can create high time to first token, long inter-token gaps, request pauses, and bad p99. Interactive traffic usually cares about latency distribution, not only GPU occupancy.`,
+        'It is a poor fit for rapid experimentation where architectures, shapes, context lengths, and features change every day. A flexible eager runtime may move faster until the workload stabilizes.',
+        'It also fails when teams treat the engine as the whole platform. Admission control, routing, autoscaling, prompt limits, abuse controls, canarying, rollback, and quality evaluation still have to exist around it.',
       ],
     },
     {
-      heading: 'Common misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        `One misconception is that TensorRT-LLM is just a faster model loader. The important idea is the compiled serving contract plus the runtime scheduler. The speed comes from build-time specialization, optimized kernels, memory planning, and batching behavior working together.`,
-        `Another misconception is that bigger batches are always better. Large batches can raise throughput while hurting time to first token and inter-token latency. For chat, a smaller or more carefully scheduled active set can be better than a full GPU that makes users wait.`,
-        `A third misconception is that KV cache is an implementation detail. For long-context LLM serving, KV memory is often the binding resource. The scheduler that ignores KV pressure will eventually admit work it cannot serve well.`,
+        'Suppose a 70B chat model is served on multiple GPUs with 16,000-token context support. One user sends a 12,000-token prompt while 100 users send 400-token prompts, so prefill and KV allocation for the long request can hurt time to first token for everyone else.',
+        'A disciplined rollout records engine hash, dtype, tensor-parallel degree, max context, scheduler policy, KV block settings, time to first token, inter-token latency, p99, pause count, and rejection count. If a new policy increases total tokens per second by 15 percent but doubles p99 latency for short chats, it is the wrong policy for that route.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: TensorRT-LLM docs at https://nvidia.github.io/TensorRT-LLM/, NVIDIA TensorRT-LLM GitHub at https://github.com/NVIDIA/TensorRT-LLM, Triton TensorRT-LLM backend docs at https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/tensorrtllm_backend/README.html, TensorRT-LLM memory reference at https://nvidia.github.io/TensorRT-LLM/reference/memory.html, and TensorRT-LLM disaggregated serving notes at https://nvidia.github.io/TensorRT-LLM/blogs/tech_blog/blog5_Disaggregated_Serving_in_TensorRT-LLM.html.`,
-        `Study next: LLM Continuous Batching for dynamic request mixing, Chunked Prefill Token Budget Scheduler for prefill/decode balance, LLM Serving: PagedAttention and KV Cache Concurrency Capacity Model for memory layout, Transformer Inference Roofline for hardware limits, Inference Kernel Fusion & CUDA Graphs and CUDA Graph Shape Cache for execution specialization, Speculative Decoding Runtime Controller Case Study for decode acceleration, and NVIDIA Dynamo Distributed Inference Control Plane for larger serving orchestration.`,
+        'Primary sources include TensorRT-LLM documentation at https://nvidia.github.io/TensorRT-LLM/, NVIDIA TensorRT-LLM GitHub at https://github.com/NVIDIA/TensorRT-LLM, Triton TensorRT-LLM backend docs at https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/tensorrtllm_backend/README.html, and the memory reference at https://nvidia.github.io/TensorRT-LLM/reference/memory.html. Study continuous batching, paged KV cache, chunked prefill, transformer inference rooflines, CUDA graphs, speculative decoding, and disaggregated serving next.',
       ],
     },
   ],

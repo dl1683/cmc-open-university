@@ -197,74 +197,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Medusa is a multi-token decoding method for large language models. It attaches several lightweight heads to a target model so one forward pass can propose tokens for future positions. Those proposals are arranged into a candidate tree and verified with a tree-attention mask. The goal is to emit more than one token per expensive target iteration while preserving the target model contract through verification.',
-        'The method is important because it shows that speculative decoding does not always require a separate draft model. Medusa keeps the backbone and adds future-token heads. That makes the data structures especially clear: head output tables, top-k candidate pools, parent-linked trees, ancestry masks, accepted-prefix ledgers, and fallback controls. A curriculum should teach it as a systems mechanism, not as a magic speedup label.',
+        'The heads-to-tree view starts with a language model prefix, which is the text already generated. Medusa heads are small prediction heads attached to the main model; each head proposes tokens for a future position. Active nodes are candidate tokens being added to the tree, and found paths are continuations that remain eligible for verification.',
         {type:'callout', text:'Medusa speeds decoding only when the candidate tree preserves ancestry and the target model verifies the accepted prefix.'},
+        'The mask view shows which candidate tokens may attend to which earlier tokens. Attention means reading information from another token representation. The safe rule is that a node may read the original prefix and its own ancestors, but not sibling branches.'
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach to faster decoding is to ask the model for several future tokens at once. A normal language model head predicts the next token, so one might add heads that predict token plus one, token plus two, and token plus three. If these heads are good, the system can skip several ordinary iterations. The wall is that future-token predictions are conditional on previous future tokens. A token at offset three is only meaningful for a specific path through offsets one and two.',
-        'If the runtime treats the head outputs as independent columns, it mixes incompatible futures. The top token for offset three may only make sense after one offset-one token, while another branch needs a different offset-three token. A flat table cannot represent this ancestry. The serving system needs a tree of candidate continuations and a verifier that can test those continuations without letting sibling branches leak information into each other.',
+        'Autoregressive language models normally generate one token per expensive forward pass. Autoregressive means each new token depends on the earlier tokens. That makes decoding slow when the model is large and the answer is long.',
+        'Medusa exists to reduce the number of target-model passes. It asks cheap extra heads to propose several future tokens, packs those proposals into a tree, and verifies them with the original model. The target model still decides what can be committed.'
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious speedup is to ask the model for several next tokens at once. Add a head for token plus one, another for token plus two, and keep the best token from each head. If all heads are accurate, one pass could emit several tokens.',
+        'That approach is tempting because it treats future positions like independent columns. It also matches the shape of a table: offset 1 candidates, offset 2 candidates, and offset 3 candidates. The table looks efficient until the dependencies matter.'
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'A future token is only meaningful after a particular earlier future token. The best offset-3 token after branch A may be wrong after branch B. A flat table mixes incompatible futures and can verify a sequence that no real autoregressive path would produce.',
+        'The verifier also needs isolation between branches. If branch A can attend to a token from branch B, the packed computation leaks information across alternatives. The result would no longer match ordinary next-token decoding.'
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to turn multi-head future predictions into a tree and verify the tree in one target-model operation. Each path through the tree is a possible continuation of the current prefix. A candidate token may attend to the prefix and its own ancestors, but not to tokens from sibling branches. The tree-attention mask encodes that rule as a data structure the model can use during verification.',
-        'The other insight is that speedup comes from accepted prefix length, not from the number of candidates drawn. A large tree that rejects at the first token is worse than a small tree that reliably accepts two or three tokens. Medusa should therefore be evaluated as a proposal-and-verification control loop. Head quality, tree shape, mask correctness, and acceptance logging all matter.',
+        'Represent proposals as a candidate tree. A candidate tree is a rooted structure where each path from the prefix root to a node is one possible continuation. The parent pointer records which earlier speculative token a candidate depends on.',
+        'Then verify the tree with an attention mask that encodes ancestry. The mask lets one target-model pass evaluate many branches while preserving the rule that each branch sees only its own history. Speed comes from accepted prefix length, not from drawing a large tree.'
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'How it works',
       paragraphs: [
-        'The first data structure is the head output table. For each future offset, the runtime stores top-k token ids, probabilities or logits, and sometimes filters for duplicate or invalid tokens. The second is the candidate tree. Each node stores token id, depth, parent id, score, source head, and pruning reason. The root is the current prefix. A path from root to a node is a proposed continuation.',
-        'The tree-attention mask is the correctness-critical structure. In matrix form, a node may attend to the original prefix and the nodes on its own ancestor path. It may not attend to tokens from sibling branches or cousin branches. The accepted-prefix ledger is the operational structure. It records tree width, maximum depth, accepted length, rejected node, target verification time, committed KV range, and fallback reason.',
-      ],
-    },
-    {
-      heading: 'Mechanism step by step',
-      paragraphs: [
-        'At a decode step, the target backbone computes hidden state for the current prefix. Medusa heads attached to that state produce distributions for several future offsets. The runtime takes a small top-k set from those heads and combines the candidates into a tree. It may prune low-probability branches, remove duplicates, or cap depth and width to fit a latency budget.',
-        'The verifier then runs with the tree-attention mask. Each proposed token is evaluated as if it belonged to its own valid continuation. After verification, the runtime accepts the longest prefix that agrees with the target rule and discards the rest. Accepted tokens are appended to the output and target KV state. If no useful prefix is accepted, the system falls back to ordinary decoding for that step. The next step repeats from the verified state, not from the speculative tree.',
+        'At a decode step, the target model computes hidden state for the current prefix. Medusa heads read that state and propose top candidates for future offsets. The runtime combines those candidates into a tree with node ids, token ids, depth, parent id, and score.',
+        'The verifier runs the target model over the packed tree using the tree-attention mask. It compares the target output against candidate tokens along each path. The runtime accepts the longest valid prefix and discards branches after the first mismatch.',
+        'Accepted tokens are appended to the output and to the key-value cache, which stores attention state for reuse. If no useful token is accepted, the system falls back to ordinary one-token decoding. The next step starts from the verified prefix, not from the rejected tree.'
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Medusa works when the added heads are good enough to predict short future continuations and the verifier can check a compact tree faster than several separate target iterations. The backbone has already built a rich representation of the prefix. Future-token heads exploit that representation cheaply. The tree lets the runtime keep several plausible futures alive until the target chooses which one survives.',
-        'The mask makes the trick valid. Without it, tokens from different branches would share information and the verifier would no longer be evaluating real continuations. With the mask, branch A and branch B can be packed into one computation while remaining semantically separate. This is a classic data-structure lesson: the ancestry relation is not decoration. It is the invariant that makes batching possible.',
+        'Correctness depends on verification by the target model. The Medusa heads propose; they do not commit. A token becomes output only if the target model would accept it under the same prefix history.',
+        'The mask preserves the autoregressive invariant. For every candidate path, each token sees the same earlier tokens it would have seen if that path were decoded separately. Because siblings cannot leak into each other, packed verification is equivalent to checking the branches one path at a time.'
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Medusa is useful for decode-heavy serving where many requests produce predictable local continuations. Code completion, structured text, repetitive assistant phrasing, low-temperature chat, and boilerplate generation can benefit because short futures often have high agreement. It can also be easier to operate than a separate draft model because the future heads are attached to the target model family.',
-        'It is a strong teaching case for systems builders because every part has a measurable role. Head training affects proposal quality. Tree construction affects candidate coverage. The mask preserves correctness. The ledger exposes whether the method is saving target iterations or only adding work. The fallback path keeps the serving system stable when a slice of traffic rejects too often.',
+        'The extra heads are cheap compared with the target model, but they are not free. A tree with 40 candidate nodes increases verification work, mask construction, memory traffic, and key-value cache bookkeeping. If the target accepts only one token, the method may add latency.',
+        'The useful metric is accepted tokens per target pass. If ordinary decoding emits 1 token per pass and Medusa averages 2.4 accepted tokens per pass, it can reduce target passes for a 120-token answer from 120 to about 50. If acceptance falls to 1.1, the saved passes may not cover the overhead.',
+        'When the maximum tree depth doubles, the possible branch count can grow quickly if width is not capped. Real systems set budgets for depth, width, verification time, and fallback rate. The controller matters as much as the candidate generator.'
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Medusa-style decoding is useful for inference serving where output text has predictable local structure. Low-temperature chat, code completion, boilerplate generation, and constrained formats often accept short speculative prefixes. The access pattern is repeated decode steps where the same large model would otherwise be called once per token.',
+        'It is also a clean teaching case for speculative execution. The system proposes multiple futures cheaply, represents their dependencies exactly, verifies with the authority, and logs whether the proposal path saved work. That same pattern appears in CPUs, databases, and distributed systems.'
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Medusa fails when candidate quality is low or traffic is too uncertain. High-temperature sampling, open-ended creative text, tool-call boundaries, rare languages, and domains not covered by head training can all reduce accepted length. Wider trees do not automatically solve this. They can increase verification cost, memory use, and scheduling pressure while accepting the same short prefix.',
-        'It can also fail through systems details. Tree verification may interfere with batching. Mask construction bugs can invalidate verification. KV updates can become subtle when several tokens are accepted at once. Average accepted tokens per pass can look healthy while p95 latency worsens. Medusa-2 style joint tuning may improve speed but increases release risk because the backbone itself changes.',
+        'It fails when local futures are hard to predict. High-temperature sampling, rare languages, tool-call boundaries, and prompts outside the head training distribution can reject at the first token. A wider tree then spends more verification work without adding accepted tokens.',
+        'It can also fail through implementation details. A wrong mask silently changes semantics. Key-value cache updates become subtle when several tokens commit at once. Aggregate speedup can hide p95 latency regressions if wide trees hurt batching.'
       ],
     },
     {
-      heading: 'Operational and evaluation signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Track accepted prefix length, acceptance by depth, tree width, maximum depth, verifier latency, head computation overhead, target iterations saved, fallback rate, mask build time, KV append errors, p50 and p95 latency, throughput under batching, and memory overhead. Slice the results by temperature, language, task type, output length, and model version. A single aggregate hides the traffic where Medusa should be disabled.',
-        'A good acceptance ledger lets engineers answer concrete questions. Which heads produce useful tokens? Which depths are mostly rejected? Which branch shapes waste verification? Which prompt classes trigger fallback? Did a new model checkpoint shift acceptance? Did a mask optimization change outputs? This ledger is also the bridge to curriculum topics such as speculative decoding acceptance, calibration, tree masks, and inference rooflines.',
+        'Suppose ordinary decoding needs 12 forward passes to emit 12 tokens. A Medusa setup uses three future heads with two candidates at each step and builds a 10-node tree after pruning. Verification costs 1.35 times a normal pass because the packed tree is larger than one token.',
+        'If the verifier accepts an average of 3 tokens per pass, the 12-token answer needs 4 target passes. The compute cost is about 4 times 1.35, or 5.4 normal-pass units, plus cheap head overhead. That is better than 12 normal passes.',
+        'If acceptance drops to 1 token per pass, the same answer costs about 12 times 1.35, or 16.2 normal-pass units. The tree is then a tax, not a speedup. This is why production systems track acceptance by depth and disable the method on bad traffic slices.'
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study the Medusa paper and implementation, then compare it with classic speculative decoding, EAGLE, lookahead decoding, and multi-token prediction. For systems context, study KV cache management, continuous batching, attention masks, tensor shapes, and transformer inference roofline analysis. Serving documentation from vLLM and Triton is useful because it shows how speculative methods interact with real runtime constraints.',
-        'For data structures, focus on trees, matrices, masks, append-only ledgers, rank tables, and controller thresholds. Medusa is a compact example of a broader pattern: propose many possible futures cheaply, represent their dependencies exactly, verify them with the authoritative model, and keep the measurements needed to decide when the trick is worth using.',
+        'Primary source: Medusa: Simple LLM Inference Acceleration Framework with Multiple Decoding Heads, https://arxiv.org/abs/2401.10774. Study speculative decoding, EAGLE, attention masks, key-value cache management, continuous batching, and transformer inference roofline analysis next.'
       ],
     },
   ],

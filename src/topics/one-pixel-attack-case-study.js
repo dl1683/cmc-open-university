@@ -220,82 +220,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation treats an image classifier as a scoring function. A classifier maps an input image to class probabilities. A one-pixel attack changes one coordinate and its color values, then checks whether the classifier now prefers the wrong class.',
+        'Active nodes are candidate edits being tested. Compare nodes are candidates whose model scores are being ranked. Found nodes are edits that force the target error. Removed nodes are candidates that failed to improve the objective.',
+        'The important state is not the visible pixel alone. The search population stores many possible edits, and each model query teaches which location and color choices move the image closer to misclassification.',
+        {type:'callout', text:'A one-pixel attack shows that robustness depends on decision-boundary geometry, not on whether an input change looks meaningful to humans.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'The one-pixel attack is a clean way to teach a disturbing fact about neural networks: a model can be highly accurate on normal images and still be sensitive to tiny, targeted input changes. The attack asks whether changing only one pixel can make an image classifier choose the wrong class.',
-        'The point is not that all real attacks use one literal pixel. The point is that high-dimensional models can make brittle decisions, and the boundary between classes can pass surprisingly close to natural-looking inputs. One pixel is a microscope for studying that boundary.',
-        'For learners, the constraint is useful because it removes excuses. The image is not covered with noise, the label is not changed by a human, and the attack budget is easy to inspect. If a model fails anyway, the failure has to be explained through model geometry, feature sensitivity, and search.',
-        {type:'callout', text:'A one-pixel attack shows that robustness depends on decision-boundary geometry, not on whether an input change looks meaningful to humans.'},
+        'The one-pixel attack exists to expose a mismatch between human perception and model geometry. A human sees a tiny local edit. A neural network sees a high-dimensional input vector whose internal activations may cross a decision boundary.',
+        'An adversarial example is an input changed on purpose so a model gives a wrong answer. The one-pixel version uses an extreme budget: one coordinate in the image and its channel values. That makes the attack easy to inspect and hard to dismiss as obvious visual corruption.',
+        'The case study is useful even when real attackers use larger budgets. It shows that accuracy on clean test data does not prove local stability around those inputs. Robustness is a property of neighborhoods, not only of points.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious adversarial attack is gradient-based: compute how the loss changes with each input pixel, then push the image in the direction that increases the target class or decreases the true class. That works when the attacker has model internals and differentiability.',
-        'The one-pixel setting is harder and more instructive because the search space is discrete and tiny in budget. The attacker must choose a pixel location and color values. It may not have gradients. A naive brute-force scan over every position and every RGB value is enormous even for small images.',
+        'The obvious attack is white-box gradient ascent. If the attacker can see model internals, it can compute how each pixel changes the loss and move the image in the direction that increases the wrong class score. This is efficient because gradients point to sensitive directions.',
+        'That approach assumes access the attacker may not have. A deployed classifier may expose only labels or confidence scores through an API. The one-pixel setting also has a discrete search shape: choose x, y, red, green, and blue values.',
+        'A brute-force search is too large. A 32 by 32 RGB image has 1,024 positions and 256 choices for each color channel. Exhaustively testing every one-pixel edit would require 1,024 times 256 cubed, about 17.2 billion model queries.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is to treat the attack as black-box optimization. A candidate is a small vector: x coordinate, y coordinate, and color channels. The evaluator is the model confidence after applying that pixel change. If a candidate raises the target class enough, the attack succeeds.',
-        'Differential evolution is a natural fit because it does not need gradients. It keeps a population of candidate pixel edits, scores them by querying the classifier, and generates new candidates by recombining differences between existing candidates. The model is treated as a scoring oracle.',
+        'The wall is sparse black-box search. The attacker has a tiny edit budget, no gradients, and a huge candidate space. Randomly trying pixels wastes queries because most locations and colors do not move the model enough.',
+        'The wall is also evaluation cost. Against a local model, 20,000 queries may be cheap. Against a hosted API, the same search is slow, detectable, and expensive. The attack is therefore a study of model sensitivity and query behavior at the same time.',
+        'A failed search does not prove the image is robust. It may mean the search representation, population size, mutation rate, or query budget was weak. Robustness claims need a stronger attack suite than one run of one optimizer.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Treat the attack as black-box optimization over a small vector. For one RGB pixel, a candidate can be written as [x, y, r, g, b]. The model is an oracle that returns a score for that candidate after the edit is applied.',
+        'Differential evolution fits this shape because it does not need gradients. It keeps a population of candidates, mutates them by combining differences between existing candidates, and keeps trials that improve the target score. Selection pressure turns classifier feedback into directed search.',
+        'The attack succeeds when a candidate crosses the decision boundary. The changed pixel may not look meaningful to a human, but it can change internal features enough to make the classifier prefer a different class.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Start with an image and a trained classifier. Create a population of candidate one-pixel edits. Each candidate specifies where to edit and what RGB value to write. Apply the edit, run the classifier, and record either target-class confidence or loss of true-class confidence.',
-        'Differential evolution mutates candidates by taking differences between population members and adding the scaled difference to another candidate. Coordinates and colors are clipped or rounded back into legal pixel ranges. A trial candidate replaces its parent if it scores better.',
-        'The loop repeats until the attack succeeds or the query budget is exhausted. Success can mean untargeted misclassification, where any wrong label counts, or targeted misclassification, where the model must choose a specific label. Targeted attacks are usually harder.',
-        'The candidate encoding matters. For one pixel on a color image, the vector might be [x, y, r, g, b]. For several pixels, the vector repeats that structure. This keeps the attack small enough for black-box search while still giving it a meaningful way to explore location and color together.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The pixel-search view proves that the attack is not randomly poking the image forever. The population keeps candidate edits that move the classifier toward failure. The highlighted pixel is the visible edit, but the real state is the population distribution over possible edits.',
-        'The confidence chart proves why a tiny perturbation can matter. The model output is a decision surface over the input space. A one-pixel change is small to a human, but it can move the image across a boundary if the classifier relies on fragile local features or interactions.',
-        'If the visual shows several failed candidates before one success, that is the lesson. Black-box attacks are search under feedback. The failed probes are not wasted if they reshape the population toward regions where the model is more uncertain or more confidently wrong.',
+        'Start with the original image and a target objective. In an untargeted attack, any wrong class counts. In a targeted attack, the optimizer must raise one chosen class above the true class, which is usually harder.',
+        'Create a population of candidate edits. For each candidate, write the proposed RGB value at the proposed coordinate, run the classifier, and record the score. The score may be target-class probability, true-class loss, or a margin between classes.',
+        'For each generation, differential evolution builds trial candidates from current candidates, clips coordinates and colors into legal ranges, and evaluates the trials. A trial replaces its parent only if it scores better. The loop stops when the model is fooled or the query budget is exhausted.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The attack works when the classifier has nearby adversarial regions and the search algorithm can find one with limited queries. Deep networks often carve complex decision regions through image space. A small visible change can produce a large internal activation change when it hits a sensitive feature path.',
-        'Black-box search also works because the attacker does not need to understand the model. It only needs feedback. Every classifier query tells the optimizer whether a candidate edit is more or less promising. Over many candidates, selection pressure turns those scores into directed search.',
+        'The correctness argument is modest because this is a heuristic attack, not an exact algorithm. If a one-pixel adversarial edit exists in the searched space and the optimizer samples enough useful directions, selection can move the population toward it.',
+        'Differential evolution preserves the best candidates seen so far while exploring nearby and combined edits. That gives the search memory. A purely random search forgets where the model was already sensitive.',
+        'The model geometry explains why success is possible. Deep classifiers can have decision regions that pass close to natural images. A small input change can have a large effect if it activates a fragile feature path or changes an important local pattern.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The dominant cost is model queries. If the population has 400 candidates and the attack runs for 100 generations, the attacker may need tens of thousands of evaluations. That can be easy against a local model and expensive or detectable against an API.',
-        'The one-pixel constraint makes the attack interpretable but not always strong. Allowing more pixels, small norm-bounded perturbations, patches, or physical transformations gives the attacker more room. The case study is valuable because the constraint is extreme enough that success is surprising.',
-        'For an API threat model, query monitoring matters as much as model training. A black-box optimizer leaves a behavioral trace: repeated near-identical images, changing one small region, and probing confidence. Rate limits and anomaly detection can raise the cost of search even when they do not make the classifier intrinsically robust.',
+        'The dominant cost is model queries. With a population of 400 candidates and 75 generations, the attack uses about 30,000 evaluations. Doubling the population or generations roughly doubles query cost.',
+        'The candidate dimension grows with the pixel budget. One RGB pixel uses five numbers. Five pixels use 25 numbers, which gives the optimizer more power but makes the search harder and less interpretable.',
+        'Defender cost is behavioral. Rate limits, confidence hiding, anomaly detection, preprocessing, and abstention can raise attack cost, but they do not prove intrinsic robustness. Adversarial training and stronger evaluation are needed when the model must be stable under input changes.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'This attack is useful as an educational benchmark for adversarial robustness, black-box optimization, and model sensitivity. It makes the vulnerability concrete: one changed coordinate and one changed color can be enough for some images and models.',
-        'It also belongs in safety evaluation. A model that fails dramatically under tiny search-budget attacks may need adversarial training, input preprocessing, confidence calibration, abstention behavior, or deployment guardrails. The attack is a probe, not a complete threat model.',
-        'It can also reveal class-specific weakness. If certain labels are much easier to induce, the problem may be tied to dataset artifacts, overconfident features, or poorly separated representations. Aggregate success rate matters, but the per-class pattern often teaches more.',
+        'The attack is useful as an educational benchmark for adversarial robustness. It makes the failure concrete: one coordinate and one color can be enough for some models and images.',
+        'It is also useful in safety evaluation as a cheap probe. If a model fails under a tiny black-box budget, teams should test larger budgets, white-box attacks, patch attacks, physical transformations, and adaptive attacks before claiming robustness.',
+        'The per-class pattern can teach more than the average success rate. If one target class is easy to induce, the model may rely on dataset artifacts or poorly separated features for that class.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The attack can fail when the model is robust around the image, when the target class is too far away, when query budgets are low, or when input preprocessing removes the perturbation. Failure on one image does not prove broad robustness; success on one image does not prove every deployment is unsafe.',
-        'Another failure is overreading the result. A one-pixel digital attack does not automatically translate to a physical-world attack. Cameras, compression, lighting, scaling, and sensor noise change the input. Physical attacks need a separate evaluation setup.',
-        'Defenses can also give a false sense of security. Simple smoothing, compression, or clipping may stop one attack configuration while leaving the model vulnerable to a better search, a different norm budget, or an adaptive attacker. Robustness claims need an attack suite, not one demo.',
+        'The attack can fail when the decision boundary is not close to the image under the one-pixel constraint. It can also fail when preprocessing, resizing, compression, or input normalization removes the effect of the edited pixel.',
+        'It does not automatically transfer to the physical world. Camera noise, lighting, focus, scale, print quality, and sensor processing can erase or alter a one-pixel digital perturbation. Physical attacks need a separate setup.',
+        'It can be overread. Success on one image does not show that every deployment is unsafe. Failure on one image does not show that the model is robust. The result is a probe, not a full security proof.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Adversarial Examples for the broader threat model, Evolutionary Search for the optimizer, Gradient Descent for white-box contrast, Saliency Maps for model sensitivity, Model Inversion and Data Leakage for other ML security failures, and Robustness Evaluation for how to turn attacks into useful evidence instead of isolated demos.',
-        'A useful exercise is to run the attack on images that succeed and images that fail, then compare confidence trajectories. Ask whether failure came from the model being genuinely stable, the query budget being too small, or the optimizer searching a poor candidate representation.',
-        'Then vary the budget: one pixel, three pixels, five pixels, and a small patch. The curve from budget to success rate is more informative than a single yes-or-no result because it shows how quickly robustness degrades.',
+        'A 32 by 32 image of a frog is classified as frog with probability 0.82 and truck with probability 0.04. The attacker wants a targeted truck result. One candidate is [12, 7, 250, 10, 10], which writes a red pixel at column 12 and row 7.',
+        'The first population has 400 candidates. After scoring them, the best candidate raises truck probability to 0.18. After 30 generations, a candidate at [9, 21, 5, 240, 80] raises truck probability to 0.47 while frog falls to 0.41.',
+        'At generation 52, the best candidate reaches truck 0.61 and frog 0.22, so the targeted attack succeeds after about 20,800 queries. The image still looks like a frog to a human. The model has crossed a boundary in its input space.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources are Su, Vargas, and Sakurai on one-pixel attacks, Goodfellow et al. on adversarial examples, and Storn and Price on differential evolution. Use robustness benchmarks and adaptive attack papers to avoid treating one attack as a complete evaluation.',
+        'Study Adversarial Examples for the broader threat model, Evolutionary Search for the optimizer, Gradient Descent for the white-box contrast, Saliency Maps for sensitivity, and Robustness Evaluation for turning attacks into evidence.',
       ],
     },
   ],

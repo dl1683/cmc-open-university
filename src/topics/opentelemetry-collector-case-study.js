@@ -212,73 +212,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why the Collector exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Modern systems do not emit one clean stream of diagnostic data. They emit traces, metrics, logs, profiles, events, runtime stats, host stats, Kubernetes metadata, and vendor-specific fields from many languages and frameworks. That data has to cross process boundaries, network boundaries, compliance boundaries, and cost boundaries before it becomes useful in a dashboard or incident review. Without a shared layer, every service has to know where telemetry goes, which fields are allowed, how to retry, which attributes must be renamed, and which data should be sampled.',
-        'The OpenTelemetry Collector exists because telemetry became infrastructure. It is a vendor-neutral process that receives observability signals, applies policy, and exports them to one or more backends. The goal is not only convenience. The goal is to move operational decisions out of application business logic and into a pipeline that platform teams can configure, deploy, audit, and monitor. Instrumentation libraries still create spans and measurements, but the Collector becomes the place where production traffic policy is enforced.',
+        'The animation treats the OpenTelemetry Collector as a typed dataflow graph. Receivers bring telemetry into the process. Processors change, limit, enrich, sample, batch, redact, or route it. Exporters send it to backends.',
+        'Active nodes show the pipeline stage currently handling data. Found nodes show telemetry that survives policy and reaches an exporter. Removed nodes show data dropped by limits, sampling, filtering, or redaction. Compare nodes show fan-out or routing decisions.',
+        'The safe inference rule is that a component does nothing until it is wired into a service pipeline. Defining a receiver or processor is inventory. The pipeline order is the actual behavior.',
         {type:'callout', text:'The Collector is a policy graph on the telemetry path, so reliability, cost, privacy, and routing decisions belong in processors and topology.'},
       ],
     },
     {
-      heading: 'The naive approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive approach is direct export. Each service links an SDK or agent, points it at a tracing backend, a metrics backend, and a log backend, and ships everything immediately. That works for a demo because the path is short and ownership is obvious. It fails at scale because every application now carries infrastructure configuration. A backend migration becomes a code rollout. A privacy rule becomes a library upgrade. A retry storm becomes hundreds of application processes competing with user traffic. Even simple label changes can split dashboards when teams upgrade at different times.',
-        'A second naive approach is to install a Collector and treat it as a transparent pipe. That also fails. A Collector has queues, memory limits, processors, retries, export timeouts, and drop behavior. It can shed data. It can amplify an outage by buffering too much. It can leak sensitive attributes if redaction happens too late. It can double spend by fanning out every span to every destination. The Collector is not magic plumbing; it is a dataflow system on the production path.',
+        'Modern systems emit traces, metrics, logs, profiles, events, runtime stats, host stats, Kubernetes metadata, and vendor-specific attributes. That data must cross process, network, compliance, and cost boundaries before it helps an engineer during an incident.',
+        'The OpenTelemetry Collector exists as a vendor-neutral process that receives observability signals, applies policy, and exports them to one or more destinations. Application libraries create telemetry, but the Collector is where platform teams can operate the telemetry path.',
+        'The reason is not convenience alone. Without a shared layer, every service must know backend addresses, retry behavior, redaction rules, sampling policy, label normalization, and migration plans. Infrastructure policy leaks into application code.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is direct export. Each service links an SDK, points it at tracing, metrics, and logging backends, and sends data immediately. That works for a demo because the path is short.',
+        'Direct export fails when the backend changes, when privacy rules change, or when a retry storm competes with user traffic. A vendor migration becomes a code rollout across every application. A label rename can split dashboards while teams upgrade at different speeds.',
+        'A second obvious approach is to install a Collector and treat it as a transparent pipe. That also fails because the Collector has queues, memory limits, processor order, retries, exporter timeouts, and drop behavior. It is a production dataflow system, not magic plumbing.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is backpressure and policy ownership. Telemetry volume rises during incidents, exactly when backends may be slow and engineers need the data most. If the Collector buffers without limits, it can exhaust memory. If it drops without visibility, observability disappears quietly.',
+        'Privacy creates another wall. Sensitive attributes should be removed before they reach long-term storage, not after dashboards discover them. Redaction order matters because fan-out can copy raw data to multiple destinations.',
+        'Cost is the third wall. A high-cardinality metric label or full trace fan-out can multiply backend ingest. The Collector cannot make telemetry free, but it gives one place to enforce the cost policy.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to model observability as a typed pipeline. Receivers bring telemetry into the process. Processors change, limit, enrich, sample, batch, redact, or route it. Exporters send it out. Connectors take output from one pipeline and feed another pipeline, such as turning traces into metrics. Extensions support the Collector process itself with health endpoints, authentication, profiling, debug pages, or other service features. The names are simple, but they force a useful separation between data path, control policy, and operational support.',
-        'The most important configuration detail is that a component does nothing until it is wired into a service pipeline. Defining an OTLP receiver, a batch processor, and an exporter is only inventory. The pipeline says that traces enter through this receiver, pass through these processors in this order, and leave through these exporters. That makes the Collector a directed graph with signal-specific paths. Traces, metrics, logs, and profiles can share deployment machinery while still using different processors and destinations.',
+        'Model observability as signal-specific pipelines. A traces pipeline can receive OTLP spans, run memory limiting, redact attributes, tail sample, batch, and export to a trace backend. A metrics pipeline can scrape Prometheus, normalize labels, batch, and export elsewhere.',
+        'Processors are policy points. The memory limiter protects the process. The batch processor reduces export overhead. Attribute processors rename, insert, hash, or delete fields. Sampling processors choose what survives. Routing processors send tenants, services, or regions to different exporters.',
+        'The topology is part of the design. Agents near workloads collect local signals. Gateways centralize authentication, routing, redaction, and backend export. Many production deployments use both because local collection and central policy solve different problems.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
-        'A typical deployment starts with applications or node agents emitting OTLP, Prometheus scrape data, file logs, host metrics, or Kubernetes metadata. Receivers decode those inputs into OpenTelemetry data structures. Processors then apply policy. A memory limiter can stop the process from exhausting memory. A batch processor can reduce export overhead. Attribute processors can rename, insert, hash, or delete fields. Sampling processors can reduce trace volume. Routing processors can send different tenants or signals to different exporters.',
-        'Exporters handle the outbound side: OTLP, Prometheus remote write, debug output, vendor backends, object storage pipelines, or other systems. Connectors are the special bridge when one pipeline produces data for another pipeline, as with span metrics or service graph generation. Extensions are deliberately separate because a health check endpoint or auth provider supports the process rather than transforming spans. In production, Collectors are usually deployed as node agents, central gateways, sidecars, or a hybrid of agents plus gateways.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'The pipeline-anatomy visual is proving that the Collector is a graph, not a single queue. The app node is not connected directly to a backend. It sends telemetry to receivers, and the pipeline decides what happens next. The processor node sits in the middle because reliability and governance live there. The two exporters show fan-out: the same signal can be copied to multiple destinations during a migration, an audit, or a split-retention strategy. The connector node shows that one signal can derive another, which is why pipeline boundaries matter.',
-        'The operational-pressure visual is proving that telemetry has backpressure problems just like ordinary application traffic. A burst creates queue growth. A backend outage creates retry pressure. A cardinality spike creates cost and memory pressure. A noisy tenant can consume shared capacity. The right lesson is not that every problem has one Collector setting. The lesson is that Collector topology and processor order are reliability design choices. If those choices are absent, the default behavior becomes the incident policy.',
+        'Applications, agents, and scrapers send data to receivers such as OTLP, Prometheus, file log, host metrics, or Kubernetes receivers. The Collector decodes those inputs into OpenTelemetry data structures for traces, metrics, logs, or profiles.',
+        'Processors then run in the order listed in the pipeline. A common order is memory limiter first, then resource or attribute normalization, filtering or sampling, batching, and finally export. Order matters because redaction after export is too late and batching before sampling can waste memory.',
+        'Exporters handle outbound delivery to OTLP endpoints, Prometheus remote write, debug output, vendor backends, or storage systems. Connectors can turn one signal into another, such as producing span metrics from traces. Extensions support the process itself with health checks, auth, profiling, and diagnostics.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design works because it decouples emitters from backends. Application code can emit standard telemetry while the platform changes exporters, batches, redaction rules, retry policy, or routing without editing every service. That is especially valuable during vendor migrations. A team can fan out traces to the old and new backend for a limited period, compare behavior, then remove the old exporter. The same pattern helps with compliance reviews, regional routing, and gradual adoption of new signal types.',
-        'It also works because policy is placed close to the shape of the data. A processor can see resource attributes, span attributes, metric labels, log bodies, and signal type. That is a better location for decisions such as dropping high-cardinality labels, redacting user identifiers, or sampling only successful low-value traces. The Collector does not make those choices automatically, but it gives teams one operational surface where the choices can be reviewed and tested.',
+        'The design works because emitters are decoupled from backends. Services can emit standard telemetry while platform teams change exporters, redaction rules, retry settings, routing, and sampling without editing every service.',
+        'It also works because policy sees structured data. A processor can inspect resource attributes, span attributes, metric labels, log bodies, and signal type. That is the right level for decisions about high-cardinality labels, user identifiers, tenant routing, and trace retention.',
+        'The correctness condition is pipeline intent. If every signal enters the intended receiver, passes through required processors in the intended order, and reaches only allowed exporters, then telemetry policy is enforced in one auditable path.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The Collector adds another process to operate. It consumes CPU, memory, network, disk buffers if enabled, and human attention. A gateway can become a bottleneck. Agents can multiply configuration drift across thousands of nodes. Sidecars improve isolation but increase deployment count and resource overhead. A hybrid model is common because it matches the shape of the problem: local agents collect near workloads, then gateways centralize policy, authentication, and backend export.',
-        'Every processor has a cost. Batching saves outbound overhead but adds delay. Tail sampling can improve trace quality but needs memory because it must observe a trace before deciding. Redaction protects data but can remove fields engineers need during incidents. Fan-out improves migration safety but multiplies egress and backend ingest. The Collector lets teams choose these tradeoffs explicitly; it does not remove the tradeoffs.',
+        'The Collector adds a process to operate. It consumes CPU, memory, network, and human attention. A gateway can become a bottleneck. Agents can multiply configuration drift across thousands of nodes.',
+        'Each processor changes behavior. Batching saves outbound overhead but adds delay. Tail sampling keeps better traces but buffers spans in memory. Redaction protects data but can remove fields needed during incidents. Fan-out helps migrations but multiplies egress and ingest.',
+        'A concrete cost rule is useful. If 200 services emit 500 spans per second each at 1 KB per span, the pipeline sees about 100 MB per second before sampling or batching. Keeping 10 percent after policy still leaves about 10 MB per second of trace data to export.',
       ],
     },
     {
-      heading: 'Real production uses',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A common use is Kubernetes observability. Node-level Collectors gather kubelet metrics, container logs, host metrics, and OTLP signals from workloads. They add resource metadata such as namespace, pod, container, service name, and cluster. A gateway layer then normalizes attributes, drops forbidden fields, batches output, and exports to tracing, metrics, and logging systems. This gives application teams one instrumentation path while platform teams keep control of cost and compliance.',
-        'Another use is backend independence. A company may start with one observability vendor, add a cheaper long-term metrics store, and keep a second trace backend for a regulated team. The Collector can route signals by service, environment, region, or tenant. It can also generate derived metrics from traces, send debug output during rollout, or isolate a new pipeline before it handles all traffic. These are infrastructure workflows, not application features.',
+        'Kubernetes observability is a common use. Node-level Collectors gather kubelet metrics, host metrics, container logs, and OTLP signals, then add namespace, pod, container, service, and cluster metadata.',
+        'Backend independence is another use. A company can fan out traces to old and new vendors during migration, compare results, then remove the old exporter. The same pattern supports regulated teams that need separate retention or regional routing.',
+        'The Collector also supports control-plane enforcement. Platform teams can drop forbidden labels, hash user identifiers, route high-value services to longer retention, and expose self-metrics about refused data, queue length, send failures, and dropped spans.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Where it fails',
       paragraphs: [
-        'The largest failure mode is losing observability during the incident that needs it. If exporter retries fill queues and the memory limiter starts dropping data, dashboards may look quiet while the system is failing. If the Collector itself has no health checks, dropped-span metrics, queue-length metrics, and alerts, nobody knows whether the telemetry path is trustworthy. The Collector must be observed as a production service, including its own CPU, memory, refused data, send failures, and processor decisions.',
-        'The second failure mode is vague governance. High-cardinality labels can still break metric backends. PII can still leak if redaction rules miss a field. Sampling can still remove the one trace that explains a rare failure. A single shared gateway can still create a noisy-neighbor problem. The Collector cannot fix bad semantic conventions, missing trace context, or unbounded logging by itself. It is the enforcement point, not a substitute for instrumentation design.',
+        'It fails when the Collector is not observed as a production service. If queues fill, exporters fail, or memory limits drop data, dashboards may look quiet while the system is burning. The telemetry path needs its own alerts.',
+        'It fails when governance is vague. High-cardinality labels can still destroy metrics. Sensitive fields can still leak through missed attributes or log bodies. Sampling can still remove rare traces if policies are wrong.',
+        'It fails when one shared gateway becomes a single noisy-neighbor point. A burst from one tenant can consume memory and export capacity for everyone unless routing, quotas, or isolation are designed into the topology.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study the OpenTelemetry Collector documentation, the Collector architecture guide, and the Collector configuration model. Then connect this topic to OpenTelemetry Semantic Convention Schema Case Study, Trace Context and Baggage Propagation, OpenTelemetry Tail Sampling Policy, Metric Label Cardinality Control, Metric Exemplars Trace Correlation, Log Template Drain Parser, PII Redaction Token Span Pipeline, Backpressure and Flow Control, Circuit Breakers and Deadlines, Tail Latency and p99 Thinking, and SLO Error Budget Burn Rate Alert. The Collector is easiest to understand once you can see both sides: the telemetry schema that gives fields meaning and the reliability machinery that keeps the pipeline alive.',
+        'A cluster runs 120 services. Each emits 100 spans per second during normal traffic, with an average span size of 900 bytes. Raw trace volume is 120 times 100 times 900 bytes, about 10.8 MB per second before protocol overhead.',
+        'The platform deploys node agents for local collection and a gateway tier for policy. The gateway keeps all error traces, all traces over 800 ms, all canary traffic, and a 2 percent baseline. Normal retention is 14 percent of traces, so export volume falls from 10.8 MB per second to about 1.5 MB per second.',
+        'During a backend outage, exporter queue length rises and send failures increase. The memory limiter starts dropping low-value baseline traces first because sampling already happened before batching. Error traces still export when the backend recovers, and the Collector self-metrics show exactly when pressure began.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources are the OpenTelemetry Collector documentation, Collector architecture docs, component configuration docs, and collector-contrib processor READMEs. Use them for component roles, pipeline wiring, and processor-specific limits.',
+        'Study OpenTelemetry Semantic Convention Schema for field meaning, Tail Sampling Policy for value-based trace retention, Metric Label Cardinality Control for metrics cost, Backpressure and Flow Control for queue pressure, and PII Redaction Token Span Pipeline for privacy policy.',
       ],
     },
   ],

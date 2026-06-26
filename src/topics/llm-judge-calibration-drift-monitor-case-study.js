@@ -370,109 +370,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'An LLM judge calibration and drift monitor exists because automated evaluation is useful only when the evaluator is also evaluated. A judge model can grade thousands of candidate answers, but a grade from a model is not ground truth. It is a measurement produced by a fallible instrument. The monitor stores the evidence needed to decide when that instrument is reliable enough to use.',
-        'The core job is to connect judge scores with human anchor labels, rubric versions, slice tags, bias probes, drift alerts, and release gates. That turns a vague statement like "the judge says this model is better" into a traceable claim: on these cases, under this rubric, for these slices, with these known biases, the judge agreed with humans often enough to automate this part of the workflow.',
+        'Read the animation as the state machine for LLM judge calibration drift monitoring. Active items are the current decision point, found items are committed results, and removed items are paths ruled out by the invariant. The first safe inference is to name what state changed and why that move is legal.',
         {type: 'callout', text: 'An LLM judge is trustworthy only when its scores are calibrated against stable human anchors and monitored for bias and drift.'},
+        'This topic is a case study, so the visual is not decoration. It shows which records, counters, queues, maps, or gates must agree before the system can return a trustworthy result.',
       ],
     },
     {
-      heading: 'Why Raw Judge Scores Fail',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is to ask a strong model to grade every answer, average the scores, and optimize against that number. It is cheap, fast, and tempting. It also hides the main risk: the judge is another model with its own error distribution. If the judge prefers verbose answers, rewards confident wording, misses rare facts, or changes behavior after a prompt update, the product can optimize toward the wrong target.',
-        'A single leaderboard score makes the problem worse. It can hide false approvals on dangerous slices, false rejections on useful improvements, or a judge that agrees with humans on easy examples while failing on policy, legal, medical, math, or adversarial cases. Calibration exists because the average is not the decision. The decision is where the judge can safely replace or reduce human review.',
+        'LLM judge calibration drift monitoring exists because a simple implementation works on a small example but fails when scale, latency, privacy, or correctness constraints arrive. The system needs a data structure that keeps the useful fast path without hiding the boundary conditions.',
+        'The practical problem is not only speed. Cost, auditability, rollback, freshness, and slice-level behavior all affect whether the design is usable in production.',
       ],
     },
     {
-      heading: 'Core Insight: Scores Need Anchors',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The fundamental record binds a stable case id, the user input, candidate answer, reference material, rubric id, human label, rater confidence, judge id, judge prompt, judge score, judge rationale, slice tags, timestamp, and release version. Every field matters because every field can explain a later disagreement. A score without the rubric, judge version, and sample frame is not reproducible evidence.',
-        'From these records the system builds confusion matrices, agreement-by-slice tables, calibration bins, bias-probe reports, and drift charts. The judge output has two meanings. It grades the candidate answer, and it becomes a data point about judge behavior. Store enough context to replay the same anchor cases when the judge model, prompt, rubric, candidate model, or product policy changes.',
+        'The obvious approach is to keep one global rule, one score, one cache, one dashboard, or one list. That is easy to build and easy to explain. It often works until traffic shape or correctness requirements become more specific.',
+        'The next obvious approach is to add capacity or widen the search. That may improve the average case, but it usually fails to encode the rule that decides which work is allowed, fresh, fair, or safe.',
       ],
     },
     {
-      heading: 'Calibration Workflow',
+      heading: 'The wall',
       paragraphs: [
-        'Calibration starts with human anchors. A representative set of cases is labeled by trained reviewers under a stable rubric. The same cases are scored by the judge. The monitor compares the two, computes agreement, separates false positives from false negatives, and reports results by slice instead of only reporting a global score.',
-        'The workflow then becomes a release gate. High-agreement slices can move to judge-only scoring or judge-first triage. Low-agreement slices keep human review. Slices with unclear disagreement become rubric work. Slices with too little evidence become labeling work. The system does not ask whether the judge is good in the abstract; it asks where the judge is good enough for this decision.',
+        'The wall is the missing boundary. A system can look correct globally while a narrow slice is wrong, stale, unfair, or too expensive. Once the boundary is missing, more throughput can make the failure faster.',
+        'The concrete failure is usually visible as mixed state: one version reads another version cache, one user receives another user answer, one queue loses priority, or one metric hides a failing slice. The design needs an invariant that prevents that mixture.',
       ],
     },
     {
-      heading: 'Bias Probes',
+      heading: 'The core insight',
       paragraphs: [
-        'Bias probes are evaluation cases for the evaluator. A position probe swaps answer order in A/B comparisons and checks whether the winner changes. A verbosity probe pads an answer with irrelevant text and checks whether length alone raises the score. A self-preference probe blinds or changes model identity to see whether the judge favors outputs from its own model family. A style probe tests whether tone is being confused with correctness.',
-        'Good probes are mechanical and repeatable. They do not depend on intuition after the fact. If the same content receives different grades because it appears first, uses more words, mimics the judge style, or avoids hard reference facts, the monitor should record a judge risk. The mitigation may be shuffling order, hiding identity, changing the rubric, adding references, or keeping humans in the loop.',
+        'The core insight is to make the boundary a first-class data structure in LLM judge calibration drift monitoring. Keys, clocks, queues, ledgers, folds, or gates are not metadata; they are the mechanism that preserves correctness.',
+        'The invariant should be checkable from stored state. If an operator cannot reconstruct why a result was allowed, denied, filled, scored, or rolled back, the system is relying on memory instead of design.',
       ],
     },
     {
-      heading: 'Drift Monitoring',
+      heading: 'How it works',
       paragraphs: [
-        'Drift monitoring asks whether the judge is still the same instrument over time. Agreement can fall because the judge model changed, the judge prompt changed, the rubric changed, the candidate model learned a new style, the user mix shifted, or the policy being judged moved. Without versioned evidence, these causes collapse into one confusing number.',
-        'A useful drift alert includes judge version, rubric version, candidate model, sample frame, slice, trigger threshold, and owner. It should be possible to rerun the old judge on the new anchor sample, rerun the new judge on the old anchor sample, and decide whether the regression comes from evaluator drift, data drift, or a real product-quality change.',
+        'The mechanism starts by normalizing the input into records with stable identities. It then routes those records through the smallest structure that can answer the current decision: a map lookup, ordered queue, version gate, slice table, or witness search.',
+        'Each step writes enough state for the next step to be local. Local means a cancel finds one order id, a cache gate checks one record, a rollout query joins one packet id, or a checker advances one legal candidate. That locality is what turns a broad problem into an executable workflow.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Why it works',
       paragraphs: [
-        'The anchor-set graph teaches that a judge score is only one node in a larger evidence graph. The candidate answer, reference, rubric, human label, calibration fit, release gate, and audit log all have to stay connected. If the judge node is copied without the other nodes, the organization has a number but not a trustworthy measurement.',
-        'The bias-audit views teach invariants. A pairwise judgment should not flip only because answer order changed. A factual answer should not win only because unrelated words were added. The drift chart teaches that time is a dimension of the data structure: agreement by slice can decay week by week, so the gate needs stored versions and replayable anchors, not just a dashboard snapshot.',
+        'The correctness argument is preservation. Before a step, the invariant names which records may interact. The step reads only allowed state, writes the result, and leaves the invariant true for the next step.',
+        'This is stronger than a dashboard claim. A dashboard can show an average after the fact; the invariant prevents an illegal result from being served in the first place. When the invariant fails, the system should produce a denial, rollback, miss, or counterexample instead of a quiet answer.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The monitor works because it treats the judge as a classifier with measurable errors. Human anchors define the reference labels. The confusion matrix separates true approvals, true rejections, false approvals, and false rejections. The cost of those cells is not symmetric. A false approval may ship a dangerous answer. A false rejection may block a useful model improvement.',
-        'Slice-level reporting makes the result actionable. Overall agreement can be high while one critical slice fails. Calibration bins make score interpretation concrete: when the judge assigns 0.8 confidence, humans should agree roughly at that rate if the score is calibrated. If not, thresholds need adjustment or the rubric needs repair before the score becomes a gate.',
+        'The main cost is extra state. Maps, ledgers, clocks, slice tags, fold maps, queues, and audit rows consume memory and engineering time. The payoff is that expensive work becomes targeted instead of global.',
+        'Cost behaves with the number of records, versions, slices, or live candidates. Doubling traffic does not only double compute; it can double cache pressure, queue length, audit rows, or search width. The dominant operation is the one on the hot path for the real workload.',
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A support team upgrades a policy judge. The old judge agrees with human labels on 0.78 of anchor cases. The new judge reaches 0.84 overall, so a naive dashboard would approve it. The slice table changes the decision. Billing-policy agreement is only 0.62, pairwise swaps expose position bias, and verbosity probes show that padded answers win too often.',
-        'The release becomes partial. The new judge is enabled for low-risk formatting, retrieval-quality, and citation-completeness checks. Billing and policy-edge cases stay human-gated. The rubric is rewritten to penalize unsupported verbosity. Pairwise comparisons randomize answer order. The anchor set receives more billing examples before the next promotion attempt. The system ships the improvement without pretending the risk disappeared.',
+        'LLM judge calibration drift monitoring fits systems where correctness is operational, not just mathematical. Fraud models, retrieval systems, matching engines, model-serving stacks, evaluation gates, and rollout systems all need stored evidence for why one result was chosen.',
+        'The access pattern determines fit. Repeated decisions benefit from maps and caches, ordered fairness needs queues and sequence numbers, release safety needs ledgers, and concurrent correctness needs histories that can be searched.',
       ],
     },
     {
-      heading: 'Operational Guidance',
+      heading: 'Where it fails',
       paragraphs: [
-        'Version everything: judge model, judge prompt, rubric, candidate model, reference set, sample frame, and score thresholds. Keep anchor cases stable enough for longitudinal comparison, but refresh part of the set so the monitor does not overfit to old traffic. Use duplicate human labels and adjudication on high-risk or high-disagreement examples.',
-        'Use active sampling to spend human review where it buys the most information. Send uncertain cases, high-impact product areas, disagreement clusters, rare slices, adversarial prompts, and drift-alert examples to humans first. A calibration program does not need humans on every example; it needs human labels where the judge boundary is uncertain or costly.',
+        'It fails when the boundary is chosen for convenience instead of the product promise. Random folds fail for time-forward prediction, global canaries fail for slice-specific regressions, and similarity search fails when authorization is the real question.',
+        'It also fails when evidence is not versioned. A stale record can be more dangerous than a miss because it looks supported. The design needs no-store, deny, rollback, or human-review paths for cases outside the invariant.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Worked example',
       paragraphs: [
-        'The main cost is human labeling. A judge monitor saves review time only after enough anchor labels exist to show where automation is safe. High-risk slices may need double labels, adjudication, and periodic relabeling. That can feel slower than a judge-only dashboard, but it prevents the team from optimizing a product against an unmeasured evaluator.',
-        'The second cost is latency and storage. Pairwise swaps, verbosity probes, reference-grounded runs, and replay jobs can multiply judge calls. The system also stores prompts, rubrics, rationales, labels, versions, and traces. The tradeoff is worth it when judge scores control releases, customer-facing quality claims, agent grading, or safety gates. It is less worth it for low-stakes sorting where a rough heuristic is enough.',
+        'A team tests a new judge on 1000 anchor cases. The old judge agrees with humans on 780 cases, or 78%. The new judge agrees on 840 cases, or 84%, so the global number looks better.',
+        'Slice analysis changes the decision. Formatting cases rise from 85% to 93%, retrieval citation cases rise from 80% to 88%, but billing-policy cases fall to 62%. A position probe also shows pairwise choices flip 18% of the time when answer order is swapped.',
+        'The release is partial. The new judge grades formatting and citations, billing cases stay human-gated, answer order is randomized, and 300 new billing anchors are labeled before the next attempt. The system captures a real improvement without pretending every slice is safe.',
       ],
     },
     {
-      heading: 'Failure Modes',
+      heading: 'Sources and study next',
       paragraphs: [
-        'The most common failure is treating judge agreement as permanent. Agreement can decay after a model update, product-policy change, traffic shift, or prompt edit. Another failure is anchoring only easy examples. The judge then looks reliable while the cases that matter most remain unmeasured.',
-        'A second class of failures comes from leakage and coupling. If the candidate model is trained directly to satisfy the same judge that acts as the release gate, the system may learn judge-specific shortcuts. If the judge sees model names, output order, or style cues, it may grade metadata instead of correctness. If rubric changes and judge changes happen together, attribution becomes weak.',
-      ],
-    },
-    {
-      heading: 'Implementation Checklist',
-      paragraphs: [
-        'A practical implementation needs stable case ids, immutable input snapshots, rubric versioning, human label provenance, judge prompt logging, score and rationale storage, slice tags, and replay tooling. It also needs dashboards that show false approvals, false rejections, calibration bins, and disagreement examples, not only aggregate agreement.',
-        'Release gates should be explicit. For example: offline anchor pass before shadow use, bias probes below threshold before canary, slice-level agreement above threshold before automation, and rollback if weekly drift crosses the alert floor. The gate can be partial. Automating safe slices while routing risky slices to humans is usually better than an all-or-nothing decision.',
-      ],
-    },
-    {
-      heading: 'Where It Matters',
-      paragraphs: [
-        'This system wins anywhere model outputs are used to choose model releases, rank retrieval pipelines, grade agent traces, score customer-support answers, approve policy decisions, or claim benchmark progress. It is especially useful when the evaluator is cheaper than humans but the cost of a wrong decision is high.',
-        'It fails when the task has a crisp deterministic checker, when the rubric is too vague for humans to apply, or when the team has no budget for anchor labels. It also fails if the judge becomes the training target without independent checks. A calibration packet tells future teams why a judge was trusted, which slices were excluded, what evidence supported a rollout, and which probes were known weaknesses.',
-      ],
-    },
-    {
-      heading: 'Study Next',
-      paragraphs: [
-        'Primary sources to compare are OpenAI evals guidance, MT-Bench and Chatbot Arena, G-Eval, surveys of LLM-as-a-judge, and work on human grounding for judge reliability. Read them with a practical question in mind: what evidence would convince you to let this evaluator replace a human on a specific slice?',
-        'Inside this curriculum, study LLM Evaluation Golden Sets, Human Evaluation Labeling Queue, Calibration and Reliability Diagrams, Precision and Recall with Confusion Matrix, Benchmark Variance and Model Selection, RAG Evaluation, AI Audit Evidence Packet, Data Leakage and Contamination, and LLM Model Rollout Shadow Canary Ledger.',
+        'Primary sources to compare include OpenAI evals guidance, MT-Bench and Chatbot Arena, G-Eval, surveys of LLM-as-a-judge, and work on human grounding for judge reliability. Study LLM Evaluation Golden Sets, Human Evaluation Labeling Queue, Calibration and Reliability Diagrams, Precision and Recall with Confusion Matrix, Benchmark Variance and Model Selection, RAG Evaluation, and AI Audit Evidence Packet next.',
       ],
     },
   ],

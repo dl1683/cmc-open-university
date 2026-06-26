@@ -219,85 +219,55 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Distributed databases need timestamps that are useful for ordering, but physical clocks are imperfect. Machines drift, NTP corrects them gradually, and messages move through the network with delay. Pure physical time is attractive because users understand it, but it cannot safely express causality by itself.',
-        'Hybrid logical clocks exist to combine physical time with a logical counter. They keep timestamps close to wall-clock time while preserving a causal rule: if one event is known to happen before another, the later event receives a greater HLC timestamp. CockroachDB uses this idea as part of its transaction and MVCC machinery.',
-        'This is the practical middle ground between two unsatisfying extremes. A pure wall clock is readable but unsafe under skew. A pure logical clock is safe for causality but detached from time-based operations. HLC keeps both signals in one timestamp.',
+        'Read the animation as timestamp merge logic under imperfect clocks. Active events are generating or receiving timestamps, visited events have already contributed causal evidence, and found events have HLC values that are safe to compare. A safe inference is that receiving a later timestamp forces the next dependent local event to be greater, even if the local wall clock is behind.',
         {type:'callout', text:'Hybrid logical clocks pair wall time with a counter so timestamps stay readable while still respecting known causal order.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/0/08/Lamport-Clock-en.svg', alt:'Lamport clock diagram showing three process timelines, message arrows, and logical timestamp values.', caption:'Lamport clock causality diagram by Duesentrieb, updated by Dr. Greywolf, Wikimedia Commons, CC BY-SA/GFDL.'},
       ],
     },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is to use the local machine clock for every transaction timestamp. That fails when two machines disagree. A write on one node can appear to happen before a read that caused it on another node, simply because clocks are skewed.',
-        'The other obvious approach is a Lamport clock. That preserves causality, but the numbers lose connection to real time. Databases still need physical-time-adjacent values for MVCC garbage collection, follower reads, bounded staleness, and operational reasoning. HLCs are the bridge.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'An HLC timestamp has two parts: physical time and a logical counter. The physical part tracks the local wall clock. The logical part increments when events need ordering within the same physical tick or when a received timestamp is ahead of the local clock.',
-        'On local events, the clock takes the maximum of local physical time and the last physical component it has seen. If physical time moves forward, the counter resets. If not, the counter increments. On receive, the node merges the incoming timestamp with its own state so the next event is greater than both.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Each node maintains the largest HLC timestamp it has produced or observed. When sending a message, it attaches its current HLC. When receiving a message, it updates local HLC state using the incoming physical and logical parts. Future timestamps must be greater than the received timestamp if they causally depend on it.',
-        'CockroachDB also cares about clock uncertainty. A transaction reading at timestamp t may encounter a value with a physical timestamp slightly above t from another node. If that value could have been written before the transaction started under clock skew, the transaction cannot ignore it. The uncertainty interval protects correctness.',
-        'HLC timestamps therefore support MVCC ordering, transaction pushes, follower reads, and historical reads, but they do not remove the need for concurrency control. They provide timestamps with causal discipline; the transaction layer still decides which histories are legal.',
-        'A simple mental model is max-then-count. On every event, take the maximum physical component among local wall time, last HLC, and any received HLC. If the maximum came from a strictly newer physical time, reset the logical counter. If not, increment the counter to keep the timestamp moving.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The merge view proves why HLC is not just a wall clock. A node can receive a timestamp from the future relative to its local clock and still move forward logically without forcing the machine clock to jump. The logical counter absorbs causal ordering pressure.',
-        'The uncertainty view proves why close-to-physical time is not perfect physical truth. If clocks may be off by a bounded amount, a read must treat near-future versions carefully. The database is not being paranoid; it is preserving serializable behavior under clock skew.',
-        'If the visual shows a timestamp moving ahead of local wall time, read that as causal memory. The node has learned about an event that must be before its next dependent event, so its HLC state must reflect that even while the physical clock catches up.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'HLC preserves causality because every message carries timestamp evidence. If event B receives a message from event A, B merges A timestamp before producing its own. The resulting timestamp is greater than A, even if B local physical clock was behind.',
-        'It stays close to physical time because the physical component normally follows the machine clock. Logical counters grow only when causality or same-tick events require them. This gives systems a timestamp that is operationally meaningful without surrendering happened-before ordering.',
-        'The compactness is the practical win over vector clocks. A database can store one HLC timestamp on every MVCC version and compare it cheaply. It loses concurrency detection, but gains a timestamp small enough to sit on the hot path.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'The metadata cost is small: a physical component plus a logical counter. The real cost is the discipline around clock bounds. Systems must monitor clock offset, reject or isolate nodes whose clocks drift too far, and design uncertainty handling into reads and transactions.',
-        'HLCs do not eliminate coordination. They reduce some need for centralized timestamp allocation, but conflicting transactions, range lease movement, replication, and serializable isolation still need protocols. Treat HLC as a timestamp substrate, not a complete database design.',
-        'There is also an observability tradeoff. Operators may see timestamps that look like wall time but include logical movement caused by messages. Debugging needs tools that expose both parts, not only a formatted physical timestamp.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'HLCs win in distributed databases that need causally sensible timestamps near wall-clock time. They help with MVCC versions, follower reads, bounded staleness, transaction timestamp pushes, and reasoning about historical data.',
-        'They are also useful for logs and traces where physical ordering is helpful but not reliable enough. A pure log timestamp can mislead during skew. An HLC-style timestamp makes causal movement explicit while remaining readable to operators.',
-        'They are especially useful when centralized timestamp allocation would be a bottleneck. Nodes can generate useful timestamps locally while still merging causal evidence from messages. That reduces coordination on the common path without pretending clocks are perfect.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The main failure is pretending HLC removes clock problems. It does not. If clock offset exceeds the assumed bound, uncertainty windows and transaction logic can become unsafe. Production systems need clock monitoring and clear behavior when offsets are too large.',
-        'Another failure is using HLC timestamps as a total order for unrelated events. HLC can order causally related events and provide a useful tie-breakable timestamp, but concurrent events may still receive an arbitrary order. Application semantics should not confuse that arbitrary order with causality.',
-        'A third failure is ignoring long uncertainty windows. If clock bounds are loose, transactions may restart more often or reads may need extra checks. Better clocks do not just make timestamps prettier; they reduce the amount of uncertainty the transaction layer must defend against.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Lamport Clocks, Vector Clocks, MVCC Internals and Vacuum, Timestamp Cache and Read Refresh, Transaction Isolation Levels, CockroachDB Transaction Layer, Follower Reads, and TrueTime. Compare HLC with TrueTime carefully: both address time uncertainty, but they expose and use uncertainty in different ways.',
-        'A useful exercise is to simulate two nodes where one clock is behind. Send a message from the ahead node to the behind node and update the HLC by hand. The logical counter will show exactly how causality survives clock skew.',
-        'Then add a read timestamp and an uncertainty window. Ask whether a near-future write can be ignored. That exercise connects the clock abstraction to the transaction behavior users actually experience.',
-      ],
-    },
+    { heading: 'Why this exists', paragraphs: [
+      'Distributed databases need timestamps for versions, reads, writes, logs, and garbage collection. Physical clocks are useful because operators understand wall time, but machines drift and messages arrive late. A timestamp that looks like time can still violate causality if one node is behind another.',
+      'Hybrid logical clocks, or HLCs, combine physical time with a logical counter. The physical part stays close to the machine clock, while the logical part preserves known happens-before relationships. CockroachDB uses this style of timestamp as part of its MVCC and transaction machinery.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to stamp every event with the local wall clock. That is readable and cheap, and it works on one machine. It fails across machines because a read on node B can receive evidence from a write on node A while B clock still says an earlier time.',
+      'The other obvious approach is a Lamport clock, a counter that increases when events happen and when messages are received. Lamport clocks preserve causality, but the numbers have no direct relationship to real time. Databases still need time-adjacent values for MVCC history, follower reads, and operational debugging.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is clock skew. If node A is 40 ms ahead and node B is 20 ms behind, a causally later event on B can receive a smaller physical timestamp than the earlier event on A. A database that trusts physical time alone can read stale data or order versions incorrectly.',
+      'Pure logical time hits the opposite wall. It can tell that one event followed another, but it cannot say whether a version is old enough for garbage collection or whether a bounded-staleness read is acceptable. The system needs causality and approximate real time in one compact value.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'An HLC timestamp has two fields: physical time and logical counter. On each event, the node chooses the maximum physical component among local wall time, the last local HLC, and any received HLC. If physical time advances, the logical counter resets; if not, the counter increments.',
+      'The key invariant is that a node never produces a timestamp lower than causal evidence it has observed. If a message carries timestamp 1000.3 and the receiver wall clock says 990, the receiver can keep physical component 1000 and increment the logical part. It does not need to move the machine clock forward.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'Each node stores the largest HLC it has produced or received. When it sends a message, it attaches its current HLC. When it receives a message, it merges the incoming physical and logical parts with its own state so future dependent events receive larger timestamps.',
+      'CockroachDB also tracks uncertainty. If a transaction reads at timestamp t, a version with a physical timestamp slightly above t might have been written before the transaction started on a skewed clock. The uncertainty interval forces the transaction layer to restart or check rather than ignoring a near-future value that could be causally relevant.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is a monotonic merge rule. Every local event and every received message updates the stored HLC to be at least as large as the evidence seen so far. Therefore, if event B causally depends on event A through a message path, B timestamp is greater than A timestamp.',
+      'The clock stays useful because the physical component normally follows wall time. The logical counter grows only when events share a physical tick or when causality outruns the receiver clock. This keeps timestamps compact enough to store on every MVCC version while still honoring known causal order.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The metadata cost is small: a physical integer and a logical integer per timestamp. Comparing timestamps is constant time, and updating an HLC is constant time. If an operation count doubles, HLC update cost doubles with the operations, not with the number of nodes.',
+      'The real cost is clock discipline. The database must monitor maximum offset, reject or isolate nodes that drift too far, and handle uncertainty windows in transaction logic. Wider clock bounds mean more restarts and less useful follower reads because more near-future versions must be treated carefully.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'HLCs fit distributed databases that need local timestamp generation without a central timestamp oracle on every operation. They help with MVCC version ordering, transaction timestamp pushes, follower reads, bounded staleness, and historical reads. The timestamp is small enough to live on hot paths and readable enough for operators.',
+      'They also help logs and traces where physical ordering is helpful but unreliable. A pure wall-clock log can lie during skew, while a pure logical counter is hard to interpret. HLC-style values make causal movement visible without giving up time-adjacent debugging.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'HLCs fail if the system pretends they remove clock uncertainty. They preserve known causality, but they do not prove that unknown remote events did not happen. If physical clock offset exceeds the assumed bound, transaction safety can fail unless the database stops or isolates the bad node.',
+      'They also fail when applications treat HLC order as true causality for unrelated events. Concurrent events can receive an arbitrary order because the timestamp is still a single comparable value. That order is useful for storage and conflict handling, but it is not proof that one user action caused another.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Node A wall clock is 1,000 ms and emits write W with HLC 1000.0. Node B wall clock is 970 ms because it is behind. B receives W, takes max physical 1000, and emits dependent event R as 1000.1 instead of 970.0, so R is ordered after W.',
+      'Now suppose B local clock reaches 1,020 ms before its next event. The max physical value becomes 1,020, so the logical counter resets and the next timestamp is 1020.0. Physical time caught up, and the logical counter stopped carrying the earlier causal pressure.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Study Lamport clocks, vector clocks, CockroachDB transaction documentation, MVCC, timestamp cache read refresh, and follower reads. Compare HLC with TrueTime: both address uncertainty, but TrueTime exposes bounded intervals while HLC combines physical time with a logical counter. Then simulate two nodes by hand until the max-then-count rule feels mechanical.',
+    ] },
   ],
 };

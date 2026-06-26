@@ -215,96 +215,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'HTTP headers repeat heavily. A browser or gRPC client may send the same `:method`, `:scheme`, `:authority`, cookies, content negotiation, authorization shape, user agent, and application metadata across many requests on one HTTP/2 connection.',
-        'Sending that text again and again wastes bytes, but plain generic compression is awkward for a multiplexed protocol. The decoder needs to understand each header block independently enough to route streams correctly, while the connection still wants to exploit repetition over time. HPACK solves that by turning repeated header fields into shared table indexes.',
+        'Read the first view as a shared address book for headers. Active nodes are the fields, static table, dynamic table, encoder, block, decoder, and mirror table that are participating in one header-block decision.',
+        'Found marks the compact representation that can be sent safely. The safe inference is that an index is valid only when the encoder and decoder have replayed the same static-table lookup, insertion, and eviction history.',
         {type:'callout', text:'HPACK treats compression as synchronized table state, so small indexes are safe only when encoder and decoder replay the same updates.'},
       ],
     },
     {
-      heading: 'Context',
+      heading: 'Why this exists',
       paragraphs: [
-        'HTTP/1.x mostly treats headers as repeated textual fields. HTTP/2 changes the framing model: many streams share one connection, and each stream carries compact header blocks. That shared connection is exactly where repeated header state becomes useful.',
-        'HPACK is the header-compression layer for HTTP/2. It uses a fixed static table for common names and values, a per-connection dynamic table for fields learned during the connection, integer encodings, optional Huffman coding for strings, and strict rules that keep the encoder and decoder tables synchronized.',
+        'HTTP headers are name-value metadata sent before a body. On one HTTP/2 connection, a browser or gRPC client repeats method, scheme, authority, cookies, authorization shape, and content negotiation fields across many streams.',
+        'Sending those names and values as text each time wastes bytes on the hottest path of the protocol. HPACK exists so repeated headers can become small indexes while the decoder still reconstructs the exact header list for each stream.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to send headers as plain text on every request. That is easy to debug and stateless, but it wastes bytes when the same connection repeats the same fields across many streams.',
-        'A second obvious approach is generic compression over the connection. The wall is HTTP/2 multiplexing and security: header blocks must be decoded in a controlled stream protocol, and compression state has to be bounded, deterministic, and careful with sensitive values. HPACK is a purpose-built compromise: indexed header fields with strict dynamic-table rules.',
+        'The obvious approach is to send every header as plain text. That is stateless, easy to inspect, and correct for a single request because the receiver sees the full name and value every time.',
+        'A second approach is generic compression over the connection. That looks attractive until the protocol needs bounded state, deterministic decoding, independent header blocks, and special handling for secrets such as cookies or bearer tokens.',
       ],
     },
     {
-      heading: 'Core idea',
+      heading: 'The wall',
       paragraphs: [
-        'The core idea is shared indexed state. The static table is predefined by the specification. The dynamic table is built by the header blocks themselves. When the encoder sends a literal with incremental indexing, the decoder inserts the same field into its own dynamic table.',
-        'After that, a later header block can say "use index 62" instead of repeating the name and value. This is why HPACK is not just a byte codec. It is a synchronized state machine where compression wins come from both endpoints replaying the same table updates in the same order.',
+        'The wall is that compression state becomes protocol state. If one side believes index 62 means one cookie and the other side believes it means a different header, the decoded request can become wrong without any missing bytes.',
+        'The wall is also policy. Indexing a one-off tracing id wastes table space, while indexing a sensitive value can reveal repetition patterns through compressed sizes. The compressor must decide which values deserve shared memory.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        'An encoded header field can be an indexed representation, a literal with incremental indexing, a literal without indexing, or a literal that must never be indexed. Indexed representation is cheapest, but it only works when the field already exists in the static or dynamic table. Literal with indexing costs more now but may save bytes later.',
-        'Dynamic entries are inserted at the front. In HPACK, the static table has 61 entries, so the newest dynamic entry starts at index 62 and older dynamic entries shift to larger indexes. Entry size is name length plus value length plus 32 bytes of overhead. When the table would exceed its maximum size, old entries are evicted from the end until the table fits.',
+        'HPACK turns header compression into a synchronized table machine. The static table is fixed by the specification, and the dynamic table is built by encoded instructions that both endpoints apply in the same order.',
+        'A literal with incremental indexing pays the full name and value once, then inserts that pair into the dynamic table. A later header block can reference the pair by index, so the saved bytes come from remembered connection state.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'How it works',
       paragraphs: [
-        'Suppose the first request on an HTTP/2 connection sends `:method: GET` and `:scheme: https`. Those can use the static table. It also sends a cookie that is likely to repeat. The encoder sends the cookie as a literal with incremental indexing. The decoder reads that instruction and inserts the same cookie entry into its dynamic table.',
-        'On the next request, the same cookie can be sent as a dynamic-table index instead of as a full name and value. Later, a large `accept-language` value is indexed. If the dynamic table is already near capacity, that insertion evicts older entries from the tail. If the cookie was evicted, the next request cannot reference it by index anymore and must send it again as a literal.',
+        'The encoder chooses among indexed representation, literal with incremental indexing, literal without indexing, and never-indexed literal. Indexed representation is cheapest, but it is legal only when the field already exists in the static or dynamic table.',
+        'Dynamic entries are inserted at the front. In HPACK the static table has 61 entries, so the newest dynamic entry starts at index 62, and older dynamic entries shift to larger indexes.',
+        'Entry size equals name length plus value length plus 32 bytes of overhead. When an insertion would exceed the configured maximum table size, the oldest entries are evicted from the end until the table fits.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'HPACK works because the header block is also an update log for decoder state. When the encoder indexes a literal, the decoder applies the same insertion. When capacity is exceeded, both sides evict using the same tail-removal rule. When a dynamic table size update appears, both sides shrink to the same bound.',
-        'The invariant is exact table agreement. An index is meaningful only if both endpoints map that index to the same header field at that moment in the connection. If the decoder missed one insertion or eviction, every later dynamic index could decode to the wrong field.',
+        'The correctness argument is the table-agreement invariant. After every decoded header block, the decoder dynamic table must be exactly the table the encoder predicted when it encoded the next block.',
+        'Every instruction that changes the dynamic table is carried in the byte stream and applied by both sides. Because insertion position, size calculation, and tail eviction are deterministic, the same history produces the same index mapping.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the indexed-header-block view, read the graph as a round trip of shared meaning. Raw headers enter the encoder. The encoder chooses between static entries, dynamic entries, and literals. The header block crosses the connection, and the decoder rebuilds the same table state before handing headers to HTTP/2.',
-        'In the dynamic-table-eviction view, focus on the table as a bounded recency structure. New entries go to the front, old entries leave from the end, and the decoder mirrors the same movement. The eviction frames are the hidden cost of compression: a large or low-value insertion can push out entries that would have saved more bytes later.',
+        'Encoding and decoding are linear in the number of header fields plus the bytes needed for integer and string encodings. The dynamic table uses bounded memory, so its space cost is the configured table size, not the number of requests on the connection.',
+        'Cost behaves like a cache. A stable 120-byte cookie sent 1,000 times can cost one literal insertion plus 999 small indexes, but a rotating 120-byte request id can consume insertion and eviction work without future hits.',
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'HPACK saves bandwidth and can reduce latency when many header blocks share values. It is strongest on long-lived HTTP/2 connections with stable pseudo-headers, common response headers, repeated cookies, gRPC metadata, and predictable application headers.',
-        'The cost is synchronized mutable state, bounded memory, eviction churn, and privacy-sensitive policy choices. Indexing every header is not optimal. One-off values waste table space, high-cardinality values churn the table, and sensitive values can reveal repetition patterns or interact with compression side channels.',
+        'HPACK is used by HTTP/2 clients, servers, proxies, and gRPC stacks. It fits long-lived connections where pseudo-headers, authentication shape, cookies, user agents, and application metadata repeat across streams.',
+        'Operators feel it through header-size limits, compression ratio, and invalid header-block errors. The practical tuning question is not whether HPACK exists, but whether high-cardinality metadata is churning the dynamic table.',
       ],
     },
     {
-      heading: 'Limits',
+      heading: 'Where it fails',
       paragraphs: [
-        'HPACK does not solve transport loss, server admission, flow control, or application backpressure. HTTP/2 still runs over TCP, so packet loss can affect every stream on the connection. Header compression saves bytes, but it does not make the transport independent per stream.',
-        'HPACK also becomes less useful when headers are one-off, too large, highly sensitive, or too high-cardinality for the dynamic table. The dynamic table is per connection, so new connections start cold. HTTP/3 uses QPACK instead because QUIC changes the stream and head-of-line-blocking constraints.',
+        'HPACK fails as a performance tool when values rarely repeat. Large unique cookies, tracing baggage, nonce fields, and per-request signatures can evict useful entries and leave later requests larger than expected.',
+        'It fails as a correctness tool if encoder and decoder state diverge. Bad size updates, invalid indexes, or wrong eviction order corrupt the meaning of future indexes, so decoders must reject malformed header blocks rather than guess.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'A correctness failure means encoder and decoder state diverged. That can happen if an implementation mishandles a table-size update, evicts the wrong entry, accepts an invalid index, or applies header blocks out of the strict order required for the connection. Once state diverges, compact indexes become dangerous because they silently point at different fields.',
-        'A performance failure is more common: the dynamic table is filled with values that never repeat, or large values evict smaller useful ones. A security failure comes from indexing values that should have used never-indexed representation, especially secrets whose repetition or length should not become observable through compression behavior.',
-      ],
-    },
-    {
-      heading: 'Practical use',
-      paragraphs: [
-        'In practice, most application developers meet HPACK through HTTP/2 libraries and proxies rather than hand-written encoders. The useful operational skill is recognizing header behavior: stable repeated metadata compresses well, rapidly changing cookies or tracing baggage may churn, and oversized headers still hurt even when compression exists.',
-        'For protocol implementers, test table synchronization aggressively. Include cold connections, repeated headers, large insertions, table-size reductions, zero-size tables, invalid indexes, never-indexed literals, and interleaved streams. The decoder should be strict because lenient state machines can turn one bad block into persistent connection corruption.',
-        'For operators, watch header size, dynamic table size, compression ratio, invalid header-block errors, and high-cardinality metadata. A small tracing or cookie change can shift the table from useful repetition to constant eviction churn.',
+        'Assume the dynamic table limit is 256 bytes. A cookie field with name length 6 and value length 58 costs 6 + 58 + 32 = 96 bytes, so the first request can insert it as a literal with incremental indexing.',
+        'A later request can reference that cookie by dynamic index instead of sending 64 bytes of name and value again. If the encoder then inserts an accept-language field costing 150 bytes while the table holds authorization at 140 bytes and cookie at 96 bytes, the 386-byte total is too large, so the oldest entries are evicted until the table is at or below 256 bytes.',
+        'The behavior is the lesson. The encoder saves bytes only while useful entries remain resident, and correctness holds only because the decoder performs the same insertion and eviction arithmetic.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RFC 7541 HPACK at https://datatracker.ietf.org/doc/html/rfc7541 and RFC 9113 HTTP/2 at https://datatracker.ietf.org/doc/rfc9113/. RFC 7541 section 2 defines the static and dynamic tables, section 4 defines dynamic table management, and section 6 defines header field representations.',
-        'Study Base-128 Varint & ZigZag Encoding, Huffman Coding, Finite State Machine, CDN Request Flow, TCP Listen Backlog & Accept Queue, TCP: Handshake & Congestion Control, Backpressure & Flow Control, HTTP/3 over QUIC, and QPACK Dynamic Table HTTP/3 next.',
+        'Primary sources: RFC 7541 HPACK at https://datatracker.ietf.org/doc/html/rfc7541 and RFC 9113 HTTP/2 at https://datatracker.ietf.org/doc/html/rfc9113. Read the static table, dynamic table management, and header field representation sections before implementation work.',
+        'Study QPACK Dynamic Table HTTP/3 next to see how QUIC changes blocking constraints. Then study Huffman Coding, Finite State Machines, Backpressure and Flow Control, and HTTP/3 over QUIC to connect compression state with transport behavior.',
       ],
     },
   ],

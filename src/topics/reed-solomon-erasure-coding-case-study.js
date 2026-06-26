@@ -270,104 +270,98 @@ export function* run(input) {
   else throw new InputError('Pick a Reed-Solomon view.');
 }
 
+
 export const article = {
   sections: [
     {
-      heading: 'Why it exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Storage systems need durability without always paying for full replication. Three replicas are simple and fast to read, but they store three full copies. At large scale, that space overhead becomes the dominant cost.',
-        'Reed-Solomon erasure coding protects data by splitting it into k data shards and adding m coding shards. A stripe with k data shards and m coding shards can reconstruct from any k surviving shards, so it tolerates up to m known missing shards with less space than full replication.',
+        'The encode view shows data shards becoming coding shards through finite-field equations. Active means a shard or equation is being used, visited means a shard has already contributed to the current calculation, and found means the system has enough independent survivor equations.',
+        'The recovery view is an erasure case, which means the decoder knows which shard positions are missing. The safe inference is that any k independent survivors in a k-of-n Reed-Solomon code determine exactly one original data stripe.',
         {type:'callout', text:'Reed-Solomon trades full copies for independent equations, so any threshold-sized survivor set can reconstruct the original stripe.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/0/03/DeepSpaceFEC.png', alt:'Block diagram of a deep-space forward error correction encoder and decoder chain.', caption:'Deep-space concatenated coding system using a Reed-Solomon encoder and decoder; Kirlf, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'The obvious attempt',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious durability plan is replication: keep two or three complete copies on different machines. Replication is easy to operate because any healthy copy can serve the full object, and repair can copy from one survivor.',
-        'The wall is storage efficiency. Three replicas use 3.0x space. A 10+4 erasure-coded stripe uses 1.4x space while tolerating four shard losses. The trade is that reads, writes, and repairs now need coding math and shard coordination.',
+        'Storage systems need durability without storing full copies of every object. Three replicas are easy to read and repair, but they use 3.0x space.',
+        'Reed-Solomon erasure coding stores k data shards plus m coding shards. The system can reconstruct the original stripe from any k trustworthy survivors, so a 10+4 profile stores 1.4x data while tolerating four known shard losses.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious durability plan is replication. Keep complete copies on different disks, hosts, racks, or zones, and serve reads from any healthy copy.',
+        'Replication is operationally simple. Repair copies a full object from one survivor, small writes are easy, and degraded reads do not need decoding math.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is storage overhead at scale. Storing 100 PB of logical data with three replicas consumes about 300 PB before metadata and reserve capacity.',
+        'A second wall is repair bandwidth. Replication is simple, but rebuilding a failed 10 TB disk still reads and writes many terabytes, and the system remains exposed while repair runs.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Reed-Solomon coding stores enough independent equations to recover the original data. The data shards are the unknowns. The coding shards are finite-field linear combinations of those unknowns. If any k surviving shards provide k independent equations, the decoder can solve for the original k data shards.',
-        'The data-structure view is a stripe manifest plus finite-field linear algebra. The manifest says which object range, coding profile, shard ids, placements, and checksums belong together. The algebra makes missing shards recoverable.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        "In the encode-shards view, read each parity shard as an independent equation over the data shards. The animation is not making backup copies. It is creating extra linear combinations so the original data can be solved later from any large-enough survivor set.",
-        "In the recover-erasures view, the missing positions are known. That is why erasure recovery is tractable: the decoder knows which equations survived and can choose a solvable k-by-k system. Unknown corruption is a different problem and needs checksums or other detection first.",
-        "The highlighted survivor set is the proof object. If it contains k independent shards for a k-of-n code, reconstruction is possible. If fewer than k trustworthy shards remain, no animation step can invent the missing information.",
-      ],
-    },
-    {
-      heading: 'Finite-field intuition',
-      paragraphs: [
-        'The math sounds abstract, but the storage intuition is simple. Ordinary parity can recover one missing shard by XORing the survivors. Reed-Solomon generalizes that idea so several different parity shards carry different equations. Losing one shard removes one equation or one unknown value. As long as enough independent equations survive, the decoder can solve the system.',
-        'Finite fields make the arithmetic bounded and byte-friendly. Addition, multiplication, and inversion happen inside a fixed field, so encoded bytes stay bytes and matrix operations are deterministic. Implementations spend a lot of engineering effort making that math fast enough for storage repair and degraded reads.',
+        'Store independent equations instead of full copies. The original data shards are unknowns, and coding shards are finite-field linear combinations of those unknowns.',
+        'If k surviving shards produce k independent equations, matrix inversion recovers the original data vector. The manifest tells the decoder which stripe, coding profile, shard positions, placements, and checksums belong together.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A systematic storage code keeps the original data shards visible and appends coding shards. The encoder multiplies the data shards by a generator matrix over a finite field. The identity rows produce the data shards; the parity rows produce coding shards.',
-        'If shards disappear, the decoder chooses k survivors, selects the corresponding k rows of the coding matrix, inverts that submatrix, reconstructs the original data shards, and regenerates any missing data or coding shards. Storage implementations usually work over byte-oriented finite fields and optimized matrix routines.',
-        'This is closely related to Shamir Secret Sharing: both use finite-field interpolation and threshold reconstruction. The storage goal is durability and space efficiency rather than secrecy.',
+        'A systematic Reed-Solomon encoder keeps the original k data shards visible and appends m coding shards. It multiplies the data vector by a generator matrix over a finite field, usually a byte-oriented field in storage systems.',
+        'When shards are missing, the decoder selects k survivors, takes the corresponding k rows of the coding matrix, and inverts that submatrix. The result reconstructs the original data shards, which can then regenerate missing data or parity shards.',
+        'Checksums and placement metadata are part of the system, not decoration. The decoder must know which shards are missing or corrupt before it chooses the survivor set to trust.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness condition is independence. Reed-Solomon codes choose evaluation points or matrix rows so the needed k-by-k survivor matrix is invertible. Invertibility means there is exactly one original data vector consistent with the k surviving shards.',
-        'The word erasure matters. The decoder knows which shard positions are missing. That is easier than arbitrary corruption, where a bad shard may be present but wrong. Real systems pair erasure coding with checksums, scrubbing, and placement rules so the decoder knows which shards to trust.',
+        'Correctness rests on independence. Reed-Solomon chooses evaluation points or matrix rows so any allowed k-row survivor matrix is invertible.',
+        'Invertible means there is exactly one original data stripe consistent with the k surviving equations. If fewer than k trustworthy shards remain, multiple originals could fit the evidence, so reconstruction is impossible.',
+        'The erasure assumption is crucial. Known missing shards are easier than silent corruption, so real systems combine coding with checksums, scrubbing, and failure-domain placement.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Compared with three full replicas, erasure coding can sharply reduce storage overhead. The trade is more expensive degraded reads, repair traffic, small-write amplification, coding CPU, and metadata complexity.',
-        'When a shard is missing, repair reads k surviving shards, decodes, and writes replacement shards. During that degraded window, the system has less failure budget left. For a 3+2 stripe with two losses, one more shard loss means data loss.',
-        'Small writes are especially awkward because updating part of a stripe may require read-modify-write work across data and coding shards. Systems often reserve erasure coding for colder or larger objects where space efficiency matters more than tiny-write latency.',
-        'Durability is also placement-dependent. A 10+4 code is not a 10+4 failure-domain guarantee if many shards sit in the same rack, power zone, or maintenance group. The coding profile and the placement policy have to be designed together.',
+        'The storage cost of a k+m profile is (k+m)/k. A 10+4 code costs 1.4x, a 6+3 code costs 1.5x, and a 3+2 code costs about 1.67x.',
+        'The behavior cost appears during writes, reads, and repairs. A degraded read may need k remote shards and decoding CPU, while repairing one missing shard reads k survivors and writes one replacement.',
+        'Small writes are expensive because changing part of a stripe can require read-modify-write across data and coding shards. Many systems reserve erasure coding for cold, large, or immutable objects.',
       ],
     },
     {
-      heading: 'Operational concerns',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A production system needs a stripe manifest, shard checksums, coding profile version, placement metadata, repair priority, and scrubbing. The decoder cannot help if it does not know which shards belong together or if it trusts a corrupt survivor.',
-        'Repair scheduling matters because degraded stripes have reduced safety margin. A system that saves space with erasure coding but repairs slowly may spend too long one failure away from data loss. The right design balances space overhead, repair bandwidth, rebuild time, and failure-domain diversity.',
-        'Choosing k and m is therefore a product decision. Larger k improves storage efficiency but makes repair read more survivors and can increase degraded-read cost. Larger m increases failure tolerance but adds space and write overhead. The best profile depends on object size, repair bandwidth, failure domains, and how quickly the system can replace missing shards.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Reed-Solomon wins for large stored objects, cold data, archives, backup systems, object stores, and distributed storage pools where space efficiency dominates the extra CPU and repair coordination.',
-        'It also wins when failure domains are well understood. Placing shards across disks, hosts, racks, or zones lets the m coding shards buy real durability instead of protecting against only independent disk failures on paper.',
+        'Reed-Solomon coding is used in object stores, archival storage, RAID-like disk arrays, distributed file systems, deep-space communication, QR codes, and optical media. The fit is strongest where space efficiency matters more than tiny-write latency.',
+        'Cloud object storage is the standard software case. Large objects can be striped across failure domains, repaired in the background, and stored with much lower overhead than full replication.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It is the wrong default for hot tiny writes, latency-sensitive metadata, or workloads that cannot tolerate degraded-read amplification. Replication may be cheaper in latency and operational simplicity even when it costs more space.',
-        'It also fails if metadata is lost, placement is careless, or corruption is not detected. The decoder needs the coding profile, stripe membership, shard positions, and trustworthy survivor set before the math helps.',
+        'It fails for hot tiny writes and latency-sensitive metadata. Replication is often cheaper when the workload needs fast updates and simple repair more than storage efficiency.',
+        'It also fails when placement does not match failure domains. A 10+4 stripe is not four-rack tolerant if several shards sit in the same rack or maintenance group.',
+        'Lost metadata can be fatal. Without the coding profile, shard positions, stripe membership, and checksums, the algebra does not know which equations to solve.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'A store splits an object range into D0, D1, and D2, then computes P0 and P1. The five shards are placed on different failure domains. Later D1 and P0 are missing. D0, D2, and P1 remain, so the system has k=3 survivors.',
-        'The decoder uses those survivors to solve for the original data, regenerates D1 and P0, and writes replacements elsewhere. The repair consumes reads from survivors, CPU for decoding, network bandwidth, and writes for replacement shards. Until repair finishes, the 3+2 stripe is one loss away from failure.',
+        'Use a 3+2 stripe with data shards D0, D1, and D2 plus coding shards P0 and P1. The five shards are placed on five different hosts.',
+        'If D1 and P0 are lost, survivors D0, D2, and P1 give k=3 equations. The decoder selects those three rows, inverts the 3 by 3 matrix, reconstructs D1, and then regenerates P0.',
+        'Space overhead is 5/3, or about 1.67x. During repair, the system reads three survivor shards, spends CPU on finite-field decoding, transfers the replacement across the network, and remains one more shard loss away from data loss until repair finishes.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Reed and Solomon, "Polynomial Codes over Certain Finite Fields" at https://sites.math.rutgers.edu/~zeilberg/akherim/ReedS1960.pdf, NASA Reed-Solomon tutorial at https://ntrs.nasa.gov/search.jsp?R=19900019023, and CMU Reed-Solomon overview at https://www.cs.cmu.edu/~guyb/realworld/reedsolomon/reed_solomon_codes.html.',
-        'Study Data Availability Sampling & Erasure Coding Case Study for blockchain availability, Namespaced Merkle Tree Proof Case Study for proof-oriented storage metadata, Shamir Secret Sharing for threshold reconstruction with secrecy, Ceph Erasure-Coded Pools for a production storage system, Ceph CRUSH Placement Case Study for failure-domain placement, S3 Object Storage Case Study for object durability, and Merkle Tree for integrity summaries.',
+        'Primary sources: Reed and Solomon, Polynomial Codes over Certain Finite Fields, at https://sites.math.rutgers.edu/~zeilberg/akherim/ReedS1960.pdf, NASA Reed-Solomon tutorial at https://ntrs.nasa.gov/search.jsp?R=19900019023, and CMU Reed-Solomon overview at https://www.cs.cmu.edu/~guyb/realworld/reedsolomon/reed_solomon_codes.html. These explain the original code, finite-field decoding, and practical intuition.',
+        'Study Finite Fields, Matrix Inversion, Shamir Secret Sharing, Data Availability Sampling and Erasure Coding, Namespaced Merkle Trees, Ceph Erasure-Coded Pools, CRUSH Placement, S3 Object Storage, and Merkle Trees. The transfer idea is threshold reconstruction from independent evidence.',
       ],
     },
   ],

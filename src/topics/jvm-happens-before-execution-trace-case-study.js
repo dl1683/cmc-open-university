@@ -248,99 +248,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Concurrent Java programs do not run under the simple story most beginners imagine. One thread can write a value, another thread can run later, and the second thread may still be allowed to see an older value unless the program created the right synchronization relationship.',
-        'A JVM happens-before trace exists to make that relationship explicit. It records ordinary reads and writes, volatile accesses, monitor actions, thread lifecycle actions, program-order edges, synchronization edges, and the write observed by each read. The point is not just replaying source lines. The point is explaining which observations are legal under the Java Memory Model.',
-        'This matters for debuggers, concurrency tests, deterministic replay, trace-based education, and code-world-model datasets. A model trained on value logs can memorize interleavings while missing the actual rule: visibility is controlled by happens-before relationships, not by wall-clock intuition.',
+        'Read the graph as a proof of visibility, not as a wall-clock timeline. A node is a memory or synchronization action. An edge means one action happens-before another under the Java Memory Model, which is the language rule that defines legal visibility between threads.',
+        'Active edges are the ordering facts currently being used. Found nodes mark reads whose observed write can be explained. Compare nodes show what a value-only trace misses when it records values but not the synchronization edges that make those values legal or illegal.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Concurrent Java programs do not run under the simple rule that later code must see earlier writes from another thread. A thread can write a value, another thread can run later, and the second thread may still legally see an old value if the program did not create the right synchronization relationship.',
+        'A happens-before trace records ordinary reads and writes, volatile accesses, monitor lock and unlock actions, thread start and join actions, program-order edges, synchronization edges, and the write observed by each read. The goal is to explain which observations are legal under the Java Memory Model.',
         {type:'callout', text:'A happens-before trace explains concurrency by recording the synchronization edges that make a read legal, not just the wall-clock order that made it surprising.'},
       ],
     },
     {
-      heading: 'The Baseline And The Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The baseline trace is a line log: timestamp, thread id, source location, variable, and value. That log is useful. It can show that Thread 1 wrote `x = 1`, Thread 2 read `x = 0`, and the assertion failed. It can help reproduce a schedule.',
-        'The wall is visibility. A value-only log cannot tell whether reading 0 was legal, surprising but allowed, impossible under the memory model, or allowed only because the program had a data race. It also cannot explain why adding `volatile`, `synchronized`, `Thread.start`, or `join` changes the result.',
-        'Java does not define concurrency by a single global timeline of source lines. It defines legal executions through actions, synchronization order, happens-before edges, and constraints on which writes a read may observe. A serious trace has to carry those facts.',
+        'The obvious approach is a line log: timestamp, thread id, source location, variable, and value. That can show Thread 1 wrote x = 1, Thread 2 read x = 0, and an assertion failed. It can help reproduce a schedule.',
+        'The log still cannot say whether the read was legal. It cannot explain why adding volatile, synchronized, Thread.start, or join changes the result. It records symptoms but not the memory-model proof.',
       ],
     },
     {
-      heading: 'Core Insight And Invariant',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that visibility is a graph property. Program order creates edges inside one thread. Synchronization creates edges across threads: a volatile write to a later volatile read of the same variable, an unlock to a later lock on the same monitor, a parent action to a started thread, a completed thread to a successful join, and final-field rules under safe construction.',
-        'The transitive closure of those edges is the happens-before graph. If action A happens-before action B, then the effects of A must be visible to B where the variable rules require it. If there is no path, the read may have more freedom than a timestamp log suggests.',
-        'The invariant for the trace is this: every read must name the write it observed, and the trace must preserve enough happens-before structure to decide whether that observation is legal. A value without an observed-write relation is only a symptom.',
+        'The wall is visibility. Java does not define concurrency by one global timeline of source lines. It defines legal executions through actions, synchronization order, happens-before edges, and constraints on which writes a read may observe.',
+        'A value-only trace cannot distinguish a surprising but legal stale read from an impossible observation caused by bad instrumentation. It also cannot label data races, where conflicting ordinary accesses are not ordered by happens-before.',
       ],
     },
     {
-      heading: 'How The Visual Model Teaches It',
+      heading: 'The core insight',
       paragraphs: [
-        'The happens-before graph view highlights the difference between a schedule and a proof. The volatile flag, monitor edge, start edge, and program-order edges are not decoration. They are the reasons one action can force visibility at another action.',
-        'The read-validity view compares a value-only record with a memory-model record. A value-only record can say that a read returned 0. The richer record can say whether 0 was legal, illegal, or legal because no synchronization ruled it out.',
-        'The useful habit is to follow paths, not screen position. If a write reaches a read through happens-before edges, the read is constrained. If the path is missing, the read may be allowed to observe an older write, and the trace should label that fact instead of treating it as random behavior.',
+        'Visibility is a graph property. Program order creates edges inside one thread. Synchronization creates edges across threads, such as volatile write to later volatile read of the same variable, unlock to later lock on the same monitor, start edges into a new thread, and join edges from a completed thread.',
+        'The transitive closure of those edges is the happens-before relation. If write A happens-before read B and no allowed intervening write changes the variable, B is constrained by A. If no path exists, the read may be freer than timestamp intuition suggests.',
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'How it works',
       paragraphs: [
-        'First, the trace records actions. Ordinary reads and writes matter. Volatile reads and writes matter. Lock and unlock actions matter. Thread start and join events matter. Final-field facts matter when safe publication is part of the explanation. Each action receives an ID so later proof steps can refer to it.',
-        'Second, a verifier builds edges. Program order links actions in the same thread. Synchronization rules create cross-thread edges. The verifier computes the happens-before closure or an equivalent reachability structure so it can answer whether one action must be visible to another.',
-        'Third, the verifier checks the read-from map. Each read points to the write it observed. For each variable, the verifier asks whether that write is allowed or whether another write is forced between the observed write and the read. The trace can then mark the observation legal, illegal, or racy.',
+        'First, instrumentation records actions with stable ids: ordinary reads and writes, volatile reads and writes, monitor enters and exits, thread lifecycle events, and source spans. Each read also records the write it observed, often called the read-from relation.',
+        'Second, a verifier builds edges. Program order links actions in the same thread. Synchronization rules add cross-thread edges. The verifier then answers reachability questions in the happens-before graph and checks whether each read-from choice is allowed.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
-        'It works because it follows the shape of the Java Memory Model. The JMM is not merely an implementation note about CPUs. It is the language-level contract that says which executions are legal. By storing actions, edges, and observed writes, the trace becomes a checkable object under that contract.',
-        'A read is not validated only by the value it returned. It is validated by the set of writes that the memory model allows it to observe. If a later write to the same variable is ordered between the observed write and the read, the older observed write may be forbidden. If no ordering exists, the read may be unconstrained by happens-before.',
-        'Data races are not swept under the rug. If two conflicting ordinary accesses are not ordered by happens-before, the trace should label the race. That label is essential because racy examples can be legal while still teaching a different lesson from properly synchronized examples.',
+        'It works because the trace stores the same kinds of facts the Java Memory Model uses. A read is not justified only by the value it returned. It is justified by whether the observed write is one the memory model permits that read to see.',
+        'Correctness depends on a trace invariant: every read names its observed write, and the graph preserves enough ordering facts to decide legality. If a later write is ordered between the observed write and the read, the older write may be forbidden. If the accesses are unordered and conflicting, the trace should label the race.',
       ],
     },
     {
-      heading: 'Concrete Example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Consider two fields, `data` and `ready`. Thread 1 writes `data = 42`, then writes `ready = true`. Thread 2 loops until it sees `ready`, then reads `data`. This is the classic publication pattern.',
-        'If `ready` is an ordinary field, Thread 2 may observe `ready = true` and still read an old value of `data` in a racy program. A line log makes that look strange because the data write appears earlier. The happens-before trace explains the gap: there is no synchronization edge carrying the data write to the data read.',
-        'If `ready` is volatile, the write to `ready` synchronizes with the read of `ready` that sees it. Program order puts `data = 42` before the volatile write, and program order puts the volatile read before the data read. The transitive happens-before path now carries the data write, so reading the old data value is not a valid observation for that synchronized execution.',
+        'The cost grows with action count, synchronization count, variables, and read checks. A trace with 100,000 actions and 20,000 reads needs compact action ids, per-variable write histories, synchronization edges, and enough reachability support to validate reads.',
+        'Cost behaves like explanation power. A value log is smaller, but it cannot answer whether a read was allowed. A memory-model trace is heavier, but it can support debuggers, test reducers, replay systems, and training datasets that need the reason, not only the value.',
       ],
     },
     {
-      heading: 'Costs And Tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The cost grows with the number of actions, variables, synchronization events, and read checks. A small concurrent program with many locks or volatile fields can produce a dense proof graph. A long single-threaded log can be large but conceptually simple.',
-        'A practical trace format needs compact action IDs, per-variable write histories, synchronization edges, race labels, source spans, and enough thread context to explain the result. It should avoid storing redundant closure data when reachability can be computed, but it must not drop the facts that define visibility.',
-        'The tradeoff is between size and explanation power. A value-only log is smaller and easier to collect. A memory-model trace is heavier, but it can answer the question that matters: was this read allowed, and why?',
+        'This trace helps concurrency debuggers explain stale reads, incorrect locks, volatile mistakes, and bad publication. It helps deterministic replay systems preserve the observations that matter, not just a rough thread schedule.',
+        'It also helps education and code-world-model datasets. Students and models often overuse temporal intuition. A happens-before trace teaches the actual rule: ran later is not the same thing as must see.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Where it fails',
       paragraphs: [
-        'It wins for concurrency debuggers and race explainers. When a test fails, the developer needs to know whether the surprising value came from missing synchronization, a bad assumption about volatile, an incorrect lock, or an impossible trace produced by instrumentation error.',
-        'It wins for deterministic replay and test-case reduction because it separates schedule from memory legality. A replay tool can reproduce a sequence of actions, while the verifier explains which observations have to be preserved for the replay to remain meaningful.',
-        'It also wins for education and model training. Students and models both tend to overuse temporal intuition. A happens-before trace teaches the actual contract: "ran later" is not the same thing as "must see."',
+        'It fails when instrumentation misses a decisive event such as a volatile access, monitor action, start, join, interrupt ordering fact, or final-field publication fact. One missing edge can change whether a read is legal.',
+        'It also fails outside its language contract. Java, C++, Rust, JavaScript, and Python have different memory and execution rules. A JVM trace design can inspire other systems, but each language needs its own verifier semantics.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Worked example',
       paragraphs: [
-        'It fails if instrumentation is incomplete. Missing a volatile access, monitor action, thread start, join, interrupt ordering fact, or final-field publication fact can change the legality result. The verifier may reject a legal run or accept an impossible one because the trace omitted a decisive edge.',
-        'It fails if racy examples are not labeled. Races can be valuable data, but they teach different lessons from synchronized executions. If a dataset treats them as ordinary deterministic traces, a model may learn that stale reads are arbitrary quirks instead of consequences of missing happens-before edges.',
-        'It also fails when applied outside its contract. Python, JavaScript, C++, Rust, and JVM languages have different memory and execution rules. A JVM trace format can inspire other systems, but each language needs its own verifier semantics.',
+        'Thread 1 writes data = 42 and then writes ready = true. Thread 2 reads ready and, if it sees true, reads data. If ready is an ordinary field, Thread 2 may see ready = true and still read old data in a racy program, because no synchronization edge carries the data write to the data read.',
+        'Now make ready volatile. The write to ready synchronizes with the read of ready that sees true. Program order puts data = 42 before the volatile write, and program order puts the volatile read before the data read. By transitivity, data = 42 happens-before the data read, so reading the old data value is not legal for that synchronized execution.',
+        'The trace needs four key facts: the data write, the volatile write, the volatile read that observed it, and the data read. A timestamp log with only values would miss the edge that makes 42 required.',
       ],
     },
     {
-      heading: 'Operational Guidance',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Capture synchronization as first-class events, not as comments on reads and writes. Give every action a stable ID. Store the variable, thread, source span, action kind, and observed-write link. Keep enough metadata to reconstruct or query happens-before reachability.',
-        'Validate traces before using them as training data. Build the happens-before graph, check read observations, label races, and reject traces that contradict the memory model. A trace corpus is only useful if illegal observations are filtered or clearly marked.',
-        'Compress carefully. You can summarize repeated reads, collapse unimportant source context, or store sparse edges, but do not erase volatile actions, monitor edges, lifecycle edges, final-field facts, or read-from links. Those are the explanation.',
-      ],
-    },
-    {
-      heading: 'Study Next',
-      paragraphs: [
-        'Study Code World Models Case Study for execution-grounded training data and Execution Trace State Diff Case Study for state-transition records. Study Rust Borrow Checker Ownership Trace to compare a different language safety contract. Study Distributed Snapshot and Consistent Cut for graph-based reasoning about concurrent systems.',
-        'Then study Sequence Lock, Hazard Pointers, and Epoch Reclamation. They show the same broader lesson from another angle: memory correctness is often a protocol over events, not a local property of one line of code. The primary language reference is JLS section 17 on threads, locks, and the Java Memory Model.',
+        'Primary sources are Java Language Specification section 17, especially the memory model and happens-before rules, plus JVM and concurrency testing documentation. Study data races, volatile, monitor locks, thread lifecycle edges, final-field safe publication, deterministic replay, and distributed snapshots next.',
+        'A useful exercise is to draw the graph for the data/ready example twice: once with ordinary ready and once with volatile ready. Then mark which reads are constrained by a happens-before path and which remain racy.',
       ],
     },
   ],

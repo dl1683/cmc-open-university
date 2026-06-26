@@ -218,96 +218,89 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'Why state estimation exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `A power-control center needs a live picture of the electrical state of the grid, but the state is not directly visible. Operators care about bus voltage magnitudes, phase angles, line flows, injections, transformer taps, breaker status, and whether the current model is trustworthy enough for contingency analysis or restoration. What arrives in the control room is messier: SCADA scans every few seconds, PMUs stream synchronized phasors at much higher rates, topology processors report switch positions, and some measurements are stale, biased, missing, or delayed.`,
-        `State estimation is the reconciliation layer between raw telemetry and operational decisions. It turns a mixed measurement set into the best estimate of the network state, then attaches quality evidence to that estimate. The quality evidence matters as much as the voltage vector. A dispatch tool, outage-restoration assistant, or alarm processor should know whether the estimate was observable, which measurements were rejected, which topology version was used, and which residual tests failed.`,
+        'Read the animation as a control-center evidence pipeline. SCADA means supervisory control and data acquisition: meters, breakers, and remote terminal units report grid values every few seconds. Active nodes are the evidence being used now, compare nodes are competing explanations, and found nodes are state or quality facts that have survived the current check.',
+        'The safe inference rule is local but important. If the residual node stays high after the weighted least-squares solve, the voltage estimate may be numerically converged but not operationally trusted. Follow which measurement, topology version, or timing assumption explains the residual before accepting the state.',
         {type:'callout', text:`State estimation is useful only when the voltage estimate travels with the residuals, topology version, and observability evidence that justify trust.`},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/10/Functional_levels_of_a_Distributed_Control_System.svg', alt:'Layered diagram of distributed control system levels from field devices to production scheduling.', caption:'Functional levels of a Distributed Control System by Daniele Pugliesi, CC BY-SA 3.0, via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'Why direct readings fail',
+      heading: 'Why this exists',
       paragraphs: [
-        `The tempting approach is to trust the newest reading or average nearby values. That fails because grid measurements are not interchangeable samples of one number. A voltage magnitude, a real-power flow, a reactive-power injection, and a PMU phasor each relate to the hidden state through a different equation. Some measurements are redundant, some are weakly informative, and some become misleading when the topology model is wrong.`,
-        `The other obvious approach is to solve a power-flow case using the latest load and generation assumptions. That also misses the point. Power flow asks what state follows from a specified operating condition. State estimation asks which state best explains noisy evidence from the field. The measurement system and the network model must be solved together, with uncertainty carried explicitly instead of hidden inside operator intuition.`,
+        'A power grid has a hidden state: bus voltage magnitudes and phase angles that explain flows and injections across the network. Operators cannot read that state directly. They receive noisy SCADA values, faster phasor measurement unit readings, topology reports, and stale data from field equipment.',
+        'State estimation exists to turn those imperfect observations into one usable grid picture with an evidence trail. The estimator must say not only what the state probably is, but also whether the measurement set was observable, which readings disagreed, and which topology snapshot was used. Without that evidence, downstream restoration and contingency tools inherit a number with no trust boundary.',
       ],
     },
     {
-      heading: 'Measurement model',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The standard model writes the measurement vector as z = h(x) + e. The hidden state x is usually the set of bus voltage angles and magnitudes, with one reference angle fixed. The function h(x) predicts what each meter would report if x were the true state. The error term e captures measurement noise, time skew, device bias, and modeling mismatch. For an AC estimator, h(x) is nonlinear because real and reactive power flows depend on products of voltages and trigonometric angle differences.`,
-        `The covariance matrix R describes how much the estimator should trust each measurement. A high-quality PMU phasor usually receives a tighter variance than a noisy SCADA pseudo-measurement. A stale or suspicious meter may be down-weighted or removed. The inverse covariance becomes the weight matrix, so the estimator is not saying all evidence is equal. It is saying every measurement gets a contract: this value, from this source, at this time, with this expected error.`,
+        'The obvious approach is to trust the newest meter reading or average nearby readings. That works for a gauge on one device, but a grid measurement is not an isolated fact. A real-power flow, reactive-power injection, voltage magnitude, and phasor angle each constrain the hidden state through a different equation.',
+        'Another reasonable approach is to run a power-flow solve from the latest load and generation estimate. Power flow answers a forward question: given this model and injections, what state follows? State estimation answers an inverse question: given noisy measurements and a model, which state best explains the evidence?',
       ],
     },
     {
-      heading: 'Weighted least squares',
+      heading: 'The wall',
       paragraphs: [
-        `Weighted least squares chooses the state x that minimizes the weighted residual objective (z - h(x))^T R^-1 (z - h(x)). Because the AC equations are nonlinear, the solve is normally iterative. At each iteration the estimator linearizes h around the current guess, builds the Jacobian H, solves a normal equation involving H^T R^-1 H, updates the state, and repeats until the step or objective is small enough.`,
-        `The data-structure lesson is that the estimator is a sparse graph problem wearing an optimization interface. The network admittance matrix determines which buses and branches can influence a measurement. The Jacobian is sparse because a line-flow measurement only touches the buses at the line ends. The measurement table needs stable ids, source types, variances, timestamps, topology references, and mapping rows into the sparse system. If those ledgers are sloppy, the numerical solve can look clean while answering the wrong question.`,
+        'The wall is that bad data can look plausible one row at a time. A failed meter can be close to its previous value, a stale breaker can preserve an old topology, and a timing mismatch can make two correct readings disagree. Simple averaging has no way to know which readings are redundant, which are critical, or which equations they should satisfy together.',
+        'The estimator also needs observability. Observability means the active measurements constrain every state variable enough to solve for it. If a network island has too few independent measurements, the solver may still output numbers, but those numbers are not justified by the available evidence.',
       ],
     },
     {
-      heading: 'Observability first',
+      heading: 'The core insight',
       paragraphs: [
-        `Before trusting an estimate, the system must know whether the available measurements can determine the state. Observability is a rank and coverage question: do the active meters, PMUs, pseudo-measurements, and topology model constrain every islanded part of the network enough to estimate it? A full-rank Jacobian in the relevant subnetwork is the mathematical sign; a practical observability report also identifies islands, weak areas, missing measurements, and measurements that are critical because removing one would break observability.`,
-        `This is where many dashboards mislead. A solver can return numbers even when the measurement set is fragile. The right output is not only state = V, angle. It is state plus observability status, topology version, covariance policy, residual summary, and a list of assumptions. The article animation shows this as a pipeline, but the operational point is stricter: an estimate without its quality ledger is not a complete product.`,
+        'The core insight is to fit the whole physical model and then inspect what refuses to fit. Weighted least squares chooses the state that minimizes measurement residuals, where a residual is measured value minus predicted value. The weights come from expected measurement variance, so a precise PMU can count more than a noisy pseudo-measurement.',
+        'Bad-data detection is not a separate afterthought. The residual vector is the estimator looking back at its own answer. If one measurement can only be fitted by making many other predicted measurements worse, the residual pattern becomes evidence for a sensor, topology, timing, or security problem.',
       ],
     },
     {
-      heading: 'Residual tests',
+      heading: 'How it works',
       paragraphs: [
-        `After the solve, the residual vector r = z - h(x_hat) says where measured values disagree with values predicted from the estimated state. A small residual does not prove every meter is healthy, but large or patterned residuals show that some part of the evidence does not fit the model. The global bad-data test computes a weighted residual statistic and compares it with a chi-square threshold based on measurement redundancy. If the statistic is too high, the measurement set is globally inconsistent.`,
-        `A global alarm is not enough. Normalized residual tests divide each residual by its expected residual standard deviation, producing a score that is more comparable across measurement types. The largest normalized residual is a common candidate for bad-data location. The workflow is detect, locate, remove or flag one candidate, rerun the estimator, and verify that the residual pattern improves. That loop is simple, but the run record must preserve every removal and rerun so the control room can explain how the final state was produced.`,
-      ],
-    },
-    {
-      heading: 'Bad-data triage',
-      paragraphs: [
-        `A residual is not a diagnosis. The same high residual can mean a failed meter, a stale breaker status, a wrong transformer tap, a bad current-transformer ratio, a communication delay, a PMU clock issue, or a coordinated data-quality event. Treating all of those as "bad data" loses the most useful information. The triage queue should keep hypotheses separate: meter investigation, topology correction, time-synchronization check, model-parameter review, or security escalation.`,
-        `The case-study view separates those routes because the fix depends on the cause. A single isolated flow outlier with normal surrounding measurements often points to a sensor or scaling problem. A cluster of flow residuals around a breaker can point to topology. PMU phase-angle inconsistencies across otherwise healthy channels can point to timing. A carefully shaped set of biased measurements may be harder: if an attacker changes measurements in a way that lies close to the measurement model, ordinary residual tests may not flag it. That is why residuals are part of defense, not the whole defense.`,
+        'The estimator stores a measurement vector z, a state vector x, and a model h(x) that predicts what each meter should report for a candidate state. For AC state estimation, h(x) is nonlinear because line flows depend on voltage products and angle differences. The solver linearizes h(x), builds a sparse Jacobian, updates x, and repeats until the update is small.',
+        'After convergence, the system computes residuals and runs gates. A global residual test asks whether the whole measurement set is statistically inconsistent. A normalized residual test scales each residual by its expected uncertainty and influence, then proposes the largest outlier for triage.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `State estimation works because the grid has strong physical constraints. Power cannot flow arbitrarily through a branch; voltages, angles, admittances, and injections must satisfy Kirchhoff-style relationships. Redundant measurements give the estimator several ways to infer the same hidden state. When one reading is noisy, the rest of the network can often pull the estimate toward a physically consistent answer.`,
-        `The residual machinery works because wrong evidence usually has to fight the model. A biased measurement can be fitted only by moving the state, but moving the state tends to make other predicted measurements worse. The normalized residual identifies which measurement is least compatible with the fitted state after accounting for measurement influence and variance. This is the same general idea behind robust regression: use redundancy and a model of uncertainty to separate noise from structure.`,
+        'Correctness rests on redundancy plus physics. If the topology and network parameters are right, every healthy measurement is a noisy view of the same state. Moving the state to satisfy one false measurement tends to increase disagreement with other measurements, so the weighted objective prefers the state supported by the most consistent evidence.',
+        'The bad-data loop is safe only as a hypothesis test, not as an automatic truth machine. Removing the largest normalized residual is justified when the rerun improves the global fit and does not destroy observability. The invariant is that every accepted state must be tied to the measurement set, topology version, covariance policy, and removal history that produced it.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The estimator can fail quietly when its assumptions are wrong. Bad covariance values can make a noisy meter too influential or make a precise PMU too weak. Multiple interacting bad measurements can mask each other. Critical measurements have little redundancy, so their residuals may not stand out even when wrong. Topology errors can produce residual patterns that look like sensor failures. A converged nonlinear solve can still be a bad operational answer if it converged against a stale topology snapshot.`,
-        `Time alignment is another common failure. SCADA values may come from one scan boundary, PMU values from another, and topology from a third. If a breaker changes state during that window, the estimator may be asked to reconcile evidence from two different networks. Implementation teams should treat timestamps, scan windows, topology hashes, and data freshness as first-class fields rather than comments in a log message.`,
+        'The dominant cost is solving sparse linear systems during each nonlinear iteration. If the grid doubles in buses and the measurement density stays similar, the vectors and Jacobian roughly double, but factorization cost depends heavily on sparsity pattern and fill-in. Bad ordering or dense coupling can make the solve grow much faster than the raw row count.',
+        'Operational cost also behaves through evidence storage. Keeping residuals, normalized residuals, observability reports, topology hashes, and rerun ledgers adds memory and write traffic, but it prevents blind trust in a voltage display. A cheap estimator that drops this metadata is expensive during incidents because nobody can replay why a state was trusted.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Transmission and distribution control rooms use state estimation before contingency analysis, outage restoration, alarm filtering, and optimal power-flow studies. Those tools need a coherent grid state, not a pile of raw measurements. Residuals help decide whether the input picture is safe enough for switching or dispatch decisions.',
+        'The same pattern appears outside power systems whenever sensors report an indirect physical state. Aircraft tracking, industrial process control, robotics localization, and water-network monitoring all combine noisy measurements with a model. The shared lesson is that a live estimate should travel with quality evidence.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the model is wrong in a way the residual test cannot separate. A stale breaker status, wrong transformer tap, or bad line parameter can produce residuals that look like failed sensors. Multiple coordinated bad measurements can also mask each other by staying close to a plausible state.',
+        'It also fails when time alignment is sloppy. SCADA, PMU, and topology data may describe different moments during a switching event. If the estimator mixes them as one snapshot, it can solve a network that never existed, and the residual explanation will point at symptoms instead of the timing error.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `Suppose a substation breaker opens after a fault, but the topology processor reports the change late. One line-flow meter now appears impossible under the old topology. The estimator runs, the global residual statistic crosses the chi-square gate, and the largest normalized residual points at that flow. A naive workflow would delete the meter and declare victory. A better workflow asks why the residual sits near a recent switching event.`,
-        `The rerun compares two hypotheses. Under the old topology, several nearby flows and injections remain strained after removing the largest residual. Under the updated topology, the residuals collapse and the state becomes observable with a clean quality flag. The disposition is topology-latency correction, not field-meter replacement. The run ledger stores measurement ids, values, variances, timestamps, topology hash, estimator iterations, residual scores, removed candidates, rerun outcomes, and the operator's final disposition.`,
+        'Suppose a three-bus area has six measurements and two unknown voltage angles after fixing the reference bus. Five readings have variance 0.01, and one line-flow reading has variance 0.04 because that meter is noisier. The weighted solve estimates angles of 0.00, -0.04, and -0.07 radians, then predicts the suspicious flow as 92 MW while the meter reports 110 MW.',
+        'The raw residual is 18 MW, but the normalized residual is 4.5 because the meter should not be that far away after accounting for its variance. Removing that one reading and rerunning drops the global residual statistic from 23 to 3.2 while observability remains intact. The disposition should still check topology around the line, because a recent breaker event could explain the same pattern.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Build the estimator as a pipeline with explicit ledgers. The input ledger should contain measurement id, device id, source system, electrical location, measurement type, value, unit, variance, timestamp, freshness, and topology version. The model ledger should contain network parameters, breaker and switch status, bus-branch mapping, islanding status, and the Y-bus build version. The output ledger should contain state values, confidence and quality flags, residual vectors, normalized residuals, observability status, and every bad-data action taken.`,
-        `Operationally, prefer small, explainable gates over one magic confidence score. Use global residual tests to detect inconsistency, normalized residuals to propose candidates, topology and timing checks to classify causes, and human review or policy gates for high-impact changes. In software terms, the residual vector is observability data for the estimator itself. Do not throw it away after producing a voltage display.`,
-      ],
-    },
-    {
-      heading: 'Where it matters',
-      paragraphs: [
-        `State estimation feeds contingency analysis, optimal power flow, outage restoration, alarm suppression, situational awareness, operator training simulators, and post-event analysis. Restoration tools need a trusted picture before recommending switching actions. Contingency tools need a current state before asking what happens if another line trips. Alarm systems need residual and topology context to avoid flooding operators with symptoms of one stale model event.`,
-        `The topic is also a useful bridge across this curriculum. It combines sparse matrices, graph topology, nonlinear optimization, statistical residuals, sensor fusion, time synchronization, and incident triage. That is why it is more than a utility-industry niche. It is a compact example of how real systems turn imperfect observations into controlled decisions.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: pandapower state estimation docs at https://pandapower.readthedocs.io/en/latest/estimation.html, pandapower overview at https://www.pandapower.org/about/, NASPI synchrophasor starter kit at https://www.naspi.org/sites/default/files/reference_documents/4.pdf, and NASPI distribution synchrophasor applications at https://www.naspi.org/sites/default/files/reference_documents/naspi_distt_synchro_measure_apps_20200716.pdf.`,
-        `Study Power Grid Bus Admittance Sparse Matrix first for the network model, then AC Power Flow Newton-Raphson Jacobian Case Study for the nonlinear equations and sparse Jacobian. Study Kalman Filter Sensor Fusion Case Study for the time-updating contrast, Distribution Feeder Outage Restoration for downstream switching decisions, Sparse Matrix formats for implementation, and Distributed Tracing for the idea that every operational estimate needs enough evidence to be replayed and audited.`,
+        'Primary sources include pandapower state-estimation documentation, NASPI synchrophasor materials, and standard power-system state-estimation texts. Read them for the measurement model, observability tests, weighted least-squares solve, and bad-data residual workflow. Treat implementation details as current only after checking the control-center software or library version being used.',
+        'Study Power Grid Bus Admittance Sparse Matrix before this topic, then AC Power Flow Newton-Raphson Jacobian Case Study for the nonlinear equations. After this, study Kalman Filter Sensor Fusion, sparse matrix factorization, distributed tracing, and outage restoration. The through-line is evidence: every operational estimate needs enough provenance to be trusted and replayed.',
       ],
     },
   ],

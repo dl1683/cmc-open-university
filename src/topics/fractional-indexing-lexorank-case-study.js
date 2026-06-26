@@ -315,103 +315,44 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Many products need user-maintained order: kanban cards, issue backlogs, design layers, playlist entries, outline nodes, comments, tabs, and canvas objects. The order is not derived from timestamp or score. The user creates it by dragging, inserting, moving, and grouping items.',
-        'The storage problem is easy when the list is tiny and single-user. Store an array, update the array, and render it. The problem becomes harder when the list lives in a database, many clients observe it, offline edits may sync later, and one drag should not rewrite hundreds or thousands of rows.',
-        'Fractional indexing and LexoRank-style systems exist to make visible order a sortable-key problem. The durable representation is an order key on each item. A move generates a key between the destination neighbors, writes the moved item, and lets every reader sort by the key.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The insert-between view shows a user move becoming one order-key update. Active rows are the destination neighbors, found marks the new key, and compare shows the database sorting by key rather than by array position. The collision view shows what happens when two writers choose the same gap.',
+        'The product view shows the scope rule. A rank orders items inside one parent, such as a column, playlist, or layer stack. The safe inference is: if the new key sorts between the left and right neighbor under the database comparator, the item appears between them.',
         {type:'callout', text:'Visible order becomes scalable when the durable state is a sortable key per item, not a mutable array position shared by every row.'},
-      ],
-    },
-    {
-      heading: 'The naive baselines and their wall',
-      paragraphs: [
-        'The first baseline is dense integer position: 1, 2, 3, 4. Moving an item between positions 2 and 3 forces a renumber, or at least a suffix rewrite. That is tolerable in a local array. It is poor for a shared database because one drag can update many rows, cause conflicts, and generate noisy sync traffic.',
-        'The second baseline is gapped integers: 1000, 2000, 3000. A move can use 1500. That works until users repeatedly insert into the same gap. Eventually there is no integer between two neighbors unless the system renumbers part of the list.',
-        'The third baseline is floating-point midpoint. It feels natural, but fixed precision runs out in hot gaps and database sorting across languages can become subtle. Linked lists avoid numeric gaps, but reads become awkward: sorting a query result by next pointers is expensive, and repairing broken links is operationally painful.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The hard case is a hot gap. A user may keep dragging new items to the top of a column, automation may insert tasks after the same milestone, or two offline clients may choose a midpoint for the same neighbor pair. The key space has to create more room without rewriting the whole list every time.',
-        'The second wall is determinism. Every client and database query must agree on the same sort order. If one layer uses locale-aware collation, another uses bytewise order, and another appends actor IDs as tiebreakers, the product can show different orders to different users.',
-        'The third wall is scope. A rank usually means order within one parent, column, playlist, issue group, or layer stack. A key that is valid in one scope may collide or be meaningless in another. Moving an item across scopes must update both the parent identity and the order key as one logical operation.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Store a sortable order key, not a dense array index. To insert or move an item, read the left and right neighbor keys in the destination scope and generate a new key that sorts strictly between them. Reads use an ordinary sorted index over scope plus order key.',
-        'The trick is that the key space is variable length. Lexicographic string keys can grow by adding more digits when no short midpoint exists. Bulk key generation can place several new items evenly in a gap. A rebalance job can rewrite a crowded scoped region with fresh spacing while preserving the same visible order.',
-        'LexoRank is the production-flavored version of the idea: rank strings, buckets or maintenance phases, integrity checks, and balancing. The midpoint function is only the center. A real ranking system also owns collisions, retries, background repair, and observability.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A move begins with destination bounds. If an item is dropped between cards with keys a1 and a2, the server or client asks for a key between those two strings. In the toy visual, that key might be a1V. The database row for the moved item receives the new key, and later reads sort by orderKey.',
-        'The key-generation function must handle missing bounds. Inserting at the front asks for a key before the first item. Appending asks for a key after the last item. Inserting many items at once should use a bulk function so the new keys are spaced across the available interval instead of packed into one edge.',
-        'Concurrent inserts need a policy. A uniqueness constraint can reject duplicate keys and force a retry. The server can own key generation so clients never commit the same midpoint. A client-side system can append deterministic jitter or a tiebreaker. In collaborative systems with offline writes, a sequence CRDT may be a better fit than plain fractional indexing.',
-        'Rebalance is maintenance, not failure. When keys become too long or a region becomes too crowded, the system can lock or single-write a scoped list and rewrite ranks into evenly spaced values. The visible order stays the same; the key space becomes healthy again.',
-      ],
-    },
-    {
-      heading: 'What the visual shows',
-      paragraphs: [
-        'The insert-between view shows the small-write path. The UI moves one card, but storage changes one order key. The neighbors keep their keys. The sorted projection changes because the moved item now sorts between its new neighbors.',
-        'The collision and rebalance views show the production boundary. Two clients can choose the same key. Repeated inserts into one gap can lengthen keys. LexoRank-style maintenance detects unhealthy rank ranges and schedules a repair instead of pretending midpoint generation is the whole system.',
-        'The product case study view shows why this pattern appears in boards, design tools, and issue trackers. The user wants immediate reorder feedback. The backend wants one-row writes and simple sorted queries. The key field is the contract between those two needs.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Correctness is sorted order within a scope. If newKey is greater than the left neighbor and less than the right neighbor under the database comparator, sorting by orderKey places the item in the intended position. The database does not need to know about drag gestures; it only needs deterministic comparison.',
-        'The method avoids suffix rewrites because the order is encoded locally in the moved item. A dense integer position says "I am item 17 in a sequence that may have to change around me." A fractional key says "I sort between these neighboring key values." That local statement is enough for ordinary moves.',
-        'Rebalance is safe when it preserves relative order. If a scoped list currently sorts as A, B, C, D, a rebalance can assign fresh keys k1, k2, k3, k4 in that same order. Readers may see a maintenance update, but the product order does not change.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The happy path is cheap. A move updates O(1) rows, often only the moved item. Reads use a database index such as (column_id, order_key). Pagination, filtering, and subscription queries remain familiar because order is a sortable field rather than a linked traversal.',
-        'The hidden costs are key length, rebalance, uniqueness conflicts, transaction boundaries, and collation discipline. Long keys increase storage and index size. Rebalance can rewrite many rows in a scope. Duplicate keys need retry logic. Cross-scope moves must update parent and rank atomically. Sorting must be bytewise or otherwise exactly specified.',
-        'There is also a product tradeoff. Fractional keys preserve explicit user order. They are not the right tool when order is computed continuously from priority score, due date, ranking model, or timestamp. If the system owns the order, store the score and recompute views. If the user owns the order, sortable rank keys fit.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'Duplicate keys are the obvious failure. They can come from concurrent midpoint generation, offline clients, bugs, or collation mismatch. A unique index on (scope_id, order_key) plus a retry path is the simplest guardrail for server-owned ranking.',
-        'Hot gaps are the slow failure. Keys grow longer and operations remain correct, but storage and index costs rise. Track maximum key length, average key length by scope, rebalance count, and the locations that repeatedly need repair.',
-        'Wrong scope is a product failure. Sorting all cards by rank across a board may mix columns that should be independent. Moving a card from one column to another must update column_id and rank together, otherwise clients may see a ghost item in the old column or a duplicate order in the new one.',
-        'Plain fractional indexing is not a full collaborative text algorithm. It can support many realtime product lists, especially with a server ordering authority, but it does not by itself solve delayed delivery, intent-preserving rich text, tombstone compaction, or CRDT convergence.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Make the move API explicit. It should receive item identity, destination scope, left neighbor, right neighbor, and an expected version when needed. The server should validate that the neighbors are still in the destination scope or decide how to repair when they are stale.',
-        'Use a stable comparator and test it end to end. The key-generation library, application sort, database index, and any search or cache layer must agree. Avoid locale collation for rank keys unless the entire system is designed around that comparator.',
-        'Instrument maintenance. Good dashboards show duplicate-key retries, rebalance duration, scopes waiting for rebalance, max key length, failed cross-scope moves, and client retry rates. A ranking system usually looks simple until the first hot board or offline sync wave creates a crowded gap.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A board column has cards with keys a0, a1, a2, a3. The user drags the card currently at a2 between a0 and a1. The server reads the destination neighbors, generates a key such as a0V, writes that value to the moved card, and broadcasts the updated row. Every client sorts the column by order_key and sees the new order.',
-        'Now two users insert into the same gap while offline and both create a0V. On sync, a unique constraint can reject the second write and ask the client or server to regenerate a key between the now-current neighbors. Another design can accept both by adding a deterministic tiebreaker, but then every reader must include that tiebreaker in the sort.',
-        'After months of automation, the top of one backlog has very long keys because new tickets are always inserted after the same header. A background rebalance locks that project backlog or routes it through one maintenance writer, assigns fresh evenly spaced ranks, and records the operation. The product order is unchanged; future inserts have room again.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
+      ] },
+    { heading: 'Why this exists', paragraphs: [
+        'Products need user-maintained order: kanban cards, playlists, design layers, issue backlogs, tabs, comments, and outline nodes. The order is not derived from timestamp or score. A drag should not rewrite hundreds of rows or make every client disagree about order.',
+      ] },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is dense integer position: 1, 2, 3, 4. Moving an item between 2 and 3 forces a suffix rewrite. Gapped integers such as 1000, 2000, 3000 help for a while, but repeated inserts into the same gap eventually run out of room.',
+      ] },
+    { heading: 'The wall', paragraphs: [
+        'The wall is the hot gap. Users, automations, or offline clients may keep inserting at the top of the same list. The system also needs deterministic comparison: application sort, database index, cache, and client code must all agree on rank order.',
+      ] },
+    { heading: 'The core insight', paragraphs: [
+        'Store a sortable order key on each item. To move an item, read the left and right neighbor keys in the destination scope and generate a new key between them. Reads use an ordinary index over scope plus order key.',
+      ] },
+    { heading: 'How it works', paragraphs: [
+        'A midpoint function creates a key between two existing keys. Variable-length lexicographic strings can grow by adding digits when a short midpoint is unavailable. Concurrent duplicates are handled with a unique constraint and retry, server-owned key generation, or a deterministic tiebreaker.',
+      ] },
+    { heading: 'Why it works', paragraphs: [
+        'Correctness is sorted order within a scope. If newKey is greater than the left neighbor and less than the right neighbor under the chosen comparator, sorting places the item in the intended position. Rebalance is safe when it assigns fresh keys while preserving the same relative order.',
+      ] },
+    { heading: 'Cost and complexity', paragraphs: [
+        'The happy path is O(1) writes, often only the moved row, and reads use an index such as (column_id, order_key). The costs are key growth, duplicate retries, rebalance jobs, transaction boundaries, and collation discipline. A rank key is small until hot gaps make it long.',
+      ] },
+    { heading: 'Real-world uses', paragraphs: [
+        'Fractional indexing fits boards, design tools, playlists, document outlines, issue trackers, and sortable UI lists where the user owns the order. LexoRank-style systems add production maintenance: buckets, integrity checks, balancing, and observability around rank health.',
+      ] },
+    { heading: 'Where it fails', paragraphs: [
+        'It fails when order is computed from score, timestamp, due date, or a ranking model rather than chosen by the user. It also fails as a full collaborative text algorithm because it does not solve delayed delivery, rich-text intent preservation, tombstone compaction, or CRDT convergence by itself.',
+      ] },
+    { heading: 'Worked example', paragraphs: [
+        'A column has cards with keys a0, a1, a2, and a3. The user moves the a2 card between a0 and a1. The server reads those neighbors, generates a key such as a0V, writes one row, and clients sort by order_key. If two offline clients both generate a0V, a unique index on (column_id, order_key) rejects one write and the loser retries between the current neighbors. If keys at the top grow beyond 20 characters, a rebalance can rewrite the scoped list into evenly spaced ranks without changing visible order.',
+      ] },
+    { heading: 'Sources and study next', paragraphs: [
         'Primary and practical sources: Figma Realtime Editing of Ordered Sequences at https://www.figma.com/blog/realtime-editing-of-ordered-sequences/, Figma multiplayer architecture at https://www.figma.com/blog/how-figmas-multiplayer-technology-works/, David Greenspan Implementing Fractional Indexing at https://observablehq.com/@dgreensp/implementing-fractional-indexing, Rocicorp fractional-indexing at https://github.com/rocicorp/fractional-indexing, Atlassian Managing LexoRank at https://confluence.atlassian.com/spaces/ADMINJIRASERVER/pages/938847803/Managing%2BLexoRank, and Atlassian LexoRank troubleshooting at https://support.atlassian.com/jira/kb/troubleshooting-lexorank-system-issues.',
-        'Study Order Maintenance & List Labeling, Packed Memory Array, B-Tree, Database Indexing, Sequence CRDTs, Peritext Rich-Text CRDT Case Study, Yjs Struct Store & Updates, and Automerge Change Graph & Columnar Storage next. The contrast to remember is simple: fractional keys are a pragmatic product-ordering system; CRDT sequence structures are a replicated convergence system.',
-      ],
-    },
+        'Study Order Maintenance and List Labeling, Packed Memory Array, B-Tree, Database Indexing, Sequence CRDTs, Peritext Rich-Text CRDT Case Study, Yjs Struct Store and Updates, and Automerge Change Graph and Columnar Storage next.',
+      ] },
   ],
 };

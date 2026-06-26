@@ -215,222 +215,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The "resource binding" view traces data from a JavaScript TypedArray through GPUBuffer creation, bind group layout declaration, bind group instantiation, pipeline attachment, and queue submission. Active nodes are the current stage of the resource pipeline. Found nodes are resources whose state is now committed. Compare nodes are participants waiting for their turn in the chain.',
-        'The "compute pass" view traces a GPU compute workload end to end: input storage buffers feed a bind group, the WGSL kernel executes across dispatched workgroups, output lands in a storage buffer, and readback copies results into CPU-mappable memory.',
+        'Read the resource-binding view as JavaScript values becoming GPU-visible bytes and shader slots. Active nodes are the current boundary: typed array, GPUBuffer, bind group layout, bind group, pipeline, pass, or queue submission. Found nodes are resources whose contract is now fixed.',
+        'The safe inference is that data has not crossed a boundary until the active edge shows it. A buffer can exist without containing uploaded data. A bind group can exist without any shader running. A submitted command buffer can still be executing asynchronously on the GPU.',
         {type: 'callout', text: 'WebGPU turns GPU work into explicit byte layout and binding contracts, so validation can replace implicit driver state.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/2f/WebGPU_logo.svg', alt: 'WebGPU blue geometric logo', caption: 'WebGPU logo. Attribution: W3C, via Wikimedia Commons; public-domain text logo.'},
-        {
-          type: 'note',
-          text: 'The safe inference at each frame: if a node is active and the edge leading to it is highlighted, that stage has received or produced data. If a downstream node is not yet active, the data has not crossed that boundary and no shader or JavaScript code can observe it there.',
-        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          attribution: 'WebGPU design rationale',
-          text: 'The GPU is not a faster CPU. It is a different machine with different memory, different timing, and no concept of a JavaScript object. Every byte that crosses the boundary must be packed, declared, and validated before the driver touches it.',
-        },
-        'JavaScript lives in a garbage-collected heap where objects have prototypes, Maps have hash tables, and arrays can be sparse. A GPU lives in a world of flat byte buffers, fixed-function pipelines, and thousands of threads executing the same instruction. Those two worlds share nothing by default -- not memory layout, not timing, not even the concept of a "variable."',
-        'WebGL papered over this gap with implicit state: you called gl.bindBuffer, set uniforms one by one, and hoped the driver assembled a valid configuration. Errors surfaced as silent black screens or driver-specific crashes. WebGPU replaces that implicit model with explicit resource declarations: every buffer states its allowed uses, every shader slot is named in a layout, and the browser validates the entire command stream before it reaches the driver.',
-        'The cost is verbosity. The payoff is that a WebGPU app that passes validation will behave the same on every conformant implementation -- Chrome on Windows, Firefox on Linux, Safari on macOS. That portability contract is the reason the API exists.',
+        'A GPU is not a faster JavaScript object engine. It consumes flat memory, typed shader inputs, command buffers, and pipeline state. JavaScript values must be packed into bytes before thousands of GPU invocations can read them.',
+        'WebGPU exists to make that contract explicit and portable. Buffers declare usage flags, bind group layouts declare shader slots, bind groups attach resources to those slots, and command encoders record work. The browser validates the structure before the driver sees it.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first instinct is to pass a JavaScript array directly to the GPU. Write a shader, hand it your data, get results. This is how WebGL uniform uploads felt -- you called gl.uniform4fv and the driver handled the rest. It worked for small, simple cases.',
-        {
-          type: 'code',
-          language: 'javascript',
-          body: '// The WebGL way: implicit state, hope for the best.\ngl.bindBuffer(gl.ARRAY_BUFFER, buf);\ngl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);\ngl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);\ngl.enableVertexAttribArray(0);\n// Which buffer is bound? What are the usage rules? What if you\n// forget enableVertexAttribArray? Silent failure.',
-        },
-        'The second instinct is to create one big buffer and use it for everything: vertex data, uniform constants, compute input, compute output, and CPU readback. One allocation, one bind, done.',
-        'Both approaches fail for the same reason: they hide the contract between JavaScript and the GPU. When the contract is implicit, validation is impossible, errors are silent, and portability breaks on the first driver that interprets the ambiguity differently.',
+        'The obvious approach is to pass a JavaScript array directly to the shader. That is how ordinary functions feel: call the function with values and receive a result. It also resembles the mental model many developers bring from small WebGL uniform uploads.',
+        'A second tempting approach is one buffer for everything. Use the same allocation as vertex data, uniform data, compute input, compute output, and CPU readback. That reduces names in the code but erases the usage contract the browser needs to validate.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is not performance. The wall is that the GPU cannot interpret JavaScript objects, and JavaScript cannot observe GPU memory.',
-        {
-          type: 'table',
-          headers: ['Assumption', 'Why it breaks', 'WebGPU enforcement'],
-          rows: [
-            ['GPU can read JS arrays', 'GPU sees bytes at physical addresses, not GC-managed heap objects', 'Data must be copied into a GPUBuffer via writeBuffer or mapped range'],
-            ['One buffer for all uses', 'MAP_READ and STORAGE are incompatible usage flags on most implementations', 'Usage flags declared at creation; misuse is a validation error'],
-            ['Shader reads any buffer', 'Shader slots are typed and numbered; buffer must be bound to the correct slot', 'Bind group layout declares slot types; bind group fills them'],
-            ['Results appear immediately', 'GPU executes asynchronously on a separate timeline', 'Readback requires copyBufferToBuffer + mapAsync; result is a Promise'],
-            ['Byte layout matches automatically', 'WGSL struct alignment (16-byte for vec4) differs from JS TypedArray packing', 'Misaligned data produces wrong values; no runtime error, just garbage'],
-          ],
-        },
-        'Each row in that table is a real bug that WebGL silently tolerated and WebGPU explicitly rejects. The explicitness is the design. A missing usage flag, a mismatched bind group layout, or a forgotten alignment pad does not produce a black screen -- it produces a validation error with a message telling you exactly what went wrong.',
+        'The wall is that the GPU cannot read JavaScript heap objects, and JavaScript cannot synchronously inspect GPU memory. The two sides have different memory, timing, alignment, and execution rules. An array object has no meaning to a WGSL shader until its values are copied into a GPUBuffer with a layout the shader expects.',
+        'Usage conflicts are another wall. A buffer mapped for CPU readback is not the same as a storage buffer used by a compute shader. WebGPU forces those intended roles into usage flags so invalid combinations fail as validation errors instead of driver-specific behavior.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'GPU programming is data-layout programming. The shader is fast only after the data is flat, typed, aligned, and bound to the right slot. WebGPU makes that layout contract visible and enforceable.',
-        {
-          type: 'diagram',
-          alt: 'Data flow from JavaScript to GPU shader execution',
-          label: 'The two translations: bytes and bindings',
-          body: 'JavaScript TypedArray (CPU heap)\n       |\n       | queue.writeBuffer() or mapped range\n       v\nGPUBuffer (GPU-visible memory, usage flags declared)\n       |\n       | GPUBindGroup maps buffer to slot number\n       v\nBind Group Layout (shader contract: slot 0 = storage, slot 1 = uniform, ...)\n       |\n       | GPUComputePipeline or GPURenderPipeline references layout\n       v\nWGSL Shader (@group(0) @binding(0) var<storage> data: array<f32>)\n       |\n       | dispatchWorkgroups() or draw()\n       v\nGPU execution (thousands of threads, same instruction, different data)',
-          text: 'JavaScript TypedArray (CPU heap)\n       |\n       | queue.writeBuffer() or mapped range\n       v\nGPUBuffer (GPU-visible memory, usage flags declared)\n       |\n       | GPUBindGroup maps buffer to slot number\n       v\nBind Group Layout (shader contract: slot 0 = storage, slot 1 = uniform, ...)\n       |\n       | GPUComputePipeline or GPURenderPipeline references layout\n       v\nWGSL Shader (@group(0) @binding(0) var<storage> data: array<f32>)\n       |\n       | dispatchWorkgroups() or draw()\n       v\nGPU execution (thousands of threads, same instruction, different data)',
-        },
-        'The first translation converts JavaScript values into GPU-visible bytes. The second translation connects those bytes to shader slots through a bind group. Both translations are explicit, validated, and portable. This is the same lesson as WebAssembly linear memory, Apache Arrow columnar layout, and CSR graph storage: when code crosses a low-level boundary, object shape disappears and byte layout becomes the API.',
+        'GPU programming is data-layout programming. The shader is fast only after the data is flat, typed, aligned, and bound to the correct slot. WebGPU makes the byte layout and binding layout part of the API instead of hidden driver state.',
+        'There are two translations. First, JavaScript values become bytes in GPUBuffer objects. Second, bind groups connect those buffers to shader declarations such as group 0 binding 2. Both translations must match the pipeline before execution is valid.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The resource pipeline has five stages. Each stage narrows what the GPU can do with the data, and each stage is validated independently.',
-        {
-          type: 'bullets',
-          items: [
-            'GPUBuffer creation: device.createBuffer({ size, usage }). Usage flags are a bitmask: VERTEX, INDEX, UNIFORM, STORAGE, COPY_SRC, COPY_DST, MAP_READ, MAP_WRITE. The browser rejects any command that uses a buffer in a way its flags do not permit.',
-            'Data upload: queue.writeBuffer(buffer, offset, typedArray) copies bytes from the CPU heap into GPU-visible memory. For large or frequent uploads, buffer mapping (MAP_WRITE, then getMappedRange) avoids an extra copy.',
-            'Bind group layout: device.createBindGroupLayout({ entries }) declares the shader contract. Each entry specifies a binding number, shader stage visibility (COMPUTE, VERTEX, FRAGMENT), and resource type (uniform buffer, storage buffer, read-only storage, sampler, texture).',
-            'Bind group: device.createBindGroup({ layout, entries }) fills the layout slots with actual GPUBuffer references and byte offsets. The bind group is immutable after creation -- you cannot swap a buffer in an existing bind group.',
-            'Command recording: a GPUCommandEncoder records passes (compute or render), each pass sets a pipeline and bind groups, dispatches work, and finishes. The finished command buffer is submitted to the device queue. JavaScript is describing future GPU work, not executing it.',
-          ],
-        },
-        {
-          type: 'code',
-          language: 'javascript',
-          body: '// Complete compute dispatch: vector addition on the GPU.\nconst N = 1024;\nconst a = new Float32Array(N).fill(1.0);\nconst b = new Float32Array(N).fill(2.0);\n\n// 1. Create buffers with declared usage.\nconst bufA = device.createBuffer({\n  size: a.byteLength,\n  usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,\n});\nconst bufB = device.createBuffer({\n  size: b.byteLength,\n  usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,\n});\nconst bufOut = device.createBuffer({\n  size: N * 4,\n  usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,\n});\nconst bufReadback = device.createBuffer({\n  size: N * 4,\n  usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,\n});\n\n// 2. Upload data.\ndevice.queue.writeBuffer(bufA, 0, a);\ndevice.queue.writeBuffer(bufB, 0, b);\n\n// 3. Bind group layout + bind group.\nconst layout = device.createBindGroupLayout({\n  entries: [\n    { binding: 0, visibility: GPUShaderStage.COMPUTE,\n      buffer: { type: "read-only-storage" } },\n    { binding: 1, visibility: GPUShaderStage.COMPUTE,\n      buffer: { type: "read-only-storage" } },\n    { binding: 2, visibility: GPUShaderStage.COMPUTE,\n      buffer: { type: "storage" } },\n  ],\n});\nconst bindGroup = device.createBindGroup({\n  layout,\n  entries: [\n    { binding: 0, resource: { buffer: bufA } },\n    { binding: 1, resource: { buffer: bufB } },\n    { binding: 2, resource: { buffer: bufOut } },\n  ],\n});\n\n// 4. Record and submit.\nconst encoder = device.createCommandEncoder();\nconst pass = encoder.beginComputePass();\npass.setPipeline(pipeline); // pipeline created from WGSL module + layout\npass.setBindGroup(0, bindGroup);\npass.dispatchWorkgroups(Math.ceil(N / 64));\npass.end();\nencoder.copyBufferToBuffer(bufOut, 0, bufReadback, 0, N * 4);\ndevice.queue.submit([encoder.finish()]);\n\n// 5. Readback: async, because GPU runs on a separate timeline.\nawait bufReadback.mapAsync(GPUMapMode.READ);\nconst result = new Float32Array(bufReadback.getMappedRange());\n// result[i] === 3.0 for all i\nbufReadback.unmap();',
-        },
-        'Every line in that example corresponds to a boundary crossing. writeBuffer crosses CPU-to-GPU. The bind group crosses buffer-to-shader-slot. dispatchWorkgroups crosses description-to-execution. copyBufferToBuffer crosses GPU-only-to-mappable. mapAsync crosses GPU-timeline-to-JS-timeline.',
+        'The app requests a GPUDevice, creates buffers with size and usage flags, uploads data with queue.writeBuffer or mapped ranges, creates a bind group layout, creates a bind group with actual buffer resources, records a compute or render pass, and submits the finished command buffer to the queue. JavaScript describes future GPU work; it does not execute the shader inline.',
+        'Readback uses a staging buffer. A compute shader may write a storage buffer, then the command encoder copies that data into a MAP_READ buffer. JavaScript awaits mapAsync before reading the mapped range, because GPU execution happens on a separate timeline.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The model works because every boundary has an explicit, validated contract. There are five contracts, and all five must hold before any GPU work executes.',
-        {
-          type: 'table',
-          headers: ['Contract', 'What it validates', 'Failure mode if violated'],
-          rows: [
-            ['Usage flags', 'Buffer can only be used for declared operations', 'Validation error at command encoding time'],
-            ['Bind group layout', 'Shader slot types match the resources bound to them', 'Pipeline creation fails or bind group creation fails'],
-            ['WGSL declarations', 'Shader reads bytes according to declared struct layout', 'Silent data corruption if alignment is wrong (no runtime error)'],
-            ['Command encoding', 'Passes are well-formed, resources are not used conflictingly', 'Validation error at submit time'],
-            ['Queue timeline', 'GPU work completes before CPU reads mappable buffers', 'mapAsync resolves only after GPU is done; premature read is impossible'],
-          ],
-        },
-        'The first four contracts are structural: the browser checks them before any GPU instruction runs. The fifth is temporal: the Promise-based mapAsync API prevents JavaScript from reading a buffer before the GPU has finished writing it. Together, these contracts make WebGPU deterministic across implementations. If the validation passes, the result is the same on every conformant browser.',
-        {
-          type: 'note',
-          text: 'WGSL alignment is the one contract the browser cannot fully enforce at the byte level. If you pack a vec3<f32> (12 bytes) but WGSL expects 16-byte alignment for the next field, the shader reads the wrong bytes. The data is valid GPU memory -- it is just not the data you intended. This is the WebGPU equivalent of a C struct padding bug.',
-        },
+        'Correctness comes from explicit contracts. Usage flags say how a buffer may be used. Bind group layouts say which resource type each shader slot expects. WGSL declarations say how bytes are interpreted. Command encoding says which work will run and in what order.',
+        'The temporal contract matters too. queue.submit returns before the GPU is necessarily finished, but mapAsync resolves only after the relevant work is complete. That prevents JavaScript from reading a result before the GPU has produced it.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Cost axis', 'What you pay', 'When it dominates'],
-          rows: [
-            ['Buffer creation', '~0.01-0.05 ms per createBuffer call', 'Hundreds of small buffers per frame; pool and reuse instead'],
-            ['Data upload', 'PCIe bandwidth: ~12 GB/s on desktop, less on mobile', 'Uploading megabytes every frame; use persistent mapped buffers'],
-            ['Bind group creation', 'Lightweight object allocation, but immutable', 'Swapping resources frequently; create bind groups ahead of time'],
-            ['Pipeline compilation', '10-500 ms for shader compilation; cached after first use', 'First frame or shader variant explosion; use pipeline caching'],
-            ['Command recording', 'CPU cost proportional to number of draw/dispatch calls', 'Thousands of draw calls; use indirect dispatch or instancing'],
-            ['Readback latency', 'At least one full GPU-CPU round trip (often 1-3 frames)', 'Real-time feedback loops; avoid per-frame readback if possible'],
-          ],
-        },
-        'The dominant cost for compute workloads is usually the readback round trip, not the shader execution. A GPU can add two 1024-element vectors in microseconds, but copying the result back and waiting for mapAsync to resolve can take milliseconds. The practical rule: keep data on the GPU as long as possible. Chain multiple dispatches before reading back.',
-        'For rendering workloads, the dominant cost is often pipeline compilation on the first frame. WebGPU pipelines include the compiled shader, vertex layout, and render state. Chrome caches compiled pipelines in a disk cache keyed by shader content, so subsequent page loads skip compilation. But the first visit pays the full cost.',
-        {
-          type: 'note',
-          text: 'WGSL struct alignment rules often waste bytes. A struct with a f32 followed by a vec4<f32> requires 12 bytes of padding between them (f32 is 4 bytes, but vec4 must start at a 16-byte boundary). For a buffer with millions of structs, that padding is real memory. Reorder fields to minimize alignment gaps: put vec4 fields first, then vec2, then scalars.',
-        },
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Trace a sparse matrix-vector multiply (SpMV) on the GPU, the core kernel behind PageRank, graph neural networks, and iterative solvers. The matrix is stored in CSR format: three arrays (rowPtr, colIdx, values) plus a dense input vector and a dense output vector.',
-        {
-          type: 'table',
-          headers: ['Step', 'JavaScript side', 'GPU side', 'State after'],
-          rows: [
-            ['1. Create buffers', 'createBuffer for rowPtr (STORAGE|COPY_DST), colIdx (STORAGE|COPY_DST), values (STORAGE|COPY_DST), vecIn (STORAGE|COPY_DST), vecOut (STORAGE|COPY_SRC)', 'Five GPU allocations with declared flags', 'Buffers exist but contain no data'],
-            ['2. Upload CSR arrays', 'writeBuffer for rowPtr, colIdx, values, vecIn', 'Bytes copied into GPU memory', 'Four buffers populated; vecOut is zeroed'],
-            ['3. Create bind group', 'Layout: slots 0-3 read-only-storage, slot 4 storage. Bind group fills all five slots', 'N/A (CPU-side object)', 'Shader contract established'],
-            ['4. Record dispatch', 'beginComputePass, setPipeline, setBindGroup, dispatchWorkgroups(ceil(numRows/64))', 'N/A (commands not yet submitted)', 'Command buffer recorded'],
-            ['5. Copy + submit', 'copyBufferToBuffer(vecOut -> readback), queue.submit', 'GPU executes SpMV kernel, then copies result', 'GPU is working; JS continues'],
-            ['6. Readback', 'await readback.mapAsync(READ), new Float32Array(getMappedRange())', 'GPU has finished; mapped range is valid', 'Result available in JavaScript'],
-          ],
-        },
-        {
-          type: 'code',
-          language: 'wgsl',
-          body: '// WGSL kernel: one thread per row of the sparse matrix.\n@group(0) @binding(0) var<storage, read> rowPtr: array<u32>;\n@group(0) @binding(1) var<storage, read> colIdx: array<u32>;\n@group(0) @binding(2) var<storage, read> values: array<f32>;\n@group(0) @binding(3) var<storage, read> vecIn: array<f32>;\n@group(0) @binding(4) var<storage, read_write> vecOut: array<f32>;\n\n@compute @workgroup_size(64)\nfn main(@builtin(global_invocation_id) gid: vec3<u32>) {\n  let row = gid.x;\n  if (row >= arrayLength(&vecOut)) { return; }\n  var sum: f32 = 0.0;\n  let start = rowPtr[row];\n  let end = rowPtr[row + 1u];\n  for (var i = start; i < end; i = i + 1u) {\n    sum = sum + values[i] * vecIn[colIdx[i]];\n  }\n  vecOut[row] = sum;\n}',
-        },
-        'Each thread handles one row. The rowPtr array tells it where its nonzeros begin and end. The colIdx and values arrays provide the column index and coefficient for each nonzero. The result is a standard SpMV -- the same kernel used in iterative PageRank, conjugate gradient solvers, and GNN message passing.',
+        'The main costs are allocation, upload, validation, command recording, and readback. For 1,024 floats, the data is only 4 KB, so a JavaScript loop may beat the GPU once setup and readback are included. For 10,000,000 floats, the data is 40 MB and the GPU can amortize setup across many parallel operations.',
+        'Readback often dominates small compute jobs. A vector addition may execute in microseconds on the GPU, but copying results to a staging buffer and awaiting mapAsync can take milliseconds. The practical rule is to keep data on the GPU across several passes before reading it back.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'WebGPU compute wins when the data is large, flat, and parallel, and the result can stay on the GPU for multiple passes before readback.',
-        {
-          type: 'bullets',
-          items: [
-            'Browser ML inference: frameworks like ONNX Runtime Web and Transformers.js use WebGPU storage buffers to run transformer attention, matrix multiplications, and activation functions entirely on the GPU. Bind groups map weight tensors and activation buffers to shader slots.',
-            'Real-time rendering: vertex buffers, index buffers, uniform buffers for camera matrices, and storage buffers for skinning or particle simulation all use the same resource model. A deferred renderer might use 10+ bind groups per frame.',
-            'Scientific visualization: fluid simulations, n-body physics, and volume rendering dispatch compute shaders that read from and write to ping-pong storage buffers. The CPU only reads back summary statistics or final frames.',
-            'Image processing: convolution, histogram computation, tone mapping, and post-processing filters run as compute shaders with texture and storage buffer bindings.',
-            'Graph analytics in the browser: the SpMV kernel above powers PageRank, label propagation, and spectral clustering on graphs with millions of edges, running entirely in a browser tab.',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'WebGPU is not limited to compute. The same buffer and bind group model applies to vertex shaders, fragment shaders, and render passes. A render pipeline uses vertex buffers (not bound via bind groups but via setVertexBuffer), plus bind groups for uniforms and textures. The resource contract is identical: declare usage, bind to slots, validate before execution.',
-        },
+        'WebGPU buffers and bind groups fit browser ML inference, real-time rendering, image filters, particle systems, scientific visualization, and graph analytics. The access pattern is large flat data, repeated shader passes, and results that can remain on the GPU.',
+        'The same model appears in vertex buffers, uniform buffers, storage buffers, textures, samplers, and compute pipelines. A renderer may draw with vertex buffers while a simulation updates positions in storage buffers. The binding contract keeps those roles explicit.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Anti-pattern', 'Why it breaks', 'Better alternative'],
-          rows: [
-            ['Per-frame readback of full output', 'mapAsync round trip dominates total time; GPU-CPU sync kills parallelism', 'Read back only summaries or use timestamp queries to measure without reading data'],
-            ['One buffer per draw call', 'Thousands of tiny createBuffer calls and bind groups per frame', 'Suballocate from a large buffer; use dynamic offsets in bind groups'],
-            ['Ignoring WGSL alignment', 'Shader reads wrong bytes; results are silently incorrect', 'Use a struct layout calculator or manually pad to 16-byte boundaries'],
-            ['Missing COPY_DST on upload target', 'writeBuffer fails with validation error', 'Always OR in COPY_DST for any buffer you will fill with writeBuffer'],
-            ['Dispatching too few threads', 'GPU occupancy is low; thousands of cores sit idle', 'Dispatch at least enough workgroups to saturate the GPU; profile with timestamp queries'],
-            ['Recompiling pipelines every frame', 'Shader compilation takes milliseconds; creates frame stutters', 'Cache pipelines; use createComputePipelineAsync for non-blocking compilation'],
-          ],
-        },
-        'The most common beginner mistake is treating WebGPU like a synchronous API. queue.submit returns immediately. The GPU has not finished. Calling mapAsync on a buffer that is still being written by the GPU does not crash -- the Promise simply waits. But structuring your frame loop around that wait means the CPU and GPU never overlap, and you lose the pipeline parallelism that makes GPUs fast.',
-        'The most common architectural mistake is over-readback. If you need the GPU result only to send it back to the GPU for the next pass, do not read it back to JavaScript. Keep both buffers on the GPU and swap bind groups between passes. The CPU should orchestrate dispatches, not shuttle bytes.',
+        'It fails when the workload is small, branchy, or needs immediate CPU results after every pass. Setup and synchronization can swamp the shader speedup. A CPU typed-array loop is often better when the data already lives on the CPU and the answer is needed right away.',
+        'It also fails when layout is guessed. WGSL alignment and JavaScript packing must match. A missing padding field can produce valid GPU memory with wrong values, which is worse than a validation error because the shader runs and returns nonsense.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Compute C = A + B for 1,000,000 float32 values. A and B are 4 MB each, and C is 4 MB. The app creates two read-only storage buffers for input, one storage buffer for output, and one 4 MB staging buffer for readback if the CPU needs the result.',
+        'With workgroup size 256, dispatchWorkgroups(3907) covers 1,000,000 values because ceil(1,000,000 / 256) is 3907. Each invocation reads A[i] and B[i], writes C[i], and no two invocations write the same index. The bind group proves each shader slot points to the intended buffer.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: the W3C WebGPU specification (https://www.w3.org/TR/webgpu/), the W3C WGSL specification (https://www.w3.org/TR/WGSL/), and MDN reference pages for GPUBuffer, GPUBindGroup, GPUBindGroupLayout, GPUCommandEncoder, and GPUQueue. WebGPU Fundamentals (https://webgpufundamentals.org/) provides practical compute and rendering tutorials.',
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: WebAssembly Linear Memory -- the same byte-boundary lesson in a different context.',
-            'Prerequisite: Apache Arrow Columnar Memory -- flat, typed, aligned layout as an interprocess contract.',
-            'Prerequisite: Compressed Sparse Row Graph -- the flat array layout used in the SpMV worked example.',
-            'Extension: WebGPU Parallel Prefix Scan -- a compute shader pattern that chains multiple dispatches without CPU readback.',
-            'Extension: GPU All-Reduce -- aggregation patterns that keep partial results on the GPU.',
-            'Extension: Render Graph Framegraph Resource Lifetimes -- how rendering engines manage buffer and texture lifetimes across complex frame graphs.',
-            'Contrast: WebGL -- implicit state, no compute shaders, no storage buffers, no validation error messages.',
-            'Contrast: CUDA/HIP -- similar explicit buffer model but with direct pointer access, no browser sandbox, and no bind group indirection.',
-          ],
-        },
-        'The engineering question for WebGPU is not whether the GPU is fast. The question is whether your data layout, your buffer usage flags, your bind group structure, and your readback strategy are aligned with how the GPU actually consumes and produces bytes. Get the contracts right and the performance follows.',
+        'Primary sources: MDN WebGPU API at https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API, MDN GPUBuffer at https://developer.mozilla.org/en-US/docs/Web/API/GPUBuffer, MDN GPUQueue.submit at https://developer.mozilla.org/en-US/docs/Web/API/GPUQueue/submit, and W3C WGSL at https://www.w3.org/TR/WGSL/.',
+        'Study next by role: WebAssembly Linear Memory for byte-boundary thinking, Apache Arrow Columnar Memory for flat typed layout, Compressed Sparse Row Graph for buffer-shaped sparse data, WebGPU Parallel Prefix Scan for multi-pass compute, and Render Graph Resource Lifetimes for managing many GPU resources over time.',
       ],
     },
   ],

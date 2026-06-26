@@ -203,92 +203,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Password login starts with a claim: the user types a username, then proves control of a secret. Passkeys can move part of that account selection into the browser and authenticator. If the device has a discoverable credential for the current relying party, the user can choose it and sign in without typing a password or sometimes even a username.',
-        'Credential discovery exists to make that pleasant without making it leaky. The page should not receive a raw list of accounts stored on the device. The browser mediates the picker, the relying-party ID scopes which credentials can appear, and the server still verifies a fresh cryptographic assertion before creating a session.',
+        'Read the discovery view as account selection under browser and authenticator mediation. Active nodes are the relying party, browser, RP ID, authenticator, matching credential set, user choice, and assertion. Found nodes are facts the server can verify after the user chooses a credential.',
+        'The safe inference is that discovery is not proof. A picker can help the user choose an account, but the login is valid only after the authenticator signs a fresh challenge and the server verifies the scoped assertion.',
         {type:'callout', text:'Credential discovery moves account selection into browser-authenticator mediation while keeping the final proof as a scoped signature verified by the server.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/ff/FIDO2_USB_token.png', alt:'Black FIDO2 USB security key with a gold touch button.', caption:'FIDO2 security key, by Yubinerd123, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious WebAuthn login flow is username first. The user enters an identifier, the server looks up that account, and the server sends allowCredentials containing the credential IDs that may authenticate. That is secure and useful, but it keeps passkeys behind the old username-first ceremony.',
-        'The tempting shortcut is worse: let JavaScript ask the device which accounts exist and build its own picker. That would turn login into an account enumeration and tracking surface. The wall is privacy and phishing resistance. Discovery has to happen inside browser-authenticator mediation, not inside arbitrary page code.',
+        'Password login starts with a user typing an account identifier and then proving control of a secret. Passkeys can remove the password, but a username-first form still keeps the old ceremony. Credential discovery lets the browser and authenticator help the user find a passkey for the current site.',
+        'The privacy constraint is strict. The page should not receive a raw list of accounts stored on the device. The browser mediates the picker, the relying-party ID scopes which credentials can appear, and the server still verifies a cryptographic assertion before creating a session.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious WebAuthn login flow is username first. The user enters an email, the server looks up that account, and the server sends allowCredentials containing credential IDs for that account. That is secure and works well when the user remembers the identifier.',
+        'A tempting shortcut is to let JavaScript ask the authenticator which accounts exist and build a custom picker. That would make account discovery simple for the page. It would also create an account enumeration and tracking surface.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is privacy. If a site could query all device credentials for a domain, it could learn who has accounts before any user intent. Embedded pages and malicious scripts could turn login into cross-context account probing.',
+        'The wall is also phishing resistance. Discovery must be scoped by the relying-party ID, such as example.com, and mediated by the browser. Arbitrary page code cannot be trusted to decide which credentials should be visible or how they should be described.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A discoverable credential stores enough account identity on the authenticator for the user to recognize it later. It is still bound to a relying-party ID such as example.com. When the site asks for an assertion, the browser and authenticator can find matching credentials without the server naming credential IDs first.',
-        'The account picker is not the security proof. It is only a way for the user to select a credential. The proof is the assertion: a signature over a fresh challenge and authenticator data, verified by the server with the public key stored for that credential.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the discoverable login view, follow the chain from relying party to options, browser, RP ID, authenticator, credential set, user choice, and assertion. The key moment is that matching happens under RP ID scope before the server learns which account the user selected.',
-        'In the conditional UI view, notice that the normal sign-in form remains present while the browser offers passkey suggestions. That is the product shape most migrations need: passkeys can be first-class without turning absence of a credential into a dead end.',
+        'A discoverable credential stores enough account information on the authenticator for the user to recognize it later. It remains bound to a relying-party ID. During authentication, allowCredentials can be empty or omitted, so the authenticator can search for matching credentials under that scope.',
+        'The picker is a selection interface, not a security result. The security result is an assertion: a signature over a fresh challenge and authenticator data. The server verifies that signature with the public key stored for the credential.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'During registration, the service can create a discoverable passkey by requesting a resident or discoverable credential and storing the returned credential ID, public key, user handle, RP ID, and metadata. The authenticator stores credential material and user-facing account information locally or in the platform account sync layer.',
-        'During authentication, the server sends PublicKeyCredentialRequestOptions with a fresh challenge and the expected RP ID. For a discoverable login, allowCredentials can be omitted or left empty so the authenticator can search for matching credentials. With conditional mediation, the page starts the request while leaving the username field and fallback paths visible.',
-        'After the user selects a credential and passes user presence or verification, the authenticator returns an assertion. The server uses the credential ID or user handle to find the stored public key, then verifies the challenge, origin, RP ID hash, flags, signature, and counter or equivalent risk signal before creating a session.',
+        'During registration, the server requests a discoverable or resident credential and stores the returned credential ID, public key, user handle, RP ID, and metadata. The authenticator stores credential material and user-facing account labels locally or in a platform sync layer.',
+        'During login, the server sends PublicKeyCredentialRequestOptions with a fresh challenge and expected RP ID. The browser and authenticator find matching credentials, show a mediated account choice, perform user presence or verification, and return an assertion. The server maps the credential ID or user handle to an account and verifies the response.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The security property comes from scoped public-key proof. The private key does not leave the authenticator. A phishing site on a different origin cannot get a valid assertion for the real relying party. The server also checks its own challenge, so an old assertion cannot be replayed into a new session.',
-        'The privacy property comes from mediated discovery. The page asks for a credential, but the browser decides whether to show matching accounts and how much account information is exposed. The site receives an assertion only after user selection, not a query result listing every account on the device.',
+        'The security argument is scoped public-key proof. The private key does not leave the authenticator. A phishing origin cannot get a valid assertion for the real relying party because the RP ID hash and origin checks will not match.',
+        'The privacy argument is mediated disclosure. The site asks for an assertion, but the browser decides whether to show matching accounts and when to reveal the selected credential. The page receives a result after user choice, not a free account list.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A retail site keeps its email and password form but adds passkey conditional UI. When the sign-in page loads, the server creates a short-lived challenge and the page starts a conditional WebAuthn get request. If the shopper has a passkey for shop.example, the browser can offer it in the account field.',
-        'The shopper selects the passkey for alex@example.com, uses device unlock, and the authenticator signs the challenge. The server verifies the assertion, maps the credential to the account, updates the session, and records the sign-in. If the shopper has no passkey on this device, the email/password, email link, enterprise SSO, or recovery path remains available.',
+        'Discovery costs credential lifecycle work. A real account may have a phone passkey, laptop passkey, hardware key, synced platform passkey, and enterprise-managed credential. The service must name, show, revoke, audit, and recover those credentials.',
+        'It also costs product clarity. On a shared device with 4 saved accounts, the picker must help the user choose without leaking more than needed. Conditional UI can reduce friction, but fallback paths must stay visible for users without a local passkey.',
       ],
     },
     {
-      heading: 'Cost and tradeoff',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Discoverable login adds credential lifecycle work. Services need multiple credentials per account, device removal, recovery, audit logs, risk checks, and clear handling for synced versus device-bound passkeys. The product also needs good labels because account selectors may appear on shared devices.',
-        'Conditional UI improves adoption, but it depends on browser support and careful form design. It can also create confusing states if several accounts match, if a passkey exists only on another device, or if enterprise policy restricts platform authenticators.',
-        'The main tradeoff is ceremony versus recovery surface. A smooth passkey picker reduces daily friction and phishing risk, but the account still needs safe enrollment, device replacement, revocation, and support workflows. Weak recovery can undo strong authentication.',
-      ],
-    },
-    {
-      heading: 'Operational checklist',
-      paragraphs: [
-        'A production rollout should track passkey enrollment rate, passkey sign-in success, fallback use, recovery starts, shared-device complaints, account-selector confusion, and support contacts. Those metrics reveal whether discovery is making login simpler or merely moving friction to edge cases.',
-        'The service should also keep a credential inventory for users: credential name, creation time, last use, authenticator class when safe to expose, and remove controls. Discovery works best when users can understand and manage the credentials that may appear in the browser picker.',
-        'Treat the fallback path as part of the same security system. If password reset, email magic links, or support overrides are easier to attack than the passkey flow, attackers will use those paths. Strong primary authentication needs recovery policy that is at least deliberately risk-scored and monitored.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'It wins for consumer accounts, admin consoles, high-phishing-risk services, and password-to-passkey migration. It reduces typing, removes reusable secrets from the login ceremony, and lets the browser account picker become a native sign-in surface.',
-        'It is strongest when the relying party keeps fallback paths explicit and treats passkeys as a credential family, not as a single device flag. Users should be able to add more than one passkey, review them, remove lost devices, and recover safely.',
+        'Credential discovery fits consumer login, admin consoles, high-phishing-risk services, and password-to-passkey migration. The access pattern is a sign-in page where a passkey may exist before the user types an identifier.',
+        'It works best when the service supports several credentials per user and clear fallback. Users need enrollment, device replacement, recovery, credential removal, and audit history. Discovery improves the front door only if the side doors are deliberate.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when recovery is weaker than login. If account recovery falls back to an easily hijacked email or support workflow, the passkey only protects the front door. Lost devices, platform-account compromise, shared devices, and family devices all need deliberate policy.',
-        'It also fails when the relying-party boundary is misunderstood. RP ID choices affect subdomains and deployments. Embedded login, cross-origin iframes, native wrappers, and third-party identity flows need careful design so credential discovery still happens in the correct origin context.',
+        'It fails when recovery is weaker than login. If account recovery falls back to an easily hijacked email link or support override, attackers route around the passkey. Strong discovery must be paired with strong recovery and device-removal policy.',
+        'It also fails when RP ID boundaries are misunderstood. Subdomains, embedded login, native wrappers, enterprise identity providers, and third-party widgets need careful origin design. The authenticator can only protect the boundary the relying party declares.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A retail site keeps its email field but adds conditional passkey UI. When the sign-in page loads, the server creates a 32 byte random challenge that expires in 2 minutes. The page starts a conditional WebAuthn get request for shop.example while the ordinary form remains usable.',
+        'The browser finds 2 matching discoverable credentials on the device. The shopper selects alex@example.com, unlocks the device, and the authenticator signs the challenge. The server verifies challenge, origin, RP ID hash, flags, signature, and credential mapping before creating the session.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: MDN Web Authentication API at https://developer.mozilla.org/en-US/docs/Web/API/Web_Authentication_API, MDN PublicKeyCredential at https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential, and W3C WebAuthn Level 3 at https://www.w3.org/TR/webauthn-3/.',
-        'Study WebAuthn Passkeys for registration and assertion cryptography, OAuth PKCE Token Lifecycle Case Study for redirect login state, SameSite Cookies & CSRF for cookie-backed session safety, Storage Access API Third-Party Cookie Gate for embedded login widgets, and Capability Security & Attenuation for scoped authority.',
+        'Study next by role: WebAuthn Passkey Credential Flow for registration and assertion, OAuth PKCE Token Lifecycle for redirect login state, SameSite Cookies and CSRF for session safety, Storage Access API for embedded login, and Capability Security for scoped authority.',
       ],
     },
   ],

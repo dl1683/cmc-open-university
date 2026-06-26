@@ -199,90 +199,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A speculative decoding runtime controller is the serving policy layer that decides whether a request should use a draft model, Medusa, EAGLE, Lookahead, n-gram or suffix speculation, or plain target decoding. It sits above the token-level algorithm. Its job is to decide which acceleration method is worth trying for this request, under current traffic, memory, batching, quality, and tail-latency conditions.',
-        'Speculative decoding is attractive because the expensive target model can verify several proposed tokens in one pass. But the method is useful only when the proposed tokens are accepted often enough to outweigh the draft work, extra memory, scheduler complexity, and rollback cost. The controller makes that tradeoff explicit instead of assuming one paper result applies to every endpoint.',
+        'Read the router graph as a serving control plane. A request is classified into a traffic segment, routed to a speculation method, verified by the target model, measured, and either kept on that route or sent to fallback. Active nodes are live routing decisions, compare nodes are alternative methods, and found nodes are emitted tokens or metrics.',
+        'The gate view shows that speculation is reversible. Accepted tokens per pass, p95, p99, memory, and quality flags decide whether a route stays enabled. The safe inference is that a failed gate returns the request class to plain target decoding.',
         {type:'callout', text:'The controller treats speculation as a reversible route, spending draft work only on traffic slices where acceptance and tail latency justify it.'},
       ],
     },
     {
-      heading: 'The obvious attempt',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious production move is to pick the fastest benchmarked speculation method, enable it for every request, and measure average tokens per second. That is simple, and it can look impressive on a narrow demo set. It also hides the real serving problem.',
-        'Traffic is heterogeneous. JSON extraction, code completion, chat, summarization, tool-call planning, and high-temperature brainstorming have different acceptance behavior. A method that works on predictable JSON may waste time on open-ended chat. A method that helps a single request may hurt a continuous-batching server by increasing memory pressure or fragmenting batches. The runtime needs a decision system, not a global switch.',
+        'A speculative decoding algorithm decides how one round accepts draft tokens. A runtime controller decides whether speculation should be used for this request at all. That distinction matters because production traffic is not one benchmark prompt.',
+        'JSON extraction, code completion, chat, summarization, and tool-call scaffolds have different predictability. The controller exists to spend draft work only where the acceptance rate and latency budget justify it. It treats speculation as a serving policy rather than a model identity.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The controller treats speculation as a reversible route. Each route has preconditions, expected benefit, measurement fields, and fallback rules. If acceptance drops, p99 latency rises, quality checks fail, or memory pressure crosses a threshold, the route can shrink draft length, change verifier batch size, switch method, or fall back to target-only decoding.',
-        'This is why the controller belongs in the control plane. Medusa heads, EAGLE feature drafting, Lookahead n-gram pools, suffix speculation, and classic draft-model verification are different proposal mechanisms. They all need the same operational question answered: is this proposal stream cheap enough, accurate enough, and schedulable enough for the current request slice?',
+        'The obvious production move is to enable the fastest method globally. A demo may show higher average tokens per second, and a single flag is easy to ship. This can work on a narrow traffic slice.',
+        'It breaks under mixed traffic. A method that helps constrained JSON can waste work on high-temperature chat. A route that improves average latency can still hurt p99 by adding memory pressure or batch fragmentation.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The wall',
       paragraphs: [
-        'The main data structure is a routing table keyed by traffic segment. A row can include model family, endpoint, prompt class, temperature band, output schema, average prompt length, expected generation length, current batch mode, and risk tier. Its value is a method choice plus parameters: draft length, tree width, verifier batch size, acceptance threshold, enablement percentage, and fallback method.',
-        'The method registry describes requirements and side effects. A classic draft-model route needs a compatible draft model and KV handoff rules. Medusa needs trained heads and tree-attention masks. EAGLE needs feature-draft support. Lookahead needs an n-gram pool. Suffix speculation needs a suffix index. Every method also needs rollback behavior, batching compatibility, memory estimates, and quality checks.',
-        'The acceptance ledger is the evidence store. For each slice it records proposed tokens, accepted tokens, rejected branches, target passes, draft cost, end-to-end latency, p50/p95/p99, memory footprint, quality flags, and fallback reasons. Without that ledger, the team may celebrate a higher average throughput while silently damaging the expensive slices users care about most.',
+        'The wall is that speculation has multiple bottlenecks. Proposal compute, verifier shape, memory footprint, cache handoff, scheduler behavior, and quality gates all matter. Accepted tokens per pass is necessary but not sufficient.',
+        'The second wall is drift. A product change can alter schemas, prompt templates, or temperature settings. Yesterday route may keep running after its acceptance rate collapses unless the controller measures by segment and falls back quickly.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Treat every speculative method as a route with preconditions, parameters, metrics, and rollback. The route can choose draft length, method, enablement percentage, verifier batch shape, and fallback. It can also turn itself off when the measured slice no longer pays for speculation.',
+        'Different methods become proposal engines behind the same verifier contract. Draft models, Medusa, EAGLE, Lookahead, and suffix speculation all need the target path to protect output semantics. The controller compares their economics under current service conditions.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For each request, the controller first classifies the request. It looks at endpoint, model, prompt shape, temperature, schema constraints, generation length estimate, and whether the output will drive a tool or user-visible decision. Then it checks live capacity: GPU memory, batch queue depth, prefill/decode balance, cache pressure, and recent acceptance for the matching slice.',
-        'If the route is enabled, the chosen proposal method generates candidate tokens or branches. The target model verifies them. Accepted tokens advance the sequence; the first rejected token forces the runtime to keep the target output and discard the invalid speculative tail. The controller logs the result and updates rolling metrics. If the route misses its acceptance or latency gate, the next requests in that slice get a safer configuration.',
-        'The important point is that the controller changes behavior at request boundaries, not inside a single hallucinated policy prompt. It is normal service logic with thresholds, experiments, canaries, and rollback. That makes it observable and debuggable.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The method-router view shows the system choosing among acceleration paths before generation begins. The useful thing to watch is not only which path lights up, but which evidence justifies it: constrained schema, repeated phrase structure, low temperature, long expected decode, available draft resources, or recent high acceptance. The same request can be routed differently tomorrow if the traffic mix changes.',
-        'The fallback-gates view shows why speculative decoding belongs behind runtime guards. Accepted tokens per target pass must beat the cost of proposal generation. Tail latency must not rise. Memory pressure must stay inside the service budget. Quality gates must not degrade structured outputs or tool-call arguments. When a gate fails, the controller should explain the fallback reason and return to target-only decoding without changing user-visible semantics.',
+        'The request classifier reads model, endpoint, prompt shape, temperature, schema constraints, estimated output length, risk tier, and live capacity. It maps those features to a routing table row. The row selects a method and parameters if the gate is healthy.',
+        'After generation, the acceptance ledger updates rolling metrics for that segment. If acceptance drops below threshold, p99 exceeds budget, memory gets hot, or quality checks fail, the controller lowers draft length, reduces enablement, switches method, or falls back. These are request-boundary decisions, so they are observable and reversible.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Speculation works when proposal is cheaper than verification and verification can accept multiple tokens per expensive target pass. If a draft path proposes four tokens and the target accepts three, the runtime may replace three target decode steps with one target verification pass plus cheap draft work. That is the whole economic argument.',
-        'The controller works because acceptance is not random noise. It clusters by model, prompt type, temperature, output format, product workflow, and recent history. Constrained JSON, boilerplate code, repeated tool-call formats, and low-temperature continuations are often more predictable than open-ended creative text. Segmenting traffic lets the runtime spend speculation where predictability exists and avoid it where rejection would dominate.',
+        'The controller works because acceptance clusters by traffic shape. Low-temperature boilerplate and structured outputs are more predictable than open-ended creative text. Segmenting traffic lets the system exploit predictability where it exists instead of averaging it away.',
+        'Correctness comes from preserving the target verifier boundary. The controller may change the proposal method, but it does not let proposals bypass target acceptance. Fallback is correct because ordinary target decoding remains the baseline path.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Consider a hosted inference endpoint that serves four workloads: JSON extraction, code generation, open-ended chat, and agent tool calls. JSON extraction is constrained and repetitive, so the controller routes it to Medusa with a narrow tree and strict quality checks. Code generation routes to EAGLE when memory is healthy because feature drafting often produces longer accepted branches. Agent tool-call text routes to Lookahead because repeated function names and argument scaffolds hit the n-gram pool. High-temperature chat stays on plain target decoding because acceptance is low and user-visible wording matters.',
-        'During normal traffic, the acceptance ledger shows JSON accepting enough tokens to keep Medusa enabled. Later, a product change adds new tool schemas. Lookahead hit rate falls, so the controller disables that route until the pool rebuilds useful continuations. During a traffic spike, GPU memory pressure rises and EAGLE p99 regresses for code. The controller lowers enablement or falls back to plain decoding. No engineer has to redeploy the model to protect the service.',
+        'The cost model includes proposal compute, extra model heads or draft model memory, verifier sequence shape, cache bookkeeping, batching effects, and operations work. A method that saves 30 ms on p50 but adds 80 ms to p99 is a bad route for user-facing traffic.',
+        'With 10,000 requests per minute, a route that improves 70 percent of requests by 20 ms but hurts 5 percent by 300 ms can still look good on average. The controller must track slice-level p95 and p99, not only blended throughput. The behavior users feel is often the tail.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The cost model has more terms than speedup. Proposal generation consumes compute. Extra heads or draft models consume memory. Tree attention and verification change scheduler behavior. Rejected branches waste work. Larger draft lengths can improve best-case speed while worsening p99 when acceptance is mediocre. Metrics must be reported by traffic segment, not only as a blended average.',
-        'There is also an operational cost. Each method adds compatibility checks, deployment artifacts, route rules, observability, and incident paths. A small team may be better served by one conservative speculative method with excellent rollback than by five partially understood methods with unclear quality gates.',
+        'A runtime controller fits high-volume LLM serving where traffic has repeatable slices. It is useful for structured extraction, code generation, repeated tool-call formats, templated agents, and long decode-heavy responses.',
+        'It also supports experiments and canaries. Teams can enable EAGLE for 5 percent of code traffic, Medusa for a JSON endpoint, and plain decoding for hot or risky traffic. The ledger becomes training data for the next routing policy.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Where it fails',
       paragraphs: [
-        'The controller wins in high-volume serving where the same endpoint sees repeatable slices. It is especially useful for structured outputs, low-temperature generation, boilerplate-heavy code, templated assistant workflows, and agent scaffolding where many continuations are predictable. It also helps when the service can canary methods and gather enough traffic to measure acceptance reliably.',
-        'It is less useful for tiny models, very short completions, highly creative high-temperature traffic, workloads bottlenecked on prefill rather than decode, or systems where memory is already the tight constraint. If the target model is not the expensive part of the request, speculative decoding may optimize the wrong thing.',
+        'It fails when measurements are too coarse. A blended dashboard can hide the fact that enterprise JSON improved while consumer chat regressed. A route can also stay enabled because average acceptance is good even though one high-value segment is failing.',
+        'It may be overkill for small models, short completions, prefill-bound workloads, or services already constrained by memory. The controller adds artifacts, dashboards, route rules, incident paths, and compatibility tests. If decode is not the bottleneck, this control plane optimizes the wrong layer.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'The worst failure is silent regression: average throughput improves while tail latency, memory pressure, or quality gets worse for the highest-value slice. The second failure is method lock-in: leaving a speculative path enabled after acceptance collapses because dashboards still show a blended win. The third failure is comparing papers instead of deployments. A method can be elegant and still lose inside a particular batching engine.',
-        'Do not judge a route only by accepted tokens per pass. Compare end-to-end latency, throughput, p99, memory, quality, scheduler impact, rollback frequency, and operator complexity by traffic segment. Also check semantic quality. Verification guarantees that the target model accepted tokens under the decoding procedure; it does not prove the product outcome is good.',
+        'A serving endpoint handles 40 percent JSON extraction, 30 percent code, 20 percent chat, and 10 percent tool-call scaffolds. The controller routes JSON to Medusa with k = 3, code to EAGLE with k = 4, tool scaffolds to Lookahead, and chat to plain target decoding above temperature 0.8.',
+        'During one hour, JSON accepts 2.2 tokens per target pass at p99 180 ms, code accepts 3.1 at p99 240 ms, chat accepts 1.1 and falls back, and tool scaffolds accept 2.4. A schema change later drops tool acceptance to 0.9, so the controller disables Lookahead for that slice until the n-gram pool refreshes.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: vLLM speculative decoding at https://docs.vllm.ai/en/stable/features/speculative_decoding/, NVIDIA Triton speculative decoding at https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/tutorials/Feature_Guide/Speculative_Decoding/README.html, speculative decoding at https://arxiv.org/abs/2211.17192, Medusa at https://arxiv.org/abs/2401.10774, EAGLE at https://arxiv.org/abs/2401.15077, and Lookahead Decoding at https://arxiv.org/abs/2402.02057.',
-        'Study next: Speculative Decoding Acceptance Ledger for the token-level acceptance record, Medusa Tree Attention Candidate Mask Case Study for multi-head branch verification, EAGLE Feature Draft Tree Case Study for feature-level proposals, Lookahead Decoding N-Gram Pool Case Study for repeated continuation reuse, LLM Continuous Batching for scheduler interaction, and Transformer Inference Roofline for the decode-side cost model.',
+        'Start with current vLLM and NVIDIA Triton speculative decoding docs, plus the Medusa, EAGLE, Lookahead, and speculative decoding papers. Serving support changes quickly, so verify available methods, batching interactions, and defaults in live documentation.',
+        'Study the speculative decoding acceptance ledger, continuous batching, KV cache management, transformer inference rooflines, traffic segmentation, rollout gates, and canary analysis next. The controller is where algorithm papers meet production service behavior.',
       ],
     },
   ],

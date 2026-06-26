@@ -351,105 +351,98 @@ export function* run(input) {
   else throw new InputError('Pick a Redis sorted-set view.');
 }
 
+
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A Redis sorted set stores unique members ordered by numeric scores. The public API looks simple: add a member with a score, fetch a member score, ask for a rank, scan a score window, remove old entries, or return the top N. The interesting lesson is that one logical data type has to serve two very different access patterns.',
-        'A leaderboard needs ordered reads. A rate limiter needs timestamp windows. A scheduler may need the earliest due job. At the same time, updates usually arrive by member: this player scored again, this request id is new, this job should be removed. A single access path does not cover both sides cleanly.',
-        'Redis sorted sets exist as a production compromise: give the user one abstraction, but maintain the internal structures needed for member lookup and ordered traversal. In the large representation, that means a dictionary plus a skip list. The API hides the composition; performance depends on it.',
+        'The dual-index view shows one logical sorted set backed by two access paths. Active means a command is touching either the dictionary or skip list, visited means an index entry has already been checked or updated, and found means both structures agree on the member and score.',
+        'The tower view shows the skip list as ordered shortcuts over a full bottom-level list. The safe inference is that a higher-level pointer skips a known count of bottom-level nodes, so rank work can accumulate spans instead of counting one node at a time.',
         {type:'callout', text:'A Redis sorted set is one abstraction backed by two synchronized access paths: a dictionary for identity and a skip list for order.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/86/Skip_list.svg', alt:'Skip list diagram with linked nodes at multiple levels.', caption:'Sample skip list with four levels; Wojciech Mula, public domain, via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'The baseline and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'Start with a hash table. It maps member to score, so `ZSCORE` and membership checks are expected O(1). Updating a known member is easy. But a hash table has no order. Asking for the top 100 means scanning every entry and sorting or maintaining a second structure somewhere else.',
-        'Start with only an ordered tree or skip list instead. Range queries become natural, but member updates are still awkward. To update `bob`, the system must find the old node, know the old score, remove it if the order changes, and reinsert it. Searching only by score is not enough because scores are not unique.',
-        'That is the wall: member-oriented commands and score-oriented commands both need to be first-class. Redis solves it with a dual index for large sorted sets. Small sorted sets can use compact listpack encoding because a tiny packed scan may be cheaper than pointer-heavy indexing. Once the set grows, the full representation pays memory for predictable command behavior.',
+        'A Redis sorted set stores unique members ordered by numeric scores. Real features need both direct member lookup and ordered score traversal.',
+        'A leaderboard updates one player by member and then reads the top range by score. A rate limiter adds a request by ID, trims old timestamps by score, and counts the remaining window.',
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The invariant is consistency between indexes. Every member in the dictionary must have one logical score. Every node in the ordered structure must represent the same member and score. A logical update is not complete until both access paths agree.',
-        'The skip list orders by score and then by member bytes as the tie breaker. That deterministic secondary order matters. Equal scores are common in leaderboards, queues, and timestamps. The structure needs a total order so rank, range, insertion, and deletion are well-defined.',
-        'Redis skip-list levels also store spans. A span says how many bottom-level nodes a forward pointer skips. Spans turn rank into an accumulated count while traversing the tower. Without spans, the structure could still find score ranges, but rank-by-position operations would be weaker.',
+        'The obvious first structure is a hash table from member to score. ZSCORE and membership checks are expected O(1), and updating a known member is straightforward.',
+        'The other obvious structure is an ordered tree or skip list by score. Score ranges and top-N reads become natural, and the structure can walk neighbors without sorting the whole set.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The wall',
       paragraphs: [
-        '`ZADD` starts on the dictionary side. If the member is absent, Redis adds the member and score to the dictionary and inserts a node into the skip list. The node receives a random height. Higher levels skip more nodes, which gives the expected logarithmic search behavior.',
-        'If the member already exists and the score is unchanged, little ordered work is needed. If the score changes and the member must move in sorted order, Redis removes the old skip-list node and inserts a new one in the right position. The dictionary is updated to the new score. The command behaves like one logical mutation even though two indexes are touched.',
-        'Range commands ride the ordered side. A score range seeks into the skip list and then walks bottom-level links while scores remain inside the requested interval. A rank range uses spans to seek to a position. A member score lookup uses the dictionary. The command name is often the clue to which path is hot.',
-        'Representation switching is part of the mechanism. Compact listpack encoding saves memory for small sorted sets. The dictionary plus skip-list form costs more per entry but avoids linear scans as the structure grows. A systems engineer should treat that threshold as a memory-latency tradeoff, not as an implementation footnote.',
+        'The hash table has no order. Reading the top 100 from one million members requires scanning the full table or maintaining a second structure.',
+        'The ordered structure has weak identity lookup. Scores are not unique, so updating bob requires finding the old member-score pair, removing it from order, and reinserting it if the score changed.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Redis uses one abstraction with two synchronized internal indexes. The dictionary answers member questions, and the skip list answers order, range, and rank questions.',
+        'The invariant is agreement. Every member in the dictionary must have exactly the same score as the corresponding ordered node, and every ordered node must represent a live dictionary member.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'ZADD first checks the dictionary. If the member is new, Redis stores the score under the member and inserts a skip-list node ordered by score and then member bytes.',
+        'If the member exists and the score changes, Redis removes the old ordered node and inserts a new one at the correct position. The command is one logical mutation even though two structures are touched.',
+        'Range commands use the ordered side. Score ranges seek into the skip list and walk bottom-level links, while rank ranges use spans to skip over counted groups of nodes.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The dictionary solves identity. Given a member, it can answer whether the member exists and what score it has. That is what makes updates practical. The skip list solves order. Given a score, rank, or endpoint, it can walk members in sorted order without sorting the whole set.',
-        'Correctness depends on making those paths represent the same logical set. If a member appears in the dictionary but not the skip list, range queries are wrong. If a skip-list node survives after dictionary removal, ordered reads return deleted data. If the score differs between paths, every command becomes suspect.',
-        'The span idea explains why this is more than a normal skip list. Range-by-score needs order. Rank-by-position needs counts. By storing spans on forward pointers, Redis can move through the tower and accumulate how many bottom-level nodes have been crossed. That turns position queries into indexed ordered traversal.',
+        'The dictionary solves identity because it maps a member to its current score. The skip list solves order because it maintains a total order over score and member bytes.',
+        'Spans make rank efficient. When traversal follows a forward pointer, the stored span tells how many bottom-level nodes were crossed, so the algorithm can accumulate position without walking every skipped member.',
+        'Correctness depends on atomic update order inside Redis command execution. A client never observes the dictionary after update while the skip list still contains the old node.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the dual-index view, the split between dictionary and skip list is the whole lesson. The dictionary side should make you think member, direct lookup, old score, and update. The skip-list side should make you think order, score range, rank, top N, and spans.',
-        'In the tower view, the upper levels are shortcuts and the bottom level is the full sorted order. The span labels are counts, not weights in the product sense. They explain how the structure can skip across several members while still knowing how many ranks it crossed.',
-        'In the leaderboard and limiter views, connect data structure work back to product behavior. Top-N is seek then emit. A sliding-window limiter is add, trim, count, decide, and expire. The ordered index makes the window cheap to find; it does not make unbounded output or unbounded retention cheap.',
+        'The mental model is O(log n) to seek or update the ordered structure, expected O(1) for dictionary lookup, and O(m) to return m results. The output term matters because sending 50,000 members is real work.',
+        'Memory is the tax. Each member carries string storage, score storage, dictionary overhead, skip-list node fields, forward pointers, backward pointers, and spans.',
+        'For one million members, a top-100 query still walks and returns 100 members after the logarithmic seek. A top-100,000 query is dominated by walking and serializing 100,000 results, not by finding the first node.',
       ],
     },
     {
-      heading: 'Costs and complexity',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The useful mental model is O(log n) to seek or update the ordered structure plus O(m) to return m results. The second term is real. Returning 100,000 members costs time even with a perfect index because the server still has to walk, allocate, serialize, and send those rows.',
-        'Dictionary lookup is expected O(1). Ordered inserts, deletes, rank seeks, and score-range seeks are expected O(log n). Score ranges and rank ranges add output size. Removals by range add the number of removed members. This is why command complexity lines often include both a logarithmic seek and a linear result term.',
-        'Memory is the price of the dual index. The member string, score, dictionary entry, skip-list node, levels, spans, and pointers all add overhead. Listpack saves memory for small values. The full representation buys speed and richer operations at the cost of more heap objects.',
-        'Operationally, a single hot key can become the bottleneck. A global leaderboard, global rate limiter, or global trending feed concentrates reads and writes on one Redis key. Sharding by tenant, game, region, time bucket, or score band is often more important than micro-optimizing the skip-list operation.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Redis sorted sets win when the product needs a live ordered index with unique members. Leaderboards are the clean example: update one player, read a top range, fetch a player rank, or show neighbors around a player. The member identity and score order are both core to the feature.',
-        'They also fit exact sliding windows. Store request identifiers or timestamps as members and timestamps as scores. Remove entries older than the window, count the remainder, and decide whether to allow the request. The ordered score path makes old entries easy to trim.',
-        'Delayed work queues can also fit when the main operation is due-time order. Store job ids as members and due times as scores. Workers fetch ready jobs with the lowest scores and remove them atomically. This is not the same as a full event log, but it is a useful live scheduling index.',
+        'Sorted sets fit leaderboards where the product needs update-by-player and read-by-rank. They also fit exact sliding-window rate limits where timestamps are scores and request IDs are members.',
+        'They are useful for modest due-time schedulers. Store job IDs as members, due timestamps as scores, read the lowest ready scores, and remove claimed jobs with a server-side atomic step.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A sorted set is not a durable relational index. Redis persistence, replication, failover, eviction policy, and deployment topology define the durability story. If the product needs relational constraints, historical audit, complex joins, or long-term storage, a database index or event log belongs nearby.',
-        'It is also a poor fit for append-only replay. Redis Streams or a log system are better when every event must be consumed, acknowledged, retried, and retained. A sorted set stores the latest membership by member identity and score. That is different from event history.',
-        'Global rankings fail when they cannot be sharded or bounded. One massive hot ZSET can concentrate memory and CPU. Wide `ZRANGE` calls can dominate latency. Scores with many ties can surprise teams that forgot the member tie breaker. Stale entries can grow forever without explicit retention.',
+        'A sorted set is not an append-only event history. Redis Streams or a log system is better when every event must be consumed, acknowledged, replayed, and retained.',
+        'It also fails as an unbounded global hot key. One worldwide leaderboard or limiter can concentrate CPU, memory, and network output on a single Redis key.',
+        'Atomicity is another trap. A sliding-window limiter built from separate trim, add, count, and decide commands can race unless it runs as Lua, a transaction with care, or another single server-side operation.',
       ],
     },
     {
-      heading: 'Concrete cases',
+      heading: 'Worked example',
       paragraphs: [
-        'Leaderboard: store player id as member and score as value. After a match, `ZADD` updates the score. `ZRANGE` with reverse ordering reads the top N. `ZRANK` or reverse rank reads a player position. This is the ideal shape because the product needs both member updates and ordered reads.',
-        'Sliding-window limiter: store request ids as members and request timestamps as scores. On each request, remove scores older than the window, add the new request, count remaining requests, and reject if count exceeds the budget. This must be atomic, usually by Lua or another single server-side operation, or concurrent requests can pass incorrectly.',
-        'Due-job scheduler: store job id as member and due timestamp as score. A worker reads jobs with score less than or equal to now, claims them, and removes them. This can work well for modest scheduling needs. If jobs require replay, consumer groups, visibility timeouts, and audit, use a queue or stream design instead.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Start by naming the hot command shape. If the feature mostly asks for member scores, the dictionary path matters. If it asks for top ranges, rank ranges, or score windows, the skip-list path matters. If it returns wide ranges, output size will dominate the index cost.',
-        'Make retention explicit. Rate limiters should trim old entries. Leaderboards should decide whether scores reset by season, shard by cohort, or archive to another store. Schedulers should remove completed jobs. Without retention, a sorted set can become a slow memory leak with a nice API.',
-        'Make atomicity explicit. Multi-step patterns such as limiter decisions and job claims should not be spread across separate client commands when concurrent clients can race. Use Lua, transactions with care, or a design that makes each state transition a single server-side mutation.',
+        'A rate limiter allows 100 requests per user per 60 seconds. For user 7, each request adds member req-123 with score 1,719,000,000.250, then removes scores below 1,718,999,940.250.',
+        'If 89 members remain after trim, the request is allowed and the set now has 90 members. If 100 members remain before adding, the request is rejected or the new member is removed, depending on the exact policy.',
+        'The score-range trim finds the oldest timestamp boundary in O(log n), then removes k expired entries. If 40 old entries expired at once, the operation cost includes those 40 removals.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Redis sorted-set data type documentation at https://redis.io/docs/latest/develop/data-types/sorted-sets/, ZADD command docs at https://redis.io/docs/latest/commands/zadd/, ZRANGE command docs at https://redis.io/docs/latest/commands/zrange/, Redis memory optimization docs for compact encodings at https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/memory-optimization/, and Redis source files server.h and t_zset.c at https://github.com/redis/redis/blob/unstable/src/server.h and https://github.com/redis/redis/blob/unstable/src/t_zset.c.',
-        'Study Skip List first for the tower search idea, then Hash Table for the member index. Continue with Rate Limiter, Sliding Window, Redis Streams, Message Queues, Database Indexing, and LRU Cache. The goal is to know when a sorted set is the right live ordered index and when another storage shape should own durability, replay, or global scale.',
+        'Primary sources: Redis sorted sets at https://redis.io/docs/latest/develop/data-types/sorted-sets/, ZADD at https://redis.io/docs/latest/commands/zadd/, ZRANGE at https://redis.io/docs/latest/commands/zrange/, Redis memory optimization at https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/memory-optimization/, and Redis source files server.h and t_zset.c. These define the API, complexity, compact encodings, and skip-list implementation.',
+        'Study Skip List for tower search, Hash Table for member lookup, Rate Limiter for sliding windows, Redis Streams for replayable logs, Message Queues for delivery state, Database Indexing for ordered access paths, and LRU Cache for memory pressure.',
       ],
     },
   ],

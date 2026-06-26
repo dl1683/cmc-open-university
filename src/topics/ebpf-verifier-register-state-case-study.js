@@ -195,96 +195,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why eBPF Needs a Verifier',
+      heading: 'How to read the animation',
       paragraphs: [
-        "eBPF exists because the operating system needs a safe way to let small user-supplied programs run inside kernel hooks. Networking, tracing, security monitoring, load balancing, and observability all benefit from code that can run near packets, sockets, processes, and kernel events. The problem is that kernel execution is not a normal sandbox. A bad pointer read is not just a process crash. It can leak kernel memory, corrupt state, or become an attack primitive.",
-        "The verifier is the gate between useful extension and arbitrary kernel code. Before an eBPF program is loaded, the verifier symbolically executes the bytecode and proves enough safety facts for every possible path it can see. It checks memory access, pointer provenance, stack initialization, helper-call contracts, bounded loops, scalar ranges, and reference lifetimes. If the proof is missing, the program is rejected before it ever attaches to a hook.",
-        "This makes the eBPF verifier a practical case study in abstract interpretation. It does not run the program on real packets or real kernel objects. It runs the program over abstract states: summaries of what each register and stack slot could contain. The quality of those summaries determines whether useful programs load, unsafe programs are blocked, and verification finishes in time.",
-        {type:"callout", text:"The eBPF verifier makes kernel extension safe by replacing runtime trust with load-time proof over abstract register, stack, pointer, and range state."},
+        'Read the register table as the verifier state, not as concrete CPU values. Active means the current instruction is updating facts, visited means a path has reached an instruction with known facts, and found means the verifier has enough proof to allow a memory access or helper call.',
+        'The safe inference rule is conservative over-approximation. If the verifier says a register is a non-null map-value pointer with offset 0 through 63, then every concrete runtime path represented by that state must satisfy those facts.',
+        {type:'callout', text:'The eBPF verifier makes kernel extension safe by replacing runtime trust with load-time proof over abstract register, stack, pointer, and range state.'},
       ],
     },
     {
-      heading: 'The Naive Safety Plan',
+      heading: 'Why this exists',
       paragraphs: [
-        "The obvious plan is to scan the bytecode and ban dangerous instructions. Forbid arbitrary pointer arithmetic. Allow only known helper calls. Reject backward jumps. Insert runtime checks before loads. That plan feels attractive because it turns safety into a local rule: look at one instruction, decide if it is allowed, move on.",
-        "That is not enough for real eBPF. Safety often depends on facts created earlier in the program. A helper call can return either a map-value pointer or null. A conditional branch can prove the pointer is non-null on one path. A scalar register can be safe as a packet offset only after a bounds check narrows its range. A stack read is safe only if some earlier path initialized the slot. These are not visible from the opcode alone.",
-        "Runtime checks are also not the whole answer. eBPF programs run in hot kernel paths, so adding broad dynamic checks to every load would weaken the point of eBPF. The design goal is to pay a verification cost once at load time, then let accepted programs run with predictable overhead.",
+        'eBPF lets user-supplied programs run inside kernel hooks for networking, tracing, security, and observability. The kernel is not a normal sandbox. A bad pointer read can leak memory, corrupt state, or become a security bug.',
+        'The verifier is the load-time analyzer that decides whether an eBPF program may run. It symbolically executes bytecode over abstract facts about registers, stack slots, helper calls, pointer provenance, and scalar ranges. If a safety proof is missing, the program is rejected before it attaches.',
       ],
     },
     {
-      heading: 'The Wall: Path-Sensitive State',
+      heading: 'The obvious approach',
       paragraphs: [
-        "The hard case is path-sensitive state. The verifier must know not just that register r2 once held a nullable pointer, but that on the branch after `if r2 != 0`, r2 is a non-null map-value pointer. It must know that r3 is not just a scalar, but a scalar whose unsigned range is now 0 through 63. It must know that r10 is the frame pointer and that only negative stack offsets in initialized slots are readable.",
-        "Naively, the verifier could fork a complete copy of the state at every branch and explore everything. That is sound, but branch-heavy code can revisit the same instruction many times with slightly different register facts. Without pruning, verification time can grow explosively. With careless pruning, the verifier can miss an unsafe path. The central engineering problem is to be precise enough to prove safety and coarse enough to finish.",
+        'The obvious safety plan is to scan instructions and ban dangerous operations. Reject arbitrary pointer arithmetic, reject unknown helper calls, and require simple control flow. That catches some bad programs.',
+        'Another obvious plan is to add runtime checks before memory loads. That protects specific accesses, but eBPF often runs in hot packet and tracing paths. The system wants to pay proof cost at load time, then run accepted programs with predictable overhead.',
       ],
     },
     {
-      heading: 'Core insight: Abstract Register State',
+      heading: 'The wall',
       paragraphs: [
-        "Each eBPF instruction is interpreted over a verifier state. The state is not a concrete machine snapshot. It is a table of facts about registers and stack slots. For a register, the verifier may track whether it is a scalar, context pointer, map pointer, map-value pointer, packet pointer, stack pointer, socket pointer, reference, or nullable variant. For scalar values, it tracks signed and unsigned bounds and bit-level knowledge. For stack slots, it tracks whether bytes have been written and what kind of value may be stored there.",
-        "This table is a lattice: facts can become more precise or less precise as execution continues. A scalar with unknown value is broad. A scalar known to be between 0 and 63 is narrower. A nullable map-value pointer becomes narrower after a null check. Pointer arithmetic can also destroy useful facts if the verifier can no longer prove the resulting address stays inside the allowed object.",
-        "Every bytecode instruction has a transfer rule. A move copies facts. An arithmetic operation updates scalar bounds or invalidates pointer precision. A helper call checks the argument register types against the helper signature, then writes the documented result type into r0. A memory load checks the pointer type, offset range, object size, and initialization rules before allowing the instruction to proceed.",
+        'The wall is path-sensitive state. A helper may return a nullable pointer, and a later branch may prove it non-null on one path. A scalar may be a safe packet offset only after a bounds check narrows its range.',
+        'A local instruction scan cannot see those facts. Exploring every branch with full precision can also explode verification work. The verifier needs enough precision to prove safety and enough pruning to finish.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        "The register-state view shows the verifier as a fact table. The important lesson is that a register is not just a number. It has a kind, a provenance, a range, a nullability state, and permissions that decide what later instructions may do. When the highlighted cells move from a nullable pointer or wide scalar toward a non-null pointer or bounded offset, the verifier is gaining proof power.",
-        "The pruning view shows why verification is also a search problem. Two paths can arrive at the same instruction with different old facts. Some differences matter for future safety, and some are dead because a later instruction overwrites the register. A good verifier cache notices when a new state is already covered by an explored state, then avoids repeating work without weakening the proof.",
+        'Represent each program point with an abstract state. For each register, the verifier tracks kind, provenance, nullability, bounds, and sometimes bit-level knowledge. For the stack, it tracks initialization and stored value kinds.',
+        'These facts form a lattice, which means states can become more precise or more general. A nullable map-value pointer becomes more precise after a null check. An unknown scalar becomes more precise after a range check. Unsafe arithmetic can make pointer facts too broad to trust.',
       ],
     },
     {
-      heading: 'Worked Example: Map Lookup and Bounds',
+      heading: 'How it works',
       paragraphs: [
-        "Suppose a program calls a map lookup helper. The helper result lands in r0, and the verifier records the type as map-value pointer or null. If the next instruction dereferences r0 immediately, the verifier rejects it. A null pointer is still possible. The program must branch first, usually by checking whether r0 is zero.",
-        "On the non-null path, the verifier refines r0 from nullable map-value pointer to map-value pointer. Now a load through r0 can be legal, but only within the value size of the map and only with an offset the verifier can bound. If the program computes `r3 = user_index * 4`, the verifier needs a range for r3. A check like `if r3 >= 64 goto out` lets the safe path carry r3 in the range 0 through 63, so `*(u32 *)(r0 + r3)` can be accepted for a 64-byte value.",
-        "The rejected version is almost identical at the source-code level: skip the null check, use an index whose maximum is unknown, or add arithmetic that erases pointer provenance. That is the point of the verifier. It is not judging style. It is checking whether the safety facts needed at the load site are present on every reaching path.",
+        'Each bytecode instruction has a transfer rule. A move copies facts, arithmetic updates scalar ranges, a helper call checks argument registers and writes a documented result into r0, and a load checks pointer type, offset, object size, and stack initialization.',
+        'Branches fork abstract states. On the true branch of r2 != 0, a nullable pointer can become non-null. At a join point, the verifier compares states with cached states and prunes exploration only when the old state safely covers the new one.',
       ],
     },
     {
-      heading: 'Why the Proof Is Sound',
+      heading: 'Why it works',
       paragraphs: [
-        "The soundness argument is conservative over-approximation. At each instruction, the abstract state must include every concrete runtime state that could reach that point. If the verifier says r3 is in 0 through 63, then every concrete r3 on that path must be inside that range. If the verifier cannot prove such a bound, it must keep a wider range or reject the access.",
-        "This is why rejection is not a runtime failure. It is a proof failure. The program may be safe for reasons the verifier cannot express, but the kernel cannot rely on invisible facts. Unknown pointer provenance, maybe-null values, uninitialized stack bytes, invalid helper arguments, and too-wide offsets all fall to the same rule: no proof, no load.",
-        "State pruning is sound under a related rule. A cached state may cover a new state only if exploring from the cached state is at least as general for all future instructions. A dead register difference can be ignored when the next instruction overwrites it. A missing stack initialization bit, different pointer type, or wider unsafe scalar range cannot be ignored because a later instruction may depend on it.",
+        'Correctness comes from conservative abstraction. The abstract state must include every concrete runtime state that could reach the instruction. If an unsafe concrete state is possible, the verifier must keep it in the abstraction or reject the program.',
+        'Pruning is sound only when future safety checks cannot distinguish the pruned state from an already explored broader state. Ignoring a dead register is safe when it is overwritten before use. Ignoring a missing stack-initialization fact is not safe because a later load may depend on it.',
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Verifier cost is roughly proportional to the number of instructions times the number of abstract states that survive pruning. Straight-line code is cheap. Branches, loops, helper effects, reference lifetimes, and scalar range splits increase the number of states. The verifier has limits because it runs while loading a program into the kernel; it cannot become an unbounded theorem prover.",
-        "Precision costs memory and implementation complexity. Every live register and relevant stack slot carries metadata. More precise range analysis and pointer tracking can accept more useful programs and prune more safely, but the verifier itself becomes harder to audit. A verifier bug is serious because the verifier is part of the kernel security boundary.",
-        "The user-facing tradeoff is false rejection versus safety. A conservative verifier rejects some programs that would not actually misbehave. That is frustrating for eBPF developers, but it is the expected bias. A false acceptance can become a kernel vulnerability.",
+        'Verifier cost follows instructions multiplied by surviving abstract states. A 200-instruction straight-line program can be cheap, while a 200-instruction program with many branches and loops can produce far more states. Kernel limits exist because verification cannot become an unbounded theorem prover.',
+        'Precision has its own cost. More metadata can accept more useful programs and prune more safely, but the verifier becomes harder to implement and audit. A false rejection annoys developers; a false acceptance can become a kernel vulnerability.',
       ],
     },
     {
-      heading: 'Where This Design Wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        "The design fits eBPF because eBPF programs are constrained, loaded ahead of execution, and often run in hot paths. Packet filters, Cilium-style datapaths, tracing probes, observability agents, and security monitors need controlled access to kernel context, maps, packet buffers, and helper APIs. The verifier lets those programs run close to the kernel without giving them the full authority of kernel modules.",
-        "It also works well when the allowed API surface is explicit. Helpers have known signatures. Maps have known value sizes. Packet pointers have known bounds. Stack rules are local. The verifier can build a useful proof because the execution model is deliberately narrower than a general-purpose language with arbitrary heap mutation and recursion.",
+        'This design fits packet filters, Cilium-style datapaths, tracing probes, security monitors, and observability agents. These programs need controlled access to packet buffers, kernel context, maps, and helper APIs without becoming full kernel modules.',
+        'It also fits the eBPF programming model because the language surface is intentionally constrained. Helpers have signatures, maps have value sizes, stack access is bounded, loops are restricted, and pointer types are known. The verifier can prove useful properties because the world is smaller than general C.',
       ],
     },
     {
-      heading: 'Where It Fails or Frustrates',
+      heading: 'Where it fails',
       paragraphs: [
-        "The verifier is intentionally conservative. It can reject a program that is actually safe but too hard to prove within current rules. Developers often experience this as a strange compiler error: add a bounds check in the wrong shape, keep a value in the wrong register, or use pointer arithmetic that is obvious to a human but opaque to the verifier, and the program fails to load.",
-        "It is also kernel-version sensitive. Helper contracts, supported pointer types, loop support, instruction limits, reference tracking, and pruning precision have changed over time. Portable eBPF code must target the verifier behavior on the kernels where it will actually run, not just the newest documentation.",
-        "This is the wrong design for large general programs with rich heap structures, arbitrary recursion, or safety arguments that require deep semantic reasoning. eBPF gets its safety and performance by keeping the program model small enough for a load-time analyzer.",
+        'It fails from the developer view when a safe program is too hard to prove. A bounds check written in an opaque shape, a value kept in the wrong register, or pointer arithmetic that hides provenance can cause rejection. The program may be logically safe, but the kernel cannot rely on invisible reasoning.',
+        'It also varies by kernel version. Helper contracts, loop support, instruction limits, reference tracking, and pruning behavior have changed over time. Portable eBPF code must target the verifier behavior on deployed kernels.',
       ],
     },
     {
-      heading: 'Common Misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        "First, the verifier is not just a type checker. It tracks types, but it also tracks ranges, pointer offsets, stack initialization, branch refinements, helper effects, and state equivalence. Calling it a type checker hides the data-flow part of the problem.",
-        "Second, accepted eBPF is not automatically correct. The verifier proves a kernel-safety property, not business logic. A packet program can be safe and still route packets incorrectly. A tracing program can be safe and still report the wrong metric. Safety is necessary, not sufficient.",
-        "Third, verifier rejection does not mean the kernel found a concrete exploit. It means the abstract proof was insufficient. The right fix is usually to write code in a shape that exposes the needed facts: explicit null checks, simple bounds checks, bounded loops, initialized stack slots, and helper calls with the expected register setup.",
+        'A program calls bpf_map_lookup_elem, and the helper result lands in r0 as map-value pointer or null. If the next instruction reads *(u32 *)(r0 + 0), the verifier rejects it because r0 might be null. After if r0 == 0 goto out, the fallthrough path refines r0 to non-null.',
+        'Assume the map value is 64 bytes and r3 is an index multiplied by 4. Without a check, r3 may be 0 through 4,294,967,295, so r0 + r3 is unsafe. A branch that proves r3 < 64 lets the safe path load a u32 inside bytes 0 through 63.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Primary sources: Linux kernel eBPF verifier documentation at https://docs.kernel.org/bpf/verifier.html, eBPF verifier concept guide at https://docs.ebpf.io/linux/concepts/verifier/, Linux Foundation verifier security audit at https://www.linuxfoundation.org/hubfs/eBPF/eBPF%20Verifier%20Security%20Audit.pdf, and Agni eBPF range-analysis paper at https://people.cs.rutgers.edu/~sn349/papers/agni-cav2023.pdf.",
-        "Study Abstract Interpretation and Interval Domains for the proof model, Data-Flow Worklist Analysis for state propagation, Symbolic Execution Path Constraints for branch splitting, Capability Security for controlled authority, and the Cilium eBPF Datapath Case Study for a production system that depends on these verifier guarantees.",
+        'Primary sources: Linux kernel eBPF verifier documentation at https://docs.kernel.org/bpf/verifier.html, verifier concept guide at https://docs.ebpf.io/linux/concepts/verifier/, Linux Foundation verifier security audit at https://www.linuxfoundation.org/hubfs/eBPF/eBPF%20Verifier%20Security%20Audit.pdf, and Agni range-analysis paper at https://people.cs.rutgers.edu/~sn349/papers/agni-cav2023.pdf. Use the kernel docs for current rules and the paper for range-analysis framing.',
+        'Study Abstract Interpretation, Interval Domains, Data-Flow Worklist Analysis, Symbolic Execution Path Constraints, Capability Security, eBPF Ring Buffer Telemetry, and Cilium eBPF Datapath to connect verifier facts to production programs. The theory topics explain the proof shape; the eBPF topics show why the proof matters.',
       ],
     },
   ],

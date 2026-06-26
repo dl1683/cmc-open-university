@@ -290,75 +290,54 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why it exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Hybrid attention state budgets exist because exact attention is powerful and expensive in a very specific way. During decoding, every active request keeps keys and values for old tokens. Those tensors live in high-bandwidth GPU memory, and they grow with context length, user count, attention layers, KV heads, head dimension, and precision. A model can have enough arithmetic capacity to generate tokens and still run out of memory because the KV cache is too large.',
-        'Long-context products make the pressure obvious. A coding agent, legal assistant, research workspace, or support-ticket summarizer may carry tens or hundreds of thousands of tokens. If every layer stores exact token memory, the serving system pays that cache tax for every user. A hybrid model asks which layers truly need exact global recall and which layers can use cheaper state, such as latent KV, grouped KV, linear attention, recurrent state, state-space models, or local convolution.',
+        'Read the animation as a memory ledger for a long-context model. Active layers are the ones currently spending state, visited layers have already chosen a memory representation, and found layers are the parts of the stack that keep exact token recall. A safe inference is that replacing exact attention in one layer reduces KV cache only for that layer, not for the whole model.',
         {type:'callout', text:'Hybrid attention makes memory a layer-level budget, spending exact KV cache only where global token recall is worth the bytes.'},
       ],
     },
-    {
-      heading: 'The naive baseline',
-      paragraphs: [
-        'The naive architecture is a dense Transformer where every layer has full attention and every token can attend to every previous token. That baseline is simple and strong. It is also blunt. If a stack has thirty-two attention layers, each token stores KV state for all thirty-two layers. Doubling context length doubles cache. Doubling concurrent sessions doubles cache. The design spends exact memory everywhere, even if some layers mostly need local mixing or streaming state.',
-        'The opposite naive answer is to remove attention and rely on one cheap recurrent or linear mechanism. That can make memory predictable, but it risks losing exact recall. Many workloads need the model to retrieve a precise earlier clause, variable name, citation, instruction, or table value. Pure compressed state can blur those details. Hybrid design starts from the failure of both extremes: full attention pays too much, and all-compressed state can forget too much.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is to treat layer type as a memory budget. Full attention is not a moral requirement. It is one representation of history: exact token-level keys and values. Latent attention compresses that memory. Grouped-query attention reduces the number of KV heads. State-space and recurrent layers carry a fixed or slowly growing state. Convolutions keep a local window. Each representation buys a different point on the price and recall curve.',
-        'The useful design target is the knee of the frontier. Spend exact attention where global lookup, instruction binding, and long-range disambiguation matter. Use cheaper state where the model mostly needs local flow, streaming features, or compressed summaries. The architecture is a policy over memory representations. The serving system then inherits that policy as lower cache bytes per token, different kernel requirements, and different failure modes.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The state-budget visual is a ledger. Tokens can flow into full attention, latent KV, recurrent state, linear state, or local windows, but all paths eventually hit the same serving gate: memory budget, decode latency, and quality. The first plot proves the simple math. KV bytes per token scale linearly with the number of attention layers. Replacing ten exact-attention layers does not merely make a diagram cleaner; it reduces the cache term by that fraction.',
-        'The layer-mix view proves that architecture is not enough by itself. A hybrid stack must clear the cache path and the kernel path. A recurrent layer that lacks an optimized kernel can lose the serving benefit. A compressed state that passes aggregate benchmarks can still fail exact long-context recall. The final visual route goes through evaluation before shipping because the right state budget is workload-specific, not a slogan about attention being old or state being new.',
-      ],
-    },
-    {
-      heading: 'How the system works',
-      paragraphs: [
-        'A practical budget starts with the KV formula: KV bytes per live token equals 2 times attention layers times KV heads times head dimension times bytes per element. The 2 is key and value. Hybrid architecture changes the attention-layer term. Grouped-query attention changes the KV-head term. Multi-head latent attention changes the stored representation. Quantization changes bytes per element. Context routing changes live tokens. A production ledger should name which term changed, because each term has different quality and systems consequences.',
-        'Model designers then choose a layer rhythm. A stack might alternate exact attention with Mamba-like state-space layers, use mostly linear or recurrent layers with periodic full attention, or combine latent attention with cheaper local operators. Jamba, Mamba, RetNet, RWKV, DeepSeek MLA-style designs, and Kimi Linear-style hybrids all attack the same pressure from different directions: exact token memory is valuable, but not every layer needs to store it in the most expensive form.',
-        'Serving turns the layer mix into an admission policy. The scheduler estimates cache bytes per request, reserved output growth, context cap, and concurrent sessions. It also tracks whether the hybrid operators have fast kernels on the target hardware. Evaluation must separate normal short tasks, long-context retrieval, exact-copy recall, reasoning over late evidence, p95 latency, HBM footprint, and quantized behavior. A single average benchmark score cannot tell whether the state budget is safe.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Hybrid state works when sequence processing has mixed memory needs. Many tokens mostly need local syntax, nearby facts, or streaming accumulation. Some positions require exact global lookup. By giving every layer the same expensive memory, a dense Transformer overpays for the local parts. By removing exact attention entirely, a recurrent model may underpay for rare but important lookup. A hybrid model splits the bill.',
-        'It also works economically. Lower cache bytes per token can mean more concurrent sessions, longer output budgets, lower eviction pressure, or smaller hardware for the same product promise. Those gains matter most during decoding, where memory bandwidth and resident state often dominate. The architecture win is real only when it survives the hardware path: fused kernels, batching, quantization, cache layout, and scheduler policy.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The first tradeoff is recall. Exact attention stores token-level history. Compressed state summarizes. Summaries can lose position, rare names, numbers, code identifiers, citations, or contradictions. The second tradeoff is implementation complexity. A clean formula in a paper can become a slow kernel, awkward cache format, poor batching behavior, or quantization problem in a serving stack.',
-        'The third tradeoff is training and evaluation cost. Hybrid models often need careful recipes so the different layer types cooperate. They also need targeted evaluations, not just broad language-model scores. The team should measure cache bytes, TTFT, decode throughput, p95 and p99 latency, quality by context length, exact recall, instruction retention, and behavior under reduced precision. Saving memory is not a win if the product loses the facts users came for.',
-      ],
-    },
-    {
-      heading: 'Real uses',
-      paragraphs: [
-        'Hybrid budgets are useful in long-context assistants, coding agents, legal review, customer-support summarization, document QA, and retrieval-heavy research products. These workloads carry large prompts and long traces, so reducing cache per token can increase concurrency or keep sessions alive longer. A model that spends exact attention only where needed may offer a better cost envelope than a dense full-attention stack.',
-        'They are also useful on constrained devices and always-on systems. A mobile assistant, local note summarizer, or edge log analyzer may prefer compact recurrent or state-space layers because resident memory is limited. A cloud service with mixed workloads can route high-stakes exact-recall tasks to a denser model and routine streaming tasks to a cheaper hybrid. The state budget becomes part of product routing.',
-      ],
-    },
-    {
-      heading: 'Failure modes and limits',
-      paragraphs: [
-        'The obvious failure is state blur: the model remembers the gist but not the exact token. That is unacceptable when the answer depends on a legal clause, a function name, a medication dose, a number in a table, or a security instruction. Another failure is benchmark masking. A hybrid model can look strong on aggregate short tasks and fail on long-context probes. It can also look good at one context length and degrade at longer rollouts.',
-        'A second limit is comparability. Claims about hybrid savings are hard to interpret unless parameter count, active parameters, training data, context length, precision, hardware, kernel maturity, and evaluation are clear. A third limit is universality. There may be no single best ratio of attention to state. Legal review may spend more exact attention. Streaming summarization may spend less. Agentic workflows may need both exact file recall and cheap tool-trace memory.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study KV Cache Concurrency Capacity Model, KV Cache Quantization & Compression, Transformer Inference Roofline, LLM Serving: PagedAttention, Grouped-Query Attention, DeepSeek Multi-Head Latent Attention, Selective State Space Models: Mamba, Mamba-2 Structured State Space Duality, RWKV Recurrent Transformer, RetNet Retention State Case Study, FNet Fourier Token Mixing Case Study, Titans Test-Time Neural Memory Case Study, Prefill/Decode Disaggregation, Early-Exit Transformer Layer Skipping, On-Device LLM Inference Cost Crossover, and Benchmark Variance & Model Selection. The next skill is learning to read every architecture paper as both a quality claim and a memory-accounting claim.',
-      ],
-    },
+    { heading: 'Why this exists', paragraphs: [
+      'A Transformer decoder stores keys and values for previous tokens so each new token can attend to history. That stored state is the KV cache, and it lives in high-bandwidth GPU memory during serving. As context length and concurrent users grow, memory can become the limiting resource before arithmetic does.',
+      'Long-context products make the pressure visible. A coding agent or legal assistant may carry 128,000 tokens, and every active request keeps state across many layers. Hybrid attention exists because exact global memory is valuable but too expensive to spend in every layer without question.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious architecture is full attention in every layer. It is strong, simple, and gives each layer exact token-level access to the whole prefix. The cost is blunt: if the model has 32 attention layers, every live token stores KV state for all 32 layers.',
+      'The opposite obvious approach is to remove exact attention and use only recurrent, linear, or state-space memory. That makes memory more predictable and often smaller. It risks losing exact recall for names, numbers, code identifiers, citations, and late instructions.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is that serving cost and recall quality do not move together cleanly. Full attention pays too much for layers that mostly need local or streaming features. Fully compressed memory can pass broad benchmarks while failing a task that needs one exact earlier clause.',
+      'The wall also appears in hardware. A cheap layer on paper can be slow if it lacks fused kernels, batches poorly, or creates an awkward cache layout. Architecture only reduces serving cost when the runtime and hardware path can exploit the state budget.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'The core insight is to treat layer type as a budget decision. Exact attention stores token-level history, latent attention stores a compressed representation, grouped-query attention reduces KV heads, and recurrent or state-space layers carry compact state. Each choice buys a different point on the cost and recall curve.',
+      'The model should spend exact attention where global lookup, instruction binding, and long-range disambiguation matter most. It can spend cheaper state where the layer mostly needs local flow or accumulated features. The architecture becomes a policy over memory representations rather than a uniform stack.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'A practical budget starts from the KV formula: bytes per live token equals 2 times attention layers times KV heads times head dimension times bytes per element. The 2 is for keys and values. Hybrid attention changes the attention-layer term, grouped-query attention changes the KV-head term, and quantization changes bytes per element.',
+      'Designers choose a rhythm such as periodic exact attention, mostly latent attention with occasional global layers, or alternating attention and state-space layers. Serving then turns that rhythm into admission control: estimate cache bytes per request, reserve output growth, batch compatible operators, and measure whether long-context probes still pass. The same model can be cheap for summarization and unsafe for exact legal lookup.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is not that compressed state is always enough. It is that sequence processing has mixed memory needs, and the model can allocate exact memory to the layers that need it. If a later exact-attention layer can read the preserved token record, earlier layers do not all need to store the same expensive record.',
+      'The serving argument follows the formula. If a 32-layer model replaces 16 exact-attention layers with fixed-state layers, the exact KV term for those layers drops by half, assuming KV heads, head dimension, and precision stay constant. That can increase concurrent sessions, lengthen context, or lower hardware requirements.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'For a concrete model with 32 attention layers, 8 KV heads, head dimension 128, and 2 bytes per element, exact KV costs 2 * 32 * 8 * 128 * 2 = 131,072 bytes per token, or 128 KB per token. A 100,000-token context therefore needs about 12.8 GB of KV cache for one request before batching overhead. Replacing half the exact layers cuts that term to about 6.4 GB.',
+      'The cost moves into training recipes, kernels, evaluation, and failure analysis. The team must measure cache bytes, time to first token, decode throughput, p95 latency, exact recall by context length, and behavior under quantization. Saving memory is not a win if the product loses the exact facts users need.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Hybrid budgets fit long-context assistants, coding agents, legal review, research workspaces, document question answering, and customer-support summarization. These workloads carry large prompts and long traces, so cache bytes per token control concurrency. A cheaper state budget can keep more sessions live on the same GPUs.',
+      'They also fit constrained devices and routing systems. A local assistant may prefer compact recurrent state because memory is limited. A cloud product can route exact-recall tasks to denser models and routine streaming tasks to cheaper hybrids.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'The main failure is state blur. The model may remember the gist but lose the exact function name, account number, medication dose, citation, or policy exception. That is unacceptable when the answer depends on precise retrieval from the context.',
+      'It also fails when benchmarks hide the relevant weakness. A model can score well on average short tasks and degrade at 64,000 tokens. Claims about savings are hard to compare unless parameter count, context length, precision, hardware, kernel maturity, and evaluation tasks are stated.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Assume a serving cluster has 80 GB GPUs and reserves 20 GB for weights, runtime buffers, and fragmentation, leaving 60 GB for KV cache. A dense model that needs 128 KB per token can hold about 491,520 live cached tokens on one GPU. That could be four 100,000-token sessions with little room for output growth.',
+      'A hybrid model that reduces exact KV to 64 KB per token can hold about 983,040 live cached tokens under the same budget. The operator can serve nine 100,000-token sessions or keep four sessions with larger output reserves. The behavior changes because cache is the scarce resource, not because the arithmetic magically became free.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Study Transformer attention, KV cache capacity models, grouped-query attention, DeepSeek multi-head latent attention, Mamba and Mamba-2 state-space models, RetNet retention, RWKV recurrent transformers, and Kimi Linear-style hybrid work. Then study PagedAttention, transformer inference roofline, cache quantization, and benchmark variance. Read every architecture claim as both a quality claim and a resident-state accounting claim.',
+    ] },
   ],
 };

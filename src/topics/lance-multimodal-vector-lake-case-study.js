@@ -217,62 +217,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Lance is an open lakehouse format designed for AI and multimodal data. It is not just a vector database and not just a columnar file. The format stack covers data files, table manifests, index artifacts, and catalog coordination. A dataset can contain images, text, audio references, metadata, labels, embeddings, and derived features while still behaving like a versioned table on object storage.`,
-        `The problem Lance addresses is selective access. AI workloads often need both scans and random reads. Training may stream columns across many rows. Retrieval may filter by metadata, search an embedding index, fetch the original blobs or captions for a small candidate set, and rerank them. Traditional analytics formats are excellent at large scans, but multimodal retrieval and dataset iteration put pressure on random access, versioning, deletion handling, and index lifecycle.`,
-        {type: `callout`, text: `Lance coordinates table versions, fragments, deletion files, and vector indexes so retrieval and training pin the same multimodal snapshot.`},
+        'The fragment-manifest view shows a table version as a manifest pointing to fragments, data files, deletion files, and indexes. A manifest is metadata that tells a reader which physical artifacts belong to one logical table version. A fragment is a group of rows whose columns can be stored and read selectively.',
+        'The index-lifecycle view shows that indexes are versioned artifacts, not separate truth. The safe inference is that retrieval and training must pin the same table version; otherwise a vector result can refer to a row that the table version has deleted or changed.',
+        {type: 'callout', text: 'Lance coordinates table versions, fragments, deletion files, and vector indexes so retrieval and training pin the same multimodal snapshot.'},
       ],
     },
     {
-      heading: 'The obvious approach and wall',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to keep files in an object store, metadata in a warehouse table, and vectors in a separate ANN service. That can work for a prototype. The wall appears when those three systems drift. A row deleted from the metadata table may still be returned by the vector index. A new embedding column may not line up with the image version used to train it. A reranker may fetch stale payloads because the search result and blob table are not pinned to the same snapshot.`,
-        `Another obvious approach is to put everything in a conventional database. That simplifies consistency, but it can be expensive or awkward for large media, columnar training scans, object-store economics, and index rebuilds over billions of embeddings. AI data lakes need the cheap durability and portability of files, the version semantics of a table format, and the fast candidate generation of vector and scalar indexes. Lance tries to put those concerns in one coordinated layout.`,
+        'AI datasets are often multimodal, meaning they contain different data types such as images, text, audio references, metadata, labels, and embeddings. An embedding is a numeric vector used for similarity search. These workloads need both large scans for training and fast random reads for retrieval.',
+        'Traditional analytics files are strong at column scans, while vector databases are strong at candidate search. A multimodal lake needs both behaviors while keeping table versions reproducible. Lance exists to coordinate data files, manifests, deletion files, and indexes in one versioned layout.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to put images in object storage, metadata in a warehouse table, and vectors in a separate ANN service. ANN means approximate nearest neighbor search, where the system trades exactness for speed. This can work for a prototype.',
+        'The problem is drift. A row deleted from the table may still appear in the vector index. A new embedding column may not match the image version used to train it. A reranker can fetch stale payloads because search and storage are not pinned to one snapshot.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is consistency across data, deletes, and indexes. Retrieval is not just nearest-vector search; it is filter, search, fetch, and rerank against one table state. If those artifacts use different versions, the answer can be fast and wrong.',
+        'The second wall is access pattern conflict. Training wants columnar streaming across many rows. Interactive search wants a small candidate set plus random access to thumbnails, captions, labels, or blob references. One layout must support both without rewriting the whole dataset for every model update.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is that a multimodal vector lake needs versioned data and versioned indexes to move together. A table version is described by a manifest. The manifest references fragments, data files, deletion files, schema, and index metadata. Readers pin a version, then interpret all of those artifacts together. That gives retrieval and training a common snapshot instead of a loose collection of sidecars.`,
-        `Fragments are the unit that makes the layout workable. A fragment represents a group of rows, and its files can hold columns separately. That two-dimensional shape matters. Rows give identity and versioning. Columns give selective access. If a team backfills a new image embedding column, it should not have to rewrite every old text column or metadata column. If a query needs only ids, prices, and vectors, it should not scan full captions and blob references first.`,
+        'A multimodal vector lake needs versioned indexes and versioned data to move together. A Lance manifest records which fragments, deletion files, schema, and index artifacts belong to a table version. Readers pin a version and interpret those artifacts as one snapshot.',
+        'Fragments make the layout workable. Rows preserve identity and versioning, while columns provide selective access. Adding a new embedding column should not require rewriting old caption columns, and filtering by metadata should not require reading full image payloads.',
       ],
     },
     {
-      heading: 'Mechanism and layout',
+      heading: 'How it works',
       paragraphs: [
-        `A Lance dataset has a root with version metadata, data files, deletion files, transaction information, and index artifacts. A manifest is an immutable description of one table version. It tells the reader which fragments exist, what schema applies, which deletion files mask rows, and which indexes are visible. Appends create new fragments. Deletes can be represented by deletion vectors rather than immediately rewriting every affected data file. Optimize jobs can later rewrite and compact fragments into a cleaner layout.`,
-        `Indexes are first-class artifacts rather than unrelated services. A vector index may use an IVF, HNSW, PQ, or related structure depending on configuration and implementation. Scalar and full-text indexes can support metadata filters and text predicates. A hybrid query often filters by metadata, probes an approximate nearest-neighbor index, refines candidates, and then fetches selected columns or blob references. The important point is not one index algorithm; it is that index visibility is tied to the table version.`,
-        `Schema evolution is part of the same mechanism. AI datasets change as teams add labels, normalized fields, safety annotations, embedding columns, and model-derived scores. A useful table format has to let new columns appear without making older readers meaningless. It also has to let jobs choose only the columns they need. A training job may read image embeddings and labels; a moderation audit may read captions, policy tags, and source ids; an online retrieval path may read only row ids until reranking needs payloads.`,
+        'Appends create new fragments, deletes can create deletion files, and optimize jobs later compact physical layout. A manifest is immutable for one version, so older readers can continue to see the old artifact set while new writes create a later version. Index metadata is attached to the version where it is valid.',
+        'A query may filter metadata, probe a vector index such as IVF or HNSW, refine candidates, and fetch selected columns. IVF partitions vectors into coarse clusters; HNSW builds a navigable graph of nearby vectors. The exact index is less important than the rule that its visibility matches the table version.',
+      ],
+    },    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Correctness is snapshot consistency. If a reader opens version 12, it follows the version 12 manifest and applies the deletion files and index references recorded there. Version 13 can be created without changing what version 12 meant.',
+        'The candidate ids remain meaningful because they are interpreted against the same manifest. A vector search result names row ids or positions that still have to survive deletion masks and metadata filters for that version. Approximate search may trade recall for speed, but it should not cross version boundaries.',
       ],
     },
     {
-      heading: 'Why it works and what it costs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The consistency argument is snapshot based. If a reader opens version 12, it follows the manifest for version 12 and sees the data files, deletion vectors, and index references that belong to that version. New writes can create version 13 without mutating the meaning of version 12. That is the table-format idea familiar from lakehouse systems, applied to workloads where indexes and random row fetch are central rather than optional add-ons.`,
-        `The cost is lifecycle management. Small fragments increase metadata overhead and can scatter reads. Too many deletion vectors make queries pay tombstone checks until compaction cleans them up. Stale indexes can miss fresh data or return deleted rows unless visibility rules are strict. Approximate vector search trades recall for speed, so the system has to measure recall, latency, and reranking quality. Object storage is durable and cheap, but random access still needs caching, batching, and careful layout.`,
+        'Cost grows with fragments, deletion density, index size, and object-store requests. If a dataset has 1 billion rows in 10,000 tiny fragments, metadata and small reads can dominate. If 20 percent of rows are masked by deletion files, queries pay tombstone checks until compaction rewrites cleaner fragments.',
+        'Index lifecycle is another cost. Building an ANN index over 100 million embeddings may take hours and produce large artifacts. Cost as behavior means fresh data may be searchable by scan or small delta index before a full optimized index exists.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Consider a product-search team that stores product photos, descriptions, category metadata, price, seller data, CLIP image embeddings, text embeddings, and moderation labels. The first version of the dataset has fragments containing the original product rows and metadata. A later model backfills better image embeddings as new column data attached to existing row groups. The manifest for the new version makes those columns visible without pretending the old model never existed.`,
-        `At query time, a user uploads a photo of a chair. The system filters to active products in the right region and price range, searches image embeddings for visual similarity, fetches descriptions and thumbnails for the candidates, and reranks with a cross-modal model. If a product is removed for policy reasons, a deletion file can mask it quickly. A later optimize job rewrites fragments and rebuilds indexes so the physical layout catches up with the logical table state.`,
+        'Lance fits product search, visual search, robotics logs, autonomous-driving datasets, RAG corpora, moderation review, and model training sets where media, metadata, labels, and embeddings must stay aligned. A query can filter by category and region, search image vectors, then fetch only thumbnails and descriptions for candidates.',
+        'It also fits iterative ML data work. A team can backfill a new embedding column, build a new index, and compare retrieval quality against the older version. Training and evaluation can record the exact dataset version and embedding column that produced a model.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Where it fails',
       paragraphs: [
-        `A production vector lake should be evaluated through both storage and retrieval signals. Storage signals include fragment count, average fragment size, manifest size, deletion-vector density, compaction backlog, index build time, cache hit rate, bytes read per query, and object-store request count. Retrieval signals include ANN recall against an exact baseline, p50 and p95 latency, filtered-query selectivity, reranker hit rate, stale-result rate, and how often queries fall back to scanning because an index is missing or not useful.`,
-        `The hardest failures are consistency failures. Search results should name the table version, index version, filter predicates, candidate count, and row ids used for follow-up fetches. Training jobs should record the dataset version and embedding column version that produced a model. Backfills should be auditable: which rows got new embeddings, which model produced them, when the index was rebuilt, and which readers can see it. Without those signals, a vector lake becomes a pile of plausible but irreproducible results.`,
-        `Query planning deserves the same scrutiny. A metadata filter that selects 0.1 percent of rows should probably run before vector search if the index supports that path. A broad filter may be cheaper after ANN candidate generation. Fetching full image blobs during the first search phase is usually wasteful, while fetching too little can starve a reranker. The lake is performing well only when the plan, the bytes read, and the quality metrics agree with the workload.`,
+        'It is overkill for a tiny in-memory vector set or a simple analytics table that never needs random multimodal fetches. A conventional vector database or Parquet table may be simpler. Lance coordinates artifacts; it does not make a bad embedding model good.',
+        'It also fails without version-aware query plumbing. If the reranker fetches blobs from raw paths outside the pinned version, the snapshot guarantee is lost. If ANN parameters are weak, the system can be reproducible and still have poor recall.',
       ],
     },
     {
-      heading: 'Where it fails and what to study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Lance is the wrong abstraction when the workload is a tiny in-memory vector set, a purely transactional application, or a simple batch analytics table that never needs random multimodal fetches. It also does not remove the need for good data modeling. Bad row identity, inconsistent embedding generation, weak metadata filters, and poorly chosen ANN parameters will still produce bad retrieval. The table format coordinates artifacts; it does not guarantee that the embedding model or ranking policy is good.`,
-        `Study Apache Arrow columnar memory, Parquet, Apache Iceberg or Delta-style table formats, HNSW, IVF, product quantization, filtered vector search, deletion vectors, compaction, and RAG evaluation. Primary documentation to read next includes the Lance overview, Lance table format, Lance storage layout, and LanceDB indexing docs. The deeper lesson is that AI storage has two jobs at once: keep data reproducible as a table and make high-selectivity retrieval fast enough for interactive systems.`,
+        'A product catalog has 10 million rows. Each row has a 768-dimensional FP16 image embedding, so one embedding is 768 times 2 bytes, or 1,536 bytes. The raw embedding column is about 15.36 GB before compression, metadata, and index overhead.',
+        'A user searches for a chair under 200 dollars in region us-east. Metadata filters reduce 10 million rows to 400,000 active candidates. The vector index returns 1,000 approximate neighbors, deletion files remove 20 discontinued products, and the system fetches only id, thumbnail, price, and caption for reranking.',
+        'A new image model later creates embedding_v2. Version 17 points to the old embedding and index; version 18 points to the new column and index. A training run pinned to version 17 remains reproducible while online search can migrate to version 18 after quality checks.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Lance format overview at https://lance.org/format/, Lance documentation at https://lancedb.github.io/lance/, and LanceDB indexing documentation at https://lancedb.github.io/lancedb/concepts/indexing/. Verify index capabilities against the version deployed.',
+        'Study Apache Arrow, Parquet, Apache Iceberg, Delta Lake, HNSW, IVF, product quantization, filtered vector search, deletion vectors, compaction, and RAG evaluation next.',
       ],
     },
   ],

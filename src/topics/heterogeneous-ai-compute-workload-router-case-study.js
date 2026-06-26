@@ -295,10 +295,17 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read each workload box as a phase, not as a whole product. Embedding, retrieval, filtering, prefill, decode, rerank, tool execution, and policy checks can have different shapes even when they belong to one user request.',
+        'Active routes are placements being tried or used. A safe inference is that a device is a good placement only after copy cost, queue delay, software maturity, failure rate, and tail latency are counted with raw throughput.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'AI infrastructure is no longer one workload. A single product may contain dense transformer matmuls, memory-bound decode, vector search, sparse filters, graph expansion, agent tool calls, policy checks, and branch-heavy verification.',
-        'A heterogeneous compute router exists because those phases do not want the same hardware. The goal is not to say "GPU good" or "ASIC good." The goal is to route work from measured shape to a device, with fallback rules and evidence.',
+        'AI infrastructure is no longer one workload. A product can contain dense matrix multiplication, memory-bound decode, vector search, sparse filters, graph expansion, branch-heavy agent control flow, and IO-bound tool calls.',
+        'A heterogeneous compute router exists because those phases do not want the same hardware. The router maps measured workload shape to CPU, GPU, TPU, sparse accelerator, or fallback path, then records whether the placement actually worked.',
         {type:'callout', text:'Heterogeneous routing works only when placement follows measured workload shape: dense math, sparse access, branching, memory movement, and tail latency need different devices.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/99/TPU_v4.png', alt:'TPU v4 board with liquid-cooled packages and interconnect connectors.', caption:'TPU v4 package and board. Norman P. Jouppi et al., Wikimedia Commons, CC BY 4.0.'},
       ],
@@ -306,85 +313,76 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The naive approach is to buy the fastest accelerator for the benchmark everyone knows. If the dense model benchmark improves, the platform assumes the whole product improved.',
-        'That works only while the benchmark has the same shape as production. Peak FLOPs do not answer whether the workload is branchy, sparse, memory-bound, shape-unstable, IO-bound, or dominated by data movement.',
+        'The obvious approach is to buy the accelerator that wins the famous benchmark and route everything there. That is reasonable when the product is mostly one dense model with stable shapes and high batch sizes.',
+        'Another first attempt is a static rule table. Prefill goes to GPU, tools stay on CPU, and retrieval goes to the existing vector database because those rules are easy to explain and deploy.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Dense accelerators are excellent when many lanes do the same math over dense data. They are less comfortable when paths diverge, shapes churn, sparse data wastes lanes, or bytes move across PCIe and network boundaries more than useful work runs.',
-        'The second wall is ecosystem maturity. A technically promising device can lose because kernels, debuggers, framework support, observability, fallbacks, engineers, and cloud capacity are not ready.',
+        'The wall is that peak FLOPs do not describe production shape. Branching, sparsity, memory movement, batch instability, host-device synchronization, cold compilation, and queue delay can dominate useful work.',
+        'The second wall is ecosystem maturity. A device can look excellent in a kernel benchmark and still lose production traffic because kernels, debuggers, observability, autoscaling, fallback paths, cloud capacity, or engineers are missing.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Treat placement as a data-structure problem. Each job or phase gets a feature vector: arithmetic intensity, branching, sparsity, batch stability, data movement, latency target, kernel maturity, porting tax, and fallback options.',
-        'The router maps that vector to candidate placements, runs the workload, records the outcome, and updates the route table. Hardware choice becomes an observable control loop instead of a slogan.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The workload-quadrant view shows that hardware choice starts with shape. Dense batched math, sparse filtering, branch-heavy control flow, and memory-bound decode place different pressure on the system.',
-        'The placement-router view shows the operating loop: profile, choose a candidate device, include copy and porting costs, run the workload, measure the result, and update the route table. A route that is not measured will rot.',
+        'The core insight is to make placement a measured data-structure problem. Each phase gets a feature vector: arithmetic intensity, branching, sparsity, shape stability, bytes copied, latency target, kernel maturity, cost, and fallback quality.',
+        'The route table maps that vector to candidate devices and stores outcomes. Hardware choice becomes a control loop that can be replayed, audited, and changed when the workload or fleet changes.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Roofline thinking starts with arithmetic intensity: operations per byte moved. That tells you whether a kernel is likely compute-bound or memory-bound. The router then adds branching, sparsity, shape stability, copy cost, queue time, p99 target, and software maturity.',
-        'A placement policy scores candidates. GPUs get credit for mature kernels, SIMT throughput, HBM bandwidth, and ecosystem depth. TPUs get credit for matrix-heavy workloads and large-scale ML framework integration. CPUs get credit for control flow, small batches, and operational simplicity. Dataflow-style accelerators may get credit for sparse or event-like workloads, but only if the software stack can carry production traffic.',
-        'The route table should store decisions at the phase level, not only the service level. One request may contain embedding, retrieval, filtering, prefill, decode, rerank, tool execution, and post-processing. Those phases have different shapes. Routing the whole request to one accelerator because one phase is dense wastes the value of heterogeneous compute.',
-        'A practical router also needs replay. Production traces are sampled, scrubbed, and replayed against candidate devices so the team can compare net latency, failure modes, copy cost, and utilization on the same workload. Without replay, teams end up comparing marketing benchmarks against live incidents, which teaches almost nothing.',
+        'Profiling starts with arithmetic intensity, which means operations per byte moved. High intensity tends to fit dense accelerators, while low intensity often waits on memory bandwidth or data movement.',
+        'The router then adds features that peak math ignores: branch divergence, sparse access, batch size, shape churn, copy cost, p95 and p99 target, compilation time, failure rate, and software support.',
+        'A production policy should route phases, not whole requests. One request may send embedding and prefill to an accelerator, keep the agent control loop on CPU, run sparse filtering in a specialized path, and return to GPU for batched reranking.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The router works when workload shape is more stable than individual requests. Dense prefill, memory-bound decode, sparse retrieval, and branch-heavy tool orchestration are repeatable enough to learn separate policies.',
-        'It also works because it makes hidden costs visible. Copy bytes, kernel availability, shape-cache misses, queue time, p99, failure rate, and engineering ownership are recorded next to throughput and cost.',
+        'It works when workload shape is more stable than individual requests. Dense prefill, memory-bound decode, sparse retrieval, and branch-heavy tool orchestration repeat often enough to learn separate placement policies.',
+        'It is correct only relative to measured objectives. If the objective is interactive p99 latency, then a placement that improves average throughput but worsens p99 is not a win for that phase.',
+        'The invariant is that every promoted route has evidence from the same workload slice it will serve. Replay traces, canary traffic, and fallback records keep the route table tied to production behavior instead of benchmark folklore.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is complexity. Hybrid routes can lose to copy overhead. Specialized devices can create support burdens. Fallback paths can rot. A route table can become stale if the model, traffic mix, kernel library, or hardware fleet changes.',
-        'The policy should include porting tax as a first-class field. Kernel rewrites, runtime integration, debugging tools, engineer training, observability, supply availability, compatibility matrices, and rollback paths decide whether a benchmark result survives production.',
-        'Tail latency deserves special treatment. A device can improve average throughput while making interactive p99 worse through queueing, cold compilation, shape-cache misses, host-device synchronization, or fallback retries. The router should record distributional behavior, not just a single throughput number.',
-        'The operating behavior is also nonstationary. Model versions change tensor shapes. Quantization changes memory pressure. A new batching policy can turn a CPU-friendly phase into a GPU-friendly phase. A driver update can reverse a previous result. The router must treat placement as a living control loop, not a one-time architecture decision.',
+        'The cost is orchestration complexity. Hybrid routes can lose to copy overhead, specialized devices can create support burden, fallback paths can rot, and a stale route table can keep sending traffic to the wrong device.',
+        'Concrete behavior matters. If GPU prefill takes 40 ms, CPU filtering takes 8 ms, device copy takes 12 ms each way, and rerank takes 15 ms, then a split route costs 87 ms before queueing; a 70 ms single-device path may be better despite lower kernel efficiency.',
+        'The dominant cost can move over time. A new model version can change tensor shapes, quantization can shift memory pressure, batching can change queue delay, and a driver update can reverse a previous placement result.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'This approach wins in mixed AI products: RAG systems, agent platforms, multimodal pipelines, batched inference services, recommender systems, simulation pipelines, and research platforms that replay workload slices across hardware candidates.',
-        'It is especially valuable when a new accelerator claims superiority. The router can trial narrow workload slices, compare net value, and promote only where measured value beats the incumbent stack.',
-        'It also wins when the product has multiple service levels. Offline embedding rebuilds can chase throughput. Interactive chat needs p95 and p99 discipline. Fraud review may care more about deterministic fallback than raw speed. A single fleet can serve all of those only if the router understands the SLO attached to each phase.',
+        'This router fits RAG systems, agent platforms, multimodal pipelines, recommender systems, batched inference services, simulation platforms, and research clusters that compare devices on replayable traces.',
+        'It is especially useful when adopting a new accelerator. The platform can test narrow phases first, promote only where net latency or cost improves, and keep the incumbent path for phases where the new device loses.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when the feature vector is fake, too coarse, or not tied to measured outcomes. It also fails when teams optimize for peak throughput and ignore p99, copy cost, utilization, queueing, engineering cost, or failure recovery.',
-        'Do not benchmark dense kernels and extrapolate to branchy sparse work. Do not treat ecosystem maturity as nontechnical. Do not migrate without a route ledger and rollback plan.',
-        'It also fails when ownership is unclear. If the GPU team, data platform team, model team, and product team each own only one slice of the route, nobody owns the whole user-visible path. Heterogeneous compute needs one ledger that explains why a phase is where it is, what evidence supports that placement, and what trigger would move it elsewhere.',
+        'It fails when the feature vector is fake or too coarse. A service-level label such as inference hides the fact that prefill, decode, retrieval, and tool calls have different bottlenecks.',
+        'It also fails when teams optimize for peak throughput and ignore tail latency, queueing, copy cost, utilization, failure recovery, and engineering ownership. A device that wins a chart can still make the product slower.',
+        'Ownership can break the system. If hardware, model, data platform, and product teams each own one slice, nobody owns the user-visible path unless the route ledger names the decision, evidence, owner, and rollback trigger.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'Consider an enterprise RAG-and-agent product. Dense embedding batches and LLM prefill route to GPU or TPU. Decode stays near GPU memory and KV cache. Sparse ACL filtering and graph expansion may run on CPU, GPU bitsets, or a specialized sparse path depending on batch size. The agent control loop, tool calls, and policy gates stay on CPU because they are branchy and IO-bound. Reranking moves back to GPU when it is batched.',
-        'The route record stores phase, device, bytes copied, queue delay, p99, cost, failure reason, and fallback. A new sparse accelerator is tested only on replayable sparse phases first. It earns promotion by improving real p99 and cost after porting tax, not by winning a peak-throughput chart.',
-        'This is also how teams avoid false migrations. A new device might win prefill but lose decode, or win batch throughput while hurting tail latency for interactive agents. The router makes partial adoption normal instead of forcing one hardware story onto the whole product.',
+        'A RAG request has five phases: embedding takes 20 ms on GPU or 55 ms on CPU, vector retrieval takes 35 ms on CPU, sparse ACL filtering takes 12 ms on CPU or 30 ms on GPU, LLM prefill takes 80 ms on GPU, and decode averages 160 ms on GPU.',
+        'A naive GPU-only route moves ACL data to GPU and back, adding 18 ms of copy time and making filtering slower. The mixed route keeps retrieval and ACL filtering on CPU, sends only the selected context to GPU, and saves about 36 ms before queueing.',
+        'Now add p99. If the GPU queue is 90 ms at p99 but the CPU queue is 10 ms, the mixed route can win interactive latency even when the GPU has higher raw throughput for one kernel.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Roofline paper at https://dl.acm.org/doi/10.1145/1498765.1498785, NVIDIA CUDA C++ Programming Guide on SIMT and warp divergence at https://docs.nvidia.com/cuda/cuda-c-programming-guide/, Google TPU architecture docs at https://docs.cloud.google.com/tpu/docs/system-architecture-tpu-vm, and Cerebras architecture notes on dataflow scheduling and sparse utilization at https://www.cerebras.ai/blog/cerebras-architecture-deep-dive-first-look-inside-the-hw-sw-co-design-for-deep-learning.',
-        'Study Transformer Inference Roofline, GPU All-Reduce, Chiplet Interconnect Case Study, WebGPU Buffer & Bind Group Case Study, Compressed Sparse Row Graph, GraphBLAS Sparse Matrix Graph Case Study, CUDA Graph Shape Cache, Inference Kernel Fusion & CUDA Graphs, Accelerator Kernel Compatibility Matrix, LLM Inference Scaling Playbook, and Feature Flag Control Plane next.',
+        'Primary sources include the Roofline paper, the NVIDIA CUDA C++ Programming Guide for SIMT and divergence, Google TPU architecture documentation, and architecture notes from accelerator vendors. Use them to connect device behavior to workload shape rather than brand labels.',
+        'Study Transformer Inference Roofline, GPU All-Reduce, GraphBLAS Sparse Matrix Graph Case Study, CUDA Graph Shape Cache, Accelerator Kernel Compatibility Matrix, LLM Inference Cost Stack, and Feature Flag Control Plane next.',
       ],
     },
   ],

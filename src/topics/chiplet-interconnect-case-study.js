@@ -191,11 +191,17 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the package-network view as a graph. A graph has nodes and edges; here the nodes are chiplets such as compute dies, memory stacks, I/O dies, and cache slices, while the edges are the physical and protocol links between them. The active edge is the resource currently being tested for bandwidth, latency, power, and routing pressure.',
+        'The tradeoff-map view shows why package design is not one best technology. A silicon interposer, organic substrate, bridge, and standard die-to-die link each buy different routing density, cost, reach, and supply behavior. The safe inference is that a chiplet plan is only good when the workload traffic fits the package graph.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Chiplet interconnect exists because the old "one product, one monolithic die" assumption stopped being the only practical path for high-end systems. A giant die can be expensive, hard to yield, and forced onto one process node even when logic, SRAM, analog I/O, and memory-facing circuits want different manufacturing tradeoffs. Splitting the product into chiplets lets designers mix nodes, reuse blocks, and scale memory bandwidth.`,
-        `The split creates a new problem: the package becomes a network. Compute dies, HBM stacks, cache slices, I/O chiplets, interposers, bridges, organic substrates, bumps, power delivery, and cooling all share one physical envelope. The interconnect is the data structure that makes the pieces act like one product.`,
-        `For AI accelerators, this is not packaging trivia. Model throughput depends on getting weights, activations, KV cache blocks, and collective traffic to the right compute engines at the right time. A compute die with excellent arithmetic units can stall if HBM bandwidth, die-to-die reach, package escape, or thermal limits choke the feed path.`,
+        'Chiplet interconnect exists because one large monolithic die is no longer the only practical way to build high-end systems. A monolithic die is a single piece of silicon; if it grows large, defects become more expensive and every function must use the same manufacturing process. Chiplets split the product into smaller dies that can be manufactured, tested, reused, and packaged together.',
+        'That split creates a new architecture problem. The package becomes a network that must move weights, activations, cache lines, memory requests, and control traffic between dies. A compute die with excellent arithmetic units can still stall if the interconnect cannot feed it at the right bandwidth and latency.',
         {type:'callout', text:'A chiplet package should be designed as a constrained network whose links, not just dies, determine system performance.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/1f/Power5.jpg', alt:'Ceramic multi-chip module with several processor and cache dies on one package', caption:'IBM POWER5 ceramic multi-chip module showing multiple dies on one package. Source: Wikimedia Commons, Carsten Schulz, CC BY-SA 3.0/GFDL.'},
       ],
@@ -203,77 +209,71 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The reasonable first attempt is to treat chiplets as modular blocks connected by very fast wires. The intuition is attractive. Smaller dies can yield better than one large die. A mature I/O chiplet can be reused across products. A compute chiplet can use a leading logic node while analog or SerDes circuitry stays on a cheaper or better-suited node. Short in-package links can use less energy per bit than board-level links.`,
-        `This view is useful, but incomplete. A fast wire is not enough. The link has width, reach, clocking, equalization, error handling, flow control, retry behavior, test hooks, lane repair, and power states. The physical implementation consumes bump pitch, routing tracks, edge length, keep-out area, package layers, and thermal margin. If the link contract does not match the workload, modularity becomes a bottleneck instead of a benefit.`,
-        `A second naive approach is to optimize each die independently and leave integration for the package team. That fails because the best local die floorplan may put high-bandwidth ports on the wrong edge, create hot spots next to HBM, or require more package routing density than the substrate can provide.`,
+        'The obvious approach is to treat chiplets as modular blocks connected by very fast wires. That intuition is useful because smaller dies can yield better, mature I/O chiplets can be reused, and leading-edge logic can be reserved for the parts that need it. Short in-package links can also use less energy per bit than board-level links.',
+        'A second obvious approach is to optimize each die first and leave package integration for later. That feels efficient because each team can improve its own block. It breaks when the best local floorplan puts high-bandwidth ports on the wrong edge, creates hot spots beside HBM, or asks the substrate for more routing density than it can deliver.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is bandwidth density under physical constraints. HBM wants many short, dense connections near compute. Scale-out I/O wants routes that escape the package. Cache or SRAM chiplets want low latency and predictable ownership. Power delivery wants metal and bumps too. Heat from compute, memory, and PHY circuits changes timing margin and reliability. All of these demands compete in the same package.`,
-        `The system also faces a semantic wall. Chiplets have to agree on what the link means. Is the traffic raw packet data, cache-coherent memory traffic, memory controller traffic, test access, or a private accelerator protocol? What ordering is guaranteed? What happens when a lane is weak? Without a clear contract, the package may be electrically connected but architecturally awkward.`,
-        `Standards such as UCIe help by defining common die-to-die layers and expectations. They do not erase the package budget. A standard link still has to meet signal-integrity, latency, power, bump, reach, test, and thermal constraints in a particular product. Interoperability is a contract; integration is still engineering.`,
+        'The wall is that the package has finite edge length, bumps, routing layers, power delivery, and thermal headroom. HBM wants many short dense connections near compute, scale-out I/O wants escape routes, and cache traffic wants low latency. These demands compete in the same physical envelope.',
+        'There is also a semantic wall. A link must define what traffic means: cache-coherent memory, raw packets, command streams, debug access, or test traffic. If two chiplets are electrically connected but disagree about ordering, retries, flow control, or failure handling, the package is wired but not architecturally sound.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to model the package as a constrained graph. Dies are vertices. Die-to-die PHY lanes, HBM interfaces, interposer routes, embedded bridges, substrate traces, sideband links, test paths, and power-delivery regions are edges or shared resources. Each edge has capacity, latency, energy per bit, reach, routing density, repair options, and failure modes.`,
-        `The invariant is not "maximize bandwidth." The package is healthy only when bandwidth, latency, energy, thermal margin, routability, manufacturing yield, testability, and protocol semantics close together. A topology that looks excellent on bandwidth can still overheat, lack repair margin, or force expensive software movement.`,
-        `This is why chiplet interconnect feels like distributed systems inside a package. The designer must decide where state lives, how ownership moves, how congestion is handled, how faults are isolated, how much topology software can see, and which links are on the critical path. The distances are millimeters, but the questions are systems questions.`,
+        'The core insight is to model the package as a constrained graph. Each edge has bandwidth, latency, energy per bit, reach, routability, repair margin, thermal coupling, and protocol meaning. The goal is not to maximize one edge; it is to close the whole graph under the workload.',
+        'The invariant is system balance. A healthy topology keeps compute, memory, I/O, cache ownership, power, heat, manufacturing yield, and testability inside their limits at the same time. A design that wins on raw bandwidth can still fail if it overheats, cannot be tested, or forces software to move data constantly.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
-        `A chiplet architecture starts by partitioning the product. Compute may sit on one or more logic dies. HBM stacks sit close to memory controllers. I/O or SerDes functions may move to a separate chiplet. SRAM, cache, security, or management logic can become separate dies when reuse or process-node economics justify it. The package topology then decides which edges must be wide, which must be low latency, and which can tolerate more protocol overhead.`,
-        `The physical layer maps that topology onto bumps, lanes, routes, bridges, interposers, or substrate traces. Designers budget energy per bit, clocking, lane count, reach, equalization, redundancy, and margin. A short dense HBM interface is a different object from a longer package escape path. Both are links, but they live under different constraints.`,
-        `Above the physical layer sits the protocol. It may expose memory semantics, cache coherency, packet transport, accelerator commands, debug traffic, or test modes. Flow control prevents one chiplet from overrunning another. Error detection, retry, repair, and binning protect data integrity and preserve sellable product tiers.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The package-network view proves that the important object is the edge, not only the die. HBM edges are short and wide because memory bandwidth is the accelerator feed path. I/O edges need escape and protocol support. Cache or SRAM edges need latency discipline. The interposer or substrate is not a passive background; it is the routing fabric that decides which edges can physically exist.`,
-        `The tradeoff-map view proves that there is no universal best package technology. Silicon interposers buy fine routing density and HBM adjacency, but they cost money and consume scarce advanced-packaging capacity. Organic substrates can be larger and cheaper, but they cannot always provide the same dense routing. Embedded bridges concentrate fine routing where it is needed, but they impose placement constraints. Standard links improve ecosystem reuse, but they still pay the physical budget.`,
+        'Design starts by partitioning the product. Compute may live on one or more logic dies, HBM stacks sit close to memory controllers, I/O can move to a separate chiplet, and management logic may be reused across products. The topology then decides which edges need to be wide, which need to be low latency, and which can tolerate protocol overhead.',
+        'The physical layer maps those edges onto bumps, bridges, interposers, redistribution layers, and substrate traces. Above it, the protocol layer defines flow control, ordering, errors, retries, coherency, and test access. The package works only when the physical route and the protocol contract agree.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Chiplet systems work when the partition and the interconnect preserve the product-level invariants. A memory-side chiplet must deliver enough bandwidth with acceptable latency and energy. A coherent compute topology must preserve ordering and visibility rules. A repairable link must expose enough test information to identify weak lanes and enough redundancy to route around them. A package topology must fit within thermal and manufacturing limits.`,
-        `The correctness argument is a contract argument. Each chiplet can be designed and tested against an interface contract, then integrated through a package topology that satisfies the electrical and protocol assumptions of that contract. The contract reduces the cross-product of possible interactions, but it only works if the physical implementation meets the contract margins. A protocol guarantee without signal margin is not a guarantee in silicon.`,
-        `The economic reason it works is reuse and yield. A smaller die may have better defect economics than one huge die. A reusable I/O or management chiplet can amortize design cost across products. These benefits require interconnect tax below modularity gain.`,
+        'Chiplet interconnect works when each interface contract is strong enough to limit cross-die uncertainty. A chiplet can be designed against a bandwidth, latency, voltage, ordering, and error-handling promise. Integration becomes tractable because each die does not need to know every internal detail of every other die.',
+        'The correctness argument is a contract argument. If every transaction that crosses an edge obeys the protocol, and the physical implementation preserves timing and signal margin for that edge, then the receiving chiplet sees legal traffic. If either side of that contract fails, no amount of modular packaging makes the system correct.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The main costs are link area, package routing, energy per bit, latency, verification, test, and supply. Wider links consume more edge length and bumps. Longer links need more signaling effort. Coherent protocols can simplify software but increase state space and verification burden. Non-coherent protocols can be simpler in hardware but push data-placement and synchronization work into drivers, runtimes, compilers, or application code.`,
-        `When the product scales, topology matters as much as aggregate bandwidth. Doubling compute chiplets can more than double communication pressure if all dies need all-to-all sharing. Adding HBM stacks raises capacity and bandwidth but also increases routing density, package size, and thermal coupling. Every "more" has a package bill.`,
-        `A useful rule is to separate bandwidth, locality, and ownership. Bandwidth says how many bits can move. Locality says how far and how often they need to move. Ownership says which chiplet is allowed to treat the state as current. Many bad chiplet designs buy bandwidth to compensate for poor locality or unclear ownership.`,
+        'The costs are edge area, bump count, package routing, PHY power, latency, verification state space, test flow, and supply capacity. Doubling compute chiplets can more than double traffic if the workload needs all-to-all sharing. Adding HBM raises bandwidth but also raises routing density, package area, and thermal coupling.',
+        'The economic trade is yield and reuse versus interconnect tax. If splitting a 600 mm2 die into four 150 mm2 chiplets improves sellable die yield but adds 15 percent package cost and 8 percent communication overhead, the split can still win. If the workload spends most time waiting on cross-chiplet traffic, the modularity gain disappears.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Chiplet interconnect wins when modularity lines up with real workload boundaries. AI packages are a strong fit because compute, HBM, I/O, management, and sometimes cache have different physical needs. Server CPUs can use chiplets when cores, I/O, memory controllers, and cache scale better as separate dies. Networking and accelerator products can reuse I/O chiplets while changing the compute die across generations.`,
-        `It also wins when supply and yield dominate. A company may build more sellable units by assembling several tested smaller dies than by waiting for one enormous die to yield well. It may also ship product variants by binning chiplets and disabling weak lanes or dies. In that sense, the interconnect is tied to manufacturing strategy, not just architecture.`,
+        'Chiplet interconnect fits AI accelerators, server CPUs, networking chips, and memory-rich packages where functions have different process and bandwidth needs. AI packages are a strong example because compute, HBM, I/O, cache, and management logic each want different physical placement. The interconnect turns those pieces into one accelerator instead of separate chips on a board.',
+        'It also fits product lines that reuse blocks. A company can pair a new compute die with an existing I/O die, or sell product tiers by combining different bins of chiplets. That only works if the die-to-die contracts and package graph were designed for reuse instead of one lucky assembly.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `Chiplets fail when the interconnect is treated as a back-end detail. If a workload needs tight shared state and the chosen link adds too much latency, the partition is wrong. If HBM bandwidth cannot reach compute at low enough energy, the arithmetic units stall. If thermal coupling forces lower clocks, the package can lose the performance it was meant to unlock. If advanced packaging capacity is scarce, a technically elegant topology can miss its business target.`,
-        `They also fail when standards are mistaken for integration. UCIe-style contracts help the ecosystem, but they do not remove signal integrity, mechanical stress, warpage, power delivery, cooling, test escape, firmware, or software scheduling problems. A standard interface can still be used in a product whose topology is poor for the workload.`,
+        'It fails when partitioning ignores traffic locality. If two blocks exchange state every cycle, putting them on separate chiplets can add latency, energy, and verification cost. If HBM bandwidth cannot reach the compute die at low enough energy, arithmetic units sit idle despite impressive peak FLOPS.',
+        'It also fails when standards are mistaken for integration. UCIe-style interfaces help with ecosystem contracts, but they do not remove signal-integrity, power-delivery, cooling, warpage, firmware, test, or scheduling work. A standard edge can still be the wrong edge for the workload.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study Chiplet Link Budget and Repair Lane next to understand how weak physical lanes become yield and reliability decisions. Study Known-Good-Die Yield Ledger to connect interconnect repair with manufacturing economics. Study GPU All-Reduce and Transformer Inference Roofline to see why bandwidth and communication topology shape AI throughput. Study cache coherence, backpressure, load balancing, and KV-cache placement to connect package links to software behavior.`,
-        `Primary and official sources for this page are the UCIe overview at https://www.uciexpress.org/ and the UCIe about page at https://www.uciexpress.org/why-choose-us. Read them as interface-contract material, then return to the package graph: a common contract is useful only when the product topology, physical link, thermal envelope, and manufacturing flow can honor it.`,
+        'Suppose an accelerator has four compute chiplets, each needing 1 TB/s of local memory bandwidth and 200 GB/s of peer traffic during tensor-parallel all-reduce. If each compute chiplet has an HBM edge that delivers 1.2 TB/s usable bandwidth, memory has 20 percent headroom. If the peer network offers only 100 GB/s per neighbor, the all-reduce path is the bottleneck even though the package advertises high aggregate bandwidth.',
+        'Now compare two floorplans. In floorplan A, each compute die sits beside HBM but peer links cross long routes, adding latency and PHY power. In floorplan B, compute dies form a tighter mesh but two HBM stacks move farther away. The right answer depends on measured workload traffic: a memory-bound model prefers A, while a communication-heavy model may prefer B.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Start with the UCIe overview at https://www.uciexpress.org/ and the UCIe about page at https://www.uciexpress.org/why-choose-us. Read them as interface-contract sources, not as proof that integration is solved. The transferable lesson is that a common link contract helps only when the product topology can honor it physically and thermally.',
+        'Study Chiplet Link Budget and Repair Lane for the physical margin view, and Known-Good-Die Yield Ledger for manufacturing evidence. Study GPU all-reduce, transformer inference rooflines, cache coherence, flow control, and KV-cache placement to see how software traffic turns package edges into system bottlenecks.',
       ],
     },
   ],

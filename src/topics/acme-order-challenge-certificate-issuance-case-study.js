@@ -175,105 +175,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/34/HTTPS_icon.svg', alt:'HTTPS padlock icon', caption:'The HTTPS padlock that ACME automation made universal. Source: Wikimedia Commons, Fabián Alexis, CC BY-SA 3.0'},
-        'TLS certificates bind public names to public keys, and those certificates expire. Manual issuance works for a small number of servers, but it breaks down when domains, containers, load balancers, service meshes, and short-lived environments all need renewal before an outage window. The hard problem is not creating a certificate file. The hard problem is automating public proof, CA policy, retryable state, and safe deployment.',
-        'ACME is the protocol that turns certificate issuance into a state machine. A client proves control of requested identifiers, the certificate authority validates that proof from the public internet, the client finalizes the order with a certificate signing request, and the CA returns an issued certificate. The protocol is interesting because it treats issuance as a graph of resources rather than as one opaque "give me a cert" call.',
+        'The order-flow view shows ACME, the Automatic Certificate Management Environment, as a protocol state machine. ACME automates issuance of TLS certificates, which bind a domain name to a public key for HTTPS. Follow account, nonce, order, authorization, challenge, validation, finalization, and certificate in that order.',
+        'The challenge-proof view separates what the client says from what the certificate authority, or CA, can observe. Active cells show the current resource state. The safe inference is that a certificate may be issued only after each required authorization is valid and the final certificate signing request matches the order.',
       ],
     },
     {
-      heading: 'The naive baseline',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive automation is a single API request: send `api.example.com`, an account token, and a public key to the CA, then receive a certificate. That is easy to imagine, but it hides almost every important boundary. The CA still needs to know whether the requester controls the domain, whether each name in the request is allowed, whether the same signed request is being replayed, and whether issuance should resume after a partial failure.',
-        'Another baseline is a human approval workflow. A person clicks through a CA portal, places a file on a web server or edits DNS, downloads the certificate, and installs it. That can be audited, but it does not fit automatic renewal. It also tends to encode state in email, tickets, and runbooks instead of in protocol resources that software can inspect.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/34/HTTPS_icon.svg', alt:'HTTPS padlock icon', caption:'The HTTPS padlock that ACME automation made universal. Source: Wikimedia Commons, Fabián Alexis, CC BY-SA 3.0'},
+        'TLS certificates expire, and expired certificates create outages. Manual renewal may work for one server, but it fails when domains, load balancers, containers, service meshes, and preview environments all need certificates on schedule. The system needs repeatable proof, issuance, deployment, and monitoring.',
+        'ACME exists to make certificate issuance software-driven without removing public proof. The client creates an order, proves control of each requested identifier, submits a certificate signing request, and receives a certificate. The CA does not trust the client claim; it validates evidence from the public network.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious API is a single request: send a domain name and public key to the CA and get back a certificate. That would be simple for clients and easy to wrap in scripts. It also hides the entire security boundary.',
+        'A human portal is the older version of the same idea. A person clicks through approval, edits DNS or uploads a file, downloads the certificate, and installs it. That can be audited for a small site, but it does not fit automatic renewal or large fleets.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Domain control is not a single permanent fact. A client may control `www.example.com` but not `api.example.com`. A wildcard request needs a stronger DNS-based proof than a simple HTTP path. A host can be reachable from inside a private network but invisible to the CA validation authority. DNS can be stale, split-horizon, cached negatively, or delegated through a chain the client did not expect.',
-        'Issuance is also stateful. Nonces expire. Orders can be pending, ready, valid, invalid, or expired. Authorizations can be reused within limits or fail independently. Challenges can be attempted, validated, or rejected. Rate limits apply. The final CSR must match the identifiers the order allows. A robust protocol needs to expose those intermediate states so clients can retry safely instead of guessing what happened.',
         {type:'callout', text:'Manual certificate renewal is not just slow — it is a reliability hazard. Every certificate has an expiry date, and every missed renewal is an outage.'},
+        'Domain control is specific and temporary. A client may control www.example.com but not api.example.com, and a wildcard certificate needs DNS proof rather than a simple HTTP path. Split-horizon DNS, CDN routing, stale records, and negative caching can make the CA see a different world than the client sees locally.',
+        'Issuance is also stateful. Nonces expire, orders move through pending, ready, valid, invalid, and expired states, and authorizations can succeed or fail independently. If those states are hidden, clients cannot retry safely after a timeout or partial failure.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d5/PKI_certificate_hierarchy.svg', alt:'PKI certificate hierarchy', caption:'Public Key Infrastructure certificate chain. Source: Wikimedia Commons, CC BY-SA 4.0'},
-        'ACME models certificate issuance as a dependency graph. An account key identifies the client. A new order names the identifiers to be certified. The order points to authorization objects. Each authorization offers one or more challenge types. A challenge depends on public evidence that the validation authority can check. The certificate depends on all required authorizations becoming valid and on a final CSR.',
         {type:'callout', text:'ACME replaces human proof of domain ownership with machine-verifiable challenges: place a file at a well-known HTTP path, set a DNS TXT record, or respond on a TLS handshake. The CA never trusts the applicant — it trusts the challenge response.'},
-        'The graph is advanced through signed JWS requests with server-provided nonces. The signature ties the request to the ACME account. The nonce prevents an old signed request from being replayed later. The resource URLs and states make the protocol resumable: a client can fetch the order, inspect which authorization is still pending, repair the public proof, and continue.',
-      ],
-    },
-    {
-      heading: 'What the animation shows',
-      paragraphs: [
-        'The order-flow view shows the protocol resources in dependency order: account, nonce, order, authorization, challenge, validation authority, CSR, certificate, and Certificate Transparency. Follow the path from account key to order first, then from order to authorization and challenge. The certificate appears only after validation and finalization, which is the main lesson.',
-        'The challenge-proof view separates object state from public evidence. The matrix rows compare pending, valid, invalid, issued, and revoked states with the proof locations used by common challenges. The important question in each frame is not "did the client say it was ready?" but "what public fact did the CA observe, and which protocol state changed because of that observation?"',
+        'ACME turns issuance into a resource graph. An account key identifies the client, an order names identifiers, each authorization offers challenges, and each challenge points to public evidence the CA can verify. The certificate depends on all required authorizations and a matching final request.',
+        'The second insight is replay resistance. State-changing requests are signed and include server-provided nonces, so an old signed request cannot simply be copied and reused later. Signed messages, resource URLs, and explicit states make the workflow resumable and auditable.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The client begins with an ACME account key. Requests are signed, and the client obtains a fresh nonce from the server before making state-changing calls. It creates a new order for identifiers such as `api.example.com` and `www.example.com`. The server returns authorizations for those identifiers and challenge options the client may satisfy.',
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/5b/HTTP_logo.svg', alt:'HTTP protocol logo', caption:'HTTP challenges use well-known paths to prove domain control. Source: Wikimedia Commons, CC BY-SA 4.0'},
-        'For http-01, the client places a token-derived key authorization at a well-known HTTP path on the requested host. For dns-01, it publishes a TXT record under `_acme-challenge` containing a digest of the key authorization. For tls-alpn-01, it proves control through a special TLS response on the domain. The validation authority checks from the public network; local success on the client machine is not enough.',
-        'After each required authorization becomes valid, the order becomes ready for finalization. The client submits a CSR containing the requested names and the public key that should appear in the certificate. The CA checks that the CSR matches the order, issues the certificate, usually submits it to Certificate Transparency logs, and exposes a certificate URL for retrieval.',
+        'The client starts with an ACME account key and obtains a fresh nonce. It creates an order for identifiers such as api.example.com and www.example.com. The server returns authorizations, and each authorization lists challenge types the client can satisfy.',
+        'For http-01, the client serves a token-derived file from a well-known path on the requested host. For dns-01, it publishes a TXT record under _acme-challenge. For tls-alpn-01, it answers a special TLS handshake. The validation authority checks the evidence from outside the client environment.',
+        'When every required authorization becomes valid, the order becomes ready. The client submits a certificate signing request, or CSR, that contains the requested names and public key. The CA checks the CSR against the order, issues the certificate, and usually submits it to Certificate Transparency logs.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The core invariant is that the CA issues only after every required authorization reaches valid state. A challenge cannot validate merely because the client asked nicely. The validation authority must observe the expected public evidence, and the evidence is derived from the ACME account key so a copied token alone is not the whole proof.',
         {type:'callout', text:'The security of ACME rests on one invariant: only the legitimate domain operator can serve the correct challenge response. DNS, HTTP, and TLS-ALPN challenges each verify this through a different network path.'},
-        'Replay protection matters because the requests are signed. Without nonces, a valid old request could be copied and submitted again under changed conditions. With nonces, a request is bound to a particular server-issued freshness value. That is why the account key, nonce, order state, authorization state, and final CSR are all part of one issuance ledger.',
+        'The invariant is that issuance waits for valid authorizations. A challenge cannot validate because the client says it is ready; the CA must observe the expected public evidence. The token is tied to the account key, so copying only part of the challenge data is not enough.',
+        'The state machine makes failures recoverable. A client can fetch the order, see which authorization is pending, repair the DNS or HTTP proof, and continue without starting from guesswork. Replay protection keeps signed requests fresh while the resource graph keeps progress inspectable.',
       ],
     },
     {
-      heading: 'Worked example',
-      paragraphs: [
-        'A service wants a certificate for `api.example.com`. Its ACME client creates an order and receives an authorization for that identifier. The client chooses dns-01 because the service is behind a private load balancer during deployment. It computes the required key authorization, publishes the TXT record under `_acme-challenge.api.example.com`, and tells the ACME server the challenge is ready.',
-        'The validation authority queries DNS from outside the service environment. If it sees the expected TXT value, the challenge becomes valid and the authorization becomes valid. The client finalizes with a CSR for `api.example.com`. The CA issues the certificate, logs it, and returns a URL. The deployment system installs the new certificate, reloads the TLS endpoint, and later cleans up the old challenge record.',
-        'Now add renewal. The same flow runs before expiry, but the automation has to handle stale TXT records, DNS propagation delay, rate limits, failed validation, deployment rollback, and monitoring. A complete ACME client is therefore not only a protocol caller. It is a small control plane for domain proofs, certificate inventory, and safe rotation.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt:'Server infrastructure', caption:'Certificate automation scales from single servers to global fleets. Source: Wikimedia Commons, Victorgrigas, CC BY-SA 3.0'},
-        'ACME removes manual certificate work, but it adds automation state that must be operated well: account key custody, nonce handling, order polling, challenge cleanup, CA rate limits, renewal timing, certificate deployment, and observability around failures. A broken renewal job can be worse than a manual process because it fails quietly until the certificate is near expiry.',
-        'Challenge choice is a tradeoff. http-01 is easy when the domain has public HTTP routing and the ACME client can serve the token at the correct path. It does not work for wildcard certificates and can be awkward behind CDNs, redirects, private networks, or split traffic. dns-01 supports wildcards and does not require the target service to be reachable, but it depends on DNS provider credentials, propagation, TTLs, negative caching, and correct delegation.',
-        'Security also shifts. Automating DNS updates often means giving a robot credentials that can change records. Automating HTTP challenges can expose path routing mistakes. Reusing account keys can simplify operations but increases blast radius. ACME makes issuance repeatable; it does not remove the need for key management and least privilege.',
+        'ACME removes calendar-driven manual work, but it adds automation that must be operated. The system must protect account keys, handle nonces, poll orders, clean challenge records, respect rate limits, deploy certificates, and monitor expiry. A quiet broken renewal job can be worse than manual work because it fails near the deadline.',
+        'Challenge choice changes cost. http-01 is simple when public HTTP routing reaches the client, but it cannot issue wildcards and can break behind redirects or private networks. dns-01 handles wildcards and private services, but it requires DNS API credentials, propagation waiting, TTL management, and least-privilege controls.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/84/Lets_Encrypt_logo.svg', alt:'Let\'s Encrypt logo', caption:'Let\'s Encrypt issues over 400 million active certificates using ACME. Source: Wikimedia Commons, Let\'s Encrypt, Public domain'},
-        'ACME wins anywhere certificates are numerous, short-lived, or automatically deployed: web servers, CDNs, Kubernetes ingress controllers, service meshes, appliance fleets, internal developer platforms, and ephemeral preview environments. It turns certificate renewal from a calendar reminder into a routine control-plane action.',
-        'It is strongest when the environment has clear domain ownership, reliable DNS or HTTP automation, protected account keys, CAA policy that matches the intended CA, Certificate Transparency monitoring, and a deployment path that can roll certificates forward without breaking live TLS connections.',
+        'ACME is used by web servers, CDNs, Kubernetes ingress controllers, service meshes, appliance fleets, internal platforms, and preview environments. It is strongest when domain ownership is clear, credentials are scoped, and deployment can reload certificates safely. The protocol turns renewal into a control-plane action.',
+        'The same pattern also supports inventory and compliance. Certificate records can include order URL, identifiers, challenge type, issuer, expiry time, deployment targets, and Certificate Transparency evidence. That makes the fleet searchable before expiry becomes an outage.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'ACME proves control at validation time, not eternal ownership or business legitimacy. If a DNS provider account is compromised, if a stale automation secret can still edit records, if a dangling CNAME points to an attacker-controlled service, or if a web path can be taken over, the protocol may correctly issue a certificate to the wrong actor.',
-        'It also fails when public observation differs from local assumptions. Recursive resolvers can cache missing TXT records. Authoritative changes can lag. Split-horizon DNS can make the CA see a different answer than the operator. HTTP redirects or CDN rules can serve the token to one region and not another. The client must debug what the validation authority sees, not only what its own machine sees.',
+        'ACME proves control at validation time, not permanent ownership or business legitimacy. If a DNS account is compromised, a stale secret can edit records, a dangling CNAME is takeoverable, or an HTTP path is controlled by an attacker, the CA may issue a certificate to the wrong actor under the protocol rules.',
+        'It also fails when public observation differs from local tests. Recursive resolvers can cache missing TXT records, authoritative changes can lag, and CDN rules can serve the token in one region but not another. Debugging must ask what the validation authority saw, not what the client machine saw.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Common operational failures are predictable: using a reused nonce, losing the ACME account key, publishing the TXT value to the wrong zone, forgetting that wildcard issuance needs dns-01, failing to clean old challenge records, exhausting CA rate limits during retries, submitting a CSR with names that do not match the order, or installing the certificate on only part of a fleet.',
-        'Security failures are just as concrete: overbroad DNS API tokens, unmonitored Certificate Transparency logs, stale CAA records, abandoned subdomains, and renewal automation that runs with more privileges than it needs. The protocol gives a clean state machine, but the surrounding system still has to protect credentials, names, keys, and deployment paths.',
+        'A deployment system needs a certificate for api.example.com behind a private load balancer. It creates an ACME order and chooses dns-01 because the CA cannot reach the service over public HTTP. The client publishes a TXT record at _acme-challenge.api.example.com with the expected digest.',
+        'DNS has a 60 second TTL, so the client waits 90 seconds before notifying the CA. The validation authority queries authoritative DNS, sees the expected TXT value, and marks the authorization valid. The client submits a CSR for api.example.com, receives the certificate, installs it on 12 load balancer nodes, reloads TLS, and removes the TXT record.',
+        'Renewal adds operational numbers. If certificates are renewed 30 days before expiry and the job runs daily, one missed run is harmless, but 25 missed runs creates an incident. The alert should fire on days-to-expiry, failed validation count, and partial deployment count, not only on final expiration.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RFC 8555 ACME at https://www.rfc-editor.org/rfc/rfc8555, Let\'s Encrypt challenge types at https://letsencrypt.org/docs/challenge-types/, and RFC 6962 Certificate Transparency at https://datatracker.ietf.org/doc/html/rfc6962.',
-        'Study DNSSEC Chain of Trust Validation for authenticated DNS answers, DNS Negative Cache & NXDOMAIN for propagation surprises, DNS Serve-Stale Resolver Cache for old answers during outages, TLS 1.3 Handshake for where the certificate is used, OCSP Stapling Revocation Cache for freshness after issuance, Transparency Log Witnessing Case Study for public auditability, and OAuth PKCE Token Lifecycle Case Study for another protocol built around proof and replay resistance.',
+        'Primary sources are RFC 8555 for ACME, Let\'s Encrypt challenge-type documentation, and RFC 6962 for Certificate Transparency. Read the protocol state definitions before reading client code because the state machine is the security boundary.',
+        'Study next: DNSSEC Chain of Trust Validation for authenticated DNS, DNS Negative Cache and NXDOMAIN for propagation surprises, TLS 1.3 Handshake for where certificates are used, OCSP Stapling Revocation Cache for freshness after issuance, and Transparency Log Witnessing for public auditability.',
       ],
     },
   ],

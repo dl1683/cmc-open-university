@@ -392,157 +392,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has three views. The support-matrix view builds the compatibility table one dimension at a time: first op coverage by backend, then dtype constraints, then shape constraints. Active cells are the current dimension under inspection. Compare cells (orange) mark gaps or experimental states that block production routing. Found cells (green) mark entries whose status resolves a fallback question.',
-        'The dispatch-route view traces a single inference request from model graph through op-key extraction, kernel registry lookup, candidate ranking, and final route selection. Active nodes are the current stage of the pipeline. The audit edge captures the fallback reason when the preferred backend is rejected.',
-        'The fallback-audit view plots miss rates and coverage-vs-speedup curves, then walks through rollout gates and a concrete porting chain. The gate marker on each plot is the promotion threshold a backend must cross before it can carry production traffic.',
+        'The support-matrix view builds a compatibility table for accelerator kernels. A kernel is the low-level program that performs one operation on a device such as a GPU, NPU, or CPU vector unit. Active cells show the current backend, data type, shape bucket, or layout being checked; orange cells show gaps; green cells show a safe route.',
+        'The dispatch-route view follows one model operation from graph trace to chosen backend. Watch for the moment where a fast candidate is rejected because its guard does not match the request. The fallback-audit view turns those misses into an engineering queue, so compatibility becomes a measured state instead of a slogan.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {type: 'quote', text: 'It works on my GPU is the new it works on my machine.', attribution: 'Common saying in ML infrastructure teams'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt:'Nvidia GV100 GPU die shot showing thousands of processing cores on a single chip', caption:'An Nvidia GV100 die. Every one of those processing cores needs a tested kernel for every op, dtype, and shape the model actually produces. One missing kernel turns "runs on this GPU" into a lie. Source: Wikimedia Commons, Nvidia, Public domain'},
         {type:'callout', text:'Kernel compatibility is not a binary question. Each operation needs a legal kernel for the specific backend, dtype, shape range, and layout the model produces. The compatibility matrix is the preflight check that answers whether a model can actually run — not just load — on an accelerator under production constraints.'},
-        'A model is not one operation. It is a graph of hundreds of ops, each with a dtype, a layout, a shape range, memory assumptions, and compiler constraints. Claiming a model "runs on" an accelerator means every op in the graph has a legal, tested, fast-enough kernel on that backend for the dtypes and shapes the model actually produces. One missing kernel, one unsupported dtype, or one shape that blows the tile budget turns the claim into a lie.',
-        'The compatibility matrix sits between model export and serving router. It answers a preflight question: for this operation key, on this backend, with this dtype and shape bucket, which kernels are legal, parity-tested, within latency budget, and allowed by rollout policy? Without that preflight, portability is a demo property that collapses under production traffic.',
+        'A model graph contains many operations, and each operation carries shape, data type, layout, memory, and compiler assumptions. Saying that a model runs on an accelerator means every operation has a legal implementation for the exact traffic the model will produce. Loading the checkpoint is only the first step.',
+        'The compatibility matrix exists because production serving needs a preflight answer before traffic moves. It asks whether each operation key has a tested kernel, a numeric parity bound, a rollout status, and a fallback route. Without that table, hardware migration becomes a chain of surprises found by users.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The natural first step is to check whether each operator name has a backend implementation. If matmul, softmax, top-k, scatter, and all-reduce all import successfully on the target device, the framework will not throw an error. A prototype runs, a benchmark slide appears, and the migration gets a green light.',
-        'This works for demos and single-model benchmarks. It breaks when the same operator name hides different constraint surfaces across backends.',
-        {type: 'table', headers: ['Check', 'What it catches', 'What it misses'], rows: [
-          ['Import succeeds', 'Missing operator entirely', 'Dtype, shape, layout, tile, memory, parity'],
-          ['Smoke test passes', 'Crashes on trivial input', 'Tail shapes, dynamic batches, quantized paths'],
-          ['Benchmark looks fast', 'Gross throughput regression', 'p99 latency, memory pressure, numerical drift'],
-        ]},
-        'Each row adds coverage but none reaches the granularity that production routing requires. The gap between "operator exists" and "operator is safe for this traffic" is the entire problem.',
+        'The obvious check is operator-name support. If matmul, softmax, layer normalization, gather, and all-reduce all appear in the backend, the migration looks plausible. A smoke test on one input may even pass.',
+        'This is a reasonable start because missing operators are real blockers. Frameworks already expose dispatch tables and backend registrations, so a name-level scan is cheap. It also catches the simplest failure before teams spend time on benchmark tuning.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Op name is too coarse a compatibility unit. Matmul is not one thing. The CUDA kernel for a batch-1, fp16, contiguous, aligned matmul is a different code path from a batch-128, bf16, strided, transposed matmul with int8 accumulation. Softmax may be fused into a FlashAttention kernel for sequence lengths up to 8192 and fall back to an unfused path above that. A Triton custom kernel may require tile dimensions that divide SRAM evenly and silently produce wrong results when they do not.',
-        {type: 'note', text: 'The compatibility unit must be closer to (op_schema, dtype, layout, shape_bucket, device_class) than to the operator family name. Every field that affects kernel selection belongs in the key.'},
-        'Three specific failure patterns appear repeatedly:',
-        {type: 'bullets', items: [
-          'Dtype gap: a kernel exists for fp32 and fp16 but not bf16 or fp8. The model quantization recipe targets fp8. The fallback to fp32 doubles memory and halves throughput.',
-          'Shape cliff: the kernel is fast for static shapes compiled into a CUDA graph but recompiles on every new dynamic batch size, turning a 2ms op into a 200ms compilation stall.',
-          'Parity drift: the kernel produces numerically different results from the reference CPU path. The drift is within tolerance for dense attention but accumulates through 80 transformer layers into a visible quality regression.',
-        ]},
+        'An operator name is too coarse. Matmul with fp16, contiguous layout, batch 1, and aligned dimensions may hit a tuned kernel, while the same name with bf16, strided layout, dynamic batch 129, or int8 accumulation may fall back or fail. Shape and layout are part of correctness, not just performance.',
+        'The second wall is numeric parity. A custom kernel can be fast and still drift from the reference result beyond the model slice tolerance. A small per-layer error can accumulate through many layers and change generation quality, ranking, or safety behavior.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The data structure is a registry of compatibility records, each keyed by a compound operation signature and valued with a decision packet.',
-        {type: 'diagram', text: 'Key:   (op_schema, dtype, layout, shape_bucket, device_class, backend)\n       |                                                              |\n       v                                                              v\nValue: { status, priority, guard_predicate, numeric_tolerance,        |\n         benchmark_status, fallback_backend, rollout_stage,           |\n         kernel_version, owner, evidence_link, telemetry_window }     |\n                                                                      |\nInvariant: legality before speed ─────────────────────────────────────+', label: 'Compatibility record structure'},
-        'The key includes everything that changes which kernel is selected. The value carries everything needed to decide whether that kernel is allowed for production traffic. The invariant is legality before speed: the router ranks candidates by priority, but it only considers candidates whose guard predicate passes and whose rollout stage permits the current traffic class.',
-        {type: 'note', text: 'Fast but illegal is a bug, not an optimization. A kernel that produces wrong results quickly is worse than a slow fallback that produces correct results.'},
-        'Sparse and quantized paths extend the key with additional fields:',
-        {type: 'table', headers: ['Path type', 'Extra key fields', 'Extra value fields'], rows: [
-          ['Dense', '(none beyond base key)', '(none beyond base value)'],
-          ['Sparse', 'mask_pattern, block_layout, density_range', 'pruning_artifact_version, sparsity_format'],
-          ['Quantized', 'scale_format, zero_point_convention, accumulator_precision', 'calibration_version, dequant_error_bound'],
-        ]},
+        'The compatibility unit should be a compound operation signature, not an operator family name. A useful key includes operation schema, data type, layout, shape bucket, device class, backend, and sometimes sparsity or quantization metadata. The value is a decision packet containing status, guard predicate, parity evidence, latency evidence, fallback backend, owner, and rollout stage.',
+        'The invariant is legality before speed. The router may choose the fastest candidate only after guards pass and parity evidence exists for the relevant key. A fast illegal kernel is not an optimization; it is a correctness bug with a lower latency.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The dispatch pipeline has four stages: key extraction, registry lookup, candidate ranking, and audit logging.',
-        {type: 'code', text: '// Pseudocode: dispatch pipeline\nfunction dispatch(model_trace, request) {\n  for (const op of model_trace.ops) {\n    const key = extract_key(op.schema, op.dtype, op.layout,\n                            bucket(op.shape), device_class);\n    const candidates = registry.lookup(key);  // returns [] if no match\n    const legal = candidates.filter(c =>\n      c.guard(op) && c.rollout_stage >= request.traffic_class);\n    if (legal.length === 0) {\n      audit.log({key, reason: \'no_legal_candidate\', fallback: \'cpu\'});\n      return fallback_to_cpu(op);\n    }\n    const chosen = legal.sort_by(c => c.priority)[0];\n    audit.log({key, chosen: chosen.backend, kernel: chosen.version});\n    return chosen.execute(op);\n  }\n}', language: 'javascript'},
-        'Key extraction turns a model trace into compound keys. The system reads operator schema, dtype, layout, and shape, then buckets the shape into a small set of ranges (e.g., batch <= 8, batch 9-64, batch 65-512) to keep the registry finite.',
-        'Registry lookup returns all candidate implementations for that key. Each candidate carries a guard predicate -- a runtime check that must pass before the kernel is considered legal. Guards encode tile alignment, memory contiguity, address stability for graph capture, and driver version requirements.',
-        'Candidate ranking applies policy: priority order, rollout stage gates, cost estimates, and tenant-specific constraints. The chosen candidate is logged with its key, backend, kernel version, and the reason alternatives were rejected.',
-        {type: 'note', text: 'PyTorch dispatch keys, ONNX Runtime execution providers, and XLA/StableHLO compilation boundaries all solve subsets of this problem. The compatibility matrix unifies them by adding evidence, fallback, rollout, and telemetry to the dispatch decision.'},
+        'The system traces the model and extracts operation keys. Shape values are usually bucketed, such as batch 1 to 8, batch 9 to 64, and batch 65 to 256, so the registry stays finite. Each key lookup returns candidate kernels with guards that check alignment, memory layout, driver version, graph-capture safety, and shape limits.',
+        'The router filters candidates before ranking them. It rejects candidates whose guards fail, whose rollout stage is below the request class, or whose evidence is stale. If no accelerated path is legal, it records the reason and falls back to a slower reference path.',
+        'The audit log is part of the mechanism. It stores the key, chosen backend, rejected alternatives, fallback reason, kernel version, and telemetry window. That makes porting work concrete: a team can see which missing rows create most fallback latency.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The matrix converts implicit runtime assumptions into explicit, testable records. Three properties make the system trustworthy:',
-        {type: 'bullets', items: [
-          'Completeness: every op in the model graph must have at least one legal candidate (even if it is the CPU reference path). A missing row is a deployment blocker, not a silent fallback.',
-          'Parity preservation: the CPU or reference path defines baseline numerical behavior. An accelerated path is promoted only after parity tests show acceptable drift for the relevant dtype and shape range. Numeric correctness and performance correctness are tracked separately.',
-          'Monotonic promotion: a kernel moves through rollout stages (shadow, canary, ramp, production) and never skips a stage. Each stage has exit criteria. Regression on any criterion demotes the kernel back to the previous stage.',
-        ]},
-        'The correctness argument is: if every candidate in the registry satisfies its guard predicate and parity bound, and if the router only selects from legal candidates, then the dispatch decision preserves operator semantics regardless of which backend is chosen. The fallback path guarantees that no request is silently dropped or served with an untested kernel.',
+        'The correctness argument is a selection proof. If every registry row is tested against a reference implementation for its key, and the router selects only rows whose guards pass, then the selected backend preserves the operation contract within the recorded tolerance. The fallback route preserves availability when no accelerated row is legal.',
+        'Monotonic rollout protects users. A kernel moves from test to shadow, canary, ramp, and production only after each gate passes. If telemetry shows parity drift, high fallback rate, or p99 latency regression, the row is demoted instead of silently serving all traffic.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Scenario: port fused softmax from CUDA to HIP for a transformer serving pipeline that runs bf16 inference with dynamic batch sizes from 1 to 256.',
-        {type: 'table', headers: ['Step', 'Action', 'State change'], rows: [
-          ['1. Identify key', 'Extract (fused_softmax, bf16, contiguous, batch_1-256, MI250X, HIP)', 'Registry lookup returns: no entry'],
-          ['2. Create record', 'Add compatibility row with status=test, guard=tile_fits_LDS, fallback=CUDA', 'Registry now has one HIP candidate for this key'],
-          ['3. Reference parity', 'Run CPU golden outputs for 50 shape samples, measure max abs error', 'parity_bound = 1e-3 (bf16 tolerance), all 50 pass'],
-          ['4. Benchmark', 'Measure latency at batch 1, 32, 128, 256 on MI250X', 'speedup vs CPU: 4.2x. Latency vs CUDA: 1.1x slower (acceptable)'],
-          ['5. Shadow', 'Mirror 100% production traffic, compare outputs to CUDA path', 'Drift within 1e-3 for 99.97% of requests. 3 shape outliers flagged'],
-          ['6. Fix outliers', 'Shape bucket batch_200-256 hits LDS tile misalignment. Add guard: batch <= 192 for fused path', 'Guard updated. Batch > 192 falls back to unfused HIP kernel'],
-          ['7. Canary', 'Route 1% live traffic to HIP. Monitor p99 latency and fallback rate', 'p99 = 12ms (CUDA baseline 11ms). Fallback rate 0.3%. Exit criteria met'],
-          ['8. Ramp to 25%', 'Increase traffic share. Hold for 48 hours', 'No regression. Fallback rate stable at 0.3%'],
-          ['9. Promote', 'Set rollout_stage=production, priority=1 for MI250X fleet', 'HIP fused softmax is now the default for this key on MI250X'],
-        ]},
-        {type: 'note', text: 'The guard predicate change in step 6 is the kind of detail that a name-level compatibility check would never surface. The kernel is "supported" for fused_softmax on HIP, but only for batch <= 192. The matrix encodes that constraint; a boolean support flag cannot.'},
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The matrix itself is a registry, not a runtime data structure, so its lookup cost is a hash-map probe per op per request -- negligible compared to kernel execution. The real costs are human:',
-        {type: 'table', headers: ['Cost', 'What drives it', 'Mitigation'], rows: [
-          ['Maintenance', 'Every framework release, driver update, kernel rewrite, or new accelerator SKU can invalidate cells', 'Automate parity tests in CI. Attach evidence dates and kernel versions to every row. Expire stale rows'],
-          ['Cross-team coordination', 'Kernel authors care about speed, model owners about quality, serving teams about p99, platform teams about cost', 'Typed registry with per-audience views. Kernel authors see guards and benchmarks. Serving teams see rollout stage and fallback rates'],
-          ['State explosion', 'Combinatorial growth of (op, dtype, shape, backend) tuples', 'Shape bucketing, wildcard guards, inheritance from base dtype records. A registry with 10,000 explicit rows and 50 wildcard rules beats 500,000 exhaustive rows'],
-          ['Stale confidence', 'A matrix that is not updated after a driver regression gives false safety', 'Telemetry feedback loop: live fallback events automatically flag and demote stale rows'],
-        ]},
-        'A stale matrix is worse than no matrix. The registry must be a living system with CI validation, telemetry feedback, and automatic demotion -- not a spreadsheet someone updates quarterly.',
+        'Lookup cost is small: one hash-map probe per operation key is tiny compared with kernel execution. The real cost is maintaining evidence across framework releases, driver updates, new accelerator SKUs, new quantization formats, and tail shapes. A stale row is dangerous because it looks like safety while routing to an unverified path.',
+        'State grows as the product of operations, data types, layout families, shape buckets, and backends. Bucketing and wildcard guards control this growth, but they also create boundary cases. A registry with 5,000 explicit rows and 100 guarded wildcard rows can be easier to operate than 500,000 exact-shape rows.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        {type: 'bullets', items: [
-          'Accelerator migration: moving a serving fleet from NVIDIA A100 to H100, or from CUDA to AMD MI300X, requires knowing exactly which ops need new kernels, which need retuning, and which work unchanged. The matrix is the migration checklist.',
-          'Multi-backend serving: a single model family serving tenants on different hardware pools (cloud GPU, on-prem NPU, edge CPU) needs per-backend dispatch with principled fallback. The matrix tells the router which backends are legal for each op.',
-          'Quantization rollout: adopting fp8 or int4 inference means adding new dtype columns to the matrix. Each cell must be filled with parity evidence before the quantized path can serve traffic.',
-          'Custom kernel deployment: a Triton or CUTLASS kernel that replaces a framework default must prove parity, benchmark at representative shapes, and pass rollout gates. The matrix is the promotion pipeline.',
-          'Fused-kernel adoption: FlashAttention, fused MLP, and other compound kernels change the op granularity. The matrix must track both the fused and unfused paths because fallback from fused to unfused is a common dispatch decision.',
-        ]},
+        'Hardware migration uses the matrix as a punch list. Moving from one GPU generation to another, or from CUDA to ROCm, means identifying which keys are already legal, which need retuning, and which require fallback. Quantization rollout uses the same structure to prove that int4, int8, bf16, or fp8 paths have kernels and quality evidence.',
+        'Multi-backend serving also depends on this table. A router can place traffic on cloud GPU, on-prem accelerator, or CPU only if it knows which operation keys are legal on each pool. The matrix is the contract between model owners, kernel teams, and serving operators.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        {type: 'table', headers: ['Failure mode', 'Trigger', 'Consequence'], rows: [
-          ['State explosion without bucketing', 'Every exact tensor shape gets its own row', 'Registry becomes unmaintainable; lookup misses increase because exact shapes do not match'],
-          ['Thin parity data', 'Parity tests use only a few canonical shapes', 'Kernels pass parity for tested shapes but drift on production tail shapes'],
-          ['Collapsed fallback reasons', 'All fallbacks logged as "unsupported"', 'Porting roadmap has no signal; every miss looks identical'],
-          ['Ignored rollout stages', 'Test kernels deployed directly to production', 'Regressions hit 100% of traffic instead of 1% canary'],
-          ['CPU fallback treated as free', 'Fallback rate not monitored', 'Latency degrades silently as more ops miss the accelerated path; p99 blows up from CPU tail'],
-          ['Stale evidence', 'Matrix not updated after driver or framework upgrade', 'Router trusts a kernel that no longer works; silent correctness regression'],
-        ]},
-        'The silent failure is stale evidence. A kernel that passed parity six months ago may produce different results after a cuDNN or ROCm update. Without telemetry feedback and automatic staleness detection, the matrix degrades into a false-confidence artifact.',
+        'It fails when teams treat the table as static documentation. A driver update can change behavior, a compiler pass can introduce a new fused shape, and a model revision can create a key that never appeared in testing. Evidence needs timestamps, artifact versions, and automatic expiry.',
+        'It also fails when fallback is treated as free. CPU or unfused fallback may preserve correctness but can destroy p99 latency when a rare key becomes common. The audit must distinguish no kernel, failed guard, stale evidence, parity failure, and rollout block; otherwise every miss looks the same.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A team ports fused softmax for bf16 transformer inference to an AMD MI250X fleet. The key is fused_softmax, bf16, contiguous, sequence 2048 to 8192, batch 1 to 192, HIP backend. Initial lookup returns no production row, so traffic stays on the CUDA fleet or an unfused fallback.',
+        'The kernel team adds a test row and runs 100 shape samples against a CPU reference with max absolute error tolerance 1e-3. Ninety-seven pass, and the 3 failures all have batch above 192 where local memory tiling misaligns. The guard is tightened to batch <= 192, and batch 193 to 256 routes to the unfused HIP path.',
+        'A 1 percent canary shows p99 latency of 12 ms against an 11 ms CUDA baseline, fallback rate of 0.3 percent, and no quality slice regression. The row moves to ramp for MI250X only. The numbers matter because the word supported would hide the batch boundary that actually controls safety.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {type: 'note', text: 'Primary sources for the dispatch mechanisms this case study builds on:'},
-        {type: 'bullets', items: [
-          'PyTorch dispatcher internals: https://docs.pytorch.org/tutorials/advanced/dispatcher.html -- explains dispatch keys, backend fallback, and how operator implementations are registered per device type.',
-          'PyTorch backend extension guide: https://docs.pytorch.org/tutorials/advanced/extend_dispatcher.html -- the official pattern for adding a new backend to the PyTorch dispatch table.',
-          'ONNX Runtime execution providers: https://onnxruntime.ai/docs/execution-providers/ -- capability-based provider selection, priority ordering, and graph partitioning across backends.',
-          'StableHLO specification: https://openxla.org/stablehlo/spec -- the portable op set that XLA uses to abstract across accelerators at the compiler level.',
-          'AMD HIP porting guide: https://rocm.docs.amd.com/projects/HIP/en/latest/how-to/hip_porting_guide.html -- practical constraints when porting CUDA kernels to HIP, including API gaps and behavioral differences.',
-          'Triton fused softmax tutorial: https://triton-lang.org/main/getting-started/tutorials/02-fused-softmax.html -- tile-based kernel programming where shape and SRAM constraints directly determine legality.',
-        ]},
-        'Related topics on this site: Interpreter Dispatch Table for the local dispatch pattern. Feature Flag Control Plane for rollout gate mechanics. Inference Kernel Fusion and CUDA Graphs for understanding which fast paths the matrix gates. CUDA Graph Shape Cache for shape-bucketing constraints. Heterogeneous AI Compute Workload Router for the placement policy that consumes the matrix. Transformer Inference Roofline for the cost model that sets latency gates.',
+        'Study PyTorch dispatcher internals for dispatch keys and backend fallback. Study ONNX Runtime execution providers for provider priority and graph partitioning. Study StableHLO for portable operation contracts across compiler backends, and the Triton fused softmax tutorial for shape and SRAM constraints that decide kernel legality.',
+        'Study next: Interpreter Dispatch Table for local dispatch, Feature Flag Control Plane for staged rollout, CUDA Graph Shape Cache for shape bucketing, Transformer Inference Roofline for cost gates, and Heterogeneous AI Compute Workload Router for placement policy.',
       ],
     },
   ],
 };
-

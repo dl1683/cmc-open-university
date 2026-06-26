@@ -377,90 +377,54 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'The memory problem RetNet attacks',
-      paragraphs: [
-        'RetNet, or Retentive Network, is a sequence-model architecture aimed at one of the central costs of Transformers: attention over growing history. Full self-attention is powerful because the current token can compare itself directly against all previous token keys and values. During inference, that means storing a KV cache that grows with sequence length, layer count, head count, head dimension, and precision. Long contexts and many concurrent users make that cache expensive.',
-        'RetNet asks whether a model can keep much of the benefit of attention while carrying a fixed-size recurrent state during decoding. It belongs in the same broad conversation as RWKV, Mamba, Kimi Linear, StreamingLLM, and other attempts to escape the worst parts of unbounded token history. The goal is a hard triangle: parallel training, efficient recurrent inference, and competitive quality.',
-        {type:'callout', text:'RetNet turns long token history into a decay-weighted serving state so the same memory rule can train in parallel and decode with bounded cache pressure.'},
-      ],
-    },
-    {
-      heading: 'The naive approaches and their limits',
-      paragraphs: [
-        'The naive answer is to keep full attention. That gives exact access to every previous token, but the KV cache grows with every generated token. This hurts memory, batching, and throughput. A server may have enough compute to generate tokens but not enough accelerator memory to keep long caches for many sessions.',
-        'Another naive answer is to use a plain RNN-style hidden state. That gives constant-memory decoding, but classic recurrent models are hard to train at scale and often lose long-range information. The state must carry enough detail for future queries, and gradients must support learning that behavior.',
-        'RetNet tries to combine the virtues: a rule that can be trained in parallel like attention, evaluated recurrently like a state model, and executed chunkwise for long sequences. The cost is that old token evidence becomes compressed and decayed rather than exactly addressable.',
-      ],
-    },
-    {
-      heading: 'The retention mechanism',
-      paragraphs: [
-        'The central data structure is a retention state. At each step, the model writes information derived from the current token into the state. Older information decays. The current query reads from the state. You can think of it as a rolling key-value summary rather than a list of all past keys and values.',
-        'The same retention rule has multiple execution views. In parallel mode, retention resembles a causal attention computation with decay factors, so training can process many tokens together. In recurrent mode, inference carries state forward token by token. In chunkwise recurrent mode, chunks are processed with parallelism while summaries pass between chunks. This is the architectural trick: one mathematical rule, different schedules for training and serving.',
-        'Multi-scale retention uses different decay behavior across heads. Some heads forget quickly and specialize in local syntax or recent features. Others decay slowly and carry longer-horizon information. That multi-scale design matters because a single decay rate would be too blunt. Language has dependencies at many time scales.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'RetNet can work because not every future decision needs exact access to every old token. Much of language modeling depends on compressed state: topic, entities, syntax, discourse, and recent local structure. If the retention state preserves the right information at the right time scale, the model can avoid storing every old KV row while still producing good predictions.',
-        'It also works because parallel training is preserved. A pure recurrent model may have attractive inference memory but poor training throughput. RetNet\'s parallel and chunkwise forms are attempts to keep accelerator-friendly training while offering recurrent serving. That distinction is central. Serving efficiency alone is not enough if the architecture is too slow or unstable to train.',
-        'The architecture is strongest when memory pressure is the bottleneck. Long-context serving, high-concurrency chat, streaming generation, and edge deployment all care about state size. A fixed or flatter decode state can improve batching and reduce HBM pressure if quality holds.',
-      ],
-    },
-    {
-      heading: 'Where it fits',
-      paragraphs: [
-        'Imagine an always-on assistant that follows a long meeting while answering interruptions. Full attention gives exact access to the transcript but grows a large KV cache for every active user. RetNet offers a different route: store the evolving conversation in retention state, keep decode memory flatter, and reserve retrieval or exact-attention paths for facts that must be quoted.',
-        'Another fit is streaming generation where recent and thematic information matter more than exact old spans. A model writing a long story may benefit from persistent character and plot state even if exact early wording is not needed. By contrast, a legal assistant that must quote a clause should not rely only on compressed retention state.',
-        'RetNet is therefore best understood as part of a hybrid memory design space. It may be paired with retrieval, local attention, attention sinks, or exact windows. The retention state handles cheap continuity; other mechanisms handle exact evidence.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The main failure mode is compressed-history loss. Full attention can directly compare the current query to an old key. RetNet can only use what survived in the retention state. If a name, number, exception, or instruction decays away, the model may answer fluently and incorrectly.',
-        'Decay settings and state size are critical. Fast decay can forget too aggressively. Slow decay can preserve stale or irrelevant information. Too little state becomes a bottleneck. Chunk boundaries can create artifacts. Quantization may damage long-horizon state more than short local activations. These are not cosmetic implementation details; they are the memory contract.',
-        'The release gate cannot be a single perplexity number. It should include normal short tasks, long-context QA, needle retrieval, quote accuracy, chunk-boundary tests, p95 latency, HBM footprint, quantized serving sweeps, and protected slices where exact recall matters. If lower memory loses decisive facts, the system did not improve for that workload.',
-      ],
-    },
-    {
-      heading: 'A worked comparison',
-      paragraphs: [
-        'Compare three assistants serving 100 concurrent long conversations. A full-attention Transformer keeps a growing KV cache for each conversation and preserves exact old-token access. A sliding-window model keeps only recent exact state and needs retrieval or summaries for old facts. A RetNet-style model carries a retention state that grows much more slowly, giving cheaper continuity but not exact replay of every old token.',
-        'The right choice depends on the job. If the assistant must quote old messages, exact cache or retrieval is necessary. If it must maintain conversational continuity and topic state, retention may be enough. If the product is memory-bound and exact old spans are rare, RetNet-like state can improve concurrency. The evaluation should show which case is true, not merely report that the architecture is linear or recurrent.',
-      ],
-    },
-    {
-      heading: 'Implementation details that matter',
-      paragraphs: [
-        'Efficient retention requires good kernels and stable numerics. A theoretical memory advantage can disappear if scans are slow, if chunkwise execution creates overhead, or if quantization damages the state. Serving teams also need to understand how retention state is batched, cached, migrated, and reset between sessions.',
-        'Training details matter as well. Multi-scale decay, initialization, normalization, and data mixture all affect what the state learns to preserve. RetNet should be taught as a full architecture, not as a slogan that constant state automatically beats attention.',
-      ],
-    },
-    {
-      heading: 'Practical guidance',
-      paragraphs: [
-        'Evaluate RetNet by workload slice, not by one average score. Include short tasks, long QA, exact quote retrieval, needle tests, streaming continuation, chunk-boundary cases, quantized serving, p95 latency, throughput, and memory per active session. A lower memory curve is useful only if the lost recall is outside the product requirement.',
-        'Compare against the real alternatives: full attention, sliding-window attention, retrieval plus a shorter context, attention sinks, hybrid attention-retention layers, and state-space models. The decision is usually not "attention or retention forever." It is how much exact token history the workload needs, how much compressed state it can tolerate, and where external evidence should take over.',
-        'Treat retention state as serving state. Define when it resets, how it is copied during request migration, whether it can be quantized, how it is protected between users, and how failures are logged. If the state is opaque and unmeasured, a production incident will be hard to debug because the missing fact was never stored as an inspectable token row.',
-      ],
-    },
-    {
-      heading: 'What to remember',
-      paragraphs: [
-        'RetNet replaces an ever-growing token cache with a decay-weighted retention state. The key idea is not simply recurrence; it is a rule that supports parallel training, recurrent inference, and chunkwise execution.',
-        'The tradeoff is exact history versus compressed state. Retention can reduce serving memory only if the state preserves what the task needs. The right comparison measures quality, recall, latency, throughput, memory, and implementation maturity together.',
-        'For study, RetNet is useful because it forces a precise vocabulary around memory. A KV cache is explicit token history. A retention state is compressed recurrent history. A retrieval index is external evidence. Modern long-context systems often combine these rather than choosing one forever.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Retentive Network: A Successor to Transformer for Large Language Models at https://arxiv.org/abs/2307.08621, Microsoft Research publication page at https://www.microsoft.com/en-us/research/publication/retentive-network-a-successor-to-transformer-for-large-language-models/, and the Microsoft TorchScale repository at https://github.com/microsoft/torchscale. Recent follow-up context includes A Survey of Retentive Network at https://arxiv.org/abs/2506.06708 and DRetHTR for handwritten text recognition at https://arxiv.org/abs/2602.17387.',
-        'Study Attention Mechanism, KV Cache, Transformer Inference Roofline, RWKV Recurrent Transformer, Selective State Space Models: Mamba, Kimi Linear Attention, Hybrid Attention State Budget Case Study, FNet Fourier Token Mixing Case Study, Titans Test-Time Neural Memory Case Study, MatMul-Free Language Modeling, and Benchmark Variance & Model Selection next.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the RetNet frames as a memory contract. Active nodes show the current token being projected into query, key, and value terms; found nodes show the carried retention state or output; compare nodes mark what full attention would have stored explicitly.',
+      'Retention state means compressed recurrent memory. The safe inference rule is: if the state update applies the same decay, write, and read rule as the parallel form, the schedule changed but the retention computation stayed the same.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'RetNet, or Retentive Network, exists because Transformer serving stores a key-value cache that grows with context length. A key-value cache is the saved keys and values from earlier tokens, and it consumes accelerator memory for every active sequence.',
+      'Long conversations, long documents, and high-concurrency serving can become memory-bound before they become compute-bound. RetNet tries to keep much of attention\'s useful history while carrying a bounded decay-weighted state during decoding.',
+      {type:'callout', text:'RetNet turns long token history into a decay-weighted serving state so the same memory rule can train in parallel and decode with bounded cache pressure.'},
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is full attention. It keeps exact access to every previous token, which is valuable for quoting, copying, and precise long-range lookup.',
+      'Another obvious approach is a plain recurrent neural network state. It keeps fixed memory during decoding, but classic recurrent models often lose long-range detail and train less efficiently at large scale. RetNet is an attempt to keep parallel training while offering recurrent serving.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is the memory growth of exact token history. For a decoder with 32 layers, 32 key-value heads, head dimension 128, and FP16 storage, one token costs 32 * 2 * 32 * 128 * 2 bytes, or 524288 bytes, across the cache. A 16000-token session is about 8 GB before batching overhead.',
+      'That memory shape hurts batching. A server may have enough arithmetic throughput to generate tokens, but not enough high-bandwidth memory to keep many long caches resident. Sliding windows reduce memory but drop exact old context; retrieval adds another system with its own recall errors.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'RetNet replaces a growing list of old key-value rows with a retention state. Each token writes a key-value outer product into the state, the old state is multiplied by a decay factor, and the current query reads from the resulting matrix.',
+      'The same rule has three schedules. Parallel mode supports training over many tokens, recurrent mode carries one state during decoding, and chunkwise mode processes local chunks in parallel while scanning summaries between chunks. The math is shared; the execution plan changes.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'At token t, the model computes a query Q, key K, and value V. The old retention state S is decayed by gamma, then the new write K x V is added, and the output is read by multiplying Q with S.',
+      'Multi-scale retention gives different heads different decay horizons. A fast head may mostly remember nearby tokens, while a slow head keeps older evidence longer. This avoids one global forgetting rate and lets the model learn several memory time scales.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'It works when the task does not need exact old-token lookup for every decision. Many next-token decisions need topic, entity state, local syntax, and recent commitments more than they need a raw row for each old token.',
+      'The correctness argument is schedule equivalence. If the recurrent update and the parallel lower-triangular retention computation produce the same weighted sum of past writes, then decoding with carried state is computing the same retention rule. The risk is not that recurrence is invalid; the risk is that compressed state did not preserve the fact the task needs.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The cost is exact recall. Full attention can compare a query against an old key directly, while RetNet can only use what survived in the compressed state. Slow decay preserves stale evidence; fast decay forgets useful evidence.',
+      'The serving cost can be much flatter than a key-value cache, but it is not free. The retention state has per-layer and per-head matrices, chunkwise scans need kernels, and quantization can damage long-horizon state. Cost should be measured as memory per active session, p95 latency, throughput, and task recall by slice.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'RetNet-like memory is a fit for streaming generation, edge devices, always-on assistants, and long sessions where continuity matters more often than exact quotation. It is also useful as a design point in hybrid systems that combine local attention, recurrent state, and retrieval.',
+      'The production question is not whether attention or retention wins universally. The useful question is how much exact token history the workload needs and how much compressed memory loss it can tolerate.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'It fails on tasks that require exact old facts unless another mechanism preserves those facts. Legal quotation, code references, needle retrieval, and instruction exceptions can break if the key detail decays or is overwritten.',
+      'It also fails when implementation details erase the theoretical win. Slow scan kernels, unstable decay, poor chunk boundaries, state quantization drift, and weak evaluation can make a lower-memory model worse in the product slices that matter.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Consider 100 concurrent sessions, each with 16000 tokens. With the cache arithmetic above, a full-attention model can require about 8 GB per session, or about 800 GB of key-value cache across those sessions. Even if grouped-query attention reduces that number, the memory still grows linearly with tokens.',
+      'Now suppose a RetNet layer carries a 32-head state with 128 by 128 FP16 values per head. That is 32 * 128 * 128 * 2 bytes, or about 1 MB per layer, and 32 MB across 32 layers per session. The number is illustrative, but the behavior is the point: cache memory grows with context length, while recurrent state grows with model state size.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Retentive Network: A Successor to Transformer for Large Language Models at https://arxiv.org/abs/2307.08621, Microsoft Research publication page at https://www.microsoft.com/en-us/research/publication/retentive-network-a-successor-to-transformer-for-large-language-models/, and Microsoft TorchScale at https://github.com/microsoft/torchscale.',
+      'Study Attention Mechanism, KV Cache, Transformer Inference Roofline, RWKV Recurrent Transformer, Selective State Space Models: Mamba, Kimi Linear Attention, Hybrid Attention State Budget Case Study, Titans Test-Time Neural Memory Case Study, and Benchmark Variance and Model Selection next.',
+    ] },
   ],
 };

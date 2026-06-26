@@ -323,79 +323,42 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'Kafka request purgatory is the broker-side structure for requests that cannot be answered now but may become answerable soon. A produce request with acks=all may have appended to the leader log but still be waiting for in-sync replicas. A fetch request may have found the partition but not enough bytes to satisfy the consumer minimum. The broker should not block a request-handler thread for each wait, and it should not force clients to spin.',
-        'The structure combines two ideas. Watcher lists wake delayed operations when relevant partition or coordinator state changes. A timer path expires them if the condition never becomes true. Kafka calls these delayed operations purgatory because they are neither done nor lost; they are parked with enough information to recheck completion later.',
-        {type:'callout', text:'Request purgatory is a pair of indexes: watcher lists for useful events and timer buckets for deadlines, with one idempotent completion path.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach and the wall',
-      paragraphs: [
-        'The obvious approach is one waiting thread per delayed request. That model is easy to explain but impossible to scale in a broker. Many consumers use long polling. Many producers wait for replication. Holding threads, stacks, locks, and scheduler slots for every wait would turn normal traffic into resource exhaustion.',
-        'The next obvious approach is a single priority queue of deadlines plus a map of conditions. It works until cancellation and early completion dominate. Most delayed operations should finish before timeout when data arrives or replicas catch up. If completed operations remain in a timer heap until their deadline, memory grows and the broker needs expensive purge scans. The wall is not only finding the next timeout; it is deleting completed timers and watcher references cheaply.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'A delayed request needs two independent ways to finish. It can complete by condition, such as enough replicated bytes or enough fetch data. It can also complete by time, such as request timeout or max wait. The operation object therefore has to be registered in event-driven watcher lists and in a deadline data structure at the same time.',
-        'The key insight is to make completion idempotent and deletion handle-based. A delayed operation carries a completed flag and references to the structures that can wake it. When one path wins, the others must become harmless. A condition wakeup should unlink the timer entry. A timeout should prevent a later watcher from sending a second response. This is a data-structure problem about cross references, not just a scheduling problem.',
-      ],
-    },
-    {
-      heading: 'Data structures and mechanism',
-      paragraphs: [
-        'The watcher side is a hash map from watch keys to lists of delayed operations. A key might be a topic partition, coordinator key, or other broker-internal event source. When the partition advances, Kafka looks up the watcher list and tries the delayed operations that might now complete. The list does not prove completion; it only narrows which operations deserve another check.',
-        'The time side is a hierarchical timing wheel. Deadlines are bucketed by time rather than kept in one globally sorted heap. A timer task sits in a bucket list and stores enough linkage for immediate removal. Far deadlines can sit in coarser wheels and cascade down as time advances. This gives cheap insertion and cheap cancellation for the common case where operations complete before timeout.',
-        'The operation object is the bridge. It knows how to test its condition, complete the request, expire the request, and remove itself from auxiliary structures. The broker must guard this with synchronization because partition progress, timeout, cancellation, and connection close can race. The response must be produced once, and every index that points to the operation must eventually stop retaining it.',
-        'The watcher key is deliberately broader than a single request. Many produce or fetch operations can wait on the same partition. One partition progress event can therefore trigger a batch of rechecks. Some rechecks still fail, but they fail cheaply because no unrelated partitions were scanned.',
-      ],
-    },
-    {
-      heading: 'Worked cases',
-      paragraphs: [
-        'For produce with acks=all, the leader can append the batch locally before it is safe to answer success. The request waits until the in-sync replicas have replicated far enough to satisfy the acknowledgement rule. The delayed produce operation watches the partition state and also has a timeout. If followers catch up, the condition path completes it. If they do not, the timer path returns the appropriate timeout or not-enough-replicas result.',
-        'For fetch, the condition is different. A consumer may ask the broker to wait until at least fetch.min.bytes are available or until fetch.wait.max.ms expires. That long-poll behavior is healthy when traffic is sparse; it avoids empty responses and reduces client churn. The same purgatory mechanism parks the fetch, wakes it when new data arrives, or expires it with whatever result is allowed at the deadline.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Purgatory works because it separates waiting from blocking. The broker does not dedicate a thread to each outstanding condition. It stores a small operation object in structures that can be reached by the events that matter. When state changes, only related operations are rechecked, and when time advances, only the current timer bucket is processed.',
-        'The timing wheel fits because Kafka timeouts are approximate request deadlines, not high-resolution alarms. The broker needs to manage huge numbers of cancelable timers with good common-case deletion. Bucketed time plus linked-list cells is a better match than a heap when early completion and cancellation are common.',
-      ],
-    },
-    {
-      heading: 'Where it is useful',
-      paragraphs: [
-        'This pattern is useful whenever a server response depends on future state but should not tie up an execution context. Long polling, quorum acknowledgement, delayed coordination, leader state changes, and bounded waits all have the same shape: register interest in a condition, set a deadline, and complete once.',
-        'The same lesson appears outside Kafka. Distributed systems often need a table of waiters keyed by resource plus a timer structure for deadlines. Lock managers, stream processors, RPC frameworks, and schedulers all face the same question: how do we wake the right waiters without scanning all waiters, and how do we expire them without leaving stale references?',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Purgatory is not an application-level delayed-message queue. It holds broker requests waiting for broker conditions. If an application wants to deliver messages at a future wall-clock time, it needs a different design with durable scheduling semantics, replay, ownership, and recovery. Purgatory is internal control flow, not a product feature.',
-        'It also fails when metrics are read without context. Large fetch purgatory can be normal under long polling and low traffic. Large produce purgatory is more suspicious because it may point to slow followers, ISR shrinkage, under-min-ISR partitions, disk pressure, network issues, or remote storage delays. The structure tells you requests are waiting; the surrounding broker signals tell you why.',
-      ],
-    },
-    {
-      heading: 'Operational signals',
-      paragraphs: [
-        'Watch delayed-operation purgatory size by operation type, request latency, request timeout rate, follower lag, ISR shrink and expand rates, produce error counts, request-handler idle percentage, network processor utilization, and disk or remote-log latency. A rising purgatory with healthy idle time points to external conditions such as replication or data availability. A rising purgatory with low idle time may mean the broker is overloaded and cannot drain rechecks quickly.',
-        'Memory and cleanup signals matter too. Empty watcher lists, completed operations retained too long, high purge activity, and timer bucket bursts indicate data-structure pressure. The broker should remove completed timer tasks promptly, avoid global scans in the common path, and keep watcher lists from becoming long-lived garbage.',
-        'Interpret the metric by request class. Fetch purgatory often follows consumer long-poll configuration and sparse traffic. Produce purgatory is closer to a durability signal because acks=all depends on follower progress and ISR health.',
-      ],
-    },
-    {
-      heading: 'What to study next',
-      paragraphs: [
-        'Primary sources include the Confluent engineering writeup on Kafka purgatory and hierarchical timing wheels at https://www.confluent.io/blog/apache-kafka-purgatory-hierarchical-timing-wheels/, Apache Kafka DelayedOperationPurgatory metrics in the monitoring docs at https://kafka.apache.org/0101/operations/monitoring/, the Kafka TimingWheel source at https://github.com/apache/kafka/blob/trunk/server-common/src/main/java/org/apache/kafka/server/util/timer/TimingWheel.java, and KAFKA-2160 at https://issues.apache.org/jira/browse/KAFKA-2160.',
-        'Study Kafka Log Case Study for the append path, Kafka Transactions Exactly-Once Case Study for broker coordination, Hierarchical Timing Wheel for timer mechanics, Message Queue for waiter queues, Hash Table for watcher lookup, Linked List for O(1) deletion with handles, Backpressure for finite capacity, Tail Latency for timeout interpretation, and Distributed Tracing for following a delayed request through the broker.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read delayed request as one broker request that cannot finish yet. A watcher list wakes it when a relevant event happens, and a timing wheel expires it when its deadline arrives. The key rule is single completion: condition, timeout, or cancellation can win, but only one response may be sent.',
+      {type:'callout', text:'Request purgatory is a pair of indexes: watcher lists for useful events and timer buckets for deadlines, with one idempotent completion path.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Kafka brokers receive valid requests that are not answerable yet. A produce request with acks=all may wait for replicas, and a fetch request may wait for enough bytes. Purgatory lets the broker park those requests without dedicating one thread to each wait.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is blocking the request thread until the condition or timeout. That collapses when thousands of fetches long-poll or many produces wait for replication. A simple deadline heap helps timeouts but makes arbitrary early deletion expensive.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is early completion. Most delayed operations should finish before their timeout when data arrives or followers catch up. If their timer entries remain until deadline, normal success traffic becomes memory pressure and purge work.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Index the same delayed operation by event and by time. Watcher lists answer which operations might complete because this partition changed. Timer buckets answer which operations reached a deadline. A completed flag makes every path idempotent.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'The broker first tries the request immediately. If it cannot complete, it registers a delayed operation on watcher keys and inserts a timer task into a hierarchical timing wheel. When an event or timer fires, the operation rechecks its real condition before responding.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'Correctness is the single-completion invariant. Before completion, several indexes may point to the operation. After completion, later paths see the completed flag and do not send another response. Efficiency comes from scanning only the watcher list or timer bucket touched by the event.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Watcher lookup is O(1) for the key plus the list length. Timing-wheel insertion and deletion are O(1) in the common case when the operation stores its list cell. If 50000 fetches wait and 90 percent complete after 40 ms, immediate timer deletion avoids carrying 45000 stale deadlines to their timeout bucket.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Produce purgatory waits for replication conditions. Fetch purgatory implements long polling with minimum bytes and max wait. The same waiter-plus-timer pattern appears in lock managers, schedulers, stream processors, RPC frameworks, and databases.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'Purgatory is not a durable delayed-message scheduler for applications. It is broker memory for broker requests. Large fetch purgatory can be healthy long polling, while large produce purgatory may indicate slow followers, ISR trouble, disk pressure, network delay, or remote-log latency.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A producer sends acks=all with timeout 30000 ms. The leader appends at offset 5000, but a follower is at 4980, so the request watches the partition and enters the timer wheel. If the follower reaches 5000 after 18 ms, the watcher path sends success and removes the timer; otherwise the timer path expires once at 30000 ms.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Confluent purgatory and timing wheels at https://www.confluent.io/blog/apache-kafka-purgatory-hierarchical-timing-wheels/, Kafka source at https://github.com/apache/kafka, Kafka monitoring docs at https://kafka.apache.org/documentation/#monitoring, and KAFKA-2160 at https://issues.apache.org/jira/browse/KAFKA-2160. Study Timing Wheels, Hash Tables, Linked Lists, Priority Queues, Backpressure, Tail Latency, Kafka Replication, and Distributed Tracing next.',
+    ] },
   ],
 };

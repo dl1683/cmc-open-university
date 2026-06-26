@@ -219,96 +219,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
         {type:'callout', text:'Environment randomization treats the runtime interface as part of the training distribution. The goal is not noise for its own sake — it is to teach the agent the stable operation behind many valid wrappers: inspect, edit, run, interpret failure, revise, stop. An agent that only knows one shell is not a coding agent; it is a shell macro.'},
-        `A coding agent can look competent because it learned one runtime too well. It may know the exact shell, edit command, test convention, path layout, retry budget, and error format used during training. Move the same agent to PowerShell, a different patch grammar, a monorepo, a package-manager mismatch, or a tighter budget, and the apparent coding skill can collapse into interface confusion.`,
-        `Environment randomization tries to prevent that failure before evaluation. It treats the runtime interface as part of the training distribution. The goal is not to make tasks noisy for their own sake. The goal is to teach the agent the stable operation behind many valid wrappers: inspect, edit, run, interpret failure, revise, and stop.`,
+        'Read the randomization-schedule view as a sampler around a task family. A task family is a set of related problems, such as Python bug fixes or documentation edits. The sampler changes valid environment features while the underlying task goal stays comparable.',
+        'Active nodes are the environment axes being sampled: tool set, shell, repository shape, and budget. The safe inference is that each rollout must carry its environment vector into the verifier report. Without that vector, a pass rate cannot prove generalization.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A coding agent can look strong because it has learned one harness too well. A harness is the runtime wrapper around a task: shell, tools, edit grammar, filesystem, test command, timeout, and scoring rule. Change the shell from bash to PowerShell or the edit interface from patch to structured replace, and a brittle agent may fail before it reaches the software problem.',
+        'Environment randomization exists to teach stable operations behind different wrappers. The stable loop is inspect, edit, run, interpret failure, revise, and stop. The curriculum makes valid interface shifts part of training instead of a surprise at evaluation time.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is native-only training. Pick one clean benchmark environment, generate many verified trajectories, and optimize the agent inside that world. This is efficient because every rollout shares the same tools, filesystem assumptions, test runner, failure format, and scoring code.`,
-        `That approach is not foolish. A stable training environment is the right place to teach the basic loop. The problem is that the environment becomes a hidden teacher. If every successful trajectory uses the same edit API, the agent may learn that API as part of the task rather than as one possible interface to the task.`,
+        'The obvious approach is native-only training. Pick one clean environment, generate many verified trajectories, and optimize the agent inside that world. This is efficient because every rollout shares the same tools, paths, shell, test runner, and failure format.',
+        'That baseline is useful because the agent first has to learn the task loop. A chaotic environment on day one makes failure analysis impossible. The mistake is treating native performance as evidence that the agent can operate across real user environments.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `Native-only training breaks when an evaluation shift is valid but unfamiliar. The agent must solve the software task and decode the new environment at the same time. A failure under a new shell may not mean the model cannot reason about the bug. It may mean it cannot translate command intent into that shell.`,
-        `The deeper wall is measurement. A single average pass rate cannot show whether the agent improved across environment shifts or simply saw easier samples. Without the sampled environment vector attached to each rollout, the team cannot separate real portability from lucky sampling.`,
+        'The wall is valid shift. A Windows shell, a missing grep command, a monorepo layout, or a different package manager can break an agent even when the repair idea is simple. The failure does not prove the model cannot reason about the bug; it may prove it cannot bind intent to the new interface.',
+        'The measurement wall is worse. A single average pass rate hides whether the agent improved on unseen shells, low budgets, unfamiliar languages, or easier sampled tasks. Without slice metrics, portability claims are not auditable.',
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The core insight',
       paragraphs: [
-        `Make environment variation a scheduled training variable. Store an environment vector with every rollout: tool set, shell, OS, edit format, language, package manager, test command, network policy, file-size profile, monorepo depth, hidden-test policy, turn budget, token budget, and randomization seed.`,
-        `Then train in phases. First teach the task loop in the native runtime. Next introduce one controlled shift at a time. Then mix shifts. Finally reserve unseen seeds and sometimes unseen combinations for portability claims. The curriculum is a data structure: sampler, seed ledger, adapters, verifier slices, and failure ledger.`,
+        'Make the environment a first-class variable in the training record. Store shell, OS, tools, edit format, language, package manager, test command, repository shape, network policy, timeouts, token budget, turn budget, and seed. A seed is the recorded random choice that lets the same variant be reproduced.',
+        'Then train by phases. First learn the native loop. Next introduce one shift at a time. Then mix shifts. Finally reserve unseen seeds and sometimes unseen combinations for the portability claim.',
       ],
     },
     {
-      heading: 'What to randomize',
+      heading: 'How it works',
       paragraphs: [
-        `Randomize interface details that are valid in real deployments: shell, path separators, available tools, edit grammar, test command, dependency state, package manager, language, repo layout, hidden-test policy, timeouts, retry limits, and token budget. Each axis should have a reason. Shell variation teaches command portability. Edit variation teaches intent instead of one patch syntax. Budget variation teaches stopping discipline.`,
-        `Do not randomize away the task signal. If language, shell, tools, repo shape, dependencies, tests, and budget all change from the first batch, failure analysis becomes mud. A curriculum should add shifts only after the agent can solve enough native examples to show that the task loop itself is learnable.`,
+        'The sampler receives a task family and draws an environment vector. One rollout may use bash, pytest, and a small repo. Another may use PowerShell, npm test, and a nested monorepo. The verifier records pass or fail plus the sampled vector and failure class.',
+        'The curriculum gates progress. Phase 0 teaches the basic loop in the native environment. Phase 1 changes one axis, such as edit grammar. Phase 2 mixes several axes. Phase 3 evaluates on protected holdout seeds that were never used for training.',
+        'Failures route to different fixes. Bad path search needs repository-navigation data. Bad shell binding needs command-portability traces. Weak tests need better oracles. Late stopping needs budget policy training.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The curriculum works by making the invariant more predictive than the wrapper. If the agent sees the same repair pattern through several shells, edit APIs, test runners, and repo shapes, the stable operation becomes a better strategy than memorizing one interface.`,
-        `The holdout-seed invariant protects the claim. Training may see the same type of variation, but it must not see the exact seeds or exact held-out environments used for the portability report. Otherwise the curriculum just creates a new leakage channel.`,
+        'The invariant is that the stable operation should predict success better than the wrapper. If the same repair pattern appears through several shells, test runners, edit APIs, and repo shapes, memorizing one interface becomes less useful. The model has to learn the operation behind the surface.',
+        'The holdout invariant protects the claim. Training may see the same kind of variation, but not the exact seeds used to report portability. Otherwise randomization creates a new leakage channel instead of a generalization test.',
       ],
     },
     {
-      heading: 'How to use the visualization',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `In the randomization-schedule view, follow the sampler. The task family stays fixed while the sampler chooses controlled environment axes. The important state is the vector that travels with the rollout. If that vector is missing from the verifier report, the curve cannot support a generalization claim.`,
-        `The phase table shows the main curriculum rule: native first, one shift next, mixed shifts later, holdouts last. The plotted curve is illustrative, but the desired shape is real: native-only training can improve quickly on native tasks while flattening on shifted tasks; randomized training may learn slower at first but should improve on valid unseen environments.`,
-        `In the generalization-gates view, the failure ledger is the teaching object. A PowerShell failure, a missing-tool failure, a language-semantics failure, a weak-test failure, and a budget failure need different data. Averaging them together hides the next action.`,
+        'Randomization spends rollout budget. If one native task costs 5 minutes, running it across six environment variants can cost 30 minutes before extra flake handling. It also slows early learning because capacity is spent on interface robustness instead of native specialization.',
+        'The cost is behavioral. Native-only training may climb from 30 percent to 60 percent native pass rate quickly while staying at 20 percent on shifted environments. A randomized curriculum may reach only 52 percent native at the same point but 45 percent on shifted holdouts, which matters more for a product that runs in user repos.',
+        'Bookkeeping also grows. Every rollout needs an environment vector, seed, split assignment, verifier slice, failure class, and leakage check. Without that ledger, the team cannot tell whether randomization helped or merely changed the sample mix.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Suppose a team trains mostly on Python bug-fix tasks in a Linux Docker environment. Phase 0 teaches the loop: inspect files, edit code, run pytest, repair failure, submit. Phase 1 adds alternate edit grammars while keeping the shell and language fixed. Phase 2 adds PowerShell and package-script test commands. Phase 3 adds JavaScript and Rust repos, deeper monorepos, and lower budgets.`,
-        `The report should not collapse this into one score. It should show native score, unseen edit-grammar score, Windows-shell score, non-Python score, monorepo-search score, low-budget score, failure-class distribution, and cost per solved task. That table tells the team what the agent learned and what environment still breaks it.`,
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `Randomization costs rollout budget. More variants mean more environment setup, more flakes, more verifier work, and more labeled failure classes. It also costs learning speed: early native progress may be slower because some training capacity is spent learning portability.`,
-        `The tradeoff is worth it only when shifted environments matter. If the product will always run in one locked-down runtime, native specialization may be the right choice. If users bring arbitrary repos, shells, tools, and budgets, native-only training is an optimistic benchmark, not a deployment plan.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `This curriculum wins for coding agents that must work across shells, languages, repo layouts, package managers, edit APIs, and budgets. It is especially useful when the same product ships into customer repositories rather than one benchmark container.`,
-        `It also wins for research honesty. A slice-aware verifier can tell whether an agent is good at software repair, good at a particular interface, or only good when the budget is generous. That distinction matters more than one leaderboard number.`,
+        'This is useful for coding agents deployed into customer repositories. Those agents see different shells, package managers, languages, path layouts, test commands, file sizes, and budgets. A benchmark container is only one member of that deployment distribution.',
+        'It also helps research honesty. Slice-aware reports can separate software-repair skill from interface familiarity. A model that solves Linux bash tasks but fails equivalent PowerShell tasks should not be described as generally robust.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `It fails when randomization becomes noise. If the task, interface, dependencies, oracle, and budget all move at once, the data factory cannot tell what to fix. It also fails when randomization creates unrealistic variants that teach habits users will never need.`,
-        `It fails as evidence when holdout seeds leak, when training data includes benchmark tasks, when the verifier reports only averages, or when a team chooses slices after seeing results. A portability claim needs predeclared slices and protected holdouts.`,
+        'It fails when randomization becomes noise. If language, shell, dependencies, repository shape, oracle, and budget all change at once, the team cannot identify the cause of failure. A curriculum should change enough to teach portability but not enough to destroy diagnosis.',
+        'It also fails when variants are unrealistic or leaked. Training on exact holdout seeds, benchmark tasks, or synthetic variants with hidden shortcuts creates false robustness. The split ledger must be treated as a product artifact, not as notebook metadata.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        `Leakage is the most dangerous failure. The model can memorize exact seeds, tasks, repository layouts, or benchmark canaries while appearing robust. Keep seed ledgers, split manifests, and benchmark data controls as first-class artifacts.`,
-        `Another failure is adapter overfitting. If the agent sees many edit grammars but every grammar has the same hidden affordance, it may learn the hidden affordance rather than edit intent. Randomization axes should be audited the same way datasets are audited: what invariant should this axis teach, and what shortcut could it accidentally provide?`,
+        'Suppose 1,000 Python bug-fix tasks run in a Linux bash harness. Native-only training solves 620 of them and solves 210 of 1,000 Windows PowerShell holdout tasks. The gap says the model learned something about the native interface that did not transfer.',
+        'A phased curriculum spends 40 percent of rollouts on native tasks, 20 percent on edit-grammar variation, 20 percent on shell variation, and 20 percent on low-budget variants. After the same 10,000 rollout budget, native pass rate is 590 instead of 620, but PowerShell holdout pass rate rises to 470. The product accepts the native loss because user environments are not native-only.',
+        'The failure report shows 180 remaining Windows failures: 80 command-binding errors, 45 path quoting errors, 25 package-script errors, 20 timeout errors, and 10 true code-reasoning errors. That breakdown tells the next data collection step; a single pass rate would not.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World at https://arxiv.org/abs/1703.06907, Procgen generalization at https://arxiv.org/abs/1912.01588, SWE-agent at https://arxiv.org/abs/2405.15793, SWE-bench at https://github.com/swe-bench/SWE-bench, Terminal-Bench at https://arxiv.org/abs/2601.11868 and https://www.tbench.ai/, and CWM at https://arxiv.org/abs/2510.02387.`,
-        `Study the agent-portability audit module, Coding Agent Edit Grammar Adapter Case Study, Verified Agent Trajectory Store, Benchmark Variance and Model Selection, Data Leakage and Contamination, Process Reward Models and Verifier Search, and Curriculum Learning next.`,
+        'Study Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World at https://arxiv.org/abs/1703.06907, Procgen generalization at https://arxiv.org/abs/1912.01588, SWE-agent at https://arxiv.org/abs/2405.15793, SWE-bench at https://github.com/swe-bench/SWE-bench, and Terminal-Bench at https://www.tbench.ai/. Then study Coding Agent Edit Grammar Adapter, Verified Agent Trajectory Store, Data Leakage and Contamination, Process Reward Models, and Curriculum Learning.',
       ],
     },
   ],

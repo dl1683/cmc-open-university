@@ -181,67 +181,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the first view as request routing by name. Two clients reach a Worker, the Worker derives a Durable Object ID, and all requests for that ID land at one object instance. Active marks show the path that turns a global request into local coordination.',
+        'Read memory and storage as different promises. Memory is fast state that can disappear on eviction or restart. Durable storage is the private committed state the object can reload, so found storage means restart-safe truth.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Serverless platforms are excellent at running stateless request handlers, but many useful applications need a small piece of state that must be updated in one place. A chat room needs one current member list. A multiplayer match needs one turn order. A rate limiter needs one counter for a key. A seat map needs one truth about which seats are already reserved. If every request handler is stateless, the usual answer is to push all coordination into a database, cache, or lock service.`,
-        `That answer works, but it creates friction for small, hot coordination problems. Stateless functions may race on the same database row. A distributed lock adds failure modes and timeout reasoning. A globally replicated database may be too broad when the real transaction boundary is one room, one account, one document, or one game. Cloudflare Durable Objects are a different cut: make one globally addressable object own one state island, route requests for that object to it, and attach private durable storage to the same abstraction.`,
-        `The important idea is not "serverless with a variable." It is a named serialization boundary. Instead of hoping many workers update one logical entity correctly through external coordination, the platform gives that entity a single durable actor-like home. The design moves the hard question from "how do all handlers coordinate?" to "what should the object key be?"`,
+        'Serverless functions are usually stateless. That is good for scale, but many applications need one small piece of state to be updated in one place: a chat room membership list, a multiplayer turn order, a document cursor set, or a seat map. Durable Objects exist to give one named entity a single coordination home with private durable storage.',
+        'A zero-background reader can think of a Durable Object as an actor with an address. An actor owns state and receives messages; here the address is the object ID. The platform routes requests with the same ID to the same logical object, so the application can reason locally about that entity.',
         {type:'callout', text:'Durable Objects make one named entity the serialization boundary so coordination, memory, and durable state live behind the same key.'},
       ],
     },
     {
-      heading: 'The naive approach and its wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `Imagine implementing a ticket reservation system with ordinary stateless Workers and one shared database table. Two buyers request the same seat at nearly the same time. Each handler reads the row, sees the seat as open, and tries to write a reservation. You can fix this with database transactions, uniqueness constraints, retries, and idempotency keys. That is a valid design. But as the workflow grows to include WebSocket notifications, hold expiration, payment state, and live seat-map updates, the logic becomes spread across stateless handlers and database invariants.`,
-        `The next naive answer is a distributed lock per seat map. That introduces a different problem: the application now has to reason about lock ownership, lease expiry, slow handlers, retries after partial work, and what happens when the lock service is available but the database write fails. The lock protects a critical section, but it does not give the application a natural place for hot in-memory state, connected clients, timers, or local recovery logic.`,
-        `Durable Objects collapse those pieces for workloads whose natural boundary is a single named entity. All requests for ` + "`show:123`" + ` can go to the same object. That object can hold the active seat map in memory, persist committed reservations in storage, schedule or process alarms, and notify connected clients. You still need careful application logic, but the coordination surface is smaller and easier to inspect.`,
+        'The obvious approach is a stateless Worker plus a shared database row. Each request reads the row, decides what to change, writes back, and maybe sends WebSocket notifications through another service. This is a normal design and works when conflicts are rare.',
+        'Another obvious approach is a distributed lock around that database row. A lock can protect a critical section, but it adds lease timeouts, partial failure, retry logic, and another system to operate. It also does not give the workflow a natural place for hot in-memory clients and timers.',
       ],
     },
     {
-      heading: 'Core insight and mechanism',
+      heading: 'The wall',
       paragraphs: [
-        `A Durable Object class is bound in a Worker. The Worker derives an object ID, often from a user-facing name such as a room ID or document ID, obtains a stub from the namespace, and sends requests to that stub. Cloudflare routes those requests to the Durable Object instance responsible for that ID. The object has code, in-memory state while active, and attached storage that is private to that object.`,
-        `The official model gives each object a globally unique identity and single-threaded execution in the Workers runtime. That does not mean every application-level race disappears. JavaScript still has asynchronous turns, and code that awaits I/O must be designed with the runtime's concurrency rules in mind. The deeper point is that requests for one object are no longer sprayed across unrelated stateless instances. The object is the owner of that key's state and protocol.`,
-        `Modern Durable Objects can use SQLite-backed storage. Cloudflare documents this storage as transactional and strongly consistent, private to the unique object instance, with SQL and key-value style APIs depending on the storage backend. In-memory state is a cache and coordination workspace; durable storage is the restart boundary. If the object acknowledges an operation that must survive eviction, deployment, or migration, the important state must be committed to storage before the acknowledgement is meaningful.`,
+        'The wall is scattered coordination. A seat booking can involve row locks, cache invalidation, WebSocket fanout, hold expiration, payment state, and audit logs. If those pieces live in separate stateless handlers, the correctness argument is spread across retries and external invariants.',
+        'A concrete race shows the problem. Buyer A and buyer B both read seat 12 as open at 10:00:00.000, then both try to reserve it by 10:00:00.050. A database uniqueness constraint can reject one write, but the application still has to repair notifications, holds, and user-visible state after the conflict.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        `The first view follows two clients through a Worker to a Durable Object ID. The Worker is not the owner of the room or counter; it is the routing front end. The ID is the address of the logical state island. Requests that name the same object are routed to the same object instance, where application code can update local memory and private storage under one per-object protocol.`,
-        `The memory and storage nodes are intentionally separate. Memory is where a hot object keeps fast state: connected WebSockets, a counter cached from storage, a debounce timer, a pending queue, or the last computed room snapshot. Storage is where durable truth lives. A restart can erase memory. Correct code reconstructs important state from storage and treats memory as an optimization unless the state is explicitly ephemeral.`,
-        `The second view is about recovery and design boundaries. A single object is strong when one key is the right serialization unit. Many objects scale by partitioning the problem across many names. Cross-object workflows are no longer inside one automatic transaction boundary. If a purchase touches a user object, a seat-map object, a payment object, and an audit object, the application needs an explicit protocol: idempotency, compensation, a durable event log, or a database layer whose transaction model matches the workflow.`,
+        'Choose the natural conflict key and make it the object key. For a room, use room id; for a seat map, use show id; for a document, use document id; for a rate-limit bucket, use account plus time bucket. Requests that can conflict should meet at the same object.',
+        'The invariant is that one object owns one state island. Inside that island, code can check current state, apply a transition, persist what must survive, and notify connected clients. The hard design question becomes key choice, because too broad a key creates a hot object and too narrow a key loses the coordination benefit.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A Worker receives a request and derives an object ID from a name or key. It gets a stub from the Durable Object namespace and sends the request through that stub. Cloudflare routes the request to the object instance responsible for that ID.',
+        'The object can keep hot state in memory while active. It can also use attached storage for durable state, including SQLite-backed storage in current Durable Objects. A correct object treats memory as a cache or coordination workspace and commits important transitions before acknowledging success.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The design works because it aligns logical contention with placement. If all updates to one game room conflict with one another, then sending them to one object is not a weakness; it is the simplest correct serialization strategy. The object can apply changes in order, reject invalid transitions, and publish one consistent stream of updates to clients. The state machine is local to the owner instead of reconstructed from scattered requests.`,
-        `It also works because most applications have many independent coordination islands. One chat room may be busy, but most rooms are independent. One document has its own collaboration stream. One customer account has its own rate-limit bucket. By choosing object names carefully, the system can scale out across millions of objects while keeping each object's reasoning local. This is the same partitioning instinct behind sharding, actor systems, entity groups, and per-key stream processors.`,
-        `The pattern is especially useful when low-latency coordination and live connections matter. A database can store the truth, but it is not naturally a WebSocket hub. A cache can hold hot values, but it is not usually the owner of a state-transition protocol. A Durable Object can be the meeting point: requests, connected clients, timers, memory, and durable storage all attach to the same named object.`,
+        'The correctness argument is serialization at the right boundary. If all requests that can change one seat map are handled by the seat-map object, then the object can reject invalid transitions using its own current state. The application no longer reconstructs the same state machine across many stateless handlers.',
+        'Durability completes the argument only for committed state. If the object sends success before writing the reservation, a restart can erase the promise. If it writes first and replies after commit, recovery can rebuild memory from storage and preserve the user-visible outcome.',
       ],
     },
     {
-      heading: 'Tradeoffs and failure modes',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The first tradeoff is throughput per hot object. A single object is a serialization point. That is exactly why it prevents double booking inside one seat map, but it also means one extremely hot key can become the bottleneck. If the object key is "all users" or "global counter," the design has created a hot row in a different form. Good Durable Object design chooses keys that isolate contention: one room, one document, one match, one tenant shard, or one bucketed counter segment.`,
-        `The second tradeoff is boundary discipline. Durable Objects are not a replacement for every database. They do not automatically provide ad hoc querying across all objects, global secondary indexes, analytical scans, or multi-object serializable transactions. If the product needs to ask "show me all unpaid invoices across every customer" or "atomically update these twenty accounts," a separate database, queue, or table format may be the correct system of record. Durable Objects can participate, but they should not be stretched into a global relational engine by accident.`,
-        `The third tradeoff is operational reasoning. Placement is managed by the platform, and objects can be moved, evicted, or restarted. That is the point of using the service, but it means applications must handle reconstruction from storage, idempotent retries, duplicate client messages, and versioned protocol changes. A hot in-memory map that is not persisted is a cache. A response sent before durable commit is an application promise that may not survive failure.`,
+        'Cost follows contention. One quiet room object is cheap because it wakes on demand and stores a small state island. One global counter object is expensive because every increment queues behind the same name. When traffic doubles for independent room IDs, capacity can spread; when traffic doubles for one ID, that object is the bottleneck.',
+        'The complexity cost is boundary design. Cross-object transactions are not the primitive. If one purchase touches a user object, seat-map object, payment object, and audit object, the application needs idempotency, a durable event protocol, or a database transaction outside Durable Objects.',
       ],
     },
     {
-      heading: 'Concrete examples',
+      heading: 'Real-world uses',
       paragraphs: [
-        `For a chat room, the object key is the room ID. The object tracks connected clients in memory and stores durable room metadata or recent message pointers. Incoming messages route to the room object, which orders them, applies moderation or membership checks, persists what must survive, and broadcasts to WebSocket clients. The database no longer has to be the only coordination point for live fanout.`,
-        `For a seat map, the object key is the show ID. Every reservation attempt reaches the same object. It checks whether the requested seats are open, writes the reservation in a transaction, and only then confirms to the buyer. If the object restarts, it reloads committed reservations from storage. If demand is too high for one show object, that is a real product-level contention signal; the designer may shard by section, add a queue, or move the critical transaction into a database with the right capacity.`,
-        `For a rate limiter, the key may be an account plus a time bucket. The object owns one counter window, applies increments, schedules expiration, and returns allow or deny. This avoids making every request handler race on the same external counter, while still allowing the keyspace to scale across many independent objects.`,
+        'Durable Objects fit live collaboration rooms, chat rooms, multiplayer matches, per-account rate limits, shopping carts, queues, and seat maps. In each case, many clients interact with one logical entity and the entity has a small amount of hot state. The object gives that entity a local protocol.',
+        'They also fit WebSocket fanout because connected clients can attach to the object that owns the room. A database can store messages, but it is not naturally the owner of live connection sets. The object can bridge committed storage and active clients.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        `Primary sources: Cloudflare's Durable Objects overview at https://developers.cloudflare.com/durable-objects/, the "What are Durable Objects?" concept page at https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/, rules and design notes at https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/, storage access notes at https://developers.cloudflare.com/durable-objects/best-practices/access-durable-objects-storage/, and the SQLite storage API at https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/. Product behavior changes, so check the current docs before relying on limits or backend details.`,
-        `Next, study Distributed Locks to understand the alternative coordination model, Hot Rows for the bottleneck Durable Objects often replace, Actor Model systems such as Orleans or Erlang for the broader programming pattern, SQLite B-Tree Pager for local transactional storage, Transactional Outbox for cross-system handoff, Idempotency Keys for retry safety, and Consistent Hashing or sharding topics for choosing object names that spread load without destroying the natural serialization boundary.`,
+        'It fails when the object key is too hot. A single global object for all users is just a hot row with a different name. Shard counters by bucket, split seat maps by section if the product allows it, or move the critical operation to a database designed for that write rate.',
+        'It also fails when the workload needs broad ad hoc queries across all objects. Durable Objects are not a global analytical database or a general distributed SQL engine. Use them for per-entity coordination, then export or mirror facts to the system that owns broad querying.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A theater has 900 seats and expects 300 reservation attempts in the first minute after sales open. With a stateless design, many handlers race on the same rows and then repair rejected writes. With a Durable Object keyed by show:123, the 300 attempts enter one ordered protocol for that seat map.',
+        'If each check-and-commit takes 4 ms of object CPU time, the object can process about 250 such transitions per second before queueing becomes visible. If demand is 5,000 attempts per second for one show, the key is too hot and the design must shard by section or add a queue. The cost tells the product where contention really lives.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Cloudflare Durable Objects concepts, rules of Durable Objects, storage access guidance, and SQLite storage API documentation. These pages define object identity, private storage, lifecycle, and current storage behavior.',
+        'Study next by role. Read actor systems for the programming model, distributed locks for the alternative, idempotency keys for retry safety, transactional outbox for cross-system handoff, and sharding for key design under hot-spot pressure.',
       ],
     },
   ],

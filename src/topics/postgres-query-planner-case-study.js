@@ -207,95 +207,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A SQL query describes the result, not the procedure. The same query can be a sequential scan, an index scan, a bitmap scan, a nested-loop join, a hash join, a merge join, a parallel plan, or some mixture of those choices. The PostgreSQL planner exists because picking that procedure by hand would make SQL brittle and unportable.',
-        'The planner is a decision system over imperfect information. It knows table definitions, index definitions, constraints, sampled statistics, and cost constants. It does not know the exact future cache state, every parameter value, or every correlation in the data unless those facts are represented in statistics or query shape.',
+        'Read the planner pipeline as a search over legal physical plans. SQL describes the result, while scan choices, join choices, sort choices, and aggregation choices describe how PostgreSQL might produce it.',
+        'In the bad-estimate view, estimated rows and actual rows are the important comparison. The slow node near the top is often a consequence of an earlier cardinality error near a table scan.',
         {type:'callout', text:'The planner is a search engine over legal execution paths, and cardinality estimates are the evidence that makes one path look cheaper than another.'},
       ],
     },
     {
-      heading: 'The tempting wrong answer',
+      heading: 'Why this exists',
       paragraphs: [
-        'A common beginner instinct is to ask why PostgreSQL does not simply use the index. The answer is that an index is only an access path, not a guarantee of lower cost. If the predicate is broad, the table is small, rows are scattered, or the index does not match the expression, scanning can be cheaper.',
-        'Another tempting answer is to force the plan that worked yesterday. That can hide the real failure: the estimate drifted, a data distribution changed, a join input grew, or a newly selective predicate was invisible to the planner.',
+        'SQL is declarative, which means the user states what result is wanted rather than the exact procedure. PostgreSQL needs a planner because one query can be answered by many legal procedures with very different costs.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Planning is a search over paths under a cost model. PostgreSQL parses and rewrites SQL, enumerates scan and join alternatives, estimates row counts from statistics, prices CPU and page IO, then sends the cheapest estimated tree to the executor.',
-        'The fragile number is cardinality. A small row-estimate error near the leaves can select the wrong join order, which can multiply into a bad nested loop, sort, hash-table size, or memory spill. Correlated columns are especially dangerous when the planner treats predicates as independent.',
+        'The obvious approach is to use an index whenever one exists. Indexes sound like the fast path because they avoid scanning the whole table for selective lookups.',
       ],
     },
     {
-      heading: 'How to inspect a plan',
+      heading: 'The wall',
       paragraphs: [
-        'The pipeline animation separates facts from choices. Schema and indexes define what plans are legal. Statistics shape row estimates. Cost settings translate those estimates into a price. The chosen plan is not the only possible plan; it is the cheapest plan according to the information PostgreSQL has.',
-        'The bad-estimate view shows the failure mode to look for in EXPLAIN ANALYZE. Estimated rows and actual rows diverge first; the slow operator often appears later as a consequence. Debug from the first large estimate error, not from the most dramatic runtime number at the top.',
+        'The wall is plan interaction. A bad estimate for one filter can choose the wrong join order, which can choose the wrong join algorithm, which can create a sort, spill, or nested loop explosion.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Planning is cost-based search. PostgreSQL builds possible paths, estimates row counts, prices CPU and IO, and chooses the cheapest estimated tree.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'PostgreSQL first turns SQL into a query tree, applies rewrites, and builds possible paths. A path might scan a table sequentially, use an index, build a bitmap, join with nested loops, hash, or merge, sort rows, aggregate, or run parallel workers. The planner prices these alternatives with row estimates and cost constants.',
-        'Statistics are the planner evidence. Histograms, most-common values, null fractions, distinct counts, and extended statistics help estimate selectivity. If those statistics are stale or cannot express a correlation, the chosen path can be rational according to the planner and still terrible at runtime.',
+        'PostgreSQL parses SQL, applies rewrites, enumerates access paths, considers join orders and join algorithms, and prices plan nodes. Statistics supply evidence such as histograms, most-common values, null fractions, distinct counts, and extended statistics.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The planner works because SQL is declarative. Users describe the result; the database chooses a physical procedure. That separation lets the same query benefit from new indexes, updated statistics, better join choices, and different hardware without rewriting application code.',
-        'Cost-based planning is also why a database can choose not to use an index. An index scan can be slower when it touches many random heap pages or when the table is small enough that a sequential scan is cheaper. The planner is choosing estimated total cost, not checking an index-use checkbox.',
+        'Correctness is separate from optimality. A bad plan can still return the right result; it is wrong as an engineering choice because the cost model was misled or the search space lacked a useful path.',
       ],
     },
     {
-      heading: 'What to do about bad plans',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Start with EXPLAIN ANALYZE and BUFFERS. Compare estimated rows with actual rows at each node. Find the first place the estimate goes badly wrong, then ask what the planner could not see: stale statistics, skew, correlation, a missing partial index, an expression mismatch, or a cost model that does not match the hardware.',
-        'Repairs should change the planner evidence or the available paths. ANALYZE refreshes samples. Extended statistics can teach dependencies, most-common value combinations, and ndistinct facts across columns. Partial and expression indexes can expose selective paths. Query rewrites can make predicates visible. Cost settings should reflect real storage and memory behavior.',
+        'Planning cost grows with tables, joins, indexes, predicates, and alternatives. A 10x underestimate on one table and a 20x underestimate on another can make a join look 200x smaller than it is, which may choose nested loops where a hash join was needed.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A multi-tenant events table powers a dashboard. The query filters tenant_id, event_time, and event_type. After a bulk load, one tenant becomes much larger than the rest. The planner still estimates as if the distribution is modest, picks a nested loop, and the query jumps from 50 ms to 8 seconds.',
-        'The fix is not blindly adding indexes. The team runs EXPLAIN ANALYZE BUFFERS, finds the first row-estimate gap, refreshes statistics, adds extended statistics for correlated columns, and creates a partial index for the dashboard slice. The next plan uses the visible selective path, and the team stores the plan evidence as a regression guard.',
-      ],
-    },
-    {
-      heading: 'Where it fits',
-      paragraphs: [
-        'This case study connects data structures to optimization. A B-tree, BRIN index, GIN index, or hash table matters only when the optimizer can see why it helps. The planner is the layer that turns structures into execution choices.',
-        'A complete production example is a multi-tenant events table. A dashboard filters tenant_id, event_time, and event_type. If statistics miss tenant skew, PostgreSQL may choose a broad scan or a nested loop that explodes. Extended statistics plus a partial index can make the intended path visible and keep the plan stable as data grows.',
+        'The planner is the layer that turns data structures into query behavior. B-trees, BRIN indexes, GIN indexes, bitmap scans, hash joins, and merge joins matter only when the planner can see when they help.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The planner fails when its evidence is wrong or incomplete. Stale statistics, correlated predicates, parameter-sensitive plans, misleading cost settings, expression mismatch, and missing indexes can all lead to bad choices. The database is not being irrational; it is optimizing from a distorted map.',
-        'It also fails when teams debug from intuition instead of evidence. "Use the index" is not a diagnosis. The plan needs actual rows, buffers, timing, and the first estimate error. That discipline prevents random index sprawl and plan hints that hide the real problem.',
+        'It fails when evidence is wrong or incomplete. Stale statistics, correlated predicates, parameter-sensitive plans, expression mismatch, misleading cost settings, and missing indexes can all distort the map.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Track slow-query fingerprints, plan changes, row-estimate error, buffer reads, temp spills, sequential-scan surprises, autovacuum and ANALYZE freshness, index usage, and p95/p99 latency by query pattern. These signals tell whether planner evidence is drifting before users report a regression.',
-        'For course design, teach this after indexes and join algorithms. Students should see that an index is only a possible path. The planner needs statistics and a cost model to decide whether that path is actually useful.',
-      ],
-    },
-    {
-      heading: 'What to remember',
-      paragraphs: [
-        'The planner is not trying to be clever for its own sake. It is searching for the cheapest physical way to produce a declarative SQL result. When it chooses badly, the first question is what evidence was missing or wrong.',
-        'The most important habit is to compare estimated rows with actual rows. That single habit explains many plan regressions. Bad cardinality near the leaves can poison join order, memory sizing, sort choice, and index choice farther up the tree.',
-        'A curriculum should make students debug plans with evidence. Read EXPLAIN, find the first bad estimate, change one piece of planner evidence, and compare again. That is a better lesson than memorizing that indexes are good or sequential scans are bad.',
+        'A tenant events table has 100 million rows. The planner estimates tenant_id = 42 and event_type = purchase will return 1,000 rows, but EXPLAIN ANALYZE shows 800,000 rows because tenant 42 is a large customer.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: PostgreSQL planner statistics documentation at https://www.postgresql.org/docs/current/planner-stats.html, EXPLAIN documentation at https://www.postgresql.org/docs/current/using-explain.html, PostgreSQL executor documentation at https://www.postgresql.org/docs/current/executor.html, and extended statistics examples at https://www.postgresql.org/docs/current/multivariate-statistics-examples.html. Study PostgreSQL Statistics Histogram & MCV for selectivity inputs, Cardinality Estimation Error Propagation for q-error and join-order failure, Selinger DP Join Order Optimizer for subset enumeration, Cascades Memo Query Optimizer for memoized rule search, SQL Join Algorithms Primer for nested-loop/hash/merge choices, and Volcano Iterator Query Execution for how the chosen plan actually runs.',
+        'Primary sources: PostgreSQL planner statistics documentation at https://www.postgresql.org/docs/current/planner-stats.html, EXPLAIN documentation at https://www.postgresql.org/docs/current/using-explain.html, PostgreSQL executor documentation at https://www.postgresql.org/docs/current/executor.html, and extended statistics examples at https://www.postgresql.org/docs/current/multivariate-statistics-examples.html. Study PostgreSQL Statistics Histogram and MCV, Cardinality Estimation Error Propagation, Selinger DP Join Order Optimizer, Cascades Memo Query Optimizer, SQL Join Algorithms Primer, and Volcano Iterator Query Execution next.',
       ],
     },
   ],

@@ -181,83 +181,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What a Proxy actually changes',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A JavaScript Proxy changes the path an object operation takes. Instead of a property read, write, function call, construction, enumeration, or descriptor operation going straight to the target object, it first reaches a handler. The handler can intercept that operation through traps such as get, set, has, apply, construct, ownKeys, and defineProperty.',
-        'That makes Proxy an interposition primitive. It is not just a nicer getter or setter. It can stand in front of the object protocol itself. The target still exists, but the caller no longer talks to it directly.',
-        'This is powerful at boundaries: logging, validation, compatibility shims, lazy objects, access control, membranes, and test doubles. It is also dangerous as a default data model because it makes ordinary object operations run user code.',
+        'Read the trap-path view as one object operation crossing a boundary. A call site is the code that writes property access such as obj.x, the proxy is the wrapper, the handler stores traps, and the target is the real object behind the wrapper. Active nodes show the operation path; found nodes show the ordinary object path that remains available through Reflect.',
+        'Read the engine-cost view as a contrast between predictable shape lookup and user-code dispatch. A hidden class is an engine record of object layout, and an inline cache is a small call-site cache that remembers how a previous property load was resolved. When the proxy path lights up, the animation is showing the moment where the engine must respect programmable behavior instead of assuming a direct slot load.',
         {type:'callout', text:'A Proxy makes object access programmable, so the same hook that enables membranes and validation can also defeat the assumptions behind fast property access.'},
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious way to add policy is to wrap methods manually: create a facade with functions that validate, log, or forward. That works when the API is explicit and small.',
-        'The wall is that JavaScript object behavior is not limited to method calls. Code can read a property, assign a property, use `in`, enumerate keys, call a function, construct with `new`, inspect descriptors, or interact with the prototype chain. A method wrapper does not see all of those operations.',
-        'Proxy solves the coverage problem by interposing at the protocol layer. The price is that the engine must treat the operation as potentially arbitrary. A property read on a proxy can allocate, throw, mutate unrelated objects, call back into the same proxy, or synthesize a value that never existed on the target.',
+        'JavaScript has many ways to touch an object: read a property, write a property, check a key with in, enumerate keys, call a function, construct with new, or inspect descriptors. A normal wrapper function sees only explicit calls, so it misses much of the object protocol. Proxy exists to interpose on those operations through traps.',
+        'Interpose means to stand between caller and target. That is useful at boundaries where the boundary itself is the feature: validation, logging, compatibility shims, lazy objects, access control, test doubles, and membranes. A membrane is a wrapper around an object graph that can restrict, log, or revoke access across a trust boundary.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The obvious approach',
       paragraphs: [
-        'In the trap-path view, follow the operation from call site to proxy to handler. The important fact is that `obj.x` no longer means "load a slot from this object." It means "ask the proxy handler what this property read should do."',
-        'When Reflect appears, read it as deliberate forwarding. A trap can enforce policy, log access, or transform arguments, then use Reflect.get, Reflect.set, or another Reflect method to preserve the ordinary object operation. Reflect keeps the trap from hand-implementing the language semantics poorly.',
-        'In the engine-cost view, compare the proxy path with the shape and inline-cache path. Plain objects give the engine stable structure. Proxies replace that predictable structure with user-code dispatch, which is exactly the feature and exactly the cost.',
+        'The obvious approach is to write ordinary wrapper methods. If a user object has getName and setName, the wrapper can validate input, log calls, and forward to the real object. That works when the API is small and every operation is an explicit method call.',
+        'The approach breaks down when callers use normal object syntax. A property read like user.name does not call getName, the in operator does not call a wrapper method, and Object.keys has its own protocol. A facade can cover the methods it knows about, but it cannot cover the object language itself unless every caller agrees to use the facade API.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The wall',
       paragraphs: [
-        'For `proxy.x`, the engine checks whether the handler defines a get trap. If it does, the trap receives the target, property key, and receiver. The trap can return a synthetic value, deny access, lazily compute a value, or forward with Reflect.get.',
-        'For `proxy.x = value`, the set trap can validate, redirect, or reject the write. For function proxies, apply and construct traps intercept calls and `new`. For enumeration and reflection, ownKeys and getOwnPropertyDescriptor participate.',
-        'The language still enforces invariants. A trap cannot pretend a non-configurable property vanished, report impossible descriptors, or violate non-extensible object constraints. Proxy virtualizes behavior, but it does not erase the object model underneath.',
-        'That invariant enforcement is why Reflect is common in serious proxy code. It delegates the ordinary operation back to the engine after the handler has made its policy decision. Hand-written forwarding often gets receiver binding, accessors, prototypes, or descriptor rules wrong.',
+        'The wall is coverage versus speed. To cover the full object protocol, Proxy must make ordinary-looking operations observable to user code. A property read can now log, allocate, throw, recurse, call another object, or synthesize a value that is not stored on the target.',
+        'That destroys some of the assumptions engines use for fast property access. A plain object with stable layout lets the engine turn obj.x into a cached offset load after a few observations. A proxy forces the engine to ask the handler what the operation means, so the fast path is weaker even when the trap eventually forwards to the target.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Proxy moves the decision point from object layout to operation dispatch. A normal property load can be optimized around a known hidden class and offset. A proxied load must ask the handler what the operation means.',
-        'That is the whole trade. It enables membranes because every read, write, and call can pass through policy. It hurts hot paths because the engine loses the stable assumptions that make inline caches fast.',
-        'Reflect is the controlled path back to normal semantics. It lets a trap say: "run my policy first, then perform the operation the language would have performed." But Reflect is not a bypass for correctness. Bad receiver handling or recursive forwarding can still create loops.',
+        'Proxy moves the decision point from object layout to operation dispatch. Instead of asking only where property x lives in memory, the runtime asks whether the handler has a trap for this operation and what that trap returns. The target still matters, but the caller no longer reaches it directly.',
+        'Reflect is the controlled path back to ordinary semantics. A trap can do policy work first and then call Reflect.get, Reflect.set, or another Reflect method to perform the language operation correctly. The insight is not to replace JavaScript semantics by hand; it is to intercept the decision and forward deliberately when normal behavior is desired.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'How it works',
       paragraphs: [
-        'A plugin host exposes a project object to untrusted plugins. The host wraps the object in a membrane. Reads are allowed, writes to protected paths are rejected, functions are wrapped so arguments and return values stay inside the membrane, and access can be revoked when the plugin unloads.',
-        'In that case the proxy cost is justified because the boundary is the product. The host wants interposition more than raw property speed.',
-        'Now put a proxy around every row in a 100,000-row table and render `row.name`, `row.status`, and `row.total` in a tight loop. The code may become much slower because every read runs through traps and the engine cannot treat the rows as plain stable objects. The better design is plain row data plus validation when data enters the table model.',
+        'A Proxy is created from a target object and a handler object. When code evaluates proxy.name, the engine checks whether handler.get exists. If it does, the trap receives the target, property key, and receiver; it can return a value, throw, or forward with Reflect.get.',
+        'Writes use set, membership checks use has, function calls use apply, constructors use construct, key enumeration uses ownKeys, and descriptor operations use traps such as getOwnPropertyDescriptor and defineProperty. The handler can implement policy at each operation point. The target remains the reference object that invariants are checked against.',
+        'Those invariants are not optional. A trap cannot claim that a non-configurable property disappeared, cannot report impossible descriptor state, and cannot violate non-extensible object rules. If handler behavior conflicts with required target facts, the engine throws instead of accepting the lie.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Why it works',
       paragraphs: [
-        'Proxy wins when interposition is the point: plugin boundaries, security membranes, compatibility adapters, observability wrappers, lazy remote objects, deprecation warnings, test doubles, and schema guards at API edges.',
-        'It is also useful when you need to virtualize an object whose full property set is not known up front. The handler can synthesize values, hide implementation details, or bridge to another storage layer.',
-        'A good proxy design is explicit about the boundary it protects. If the boundary can be named, tested, and documented, Proxy may be the right primitive. If the goal is only convenience inside ordinary application data, plain objects plus normal functions are usually easier to optimize and debug.',
+        'The correctness argument is an invariant argument. For every trapped operation, the language still checks the result against the target invariants that protect object identity, non-configurable properties, and non-extensible objects. The handler can virtualize behavior only within those rules.',
+        'Reflect helps preserve the ordinary operation when the trap is only adding policy. For example, Reflect.get uses the same receiver and prototype-chain semantics the language would have used. That makes a logging trap correct by construction: log first, forward with Reflect, return the result, and let the engine enforce invariants.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'A plain hot property read can become close to constant-time offset access after the inline cache stabilizes. If one call site sees one object shape repeatedly, the engine can skip most generic lookup work. With a proxy, the call site must treat the read as programmable dispatch, so the constant factor can be much larger even though the source code still says obj.x.',
+        'A real number example makes the behavior visible. Reading three fields from 100000 table rows is 300000 property reads. If those rows are plain objects with stable shapes, the engine can reuse cached loads; if each row is a proxy, those 300000 reads can become 300000 trap calls plus any work the trap performs. The Big-O notation is still O(n), but the behavior changes from a tight memory-friendly loop to a user-code dispatch loop.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Proxy is a strong fit when interposition is the product feature. A plugin host can expose a wrapped project object, log every operation, reject writes to protected fields, and revoke access when the plugin unloads. A validation layer can guard an API boundary without changing every caller method by method.',
+        'Proxy is also useful for lazy remote objects and compatibility adapters. A property can be resolved on demand from another storage layer, or old field names can map to new ones while warning callers. In each case, the boundary is explicit and valuable enough to pay for the trap path.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Proxy fails when used as a blanket data model for hot code. Tight render loops, numeric data, array-heavy algorithms, stable domain objects, and frequently read table rows usually want plain structures that engines can optimize.',
-        'It also fails when handlers lie casually. Invariant violations can throw. Overly broad traps can hide real bugs. A default get trap that returns undefined for everything can make missing-property errors harder to find.',
-        'The rule of thumb is simple: use Proxy where the boundary has value. Do not use it just to make ordinary objects feel clever.',
+        'Proxy fails when used as the default shape for ordinary application data. Hot render loops, numeric arrays, stable domain records, and table rows usually want plain structures so the engine can optimize predictable access. Hiding every field behind get and set traps makes simple data harder to reason about and slower to read.',
+        'It also fails when traps lie casually. A broad get trap that returns undefined for missing properties can hide bugs. A trap that recursively reads the same proxy can loop. A membrane without a WeakMap cache can wrap the same target twice and break identity checks.',
       ],
     },
     {
-      heading: 'Costs and debugging',
+      heading: 'Worked example',
       paragraphs: [
-        'The visible cost is runtime overhead. The less visible cost is debugging. Stack traces may point into handler code rather than the call site that looked like a normal property access. Logging every get trap can also create noise because ordinary libraries inspect objects more often than humans expect.',
-        'Proxies can also interact badly with identity assumptions. A membrane may wrap the same target multiple times unless it keeps a WeakMap from target to proxy. Without that cache, equality and object graph traversal become confusing.',
-        'There is also a maintenance cost. A proxy can make simple-looking code depend on hidden handler behavior. Teams should document proxy boundaries the same way they document network or security boundaries: what is intercepted, what is forwarded, what can throw, and what invariants callers may rely on.',
+        'Suppose a plugin receives a project object with 40 fields and 12 methods. The host wraps it in a proxy. The get trap allows reads, the set trap rejects writes to billingPlan and ownerId, the apply trap wraps returned objects, and a revoked flag makes every later trap throw after unload.',
+        'The cost is acceptable if a plugin performs 200 operations during a command because the boundary prevents unauthorized writes. The same design is bad for a grid that renders 100000 rows and reads name, status, and total on every frame. That grid turns 300000 stable field loads into 300000 trap dispatches, so validation should happen at data ingress and rendering should use plain rows.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: MDN Proxy at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy, MDN handler.get at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy/Proxy/get, V8 fast properties at https://v8.dev/blog/fast-properties, and JavaScript engine fundamentals on shapes and inline caches at https://mathiasbynens.be/notes/shapes-ics. Study V8 Hidden Classes & Inline Caches, V8 Array Elements Kinds, Capability Security & Attenuation, WeakRef & FinalizationRegistry, and JavaScript Lexical Environments & Closures next.',
+        'Primary sources: MDN Proxy at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy, MDN Reflect at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Reflect, ECMA-262 Proxy Objects at https://tc39.es/ecma262/#sec-proxy-objects, V8 Fast Properties at https://v8.dev/blog/fast-properties, and JavaScript engine fundamentals on shapes and inline caches at https://mathiasbynens.be/notes/shapes-ics.',
+        'Study next by layer. For language semantics, read Property Descriptors, Prototype Chain, Reflect API, and WeakMap. For engine behavior, read Hidden Classes, Inline Caches, Array Elements Kinds, and Megamorphic Call Sites. For boundary design, read Capability Security, Membranes, Object-Capability Patterns, and Plugin Sandbox Architecture.',
       ],
     },
   ],

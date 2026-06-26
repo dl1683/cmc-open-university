@@ -177,75 +177,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Kubernetes turns every node into a small network switch. Pods appear and disappear, Services point at changing backend sets, NetworkPolicies describe allowed flows, and operators still expect packets to move at line rate. The hard part is not only routing. The system has to route, load-balance, apply policy, translate addresses, remember connection state, and explain drops while cluster state changes underneath it.',
-        'Cilium exists because that work sits on the boundary between the Kubernetes control plane and the Linux packet path. Kubernetes stores desired state in the API server. Packets arrive at kernel hooks on each node. If every packet decision has to climb back into user space, the datapath pays extra context switches and queues exactly where latency and throughput are most sensitive. If every state change becomes a large pile of static rules, the node becomes hard to update and hard to inspect.',
+        'Read the graph as two planes on one node. The Kubernetes API, Cilium agent, verifier, programs, and maps are the programming plane; the packet, backend, and Hubble nodes are the runtime plane. Active marks show which component is making or feeding the current decision.',
+        'A safe inference rule is visible in every frame: a packet can stay on the fast path only after the relevant program has been verified and the needed map entries already exist on the node. Found nodes are durable state for that decision, not decorations.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Kubernetes networking is dynamic. Pods move, Services change backend sets, labels drive identity, policies decide allowed flows, and operators still expect each node to forward packets without waiting for a central controller. A zero-background reader should read eBPF as extended Berkeley Packet Filter: a safe virtual machine inside the Linux kernel that can run checked programs at packet hooks.',
+        'Cilium exists because the packet path needs both programmability and speed. User space is flexible, but a user-space hop for every packet adds scheduling, copies, queues, and failure points. The Linux kernel is fast, but static iptables-style rule piles are hard to update and inspect as cluster state changes.',
         {type:'callout', text:'Cilium eBPF datapath works by materializing Kubernetes intent into verified kernel programs and mutable maps for local packet decisions.'},
       ],
     },
     {
-      heading: 'The Obvious Approach',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A reasonable first design is to let existing Linux networking machinery do the work. kube-proxy can program iptables or IPVS rules for Services. A CNI plugin can configure routes and virtual links. A user-space proxy can enforce higher-level policy because it can read rich metadata and log decisions. This is not a bad design. It uses mature kernel features and keeps much of the policy logic outside kernel code.',
-        'The wall appears when service count, endpoint churn, policy count, and observability needs grow together. Large rule sets can be expensive to update and hard to reason about. A user-space proxy can become another hop on traffic that only needed a local decision. Static rules also do not naturally express all the state a modern datapath needs: security identities, service backends, connection tracking, return traffic, policy verdicts, and telemetry. The cluster wants a programmable datapath, but arbitrary kernel code would be too dangerous.',
+        'The obvious approach is to let kube-proxy and ordinary Linux networking carry the service path. kube-proxy can program iptables or IPVS rules, the container network interface can set routes, and a proxy can enforce richer policy in user space. This is reasonable because those mechanisms are mature and familiar to operators.',
+        'A second obvious move is to centralize more logic in sidecars or node agents. That keeps policy code out of the kernel and makes logging easy. It also moves per-packet work away from the place where the packet already is.',
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is to split the system into two contracts. The control plane watches Kubernetes and writes compact node-local state. The datapath runs verified eBPF programs at Linux hooks and uses BPF maps as its live lookup tables. Programs contain the packet-handling logic. Maps contain the changing data: Services, backends, identities, policy entries, and connection-tracking records.',
-        'That split is the invariant the page is teaching. Kubernetes state may change quickly, but packets should see a local, bounded decision procedure. User space can update map entries as the cluster changes; kernel programs can make per-packet decisions without rebuilding a giant rule chain or calling a proxy for every flow. eBPF gives Cilium programmability at the packet boundary while the verifier prevents ordinary unsafe kernel extensions from being loaded.',
+        'The wall is the update/read mismatch. Service endpoints, identities, and policies are written by slow control loops, but packets read that state at line rate. If the read path walks a large rule set or calls user space, the cost appears on every packet instead of only on state changes.',
+        'At 100,000 packets per second on one node, adding 20 microseconds of extra user-space decision time burns about 2 CPU seconds per wall-clock second. At 20 nodes, that becomes about 40 saturated CPU cores spent on a decision that could often be a kernel map lookup. The cost is behavioral: the slow design charges every packet for flexibility that only state changes need.',
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'The core insight',
       paragraphs: [
-        'On each node, the Cilium agent watches Kubernetes and Cilium APIs. The relevant upstream pattern is the same one behind Kubernetes Informer DeltaFIFO and work queues: list current objects, watch changes, cache local state, and reconcile deltas. From that feed, the agent learns pod IPs, endpoint identities, Service frontends, backend sets, NetworkPolicies, and node capabilities. It then loads eBPF programs and updates BPF maps.',
-        'A packet enters a hook such as TC or XDP, depending on the path and feature. The program asks a sequence of map-backed questions. Who sent this packet? Which security identity does that endpoint have? Is this source allowed to reach this destination and port? Is the destination a Kubernetes Service that needs load balancing? Does connection tracking already know the return path? Should the packet be forwarded, dropped, redirected, translated, or reported as a flow event?',
-        'The maps are the main data structures. A service map translates a virtual address such as a ClusterIP or NodePort to a backend choice. A connection-tracking map remembers flow state so return traffic and NAT remain consistent. A policy map encodes which identities, ports, and directions are allowed. An identity map lets label-based policy become an integer lookup in the hot path. Hubble and metrics sit on the observability side, turning kernel decisions into events operators can query.',
+        'Split the problem into stable packet logic and mutable packet data. The Cilium agent watches Kubernetes, compiles or loads eBPF programs, and writes BPF maps. The programs are the checked code path; the maps are the current service, policy, identity, and connection state.',
+        'That split gives the datapath a simple invariant. Cluster state can change often, but each packet sees a bounded sequence of local lookups and decisions. The verifier guards the program before it enters the kernel, while map updates let the agent change behavior without rebuilding a giant rule chain.',
       ],
     },
     {
-      heading: 'What the Visual Proves',
+      heading: 'How it works',
       paragraphs: [
-        'The first visual separates control-plane programming from packet handling. Kubernetes API state flows into the Cilium agent. The agent loads programs and updates maps. The verifier sits between user-space intent and kernel execution. Packets then hit programs and maps directly. The picture is not showing a generic network diagram; it is showing the boundary that keeps a dynamic cluster from turning every packet into a control-plane event.',
-        'The second visual turns one packet decision into a stack of questions. The packet is not merely forwarded. It is classified at a hook, associated with an identity, checked against policy, possibly load-balanced to a backend, and emitted as telemetry. That proves why maps matter. The datapath is fast because each stage is a lookup or bounded packet operation, not an open-ended walk through cluster state.',
+        'The agent watches pods, services, endpoints, identities, and network policies. It translates that control-plane state into maps such as service-to-backend tables, policy tables, identity tables, and connection-tracking tables. It also loads programs at hooks such as TC or XDP, where Linux can inspect packets before ordinary forwarding finishes.',
+        'When a packet arrives, the program asks map-backed questions. Which endpoint or identity sent it. Is this source allowed to reach this destination and port. Does the destination name a Kubernetes Service that must be translated to a backend. Should connection tracking preserve a NAT or return-path decision.',
+        'The answer can be forward, drop, redirect, translate, or emit telemetry. Hubble is useful because it turns those kernel decisions into inspectable flow evidence. Without that evidence, a fast datapath would still be hard to operate.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is a state-materialization argument. Kubernetes declares desired networking and policy state. The agent converges node-local programs and maps toward that state. A packet decision is correct when the map entries it consults match the current intended Service, identity, policy, and connection state for that packet path. The invariant is that packet logic is stable while packet data is live.',
-        'The verifier is part of that argument. eBPF programs must pass kernel safety checks before they run, so Cilium is not asking the node to trust arbitrary extension code in the hot path. The verifier does not prove that the policy is semantically what the operator wanted, but it does constrain memory access and program behavior enough for the kernel to accept the program. Cilium still needs tests, staged rollout, and observability for the higher-level meaning.',
+        'The correctness argument is a materialization argument. Kubernetes declares intended network state; the Cilium agent keeps node-local maps consistent with the slice of that state the node needs. A packet decision is correct when the program reads map entries that correspond to the current intended service, identity, policy, and connection state for that packet.',
+        'The verifier is part of the safety argument, not the policy argument. It checks that the eBPF program obeys kernel safety rules before loading. It does not prove that the operator wrote the right policy, so Cilium still needs staged rollout, tests, metrics, and flow-level debugging.',
       ],
     },
     {
-      heading: 'Cost and Behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The gain is that many packet decisions become local map lookups and bounded program steps. Updating a backend set can be a map update instead of a rewrite of a large rule chain. Replacing kube-proxy can move Service load balancing into eBPF maps and programs. Per-packet cost depends on the path, the maps touched, cache locality, and policy complexity, but the shape is different from sending traffic through a separate user-space decision point.',
-        'The tax is operational. BPF maps have capacity limits, and insertions past a configured limit fail. Kernel versions and enabled features decide what programs can be loaded. The verifier can reject a program that a developer thought was safe. A rollout mistake affects node traffic, not only an application process. Debugging also changes: an operator needs flow logs, metrics, map inspection, and a way to connect a drop to the policy or identity that produced it.',
+        'The hot-path cost is mostly the number of program instructions and map lookups per packet. If a packet needs service lookup, policy lookup, identity lookup, and connection tracking, each lookup adds CPU work and cache pressure. When traffic doubles, those reads double; when endpoint state changes, only the affected map writes happen.',
+        'The hidden cost is operational state. Maps need capacity, kernel features vary by version, verifier failures can block rollout, and a bad policy compiler can create a fast wrong answer. The system buys packet-path speed by making the control plane responsible for correct, fresh, node-local data.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'This design fits clusters where packet decisions are frequent, state changes are continuous, and policy must be enforced close to traffic. Service load balancing, NetworkPolicy enforcement, identity-aware routing, node-local observability, and kube-proxy replacement are natural uses because the hot path can ask simple questions against maintained maps. The access pattern is the reason: many reads in the packet path, fewer writes from the control plane.',
-        'It also fits teams that need traffic explanations. A drop that disappears inside a long rule chain is hard to operate. A flow event that says source identity X tried to reach destination Y on port Z and matched a deny rule is useful. The same datapath that makes a forwarding decision can emit enough evidence to debug it.',
+        'This design fits Kubernetes clusters with frequent service traffic and policy enforcement. Service load balancing, kube-proxy replacement, identity-aware NetworkPolicy, and flow observability all benefit because packets read local maps many times while the control plane writes those maps less often. The access pattern is many fast reads and fewer structured writes.',
+        'It also fits regulated or multi-tenant clusters where a drop must be explainable. A flow record that connects source identity, destination identity, port, policy verdict, and packet path gives operators evidence. The same mechanism that forwards or drops can feed the audit trail.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
-        'eBPF is not magic speed by itself. Bad map sizing, unsupported kernel features, too much policy work in the hot path, missing telemetry, or a rushed node upgrade can erase the benefit. A map lookup is still work. A program that is hard to understand is still production code. A policy compiler can still encode the wrong intent.',
-        'It is also the wrong abstraction if the real problem lives above packet metadata. Application authorization, request-body inspection, and business-level decisions usually need L7 context that a low-level datapath does not have. Cilium can integrate with higher layers, but the eBPF datapath should not be treated as a replacement for every gateway, proxy, or application security check.',
+        'It fails when teams treat eBPF as automatic speed. Oversized policies, poor map sizing, unsupported kernel features, missing metrics, or rushed node upgrades can turn a fast datapath into an outage. Kernel-resident logic is still production code with rollout risk.',
+        'It is also the wrong layer for decisions that need application semantics. Request bodies, user roles inside an application, and business authorization usually live above packet metadata. Cilium can integrate with higher-level systems, but the datapath should not become a replacement for every proxy or application check.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Cilium eBPF datapath documentation at https://docs.cilium.io/en/stable/network/ebpf/, Cilium eBPF maps at https://docs.cilium.io/en/latest/network/ebpf/maps/, Cilium kube-proxy replacement at https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/, Linux eBPF verifier documentation at https://docs.kernel.org/bpf/verifier.html, and Linux BPF map documentation at https://www.kernel.org/doc/html/v6.1/bpf/maps.html.',
-        'Study eBPF LPM Trie CIDR Policy Case Study for prefix policy lookup, IP FIB Longest-Prefix Match Case Study for routing tables, eBPF Verifier Register State Case Study for safety analysis, eBPF Ring Buffer Telemetry Case Study for flow events, Kubernetes Informer DeltaFIFO and Workqueue Case Study for the control-plane feed, Kubernetes Reconciliation Case Study for convergence, Load Balancer and Maglev Load Balancer Case Study for backend choice, and Distributed Tracing for explaining flows across services.',
+        'Suppose one node handles 60,000 packets per second for a Service with 40 backends and five NetworkPolicy rules. A user-space proxy design that adds 30 microseconds per packet consumes 1.8 CPU seconds per wall-clock second on that node before application work starts. A map-backed kernel path that spends 3 microseconds on lookups consumes 0.18 CPU seconds for the same traffic.',
+        'Now an endpoint is removed. The expensive operation should be one service-map update and possibly connection cleanup, not 60,000 changed packet decisions per second. The behavior is the lesson: state changes pay update cost, while packets keep paying only bounded local lookup cost.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Cilium eBPF datapath documentation, Cilium eBPF maps, Cilium Kubernetes without kube-proxy, and the Linux eBPF verifier documentation. These sources define the real packet hooks, map roles, service load-balancing path, and verifier boundary.',
+        'Study next by layer. For packet lookup, read IP longest-prefix match and Maglev load balancing. For safety, read the eBPF verifier register-state case study. For the control plane, read Kubernetes informer work queues and reconciliation because those are the feeds that keep maps current.',
       ],
     },
   ],

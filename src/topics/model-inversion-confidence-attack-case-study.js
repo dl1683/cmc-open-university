@@ -276,75 +276,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Model inversion exists as a privacy problem because a model output can reveal more than the product team meant to expose. A classifier may not return a database row, but its confidence scores can still help infer a sensitive field, a class prototype, or a training-distribution pattern. The model becomes a compressed statistical object that answers questions about the data used to shape it.',
-        'The risk is sharpest when an API returns rich signals: full probability vectors, logits, embeddings, explanations, nearest-neighbor style outputs, or high-resolution confidence scores. These signals are useful for ranking, debugging, calibration, and user experience. They can also give an attacker feedback about which guessed input is closer to the hidden value.',
+        'The animation shows a model inversion attack, where an attacker uses model outputs to infer hidden attributes or training-like inputs. Confidence means the probability or score the model reports for a class, and that score can guide a search even when the raw training data is never exposed.',
+        'Active nodes show the attacker query or defense control being used, compare marks the confidence difference that guides the next guess, and found marks a recovered attribute or blocked leakage path. The safe inference rule is this: if confidence changes predictably with a hidden feature, confidence is a signal, not harmless metadata.',
         {type:'callout', text:'Model inversion risk comes from treating confidence as harmless metadata when it can act as a search signal over hidden data.'},
-        'Fredrikson, Jha, and Ristenpart introduced model inversion attacks that exploit confidence information in machine-learning APIs: https://dl.acm.org/doi/10.1145/2810103.2813677. A public PDF is available at https://rist.tech.cornell.edu/papers/mi-ccs.pdf. The durable lesson is broader than one paper: output contracts are privacy decisions, not just interface design.',
       ],
     },
     {
-      heading: 'The naive product instinct and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive product instinct is generous output. If a label is useful, a confidence score seems more useful. If one score is useful, a full vector seems better. Embeddings help search and clustering. Explanations help support teams debug mistakes. None of these features are automatically wrong. They often make the system easier to operate.',
-        'The wall is that detail creates a search surface. A hard label may reveal only which side of a decision boundary a query landed on. A rounded probability reveals a coarse direction. A full confidence vector reveals how several classes respond to a candidate. An embedding can reveal geometry. An attacker can use that feedback to ask "warmer or colder?" many times.',
-        'This is why inversion is not answered by saying the API never exposes training records. The attack is usually iterative. The attacker fixes known attributes, varies unknown attributes, queries the model, and keeps candidates that improve the target score. If the API permits enough probes and returns enough precision, the model output acts like an objective function for guessing hidden information.',
+        'Many ML services expose more than a label. They return confidence scores, ranked classes, embeddings, explanations, similarity scores, or repeated query access because product teams want better user experience and debugging.',
+        'Model inversion exists because those outputs can carry information about sensitive inputs or training distributions. The attacker does not need database access if the model can be queried like an oracle that rewards guesses close to hidden data.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious product approach is to return the full prediction vector. If a medical classifier says disease A is 0.61 and disease B is 0.36, the user gets nuance and the developer gets better logs.',
+        'That approach feels safe because no row from the training set is returned. The mistake is assuming that a score about the model output cannot become evidence about model inputs.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is adaptive querying. An attacker can vary candidate attributes, submit many nearby inputs, and keep the changes that raise confidence for a target class.',
+        'Small score differences accumulate. If age, zip code, medication, or a face feature moves the confidence in a consistent direction, the attacker can climb toward a private attribute one query at a time.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is that confidence is not just a result; it is feedback. A model that returns "class A, 0.83" tells the caller more than "class A." The difference between 0.74 and 0.83 can steer a search. The search does not need gradients from the model internals. It can use black-box optimization, hill climbing, sampling, learned priors, or a separate generative model.',
-        'The attack depends on two ingredients. The first is a signal that changes smoothly enough with the guessed hidden value. The second is a prior that keeps guesses realistic. For a tabular record, the prior may be public statistics and valid category ranges. For a face recognizer, it may be an image generator or a face manifold. For text, it may be a language model or constrained phrase space.',
-        'The defense insight is symmetric: reduce the signal and reduce query advantage. Caller tiers, output precision, top-k limits, embedding access, explanation access, rate limits, anomaly detection, and differential privacy all control how much usable information flows out of the model and how cheaply an attacker can search.',
+        'A confidence value can be an optimization objective. Instead of guessing the hidden input in one step, the attacker searches the input space and uses the model score as feedback.',
+        'The attack is strongest when the model is overfit, the output is precise, the query budget is large, and the target class is tightly tied to a sensitive feature. Defenses work by breaking one of those conditions.',
       ],
     },
     {
-      heading: 'How the attack works',
+      heading: 'How it works',
       paragraphs: [
-        'A typical inversion loop starts with partial knowledge. The attacker may know non-sensitive fields about a person, the target class of a recognizer, or the public context around a possible training example. Unknown fields become variables. The attacker builds a candidate input, queries the model, records the output signal, and updates the variables toward higher target confidence.',
-        'The optimizer can be simple when the unknown space is small. If a hidden field has only a few values, repeated queries can enumerate candidates. If the space is continuous or high-dimensional, the attacker needs stronger structure: coordinate search, evolutionary search, Bayesian optimization, a differentiable surrogate, or a generative prior that proposes realistic candidates.',
-        'The recovered object depends on the model and output. A medical dosage model might expose a sensitive attribute most compatible with the returned confidence. A face classifier might yield a recognizable class prototype rather than an exact training image. A language model extraction loop can recover memorized strings under different assumptions. Inversion is best understood as recoverability through model feedback, not always as literal record reconstruction.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The confidence-inversion graph proves the feedback loop. Known fields and guessed unknown fields form a candidate query. The model returns a score. The optimizer uses the score to change the unknown fields. The reconstruction node is not produced by one magic query; it is the result of repeated movement through the output surface.',
-        'The output ladder proves why API detail changes risk. Hard labels give low-resolution feedback. Rounded probabilities give some slope. Full probabilities, logits, embeddings, and explanations can expose richer geometry. The same product feature that helps a benign user compare options can help an attacker rank guesses.',
-        'The defense-surface view proves that mitigation is not one switch. Output precision, top-k size, embedding access, explanation access, caller authorization, query rate, audit rules, and training privacy all change the attack. The frontier plot shows the real product tension: detail often increases utility and leakage together, so a mature system tiers outputs rather than exposing the richest signal to every caller.',
+        'The attacker starts with a target, such as "recover likely attributes for a person classified as disease positive." They generate candidate records, query the model, observe confidence, and keep candidates that increase the target score.',
+        'For image models, the candidates may be pixels or latent vectors; for tabular models, they may be age, income, diagnosis, or location fields. The search ends when further edits stop improving confidence or when the candidate becomes plausible enough to use.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument for the attack is an optimization argument. If the model score is correlated with the hidden attribute, and if the attacker can generate plausible candidates, then repeated queries can move toward candidates that the model treats as more likely. The model does not need to be wrong. It only needs to encode enough information about the training distribution or learned class boundary for the score to guide search.',
-        'Overfitting can amplify the problem because the model may respond too strongly to idiosyncratic training examples. Rich outputs amplify it because they reveal more of the response surface. Weak priors reduce it because unrealistic candidates waste queries. Small unknown domains increase it because enumeration is cheap. The risk is a joint property of training data, model behavior, output detail, and query policy.',
-        'Model inversion differs from membership inference. Membership asks whether a particular record was in the training set. Inversion asks what hidden value, prototype, or sensitive structure can be inferred from the model output. The attacks can overlap in practice, and both become easier when a model overfits or exposes high-detail confidence signals.',
+        'The correctness argument for the attacker is directional, not absolute. If the model learned a real correlation between hidden attribute x and target class y, and if the output score is monotone enough around the target, then score-improving edits tend to move candidates toward attributes associated with y.',
+        'The attack is not guaranteed to recover one exact training row. It can still be harmful when it recovers sensitive attributes, class prototypes, or membership-like evidence that narrows the privacy set.',
       ],
     },
     {
-      heading: 'Defense surface and costs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The first defense is output minimization. Return the coarsest signal that satisfies the product need. Hard labels leak less than high-precision probabilities. Rounded scores leak less than full vectors. Top-k outputs leak less than full class distributions. Embeddings and explanations should be treated as privileged outputs, not harmless debug metadata.',
-        'The second defense is query control. Rate limits help only when they slow the actual search pattern. A fixed per-minute quota may not stop a patient attack. Logs should detect local sweeps, repeated near-neighbor probes, rare-class targeting, bulk embedding pulls, and many variants around one individual. Response can include cooldown, additional review, output downgrade, or account investigation.',
-        'The third defense is training-time privacy. Differential privacy can limit how much one record influences the learned model, but it has accuracy and accounting costs. Regularization, calibration, deduplication, and holdout audits can reduce risk, but they are not substitutes for an output policy. A release gate should store evidence: what outputs were tested, what inversion attempts were run, what was recoverable, and which API fields changed before launch.',
-        'Every mitigation has product cost. Hard labels hurt ranking and triage. Rounding can damage calibration workflows. Hiding embeddings can break search features. Strict query limits can frustrate legitimate batch users. Tiered access is often the practical compromise: public callers get coarse outputs, internal evaluators get richer outputs with logging, and sensitive models face stricter reviews.',
+        'Attack cost behaves with query budget and search dimension. If the attacker tests 20 candidate edits for each of 30 fields over 5 rounds, the attack uses 3000 model queries before any validation step.',
+        'Defense cost is product cost. Rounding scores, returning top-1 labels, adding rate limits, monitoring query patterns, applying differential privacy, and reducing overfitting can lower leakage, but each can also reduce debugging value, personalization, or model accuracy.',
       ],
     },
     {
-      heading: 'Where risk is highest',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Risk is highest when the model handles sensitive attributes, rare classes, small cohorts, biometric identity, medical facts, financial status, private text, or proprietary training data. It is also high when one record has large influence, when outputs are high precision, when callers can make many queries cheaply, and when there is a strong public prior over the unknown field.',
-        'Risk is lower when outputs are coarse, the unknown space is large, the model is well regularized, records are not individually influential, query volume is limited by behavior-aware controls, and the sensitive attribute is weakly connected to the model response. Lower risk is not zero risk. It means the attack needs more queries, better priors, or richer access.',
-        'Do not assume authentication solves inversion. An authorized user can still receive too much detail. Do not assume calibrated probabilities are safe; they can be honest and revealing at the same time. Do not remove useful outputs blindly either. Measure the privacy-utility frontier, document the tradeoff, and make output access an explicit API contract.',
+        'This risk matters in medical models, face recognition, financial risk scoring, education analytics, genomics, recommender systems, and any hosted classifier trained on sensitive populations. The access pattern is repeated black-box querying with informative outputs.',
+        'It also matters for internal tools. A dashboard that exposes exact confidence to many employees can leak attributes even if the underlying database remains access-controlled.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Study Membership Inference next to separate record-presence leakage from attribute or prototype recovery. Study LLM Training Data Extraction for generative-model variants, Differential Privacy SGD for training-time bounds, Calibration Curves for probability behavior, Rate Limiter and Distributed Tracing for query control, PII Redaction Token Span Pipeline for input and output hygiene, and Agent Tool Permission Lattice for access-control design. The implementation habit to keep is simple: every sensitive model should ship with an output-surface policy that says who can see hard labels, rounded scores, full probabilities, embeddings, explanations, logs, and bulk query access.',
+        'The attack weakens when outputs are coarse, query budgets are low, models generalize well, targets are not tied to sensitive attributes, or input validation blocks unrealistic probes. A random-looking confidence surface gives the attacker little useful direction.',
+        'Defenses fail when they only hide labels while leaving another gradient-like signal open. Similarity scores, explanations, embeddings, nearest-neighbor lists, and latency differences can replace confidence as the search reward.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a tabular health model returns disease confidence. A baseline candidate has score 0.42; changing age from 35 to 55 raises it to 0.51, adding medication M raises it to 0.64, and changing zip group lowers it to 0.39, so the attacker keeps age 55 and medication M but rejects that zip change.',
+        'After 8 rounds with 15 edits per round, the attacker has spent 120 queries and found a candidate with score 0.88. That candidate may not be the exact person, but it can reveal that the target class strongly implies medication M and an older age range.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Fredrikson, Jha, and Ristenpart on model inversion attacks; Shokri and coauthors on membership inference; and differential privacy literature for training-time leakage bounds. Use privacy attack surveys for broader threat models.',
+        'Study next: membership inference, shadow models, differential privacy accounting, calibration, confidence rounding, rate-limit design, query anomaly detection, and privacy-preserving evaluation.',
       ],
     },
   ],

@@ -210,82 +210,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a state path through an AI storage system. Active nodes are the part handling the current request, compare nodes are available paths that are not being used yet, and found nodes are state that has become durable or reachable. A safe inference is this: if a request moves from GPU worker to shared NVMe storage without a host-memory detour, the cost being shown is a copy-path cost, not a claim that storage is as fast as GPU memory.',
+        'A filesystem is the operating-system interface that lets programs read and write named files. A distributed filesystem spreads that interface across many machines while trying to look like one filesystem to the application. In this case study, Weka is useful because the animation connects file layout, network path, and GPU waiting time.',
+        {type: 'callout', text: 'AI storage becomes architecture when reusable state is expensive enough that fetching it beats making GPUs recompute it.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Weka is a useful AI-infrastructure case study because it changes the role of storage. In older mental models, storage is where datasets and checkpoints rest before or after computation. In modern AI systems, storage can sit on the hot path: training jobs stream massive samples, inference systems reload state, RAG systems scan corpora, and agent systems accumulate long-lived artifacts.',
-        'The economic pressure is simple. GPUs are expensive, and idle GPUs waste money quickly. If a model server evicts reusable state and has to recompute it, the miss is not just a storage miss; it can become seconds of GPU prefill. If a training job cannot stream data fast enough, accelerators wait for bytes. Storage design becomes part of compute efficiency.',
-        'This does not mean storage becomes GPU memory. HBM is still the active compute tier. The educational point is subtler: a fast, shared, reliable state tier can reduce recomputation, improve placement flexibility, and keep expensive compute fed when the workload reuses state often enough.',
-        {type: 'callout', text: 'AI storage becomes architecture when reusable state is expensive enough that fetching it beats making GPUs recompute it.'},
+        'AI systems move more than training examples. They move checkpoints, embeddings, vector indexes, video frames, logs, model artifacts, and sometimes reusable inference state. If a GPU waits 400 ms for data on every step, the expensive part of the machine is idle even though the model code is correct.',
+        'The reason a Weka-style filesystem exists is that local disks and object storage sit at awkward ends of the tradeoff. Local NVMe is fast but trapped on one host. Object storage is deep and cheap, but it usually has too much request latency for a hot GPU path.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to keep datasets in object storage, stage them to local disks, and let every job manage its own cache. That can be fine for simple batch jobs. It breaks down when many GPU workers need high sustained throughput, fast checkpoint restore, or shared access to mutable state.',
-        'Another shortcut is to scale compute first and assume storage will follow. That hides the bottleneck until GPUs sit idle, checkpoint recovery takes too long, or tail latency spikes when a serving request needs cold state. More accelerators do not fix a state path that cannot feed them.',
-        'A third mistake is treating average throughput as the whole storage story. AI serving cares about p95 and p99 load time because one slow state fetch can delay a user-visible token stream. Training cares about sustained throughput and coordinated recovery. Both care about what happens when a node, network path, or metadata service fails.',
+        'The obvious design is to put datasets and checkpoints in object storage, copy them to local disks before a job starts, and let each worker cache what it needs. This works for a batch job that reads mostly sequential files and does not restart often. It is also easy to operate because object storage already gives durability and a familiar API.',
+        'The same design gets weaker when many workers share a changing corpus or when checkpoint restore time controls recovery. Eight GPU workers might each copy the same 200 GB checkpoint to local disk. The system then pays 1.6 TB of network traffic before useful compute resumes.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is hierarchy with explicit economics. GPU HBM is fastest and scarcest. CPU DRAM is larger but farther away. NVMe flash is much larger and persistent but slower. Object or cloud storage is cheaper and deeper but usually too slow for tight loops. A Weka-style filesystem tries to make the NVMe and network tier fast enough to be useful near the GPU.',
-        'The mechanism is not one magic feature. It is a stack: parallel NVMe flash, distributed metadata, high-speed networking, a POSIX-facing interface for application compatibility, and GPU-direct paths where the platform supports them. Each layer removes a different bottleneck.',
-        'The design question is always workload fit. If state is rarely reused, the storage tier adds cost without saving much compute. If state is reused often, checkpointed frequently, or shared across GPU workers, the storage tier can pay for itself by reducing GPU wait and recompute.',
+        'The wall is that AI cost is not storage cost alone. A 30 GB state fetch that saves 20 seconds of GPU recomputation can be cheap even if the storage tier is expensive. A 30 GB fetch that delays an otherwise ready request is expensive because it moves the bottleneck into user-visible latency.',
+        'Average throughput hides the failure. A filesystem that can stream 100 GB/s across a cluster may still hurt serving if one metadata lookup, one congested link, or one cold object fetch lands on the p99 path. For GPU workloads, the question is not only bytes per second; it is how often bytes arrive after the GPU needed them.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to treat storage as a tier in the compute schedule. GPU HBM is the active memory tier, CPU DRAM is a nearby staging tier, NVMe flash is a persistent hot tier, and object storage is the deep tier. A high-performance shared filesystem tries to make the NVMe and network tier close enough that reuse beats recomputation.',
+        'This works only when the system records the economics of state. If fetching a tensor shard takes 120 ms and recomputing it takes 700 ms of GPU time, fetching is the better behavior. If fetching takes 900 ms because the object is cold, recomputation may be the better behavior.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A client sees a filesystem interface. Behind that interface, the system maps file and block requests onto metadata decisions, data placement, flash devices, network paths, and durability rules. Parallelism comes from spreading data and requests across many devices and nodes rather than funneling everything through one storage head.',
-        'GPUDirect Storage is the important path in the visual. In a traditional path, data often moves through CPU memory and kernel layers before reaching the GPU. With a GPU-direct path, supported devices can move data closer to GPU memory with less CPU staging. The goal is lower latency, lower CPU overhead, and higher useful throughput.',
-        'For model serving, the same idea appears as a tiered state store. Active KV cache lives in HBM. Warm state may live in CPU memory or local SSD. Colder but reusable state may live in a shared filesystem. The scheduler and cache manager need to know where state lives, how expensive it is to restore, and when recompute is cheaper than fetch.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The state hierarchy view proves that not all AI state has the same lifetime or placement requirement. A single-turn chat may only need transient context. RAG needs document and citation throughput. Agent traces need durable intermediate state. Batch training needs sustained streaming and checkpoint flow.',
-        'The GPU-direct path proves that copy path matters. A storage system can have impressive device throughput and still waste CPU or stall GPUs if data takes a slow route through host memory. The direct path is a latency and overhead argument, not a claim that flash equals HBM.',
-        'The mechanism and buying-story matrices prove the real evaluation standard. Ask about state reuse, p99 load time, failure recovery, metadata behavior, network tuning, and GPU dollars saved. A storage benchmark is useful only if it matches the workload shape.',
+        'The application opens a file through a POSIX-style interface, meaning the program uses ordinary file operations instead of a custom storage API. Behind that interface, metadata maps the file name to chunks, chunks are spread across flash devices, and many clients can read different pieces at the same time. The filesystem becomes a coordination layer for placement, durability, and parallel reads.',
+        'GPUDirect Storage is the special path in the animation. In a traditional path, data may move from storage to CPU memory and then to GPU memory. With a supported direct path, storage data can move closer to GPU memory with less CPU copying, so the CPU spends less time shuttling bytes.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Parallel filesystems work by turning one large bottleneck into many smaller lanes. Striping and distributed metadata let many clients read, write, and locate data at once. NVMe flash provides high device-level throughput. RDMA or similar low-latency fabrics reduce network overhead when the hardware and configuration are right.',
-        'GPU-adjacent storage works when saved compute is more valuable than the storage path cost. If fetching a reusable state object takes less time and money than recomputing it on a GPU, the state tier improves system economics. If fetching is slower than recompute, it does not.',
-        'POSIX compatibility works as an adoption bridge. Existing applications can read and write files without a custom storage API. The tradeoff is that POSIX semantics can constrain optimization, so high-performance systems must be careful about metadata, consistency, and locking behavior.',
+        'The correctness claim is about consistency of named state, not about model accuracy. If the filesystem says checkpoint C is committed, every worker that reads checkpoint C should see the same bytes or a defined error. That property lets a scheduler move work without each job inventing its own file-discovery protocol.',
+        'The performance claim works by parallelism and saved work. Striping a file across 16 storage nodes lets 16 devices serve pieces instead of forcing one disk to do all reads. Reusing a stored checkpoint also avoids repeating earlier compute, so the saved GPU time is part of the value created by the storage system.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The trade is storage dollars and architecture complexity against GPU dollars. A GPU should not wait on data or redo prefill work unnecessarily. But adding a hot storage tier introduces tail latency, failure modes, network tuning, metadata consistency, security boundaries, and operational burden.',
-        'There is also a coupling cost. If a model server assumes session state is local to one GPU, shared storage alone will not make the system elastic. The scheduler, request router, cache layout, eviction policy, and observability all need to understand state placement.',
-        'Benchmarks need discipline. Mean throughput can hide slow reads. Single-client tests can miss metadata contention. A fresh cluster can hide fragmentation and recovery behavior. The right measurement is tied to the workload: checkpoint restore time, samples per second, KV restore latency, p99 serving delay, and GPU idle time.',
+        'The time cost is dominated by the slowest path on the hot request. A 10 GB checkpoint at 20 GB/s needs about 0.5 seconds of ideal transfer time, but metadata, network contention, retries, and CPU staging can add tail latency. When the input doubles to 20 GB, the transfer component roughly doubles unless more parallel lanes are added.',
+        'The space cost is extra hot storage that duplicates deeper storage. The operational cost is the distributed-system tax: metadata availability, flash wear, network tuning, client versions, security policy, and recovery behavior. The design is worth it only when the saved GPU idle time and simplified placement are larger than those taxes.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Good fits include large training datasets, checkpoint loading, multimodal pipelines, RAG corpora, long-running agents with reusable state, analytics over large columnar files, and inference systems that can externalize inactive KV cache. The shared theme is repeated GPU access to data or state too large for local HBM.',
-        'It can also help operationally. A shared high-performance state tier can reduce session pinning, speed recovery after worker loss, and give multiple compute pools access to the same artifacts. That matters when jobs move between clusters or when serving capacity shifts under load.',
-        'Bad fits exist. If the workload is single-turn, stateless, small, or dominated by model compute rather than data movement, a specialized filesystem may add little. If object storage latency is already acceptable, the extra layer may not earn its cost.',
+        'The best fit is a cluster where many GPU jobs reuse large files or shared state. Training uses it for sample streaming and checkpoint restore. Retrieval systems use it for corpora, embeddings, and indexes that are too large for every worker to keep locally.',
+        'Inference can use the same pattern when inactive state is cheaper to fetch than to recompute. A long-context service might keep active key-value cache in GPU memory and spill colder state to a slower tier. The filesystem is useful only if the scheduler understands the restore cost before it places the next request.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first misconception is that storage can replace memory. It cannot. HBM remains the active compute tier. The realistic goal is to reduce expensive recomputation and keep GPUs fed, not to make NVMe behave exactly like on-package memory.',
-        'The second failure is buying throughput and forgetting tail latency. A serving system can look fast on average while one slow state fetch delays a user-visible stream. The third failure is ignoring recovery: a hot state tier must explain what happens on node loss, network partition, metadata pressure, and partial writes.',
-        'A final failure is treating a vendor architecture as a universal answer. WEKA, GPUDirect Storage, RDMA, flash, and object tiering are tools. The proof is workload-specific: trace the state, measure the miss cost, measure the fetch cost, and compare both to GPU idle time.',
+        'It fails when teams confuse storage with memory. NVMe and network storage can reduce recomputation, but they do not replace HBM for active matrix math. If every token needs immediate random access to state, the latency gap remains visible.',
+        'It also fails when the workload is small, stateless, or dominated by compute. A model that reads a 2 MB prompt and then spends 8 seconds generating tokens does not need a specialized filesystem for that prompt. The right test is a trace: record bytes moved, miss rate, restore time, recompute time, and GPU idle time.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary and official sources: WEKA homepage at https://www.weka.io/, WEKA GPUDirect Storage glossary at https://www.weka.io/learn/glossary/gpu/what-is-gpudirect-storage/, and NVIDIA/Weka AI reference architecture at https://network.nvidia.com/files/doc-2020/weka-ai-ra.pdf. Study KV Cache, LLM Serving: PagedAttention, Transformer Inference Roofline, Prefix Caching & RadixAttention, KV Cache Tiered Offload Store Case Study, S3 Object Storage Case Study, GPUDirect RDMA Peer Memory Case Study, and Chiplet Interconnect Case Study next.',
+        'Suppose 64 GPUs run a training job that checkpoints 800 GB every 20 minutes. After a node failure, the job must restore the latest checkpoint. If object storage delivers 8 GB/s to the cluster, restore takes about 100 seconds before compute can resume.',
+        'Now suppose the shared flash tier delivers 80 GB/s for that restore. The same 800 GB returns in about 10 seconds. If the cluster costs 160 dollars per GPU-hour, saving 90 seconds across 64 GPUs saves about 256 dollars of idle GPU time for one recovery, because 64 * 160 * 90 / 3600 = 256.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Use the WEKA GPUDirect Storage explainer at https://www.weka.io/learn/glossary/gpu/what-is-gpudirect-storage/ and the NVIDIA-WEKA AI reference architecture at https://network.nvidia.com/files/doc-2020/weka-ai-ra.pdf as the primary storage sources. Read NVIDIA GPUDirect Storage documentation next if you want the device and driver boundary rather than the architecture story.',
+        'Study S3 Object Storage Case Study for the deep tier, GPUDirect RDMA Peer Memory Case Study for the network path, Transformer Inference Roofline for GPU bottlenecks, and Prefix Caching RadixAttention for the reuse problem that makes state placement matter.',
       ],
     },
   ],

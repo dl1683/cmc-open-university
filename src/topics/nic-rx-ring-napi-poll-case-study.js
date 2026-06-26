@@ -222,107 +222,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `A server can receive packets at a rate that would overwhelm a naive CPU path. A 10, 25, 100, or 400 Gbit link can deliver bursts where every packet needs memory, metadata, protocol parsing, filtering, routing decisions, and eventual delivery to a socket or forwarding path. If the kernel treated each packet as a fresh, interrupt-driven event with no batching, receive work could consume the machine before the application sees a byte.`,
-        `The receive path needs a contract between hardware and software. The NIC must know where it is allowed to DMA packet bytes. The driver must know which buffers have been filled. The kernel must limit how much receive work one hot queue can do before other work gets CPU time. The application should not need to know any of that machinery; it should eventually read from a socket or packet interface.`,
-        `NIC RX rings and Linux NAPI solve that problem as a bounded queueing system. The driver gives the device a circular array of descriptors that point at receive buffers. The NIC fills buffers with DMA and marks descriptors complete. NAPI schedules driver polling so bursts are drained in batches instead of one hard interrupt per packet.`,
-        {type:'callout', text:`RX rings and NAPI turn packet arrival into bounded batches: descriptors transfer ownership from device to driver, while polling budgets keep receive work schedulable.`},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9e/Network_card.jpg', alt:'Ethernet network interface card with connectors and controller chip.', caption:'A network interface card is the device side of the RX ring contract, filling DMA buffers before the driver drains completions. Source: Wikimedia Commons, Nixdorf, CC BY-SA 3.0'},
-      ],
-    },
-    {
-      heading: 'The reasonable first attempt',
-      paragraphs: [
-        `The simplest design is interrupt-per-packet processing. A packet arrives, the NIC interrupts the CPU, the driver handles the packet immediately, the kernel builds a packet object, and the protocol stack runs. On a quiet link, this design feels ideal. Idle latency is low because the first packet wakes the CPU right away.`,
-        `The next simple design is to allocate packet buffers as packets arrive. That is also intuitive because each packet is a separate piece of data. If a packet needs memory, allocate memory. If the stack needs an object, create one. This model resembles normal application programming, where work arrives and code allocates the objects it needs.`,
-        `Both designs fail on a busy receive path. Interrupt-per-packet turns packet arrival into CPU overhead. Allocation-on-arrival puts memory management on the hottest path. The system needs prepared buffers, cheap ownership transfer, and batching that adapts between idle and flood conditions.`
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        `The wall is bounded capacity. A NIC cannot put an infinite number of packets into memory. A driver cannot process infinite completions in one turn. The protocol stack cannot enqueue infinite socket buffers. An application cannot fall behind forever without creating backpressure or drops. Every stage in the receive path has a queue, ring, budget, or buffer limit.`,
-        `An interrupt storm is one visible failure. If every packet causes a hard interrupt, the CPU spends too much time switching into interrupt handling and too little time draining useful work. A ring starvation failure is different: the driver fails to replenish receive descriptors, so the NIC has no empty buffers for new packets. A softirq saturation failure is different again: the driver drains packets, but network processing consumes a core and latency rises elsewhere.`,
-        `This is why receive-path debugging is queue archaeology. The symptom may be "rx drops" or "high packet latency," but the cause can be descriptor pressure, interrupt moderation, NAPI budget exhaustion, CPU affinity, RSS steering, socket buffer limits, TCP flow control, or an application that is simply not reading.`
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        `The core insight is to separate packet arrival from packet processing with two boundaries. The descriptor ring is the ownership boundary between NIC and driver. NAPI is the scheduling boundary between urgent device notification and bounded kernel work. Together they turn a stream of packets into batches of completed descriptors.`,
-        `A receive descriptor does not contain the whole networking stack. It usually points to a buffer and carries status fields the device and driver understand. When the descriptor is owned by the NIC, the device may DMA packet bytes into the buffer. When the descriptor is complete, the driver may read status and length, turn the buffer into an skb or page-backed packet representation, pass it upward, and replenish the ring with a fresh buffer.`,
-        `NAPI changes the interrupt model. The first interrupt says "work is available." After that, the kernel can poll the queue and drain a bounded number of packets. The budget is the fairness guard. It prevents one busy RX queue from monopolizing CPU time forever while still letting bursts be processed more efficiently than one interrupt per packet.`
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `The driver initializes an RX queue by allocating or attaching receive buffers, mapping them for DMA, and placing descriptors in a ring. The device and driver maintain producer and consumer positions. The exact register names depend on hardware, but the pattern is stable: one side posts empty buffers, the other side completes buffers after packets arrive.`,
-        `When a frame arrives from the wire, the NIC chooses an available descriptor, writes packet bytes into the associated memory buffer with DMA, records metadata such as length and checksum status, and marks the descriptor done. The packet has not yet reached TCP or the application. It is only a completed hardware-software handoff.`,
-        `The NIC raises an interrupt or uses an interrupt moderation policy to notify the host that work is available. The driver schedules a NAPI poll instance for that RX queue, commonly masking further receive interrupts while polling is active. The poll function walks completed descriptors, builds packet objects, sends them into the networking stack, and replenishes descriptors with fresh buffers.`,
-        `The poll function receives a budget. If it processes fewer packets than the budget and the queue is empty, it completes the NAPI cycle and interrupts can be reenabled. If it consumes the full budget while work remains, it reports that condition so the kernel can schedule another poll pass. The queue keeps draining, but not as unbounded work in one service turn.`
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The correctness invariant is ownership. A descriptor is either available for the NIC to fill, completed for the driver to consume, or being replenished before it returns to the NIC. The driver must not hand a buffer to the device and then modify it as if it still owns the contents. The NIC must not write outside the buffers described by the ring. The stack receives packets only after the driver has consumed completion metadata and transferred ownership upward.`,
-        `The performance invariant is bounded work. The ring bounds how much receive memory the device can consume. The NAPI budget bounds how much packet work one poll pass can do. Interrupt moderation bounds how often the CPU is disturbed under load. These limits do not remove overload, but they make overload observable and schedulable.`,
-        `The abstraction works because each layer sees the right object. The NIC sees descriptors and DMA addresses. The driver sees completions and buffers. The network stack sees skbs or page-backed packet data. The application sees socket bytes or datagrams. No layer needs to parse the private state of every other layer to move a packet forward.`
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Suppose an RX ring has ten completed descriptors and the NAPI budget is four. The poll function starts with ten ready packets and four units of receive budget. It consumes descriptor 0, builds a packet object, passes it upward, and replenishes the descriptor. The budget drops to three. It repeats for descriptors 1, 2, and 3. After four packets, six completions remain.`,
-        `Because the driver exhausted the budget while work remains, it does not claim the queue is fully drained. The kernel can run another poll pass later. This is not wasted work. It is the fairness rule that keeps one hot queue from blocking unrelated softirq work, timers, scheduler activity, or other receive queues.`,
-        `If the next pass drains the remaining six with a larger or repeated budget and the ring becomes empty, the driver completes the NAPI cycle and receive interrupts for that queue can be reenabled. The system returns to low-idle-latency interrupt mode until the next burst arrives.`
-      ],
-    },
-    {
-      heading: 'What the animation shows',
-      paragraphs: [
-        `The RX descriptor ring view follows ownership transfer. Packets arrive at the NIC, packet bytes land in DMA buffers, descriptors publish completion, and the driver turns completed buffers into stack-visible packet objects. The matrix is a snapshot of the ring: some descriptors hold empty buffers the NIC may fill, while others are done and waiting for the driver.`,
-        `The NAPI poll-budget view shows the scheduling side. An interrupt schedules polling, the poll handler drains a bounded number of ready descriptors, and remaining work causes another pass instead of an infinite loop. The operational-signal table connects this mechanism to real debugging: drops, budget hits, softirq CPU, and tail latency point to different bottlenecks.`
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `Processing cost is roughly proportional to packets drained, plus the per-packet work done by checksum handling, GRO, filtering, routing, TCP, socket queuing, and application wakeups. Space cost is proportional to ring size and receive-buffer memory. Bigger rings absorb bursts but can increase queueing latency because packets can wait longer before the driver reaches them.`,
-        `Larger NAPI budgets improve throughput under load but can delay other work. Smaller budgets improve fairness but may increase overhead when traffic is heavy. Interrupt moderation reduces CPU cost by coalescing notifications, but it can add latency for packets that wait for the next interrupt or poll cycle. Receive-side scaling can spread queues across cores, but poor steering can make one queue hot while others are idle.`,
-        `Zero-copy and page-recycling techniques can reduce memory cost, but they add their own complexity around buffer lifetime. XDP and driver-level filtering can drop or redirect packets before the full stack, but only when the application logic fits that early decision point. Every optimization moves the boundary where packet work becomes visible.`
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `Descriptor rings and NAPI win on busy Linux servers, gateways, load balancers, storage nodes, packet processors, and container hosts where packet bursts are normal. They let hardware and software exchange buffers without allocating a new queue node per packet, and they turn receive storms into batches that the scheduler can meter.`,
-        `They also win as a mental model. When a server drops packets, you can ask where the bounded queue filled: NIC ring, driver backlog, softirq processing, qdisc, socket receive buffer, TCP window, or application loop. The descriptor ring is the first visible queue in that chain, and NAPI is the first fairness control after device notification.`
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `This mechanism does not make overload disappear. If packets arrive faster than the host can process them, some queue eventually fills or latency grows. Increasing ring size can hide drops for a while but may add delay. Increasing budget can improve throughput but hurt fairness. Reducing interrupt moderation can lower latency but raise CPU overhead.`,
-        `It also fails when the bottleneck is above the driver. If the application stops reading, socket buffers fill no matter how well the NIC ring is tuned. If TCP receive windows close, upstream senders slow or retransmit. If a firewall or eBPF program is expensive, softirq CPU can dominate. If RSS is misconfigured, one core can saturate while others have spare capacity.`
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `Ring exhaustion means the NIC lacks empty descriptors and may drop incoming frames. Budget exhaustion means the queue remains hot after a poll pass and needs more service. Interrupt misconfiguration can cause either too many interrupts under load or too much latency at low traffic. DMA mapping mistakes can corrupt data or force slow paths. Cache and NUMA mismatches can make the CPU spend more time moving packet memory than processing protocol logic.`,
-        `Operational counters should be read together. RX drops ask which queue overflowed. NAPI budget hits ask whether the poller is saturated. Softirq CPU asks whether packet processing is consuming a core. Tail latency asks whether batching or queueing is too aggressive. Socket receive drops ask whether the application or protocol stack is the true bottleneck.`
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: Linux kernel NAPI documentation at https://docs.kernel.org/networking/napi.html and Linux networking scaling documentation at https://docs.kernel.org/networking/scaling.html.`,
-        `Study Ring Buffer for circular queue mechanics, Queue for bounded worklists, Backpressure for overload propagation, TCP Reassembly and SACK Scoreboard for higher-level receive ordering, eBPF Ring Buffer Telemetry Case Study for kernel-to-user event queues, Cilium eBPF Datapath Case Study for early packet processing, and epoll Interest and Ready List for the application-facing readiness model.`
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read the ring as a circular ownership table between a network interface card and a driver. A descriptor is a small record that points to a receive buffer and carries completion status.', 'The active descriptor is the next handoff point. When the NIC owns it, packet bytes may be written by DMA; when the driver owns it, the kernel may build a packet object and replenish the buffer.', {type:'callout', text:`RX rings and NAPI turn packet arrival into bounded batches: descriptors transfer ownership from device to driver, while polling budgets keep receive work schedulable.`}, {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9e/Network_card.jpg', alt:'Ethernet network interface card with connectors and controller chip.', caption:'A network interface card is the device side of the RX ring contract, filling DMA buffers before the driver drains completions. Source: Wikimedia Commons, Nixdorf, CC BY-SA 3.0'}] },
+    { heading: 'Why this exists', paragraphs: ['A busy network link can deliver packets faster than a CPU should handle as separate interrupt events. Each packet needs memory, metadata, protocol processing, filtering, and delivery to a socket or forwarding path.', 'RX rings and NAPI make receive work bounded. The ring prepares memory before packets arrive, and NAPI polls completed descriptors in batches under a budget.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is interrupt per packet. A packet arrives, the NIC interrupts the CPU, and the driver immediately processes it.', 'That gives low idle latency on a quiet link. Under load it turns packet arrival into interrupt overhead and can starve useful protocol work.'] },
+    { heading: 'The wall', paragraphs: ['The wall is bounded capacity at every stage. The NIC has finite descriptors, the driver has finite poll budget, the kernel has finite backlog, and the application has finite socket buffers.', 'Different overloads look similar from the outside. RX drops can come from ring exhaustion, softirq saturation, wrong CPU affinity, socket pressure, or an application that stopped reading.'] },
+    { heading: 'The core insight', paragraphs: ['The descriptor ring is an ownership boundary. The driver posts empty buffers, the NIC fills them with DMA, and completion marks when the driver may consume the packet.', 'NAPI is a scheduling boundary. The interrupt says work exists, and the poll loop drains a bounded batch instead of taking one hard interrupt per packet.'] },
+    { heading: 'How it works', paragraphs: ['At setup time, the driver allocates receive buffers, maps them for DMA, and writes descriptors into a circular ring. Hardware and software track producer and consumer positions so neither side reuses a buffer too early.', 'When packets arrive, the NIC writes bytes into posted buffers and marks descriptors complete. The driver poll function walks completions, builds kernel packet objects, sends them upward, and posts fresh buffers back to the ring.', 'The poll function receives a budget. If it drains fewer packets than the budget, it completes the cycle and re-enables receive interrupts; if it uses the whole budget, the kernel can schedule another poll pass.'] },
+    { heading: 'Why it works', paragraphs: ['The correctness invariant is exclusive ownership. A descriptor is available to the NIC, completed for the driver, or being replenished, but it is never safely mutated by both sides at once.', 'The performance invariant is bounded work. Ring size bounds device-visible receive memory, poll budget bounds one service turn, and interrupt moderation bounds notification rate under load.'] },
+    { heading: 'Cost and complexity', paragraphs: ['Space cost is ring entries times buffer size. A 2,048-entry RX ring with 2 KB buffers reserves about 4 MB for that queue before extra packet metadata.', 'Time cost behaves with packets drained and per-packet stack work. Larger rings absorb bursts but can add queueing delay, while larger budgets improve throughput but can delay other kernel work.'] },
+    { heading: 'Real-world uses', paragraphs: ['RX rings and NAPI are core receive-path machinery on Linux servers, routers, storage nodes, load balancers, and container hosts. They are the first bounded queue before packets enter the wider network stack.', 'They also guide debugging. Operators inspect RX drops, budget hits, softirq CPU, RSS queue balance, socket drops, and application read rate to find which bound filled first.'] },
+    { heading: 'Where it fails', paragraphs: ['This design does not remove overload. If packets arrive faster than the host can process them, increasing ring size may delay drops while increasing latency.', 'It also fails when the bottleneck is above the driver. A slow firewall rule, expensive eBPF program, small socket buffer, or stalled application can dominate after the ring is healthy.'] },
+    { heading: 'Worked example', paragraphs: ['An RX queue has 10 completed descriptors and a NAPI budget of 4. The first poll pass consumes descriptors 0 through 3, builds four packet objects, replenishes four buffers, and leaves six completions ready.', 'Because work remains after the budget is exhausted, the driver does not declare the queue idle. Two more passes with budget 4 can drain the remaining six packets while giving the scheduler chances to run other work between passes.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources are the Linux kernel NAPI documentation and Linux networking scaling documentation. Driver documentation for a specific NIC is needed when tuning descriptor counts and interrupt moderation.', 'Study ring buffers, queues, backpressure, RSS, TCP receive windows, eBPF/XDP, epoll readiness, and NUMA affinity next. The practical skill is finding the first full queue in the receive path.'] },
   ],
 };

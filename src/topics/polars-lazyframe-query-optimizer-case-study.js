@@ -222,95 +222,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the lazy plan as a tree of work that has not run yet. A scan node names a source, a filter node names a predicate, and a projection node names the columns that later work needs.',
+        'In the optimizer-passes view, a node moving downward means Polars has proven it can do the same query earlier and cheaper. A pushed filter is the same result with fewer rows entering later operators.',
+        {type:'callout', text:'LazyFrame changes dataframe work from immediate mutation into an inspectable plan that can be rewritten before IO and memory are spent.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A dataframe library is easiest to understand when every line runs immediately. Load a file, filter rows, add a column, select fields, group, and print the result. That eager model is convenient, but it hides the same problem query engines have faced for decades: the written order of operations is often not the cheapest order of execution.',
-        'Polars LazyFrame exists so Polars can see the whole computation before it pays for it. Lazy operations build a query plan. The optimizer rewrites that plan. Execution happens when the user calls collect or another materializing boundary. The data structure is not only a table; it is a plan that can still be changed.',
-        {type:'callout', text:'LazyFrame changes dataframe work from immediate mutation into an inspectable plan that can be rewritten before IO and memory are spent.'},
+        'A dataframe is a table-like structure for column operations such as filtering, selecting, grouping, and joining. Polars LazyFrame exists so the engine can inspect the full query before reading and materializing data.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is eager dataframe code. Each method returns a concrete dataframe, and the next method consumes that dataframe. This is easy to debug because every intermediate value exists. It also matches how many learners think about data cleaning in notebooks.',
-        'The approach breaks when inputs are large or when the code contains avoidable intermediate work. If you read all columns from a Parquet file and later select three, you paid for columns you did not need. If you filter after an expensive join even though the filter could have been applied to a scan, you made later operators process rows that should never have reached them.',
+        'The obvious approach is eager execution. Load a file, run a filter, create a dataframe, select columns, create another dataframe, and continue.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is visibility. An eager step sees only the dataframe it was handed. It cannot easily move a future filter into a past scan because the past scan already happened. It cannot skip columns that a later select will discard because those columns have already been read and decoded.',
-        'The second wall is memory. Eager chains may allocate temporary dataframes at each step. Some intermediates are logically useful for writing code but useless for execution. A query engine wants to combine, move, or remove those boundaries before data flows.',
+        'The wall is lost visibility. Once an eager scan has read 80 columns from a Parquet file, a later select of 4 columns cannot recover the skipped IO.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Defer execution and make the computation explicit. A LazyFrame records scans, filters, projections, expressions, joins, group-bys, sorts, slices, and sinks as plan nodes. The non-optimized plan mirrors the code. The optimized plan preserves the result but moves work to cheaper places.',
-        'The main optimizer move is pushdown. Predicate pushdown moves filters as close to scans as correctness allows. Projection pushdown keeps only needed columns at the scan. Slice pushdown avoids loading more rows than a limit requires. Common subplan elimination avoids repeating shared work. Expression simplification removes avoidable computation.',
+        'Defer execution and represent the computation as a plan. The optimized plan preserves the result but moves filters, projections, limits, and shared subplans to cheaper places.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A lazy query usually starts with a scan such as scan_parquet, scan_csv, or a lazy conversion from an existing dataframe. Each method call adds a node or expression to the logical plan. No file has to be fully read just because the scan node exists.',
-        'When execution is requested, Polars applies optimizer passes. The optimized plan may ask a Parquet scan for only three columns, attach a predicate to the scan, move a limit downward, or reuse a repeated subtree. Then Polars executes the physical work in columnar batches and returns a concrete DataFrame or writes to a sink.',
-        'The explain and query-plan views are part of normal use. They show both the original shape and the rewritten shape. A learner should ask which filters reached the scan, which columns remain at each scan, whether a slice moved down, and where materialization still happens.',
-      ],
-    },
-    {
-      heading: 'Data structures',
-      paragraphs: [
-        'The visible structure is a plan graph or tree. Scan nodes are leaves. Expressions describe column computations. Filter, select, join, aggregate, sort, and limit nodes transform the stream. Edges carry schemas and column requirements upward and downward.',
-        'The optimizer needs metadata as much as operators. It uses schemas to know which columns exist, expressions to know which inputs are required, source capabilities to know what can be pushed into a scan, and equality of subplans to know what can be shared.',
-        'This is why opaque operations are costly. A native expression such as pl.col("amount") > 100 has structure the optimizer can inspect. A user-defined function may be correct, but if it hides column dependencies or semantics, Polars has fewer safe rewrites available.',
+        'A lazy query begins with a scan such as scan_parquet or scan_csv. When collect or a sink requests execution, Polars applies optimizer passes and builds physical work from the rewritten plan.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness rule is semantic preservation. An optimizer pass may move or remove work only when the final result is unchanged. A projection can move to a scan because unused columns do not affect later results. A filter can move below a projection when the projected columns still contain everything the predicate needs.',
-        'A filter cannot always move freely. It may depend on a column created by a later expression, on join output, on aggregation results, or on semantics that the source cannot evaluate. The optimizer wins by moving work when the dependencies allow it and stopping when they do not.',
-        'Lazy planning also works because cost often follows data volume. Fewer scanned columns means fewer bytes read and decoded. Earlier filters mean fewer rows entering joins and aggregations. Avoided intermediates mean lower memory pressure. The same logical query can therefore have a much cheaper physical path.',
+        'The correctness rule is semantic preservation. A rewrite is legal only when the final dataframe is unchanged for every input that satisfies the same assumptions.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'LazyFrame adds planning overhead and delayed errors. Schema issues, unsupported operations, and source problems may appear at collect time rather than at the line where the lazy node was created. For small data, eager execution may feel simpler and the optimizer may not matter.',
-        'For large data, the behavior changes. A query that projects three columns from a wide Parquet table can avoid reading the rest. A query that filters before a join can avoid building hash tables for rows that will be discarded. A query that accidentally calls collect halfway loses those opportunities for the second half of the pipeline.',
-        'The dominant costs are usually IO, decoding, joins, sorts, aggregations, and memory for intermediate state. Lazy optimization attacks the first two with pushdown and the rest by reducing rows, columns, and duplicated work before expensive operators run.',
+        'Lazy planning adds overhead and delayed errors, but it can cut IO and memory sharply. If a 100 GB Parquet dataset has 50 columns and the query needs 5, projection pushdown can cut scan bytes by about 90 percent before later operators run.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'LazyFrame wins in ETL pipelines, feature engineering, log analytics, notebook workflows that touch larger-than-memory files, and batch jobs over Parquet, IPC, CSV, and other scan sources. The more selective the query and the wider the data, the more projection and predicate pushdown can matter.',
-        'It is also useful for teaching database ideas through dataframe code. A Polars user can write familiar chained expressions, then inspect the non-optimized and optimized plans. That makes projection pushdown, predicate pushdown, and materialization boundaries concrete rather than abstract query-planner vocabulary.',
-        'The pattern fits reproducible data pipelines because the plan can be inspected, profiled, and often written to a sink without manually staging every intermediate table.',
+        'LazyFrame wins in ETL pipelines, feature engineering, log analytics, batch jobs over Parquet, and notebooks that touch larger-than-memory files. It is strongest when queries are selective or tables are wide.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Lazy execution fails as a mental model when users assume every line has already produced data. Printing a LazyFrame is not the same as materializing it. Timing one method call may measure plan construction, not execution. Bugs can move to collect time.',
-        'It also fails when optimization visibility is blocked. Opaque UDFs, early collect calls, unsupported scan sources, complex expressions that cannot be pushed down, and functions with side effects reduce the optimizer to a narrower set of safe moves.',
-        'Some workloads are limited by operations that pushdown cannot remove. Skewed joins, large global sorts, high-cardinality group-bys, and memory-heavy aggregations may still dominate. Lazy planning can feed them less data, but it cannot make their structural cost disappear.',
+        'It fails when users assume every line has already produced data. It also loses power when opaque user-defined functions, early collect calls, unsupported sources, or side effects hide semantics from the optimizer.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Inspect the optimized plan before tuning by hand. Look for pushed predicates, projected column lists at scans, slice placement, repeated scans, join order, and accidental materialization. The plan should explain why the engine reads the data it reads.',
-        'Measure scanned bytes, number of columns read, rows after filters, peak memory, join build size, spill behavior where available, and total collect time. A slow LazyFrame is usually slow for a concrete reason visible in the plan or profile.',
-        'For code review, watch for collect inside helper functions, conversion to Python objects, map or apply patterns that hide expressions, selecting all columns by habit, and scans that lack schema or statistics information. These choices shape what the optimizer can prove.',
+        'Suppose a Parquet file has 100 million rows, 60 columns, and each column averages 8 bytes per row. Reading all columns touches about 48 GB, while a query needing 6 columns touches about 4.8 GB before compression effects.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Parquet Columnar Format and Parquet Page Index to understand what scan pushdown can exploit. Study Apache DataFusion, DuckDB Vectorized Execution, Apache Calcite Planner Adapter, Volcano Iterator Query Execution, Selection Vector Filter Pipeline, and SQL Join Algorithms for the broader query-engine lineage.',
-        'Official sources: Polars Lazy API documentation at https://docs.pola.rs/user-guide/concepts/lazy-api/, optimizer documentation at https://docs.pola.rs/user-guide/lazy/optimizations/, query-plan documentation at https://docs.pola.rs/user-guide/lazy/query-plan/, and LazyFrame API documentation at https://docs.pola.rs/api/python/dev/reference/lazyframe/index.html.',
+        'Official sources: Polars Lazy API documentation at https://docs.pola.rs/user-guide/concepts/lazy-api/, optimizer documentation at https://docs.pola.rs/user-guide/lazy/optimizations/, query-plan documentation at https://docs.pola.rs/user-guide/lazy/query-plan/, and LazyFrame API documentation at https://docs.pola.rs/api/python/dev/reference/lazyframe/index.html. Study Parquet Columnar Format, Parquet Page Index, Apache DataFusion, DuckDB Vectorized Execution, Apache Calcite Planner Adapter, Selection Vector Filter Pipeline, and SQL Join Algorithms next.',
       ],
     },
   ],

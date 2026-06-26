@@ -187,115 +187,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Kubernetes objects rarely live alone. A Deployment creates ReplicaSets. A ReplicaSet creates Pods. A custom resource can create Jobs, Secrets, ConfigMaps, and cloud-side resources through a controller.',
-        'Deletion needs the same structure as creation. If the parent disappears and the cluster has no durable ownership record, children can leak forever or be deleted by guesswork. Owner references give Kubernetes a cleanup graph that survives controller restarts.',
+        'The owner-graph view draws Kubernetes objects as nodes and ownerReferences as directed edges. A directed edge means the child object stores metadata naming the owner object and its UID. Follow those UID edges, not labels, when deciding cleanup.',
+        'The finalizer view shows deletion as a state machine. A deletionTimestamp means the object is marked for deletion but still stored. The safe inference is that physical removal waits until every finalizer key has been removed by the responsible controller.',
         {type:'callout', text:'Owner references encode cleanup authority as UID edges, while finalizers preserve deletion work that garbage collection cannot perform alone.'},
       ],
     },
     {
-      heading: 'The baseline approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The easy approach is to clean children by label or name. A controller could delete every Pod with app=web when the Deployment is deleted. That works in tiny examples because labels often look like ownership.',
-        'Labels are selectors, not lifetime contracts. A Service selects Pods by label without owning them. A monitor, policy engine, rollout controller, and human operator can all use the same labels for different reasons. Names are also unsafe because Kubernetes can reuse a name after the old object is gone.',
+        'Kubernetes objects rarely live alone. A Deployment creates ReplicaSets, a ReplicaSet creates Pods, and a custom operator can create Secrets, Jobs, Services, and cloud resources. Deleting the parent should not leave children behind or guess which objects to remove.',
+        'Garbage collection exists to turn lifetime into explicit metadata. Owner references cover dependent Kubernetes objects. Finalizers cover cleanup work that must happen before the object disappears, especially work outside the Kubernetes API.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to delete children by label or name. A controller could delete every Pod with app=web when the Deployment is deleted. In a small demo, labels often look like ownership.',
+        'That approach is unsafe because labels are selectors, not lifetime contracts. A Service, monitor, NetworkPolicy, and dashboard may all use app=web without owning those Pods. Names are also unsafe because a new object can reuse an old name after the old UID is gone.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Cleanup by convention fails when relationships overlap. The same Pod can be selected by a Service, observed by a monitor, matched by a NetworkPolicy, and owned by a ReplicaSet. Only one of those relationships should decide lifetime.',
-        'Deletion also crosses time. A controller can crash after creating children. An owner can be deleted while children still exist. A new object can later reuse an old name. The cleanup system needs immutable identity and an explicit edge, not a fresh search over labels.',
+        'The wall is overlapping relationships. One Pod can be selected by a Service, watched by metrics, matched by policy, and owned by a ReplicaSet. Only one of those relationships should control lifetime.',
+        'Deletion also crosses crashes and time. A controller can create children and crash before cleanup. A parent can be deleted while dependents remain. A cleanup system needs durable identity and an explicit edge, not a fresh search over mutable labels.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'The data structure is a directed dependency graph. The edge is stored on the dependent object in metadata.ownerReferences. Each reference names the owner API version, kind, name, UID, controller flag, and blockOwnerDeletion flag.',
-        'UID is the important field. Names help humans debug, but UID identifies the exact owner instance. A Pod should point to the ReplicaSet that actually created it, not to whatever object later receives the same name.',
-        'Finalizers are a separate deletion ledger. A finalizer is a string key on an object that says physical removal must wait. It is not a callback. It is durable state that a controller must observe, act on, and remove when cleanup is complete.',
-        'The insight is that cleanup needs two different records: ownership edges for in-cluster dependents and finalizer keys for work outside ordinary garbage collection. Mixing them up creates either leaks or unsafe deletion.',
+        'Owner references form a directed dependency graph stored on dependents. Each edge records the owner API version, kind, name, UID, and control flags. The UID is the identity that prevents name reuse from transferring ownership to a different object.',
+        'Finalizers are a second ledger, not another edge type. A finalizer key says deletion must pause while some controller performs cleanup. The controller removes its key only when it has finished or deliberately chosen not to do that cleanup.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A delete request usually marks the object with a deletionTimestamp before storage removes it. Garbage collection then applies the propagation policy. Background deletion lets the owner disappear first and removes dependents afterward. Foreground deletion keeps the owner visible until blocking dependents are gone. Orphan deletion detaches dependents instead of deleting them.',
-        'The garbage collector watches owners and dependents, builds the graph from ownerReferences, and follows explicit edges. It does not infer ownership from labels, selectors, or name prefixes.',
-        'Finalizers turn deletion into a two-phase operation. First the API server records deletionTimestamp and keeps the object. Then the responsible controller sees the object is terminating, performs cleanup, and removes its finalizer key. Only after all finalizers are gone can the object be physically removed.',
+        'A delete request usually marks the object with deletionTimestamp before storage removes it. The garbage collector watches objects, builds a graph from ownerReferences, and applies the deletion propagation policy. Background deletion can remove the owner first, foreground deletion keeps the owner until blocking dependents are gone, and orphan deletion detaches dependents.',
+        'When finalizers are present, deletion becomes two phase. The API server records the timestamp and keeps the object visible. Controllers observe the terminating object, perform idempotent cleanup, and remove their finalizer key; only then can storage remove the object.',
       ],
-    },
-    {
-      heading: 'Concrete examples',
+    },    {
+      heading: 'Why it works',
       paragraphs: [
-        'A Deployment owns ReplicaSets, and ReplicaSets own Pods. Deleting the Deployment can cascade through those owner edges. A Service that selects the same Pods is not an owner, so it should not be deleted just because the Pods match its selector.',
-        'A database custom resource may create a cloud disk. An ownerReference can clean up child Kubernetes objects, but it cannot delete the external disk by itself. The database controller needs a finalizer so it can delete or detach the disk before Kubernetes removes the custom resource record.',
+        'Correctness starts with immutable identity. Because the edge points to a UID, the garbage collector follows the exact owner instance that created or adopted the dependent. A later object with the same name does not inherit that edge.',
+        'The deletion state is monotonic. Once deletionTimestamp is set, the object is terminating, and controllers should treat cleanup as retryable. Removing the finalizer is the commit point saying the object no longer needs to stay stored for that cleanup job.',
       ],
     },
     {
-      heading: 'Why it is reliable',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The correctness argument starts with identity. Owner edges target UID, so name reuse does not transfer ownership to a different object. The garbage collector follows the graph that existed in object metadata rather than recomputing a relationship from mutable labels.',
-        'The deletion state is monotonic. Once deletionTimestamp is set, the object is on its way out. Controllers should make cleanup idempotent because they may observe the terminating object more than once. Removing the finalizer is the commit point that says cleanup no longer needs the object to remain stored.',
-        'Propagation policy makes ordering explicit. Foreground deletion is useful when the owner should not vanish until dependents are gone. Background deletion is faster for the caller but cleanup continues after the owner disappears. Orphaning is a deliberate escape hatch, not an accident.',
+        'The runtime cost is watch traffic, graph maintenance, and cleanup work. If a cluster has 100,000 objects and many controllers churn dependents, the garbage collector must keep an accurate dependency graph rather than update one local pointer. Foreground deletion can also hold the user-facing delete operation open until dependents are gone.',
+        'Finalizers add user-space latency. A finalizer controlled by a broken operator can leave an object stuck in Terminating for hours. Cost as behavior means deletion speed now depends on controller health, RBAC, external APIs, and retry logic.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Garbage collection costs watches, graph maintenance, and eventual cleanup work. The cost grows with object count and reference churn, not with a single local pointer update.',
-        'Foreground deletion trades caller latency for stronger ordering. Background deletion returns sooner but leaves cleanup visible later. Finalizers add another delay because Kubernetes must wait for user-space controller code.',
-        'A finalizer is only as reliable as the controller that owns it. If the controller is gone, misconfigured, or blocked by permissions, the object can remain in Terminating forever.',
+        'Owner references work for in-cluster lifetime chains such as Deployment to ReplicaSet to Pod, Job to Pod, and custom resource to child ConfigMaps or Secrets. They let Kubernetes clean up objects after parent deletion without a controller remembering every child in memory.',
+        'Finalizers work for external or ordered cleanup. A database operator can keep a Database object visible while it snapshots, deletes a cloud disk, or archives a backup bucket. The finalizer makes the cleanup obligation visible and restart-safe.',
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Where it fails',
       paragraphs: [
-        'Owner references work well for in-cluster lifetime relationships: Deployment to ReplicaSet, ReplicaSet to Pod, Job to Pod, and custom resources to child Kubernetes objects. They make cleanup automatic when the parent truly owns the child.',
-        'They fail when engineers use them as a general relationship model. Selection, observation, routing, and policy are not ownership. Cross-namespace owner references have scope rules. External resources need finalizers and reliable controller code; ownerReferences alone cannot delete a DNS record, S3 bucket, database, or load balancer.',
+        'Owner references are not a general relationship model. Routing, observation, selection, and policy are not ownership. Cross-namespace owner references also have scope rules, so not every object can own every other object.',
+        'Finalizers fail when operators disappear or permissions change. Manual finalizer removal can be the right emergency action, but it skips the cleanup the key was protecting. That can leak load balancers, disks, DNS records, buckets, or child systems.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'The common failure is confusing labels with ownership. Deleting by selector can remove objects that another owner still needs, or leave objects that changed labels before deletion.',
-        'The dangerous failure is manual finalizer removal. It can unblock a stuck object, but it also skips the cleanup the finalizer was protecting. That can leak external infrastructure or leave a child system in an inconsistent state.',
-        'The quiet failure is an invalid or stale owner reference. Scope violations, wrong UID, missing RBAC for blockOwnerDeletion, or a controller that forgets to set ownerReferences all create deletion debt that appears later.',
+        'A Database custom resource creates 1 StatefulSet, 2 Services, 1 Secret, and 1 cloud backup bucket. The StatefulSet, Services, and Secret are Kubernetes objects, so the operator sets ownerReferences to the Database UID. The bucket is external, so the operator adds finalizer example.com/delete-backup-bucket to the Database.',
+        'When the user deletes the Database, the API server sets deletionTimestamp. The operator sees the terminating object, writes a final backup, deletes the bucket, and removes its finalizer. Then the garbage collector can remove the Database and cascade through the UID edges to the owned Kubernetes children.',
+        'If the operator crashes after deleting the bucket but before removing the finalizer, retry must be safe. On restart, the operator should see that the bucket is already gone and remove the finalizer. That idempotence is what makes the deletion protocol reliable rather than lucky.',
       ],
     },
     {
-      heading: 'Animation notes',
-      paragraphs: [
-        'The owner-graph view separates selection from ownership. A Service may point at matching Pods, but that is not a cleanup edge. The Deployment-to-ReplicaSet-to-Pod chain is a cleanup graph because dependents store ownerReferences with UIDs.',
-        'The finalizer view shows why deletion is a state machine. The object is marked for deletion, controller cleanup runs while the object is still visible, and physical removal waits until finalizer keys are gone.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Controllers should set ownerReferences on child Kubernetes objects at creation time and use finalizers for external resources they must clean up. Cleanup should be idempotent because the controller may crash and retry after deletionTimestamp is already set.',
-        'Runbooks should never say "remove the finalizer" without naming the resource leak that might result. First identify the owning controller, check its logs and permissions, verify external cleanup state, and only then decide whether manual finalizer removal is safe.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A custom database operator creates a StatefulSet, Services, Secrets, and a cloud backup bucket for each Database object. The StatefulSet and Secrets can use ownerReferences because they are in-cluster dependents. The backup bucket needs a finalizer because Kubernetes garbage collection cannot delete it by following an API object edge.',
-        'When the user deletes the Database, the API server sets deletionTimestamp. The operator sees the terminating object, finalizes backups, deletes or archives the bucket according to policy, removes the finalizer, and then garbage collection can finish the Kubernetes object cleanup.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'When an object is stuck terminating, inspect finalizers, ownerReferences, events, and the controller responsible for the finalizer key. The question is not only "how do I delete this object?" It is "what cleanup was this object keeping alive?"',
-        'For custom controllers, make deletion paths part of the normal test suite. Create the parent, verify child ownerReferences, delete the parent, simulate controller restarts during cleanup, and assert that external resources are either removed or intentionally retained according to policy.',
-      ],
-    },
-    {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: Kubernetes garbage collection at https://kubernetes.io/docs/concepts/architecture/garbage-collection/, owners and dependents at https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/, and finalizers at https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/.',
-        'Study Kubernetes Reconciliation for controller cleanup, Kubernetes Deployment Rolling Update State Machine for owner chains, Write-Ahead Log for deletion durability, Reference Counting for the simpler in-process analogy, and Saga Pattern for cleanup when the dependent is outside the cluster.',
+        'Study Kubernetes controllers and reconciliation, Deployment rollout ownership, Reference Counting, Write-Ahead Log, Saga Pattern, idempotent cleanup, and cloud resource lifecycle management next. The core lesson is to separate selection from ownership and cleanup obligation.',
       ],
     },
   ],

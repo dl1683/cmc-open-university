@@ -195,103 +195,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Telemetry systems need distributions, not only averages. A service can have a healthy mean latency while the p99 is broken. Request size, queue time, retry delay, and RPC duration can also span orders of magnitude, so a small number of fixed-width buckets often puts resolution in the wrong place.',
-        'OpenTelemetry exponential histograms exist to let SDKs aggregate high-dynamic-range measurements into a compact distribution. The representation gives roughly stable relative precision across small and large values while keeping aggregation inside the metrics pipeline instead of exporting every raw event.',
+        'The animation shows how raw measurements become a compact distribution. A histogram counts how many measurements fall into value ranges called buckets. An exponential histogram uses bucket ranges that grow by a constant ratio instead of a constant width.',
+        'Active nodes show the measurement or bucket being processed. Found nodes show counts added to the exported data point. Compare nodes show scale and bucket-boundary decisions. Removed nodes show detail lost when buckets are downscaled or merged.',
+        'The safe inference rule is that the bucket counts are meaningful only with the scale, offsets, zero count, count, sum, and temporality. Counts without bucket interpretation are not a distribution.',
         {type:'callout', text:'Exponential histograms make distribution cost explicit by trading scale for precision before raw measurements leave the SDK.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/2/2a/Wikipedia_bincounts.svg', alt:'Three histograms of the same data using different bin counts.', caption:'Sample histogram with different bin sizes; image by Zckub, CC0 public domain dedication, via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'One wrong answer is to export every measurement and calculate quantiles later. That turns a metrics pipeline into an event pipeline and quickly becomes too expensive for ordinary service telemetry. Another wrong answer is to use a small fixed bucket set forever. Fixed bucket boundaries age badly as latency ranges and service behavior change.',
-        'Averages are worse. They discard distribution shape before the data leaves the process. A downstream backend cannot recover tail behavior, merge distributions correctly, or explain an SLO burn from a scalar mean.',
+        'Telemetry systems need distributions because averages hide behavior. A service can have a healthy mean latency while the p99 is broken. Request size, queue time, retry delay, and RPC duration can span orders of magnitude.',
+        'OpenTelemetry exponential histograms exist so SDKs can aggregate high-dynamic-range measurements before export. The application records many events, but the metrics pipeline sends a compact summary. That keeps cost bounded while preserving shape.',
+        'The design is especially useful when teams do not know stable bucket boundaries in advance. A latency metric may need to represent 2 ms cache hits and 20 second timeouts in the same stream.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Use buckets whose boundaries grow exponentially. When bucket width grows with the value, the same scale can represent 2 ms and 20 s observations with more consistent relative error than a linear bucket layout. The SDK no longer needs a custom explicit bucket list for every metric.',
-        'The control knob is scale. Higher scale means a smaller growth factor between adjacent buckets, more buckets, larger payloads, and better precision. Lower scale merges ranges, reducing payload size while losing detail. Scale is therefore an accuracy and cost decision, not just a display setting.',
+        'The obvious approach is to export every measurement and compute quantiles later. That preserves detail, but it turns a metrics pipeline into an event pipeline. Ordinary service telemetry becomes too expensive to store and query.',
+        'Another approach is a fixed explicit bucket list. That works when domain thresholds are known, such as 100 ms, 300 ms, and 1 second SLO boundaries. It fails when values range widely or when the chosen buckets age badly.',
+        'The worst approach is an average. A mean collapses the distribution before the data leaves the process. No backend can reconstruct tail latency or burst shape from one scalar.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'The wall',
       paragraphs: [
-        'An instrument records measurements. A view in the SDK chooses the aggregation. With exponential histogram aggregation, a positive value is mapped to a bucket index based on a base-2 exponential scale. The exported data point carries count, sum, positive bucket ranges, negative bucket ranges, a zero count, scale, and optionally min and max.',
-        'Positive and negative ranges are separate because a distribution can include negative measurements such as temperature deltas or signed errors. A zero bucket handles values near zero, where pure logarithmic mapping is not meaningful. Temporality then decides whether the point describes only the current collection interval or the cumulative stream since process start.',
+        'The wall is dynamic range. A fixed 10 ms bucket width gives good detail near 100 ms but creates thousands of buckets near 20 seconds. A fixed 1 second width is cheap but useless near a 50 ms service.',
+        'There is also an aggregation wall. Metrics from many processes must merge. If each process exports raw samples, volume explodes. If each process exports incompatible bucket layouts, the backend must translate or lose accuracy.',
+        'Temporality is another wall. Delta points describe one collection interval. Cumulative points describe the stream since start. Treating cumulative points as independent deltas can invent spikes or erase real observations.',
       ],
     },
     {
-      heading: 'Invariants',
+      heading: 'The core insight',
       paragraphs: [
-        'A histogram data point is meaningful only together with its scale, bucket offsets, bucket counts, zero-count rule, count, sum, and temporality. Bucket count without bucket interpretation is not a distribution. Scale conversion is allowed, but it is lossy when it lowers resolution.',
-        'Merging is safe only when stream identity and bucket interpretation are handled deliberately. Attribute sets define metric streams. Delta and cumulative temporality have different reset behavior. A backend that receives cumulative points but treats them like independent deltas can invent spikes or erase real observations.',
+        'Use buckets whose boundaries grow exponentially. Bucket width grows with the value, so the representation has more stable relative precision across small and large measurements. Being off by 1 ms near 2 ms matters; being off by 1 ms near 20 seconds does not.',
+        'The control knob is scale. Higher scale means adjacent buckets are closer together, so precision improves and more buckets may be needed. Lower scale merges ranges, reducing memory and wire size while losing detail.',
+        'Scale is therefore a cost decision. It decides how much precision the SDK keeps before measurements leave the process. Later systems can downscale, but they cannot recover detail that was already merged away.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'An instrument records a measurement such as request duration. The SDK view chooses exponential histogram aggregation for that metric stream. The stream is defined by metric name, resource, scope, and attributes.',
+        'A positive value maps to a positive bucket index using the exponential scale. Negative values map to a separate negative range. Values near zero use a zero bucket because a pure logarithmic mapping is not meaningful at zero.',
+        'The exported data point carries count, sum, zero count, positive bucket ranges, negative bucket ranges, scale, and possibly min and max. A backend merges compatible streams by adding counts into corresponding buckets after handling scale and temporality.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design works because many operational measurements care about ratios. Being off by 1 ms near 2 ms is a large error; being off by 1 ms near 20 s is irrelevant. Exponential buckets align representation error with that operational intuition.',
-        'It also works because aggregation happens before export. The application process records many measurements, but the backend receives distribution summaries for each metric stream. That keeps the metrics path bounded while preserving enough shape for quantile-style analysis.',
+        'The correctness argument is conservation of counts under a known mapping. Each raw measurement increments exactly one bucket or the zero count. The total count and sum preserve how many measurements were seen and their total value.',
+        'Aggregation is safe when streams represent the same metric identity and bucket interpretation. If two points use different scales, a backend can downscale the higher-resolution point to a lower scale before adding counts. That loses precision but preserves count mass.',
+        'The representation works for operational data because relative error is often the right error model. A bucket that spans 1,000 to 1,010 ms and a bucket that spans 10 to 10.1 ms both keep roughly similar relative meaning.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Scale is the main local cost knob. Higher scale improves precision but can increase bucket count, memory, and wire size. Implementations may downscale to fit bucket limits, which merges neighboring buckets and changes later quantile estimates. That is often the right trade, but it should be understood as compaction.',
-        'Attributes are the global cost knob. Exponential histograms do not make labels free. A high-cardinality attribute still creates many metric streams, and each stream carries its own distribution state.',
+        'Memory cost is roughly proportional to the number of active metric streams times the number of populated buckets per stream. Attributes are therefore the global multiplier. A high-cardinality label creates many independent histograms.',
+        'Scale is the local multiplier. If scale increases and a stream fills 80 buckets instead of 20, memory and payload size can quadruple for that stream. Downscaling from 80 to 20 buckets reduces size but widens bucket ranges.',
+        'Backend cost depends on native support. If the Collector, exporter, storage engine, or query layer converts exponential histograms into coarse explicit buckets, the type may survive syntactically while its precision is lost.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The most common failure is assuming compatibility. The SDK may emit exponential histograms, the Collector may pass them through, but the exporter, remote endpoint, storage engine, or query layer may drop, downscale, translate, or misinterpret them. Successful ingestion is not proof that distribution semantics survived.',
-        'Other failures include mismatched temporality, reset handling errors, missing min or max when a backend expects them, silent conversion to coarse explicit buckets, and dashboards that call scalar functions on histogram streams. Every hop needs an intentional behavior.',
+        'Exponential histograms fit latency, duration, payload size, queue time, retry delay, and other positive distributions with wide ranges. They help instrumentation authors avoid hand-designing bucket boundaries for every metric.',
+        'They are useful when a backend understands the type natively or translates it deliberately into a compatible representation such as a native histogram. Native preservation keeps distribution data compact until query time.',
+        'They also help during SLO work. A team can inspect p95 and p99 behavior without exporting every request duration, as long as the query engine understands the histogram representation.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Where it fails',
       paragraphs: [
-        'Exponential histograms are useful for latency, duration, payload size, queue depth, retry delay, and other positive distributions whose range is wide and whose bucket boundaries are hard to choose in advance. They let instrumentation authors use a principled aggregation rather than hand-designing every boundary list.',
-        'They are strongest when the downstream path understands the type natively or translates it deliberately into a compatible representation such as a Prometheus native histogram. Native preservation keeps the distribution compact and avoids reintroducing explicit bucket cardinality too early.',
+        'It fails when the pipeline does not preserve semantics. The SDK may emit exponential histograms, but an exporter, remote endpoint, storage engine, or query layer may drop, downscale, translate, or misinterpret them.',
+        'It fails when domain thresholds are more important than relative precision. If an alert must fire at exactly 300 ms and 1 second, explicit buckets around those thresholds may be easier to reason about.',
+        'It fails when teams ignore cardinality. Exponential histograms reduce sample volume, not label explosion. A user id label can still create one histogram per user and overwhelm the metrics backend.',
       ],
     },
     {
-      heading: 'Where it is the wrong tool',
+      heading: 'Worked example',
       paragraphs: [
-        'They are not a replacement for tracing when individual outliers must be inspected. They are not a cure for unbounded labels. They are also not automatically better than explicit buckets when a domain has stable, meaningful thresholds such as SLO boundaries or protocol size classes.',
-        'They can be a poor rollout choice if the organization has a backend or alerting stack that cannot preserve or query them correctly. In that case, explicit histograms with known semantics may be safer until the pipeline is upgraded.',
+        'A service records 100,000 request durations in one minute. Exporting each duration as an event at 16 bytes would send about 1.6 MB before metadata. A histogram point can summarize the same stream in a few dozen buckets.',
+        'Suppose scale 4 produces 60 populated buckets for the route /checkout. If each bucket count is 8 bytes, bucket counts use about 480 bytes plus metadata for that route and attribute set. Ten routes with four status classes create 40 streams, so the same scale costs about 19 KB of counts per minute before encoding overhead.',
+        'If traffic expands from durations near 50 ms to timeouts near 20 seconds, the exponential layout adds buckets across the range instead of requiring a hand-built boundary list. If the backend downscales from 60 buckets to 30, query payload falls, but p99 precision becomes coarser.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Sources and study next',
       paragraphs: [
-        'In the sdk-aggregation view, follow the path from measurement to view, scale, bucket index, positive or negative ranges, zero bucket, and OTLP point. The important transition is that raw measurements disappear into an aggregate data point before export.',
-        'In the export-compatibility view, watch the same data point move through the Collector and backend boundary. The downscale frame is the key warning: reducing scale keeps the type alive but changes precision. The rollout checklist is not paperwork; it is the list of places where histogram semantics can be lost.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A service records HTTP request latency with an OpenTelemetry histogram instrument. The SDK view selects exponential histogram aggregation with a bucket limit. The Collector receives OTLP data points and exports them to a backend that can store exponential or native histograms. The team then queries p95 and p99 by route and status class.',
-        'The validation plan checks SDK version, view configuration, scale behavior, Collector pass-through, exporter support, backend storage, query functions, dashboards, recording rules, alerts, and remote storage. The goal is not just to see data arrive. The goal is to prove that the distribution can still be queried with the intended accuracy.',
-      ],
-    },
-    {
-      heading: 'Operational checklist',
-      paragraphs: [
-        'Start with one high-value metric before changing the whole metrics estate. Record the SDK aggregation choice, scale limits, temporality, exporter path, backend storage type, and the exact query functions used by dashboards and alerts. Then compare old and new p95 or p99 behavior during the same traffic window.',
-        'Watch payload size, stream cardinality, bucket downscaling, dropped points, and query compatibility. Exponential histograms are a better distribution representation only if the full path preserves them and operators can still ask the questions they need during incidents.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: OpenTelemetry metrics data model at https://opentelemetry.io/docs/specs/otel/metrics/data-model/ and OpenTelemetry Metrics SDK aggregation specification at https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/sdk.md.',
-        'Study Prometheus Native Histogram Schema for the Prometheus-side representation, Metric Label Cardinality Control for stream economics, OpenTelemetry Collector Case Study for pipeline behavior, DDSketch Relative-Error Quantiles for another relative-error sketch, and SLO Error Budget Burn Rate Alert for how distributions affect alerting.',
+        'Primary sources are the OpenTelemetry Metrics data model, the Metrics SDK aggregation specification, and Prometheus native histogram documentation for related storage and query behavior. Use them to check scale, temporality, and exporter compatibility.',
+        'Study Metric Label Cardinality Control for stream economics, OpenTelemetry Collector for pipeline behavior, DDSketch for relative-error quantiles, Prometheus Native Histograms for backend representation, and SLO Error Budget Burn Rate for alerting from distributions.',
       ],
     },
   ],

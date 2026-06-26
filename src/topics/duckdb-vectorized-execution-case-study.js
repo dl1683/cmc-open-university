@@ -1,4 +1,4 @@
-﻿// DuckDB vectorized execution: DataChunks, tight operators, and embedded OLAP.
+// DuckDB vectorized execution: DataChunks, tight operators, and embedded OLAP.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
 
@@ -192,170 +192,86 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for DuckDB Vectorized Execution Case Study. A modern analytical execution engine: move DataChunks through vectorized operators, keep pipelines cache-friendly, and run OLAP inside the process..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Read the animation as a query plan moving batches instead of single rows. DuckDB is an embedded analytical database, OLAP means online analytical processing, and a DataChunk is a bounded batch of column vectors. Active state is the chunk or operator currently executing, visited state is input already consumed, and found state is the output chunk or aggregate state now guaranteed by the processed input.',
+        'The safe inference is batch-local. If a filter marks positions 1, 4, and 7 as selected, later operators can process those positions without copying every surviving value immediately. That is why the animation should track vectors, selection vectors, and pipeline breakers separately.',
         {type: "callout", text: "Vectorized execution changes the executor contract from one tuple at a time to fixed-shape column batches, putting CPU time into tight loops instead of per-row dispatch."},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `DuckDB exists for a common modern situation: the data is already on your machine or inside your process, and you want serious analytical SQL without shipping everything to a separate database service. A notebook has Parquet files. A Python script has dataframes. An application wants to query local event logs. The user wants OLAP behavior, but the deployment shape is embedded and local.`,
-        `That deployment only works if the execution engine is efficient on ordinary CPU hardware. Analytical queries often scan many rows, touch a subset of columns, filter most of them away, and aggregate the survivors. If the engine turns every value into a separate object and calls a virtual function for every row, the CPU spends too much time on overhead rather than useful comparisons, arithmetic, hashing, and memory movement.`,
+        'Analytical queries often scan many rows, read a few columns, filter most rows, and aggregate the survivors. DuckDB targets the case where data is local to a notebook, script, application, or file directory. It needs database execution quality without requiring a separate database server.',
+        'That shape only works if the executor uses CPU caches and memory bandwidth well. If every row becomes a separate object and crosses every operator boundary alone, the CPU spends too much time on dispatch and materialization. Vectorized execution changes the unit of work to column batches.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The classic naive baseline is row-at-a-time query execution. A scan operator produces one tuple. A filter asks whether that tuple passes. A projection computes expressions for that tuple. A join or aggregate consumes it. The iterator interface is elegant because every operator has the same shape, and complex plans can be composed by wiring operators together.`,
-        `That elegance has a price. Analytical queries do the same operation over thousands or millions of values. If each row crosses an operator boundary separately, the engine pays function-call overhead, branch overhead, poor instruction locality, and object materialization costs over and over. The CPU cannot easily use tight loops or cache-friendly column access because the unit of work is too small.`,
+        'The classic executor is row-at-a-time iteration. A scan returns one tuple, a filter tests it, a projection computes expressions, and an aggregate consumes it. The interface is elegant because every operator can ask its child for the next row.',
+        'A different simple approach is to load everything into an application dataframe and run analysis there. That can work for small data. It loses database behaviors such as predicate pushdown, projection pushdown, SQL planning, streaming through bounded memory, and structured NULL semantics.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The wall',
       paragraphs: [
-        `Row-at-a-time execution is not wrong for every workload. It is simple, flexible, and good for teaching query plans. The wall appears when the hot path becomes "call next" millions of times. A filter such as event_date >= X and event_date < Y should be a loop over a vector of dates, not a repeated trip through a tiny interpreter.`,
-        `A second naive approach is to load all data into a dataframe or application array and perform analytics there. That can work for small data, but it loses database-engine advantages: projection pushdown, predicate pushdown, SQL optimization, streaming through bounded batches, spill behavior, and structured handling of NULLs, types, joins, and aggregates. DuckDB's design keeps database semantics while making the hot loops batch-shaped.`,
+        'The row iterator wall appears when next is called millions of times. A predicate such as event_date between two bounds should be a tight loop over dates, not repeated trips through many small virtual calls. The cost is overhead around the useful comparison.',
+        'The all-in-memory dataframe wall appears when the input is larger than the convenient working set. Reading every column and materializing every intermediate result can dominate the query. Analytical engines need to push work down, stream bounded batches, and spill or break pipelines when an operator requires global state.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to make a batch of column vectors the standard unit that moves through the executor. In DuckDB, operators exchange DataChunks. A DataChunk contains vectors for several columns over a bounded set of rows. Instead of "give me the next tuple," the engine asks an operator to process a chunk.`,
-        `That change is small at the interface and large in the machine. A filter can loop over a vector of values and produce a selection vector: a compact list of active row positions. A projection can compute an expression over all active positions. A scan can read only the columns the query needs. A constant vector can represent one repeated value without materializing it for every row. NULL handling travels as validity information rather than ad hoc per-row checks scattered through the plan.`,
+        'DuckDB moves DataChunks through operators. A DataChunk holds vectors for several columns over a bounded number of rows. Operators process a batch at a time, which amortizes interface overhead and makes loops over contiguous data more likely.',
+        'The selection vector is the key detail. A filter can store the positions that passed instead of copying all surviving values into a new dense vector immediately. Later operators can use the same buffers plus selected positions, reducing memory movement on common analytical filters.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A query plan starts with logical operations such as scan, filter, project, join, aggregate, and order. The optimizer chooses a physical plan. The executor then runs that plan as pipelines. A source produces chunks, regular operators transform chunks, and sinks consume chunks. Some sinks later produce output after they have accumulated enough state.`,
-        `Consider a local Parquet query: select user_id, count(*) from events where event_date is in one week group by user_id. The scan reads the needed columns, not the entire file. It emits a DataChunk containing vectors for event_date and user_id. The filter evaluates the date predicate over the date vector and creates a selection vector. The group-by aggregate reads only selected user_id positions and updates hash-table state. The final result is returned as another chunk.`,
-        `The selection vector is the detail that makes the page worth studying. A filter does not have to copy every surviving value into a new dense column immediately. It can carry row positions forward. Later operators can use the same underlying vector buffers plus the selection vector. That saves memory movement, which is often the real cost in analytical execution.`,
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        `Not every operator can pass each chunk forward immediately. A filter can stream: input chunk in, selected chunk out. A projection can stream. A simple expression can stream. A hash aggregate cannot always stream final answers because it must first build group state across many chunks. A sort must collect enough data to order it. A hash join build side must materialize a hash table before the probe side can use it.`,
-        `Those operators are pipeline breakers. They are where memory pressure, spilling, partitioning, and parallel coordination become visible. If a group-by has many distinct keys, the hash table can dominate the query. If an order by is larger than memory, the engine needs an external strategy. The batch interface helps the CPU, but pipeline breakers still need serious database engineering.`,
-      ],
-    },
-    {
-      heading: 'How it works (3)',
-      paragraphs: [
-        `The DataChunk view proves that execution granularity is the central design choice. The scan produces vectors. The filter uses a predicate over vectors. The selection vector carries active row ids. Projection computes expressions over the remaining positions. The visual contrasts that with a Volcano-style iterator so the difference is not just "DuckDB is fast," but "DuckDB changed the unit of work."`,
-        `The pipeline-breaker view proves that not all query work is equally streamable. Scan, filter, and projection can pass chunks through a pipeline. Hash aggregation consumes chunks into state before producing final results. That one node explains why memory, spill policy, and parallel partitioning are still necessary even in a vectorized engine.`,
+        'A query plan starts as logical scan, filter, project, join, aggregate, and sort operations. The optimizer chooses a physical plan, and the executor runs it as pipelines. Sources produce chunks, regular operators transform chunks, and sinks consume chunks into state or final output.',
+        'For select user_id, count star from events where event_date is in one week group by user_id, the scan reads event_date and user_id columns. The filter evaluates the date predicate over the date vector and creates a selection vector. The aggregate reads selected user_id positions and updates a hash table of group counts.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Vectorized execution works because it matches analytical work to CPU behavior. CPUs are good at loops over contiguous memory, predictable control flow, and repeated operations over arrays. They are less happy when every row becomes a separate object crossing many small interfaces. DataChunks amortize operator overhead across many rows while keeping memory bounded.`,
-        `The design also preserves SQL semantics because the vector is not just a raw array. It carries type information, validity bits for NULLs, selection state, and representations for constants or other compact cases. Operators can remain general without reverting to per-row object handling. The engine gets a practical middle ground between simple row iterators and fully compiled query-specific machine code.`,
+        'Vectorized execution works because analytical work matches array loops. CPUs handle repeated operations over contiguous memory better than many tiny object dispatches. Processing a chunk keeps memory bounded while still giving each operator enough values to amortize overhead.',
+        'SQL semantics are preserved because vectors are not raw arrays alone. They carry type information, validity masks for NULLs, constant-vector representations, and selection state. Operators can stay general without falling back to per-row object handling for the common path.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Vectorized execution has its own tuning problems. Chunk size affects cache behavior, function-call amortization, latency to first row, and memory footprint. Too small and the engine pays overhead too often. Too large and it may lose cache locality, increase temporary memory, or delay downstream work.`,
-        `Selection vectors reduce copying, but they can also make later access less sequential when many rows are filtered out. Pipeline breakers can dominate runtime regardless of vectorization. A bad join order, huge group cardinality, low-selectivity filter, or large sort can still make a query expensive. Vectorized execution improves the executor's inner loops; it does not magically fix poor plans.`,
-        `Embedded execution adds another tradeoff. DuckDB runs inside someone else's process. That makes deployment simple, but it also means memory use, thread use, file access, and result materialization have to behave politely in notebooks, applications, and scripts. A separate warehouse can isolate and schedule many users. An embedded engine trades that service boundary for locality and simplicity.`,
+        'Chunk size controls behavior. Too small and function-call overhead appears too often. Too large and temporary memory, cache pressure, and latency to first output can rise. The point is not maximum batch size; it is a batch size that keeps loops efficient without blowing the working set.',
+        'Pipeline breakers dominate some queries. A filter and projection can stream chunk by chunk, but a hash aggregate must keep group state and a sort must collect enough rows to order them. If distinct group count doubles, aggregate hash-table memory can roughly double even though the scan remains vectorized.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `DuckDB is strong when analytical data is local or already attached to an application: Parquet files on disk, CSV exploration, Arrow data, dataframes, local logs, tests, demos, embedded product analytics, and command-line investigations. The access pattern is usually scan a few columns, filter, aggregate, join a modest reference table, and return a result that is much smaller than the input.`,
-        `A product analyst can query a directory of Parquet files without loading every column into memory. A data tool can embed SQL over user-provided files without running a server. A test suite can run realistic analytical queries in-process. In each case, vectorized execution is not a marketing feature. It is what makes local OLAP feel interactive on ordinary hardware.`,
+        'DuckDB is useful when analytical data is already local: Parquet directories, CSV exploration, Arrow data, dataframes, local logs, and embedded product analytics. The access pattern is often scan a few columns, filter many rows, aggregate or join, and return a result much smaller than the input.',
+        'It also fits tests and tools that need real SQL inside the process. A command-line investigation can query files without provisioning a warehouse. An application can ship embedded analytics while still using database planning and vectorized execution.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Where it fails',
       paragraphs: [
-        `DuckDB is not the same tool as a distributed warehouse. If the workload needs many concurrent tenants, strict workload isolation, cluster-wide governance, petabyte-scale distributed storage, or long-running shared service operations, a single embedded engine is the wrong abstraction. It may still be useful at the edge of that system, but it is not the whole system.`,
-        `Another failure mode is result materialization. A query may scan efficiently and then return an enormous dataframe to the client, moving the bottleneck out of the executor. Schema drift, nested data, large strings, and user-defined functions can also reduce the clean vectorized path. The right question is always where the data is scanned, where it is filtered, where it is materialized, and which operator dominates.`,
+        'DuckDB is not a replacement for a distributed warehouse when the workload needs many concurrent tenants, cluster-wide governance, strict workload isolation, or petabyte-scale shared storage. It can be part of that workflow, but the embedded process boundary is a real constraint. Locality is a feature until coordination becomes the problem.',
+        'Vectorization also does not fix bad plans. A huge result materialized into a client dataframe can move the bottleneck outside the executor. Large strings, user-defined functions, nested data, low-selectivity filters, and poor join order can reduce the clean tight-loop path.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study Volcano iterator query execution to understand the row-at-a-time baseline. Study Apache Arrow and Parquet to understand the columnar memory and storage formats that pair naturally with vectorized execution. Study SQL join algorithms, hash aggregation, external sort, and exchange operators to understand pipeline breakers and parallel boundaries. Useful starting sources include DuckDB internals at https://duckdb.org/docs/current/internals/overview, DuckDB vector documentation at https://duckdb.org/docs/current/internals/vector, the DuckDB SIGMOD paper at https://duckdb.org/pdf/SIGMOD2022-demo-duckdb.pdf, and the MonetDB/X100 vectorized execution paper at https://www.cidrdb.org/cidr2005/papers/P19.pdf.`,
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Suppose a Parquet file has 10,000,000 rows and 40 columns, but the query needs event_date and user_id. Projection pushdown reads 2 columns instead of 40. If chunks contain 2,048 rows, the scan emits about 4,883 chunks instead of 10,000,000 row calls.',
+        'If the date filter keeps 5 percent of rows, each 2,048-row chunk keeps about 102 positions on average. The aggregate updates counts only for selected user_id positions. The query still reads many values, but the hot path is vector loops and hash-table updates instead of per-row operator dispatch.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Primary sources include DuckDB internals at https://duckdb.org/docs/current/internals/overview, DuckDB vector documentation at https://duckdb.org/docs/current/internals/vector, the DuckDB SIGMOD demo paper at https://duckdb.org/pdf/SIGMOD2022-demo-duckdb.pdf, and the MonetDB/X100 paper at https://www.cidrdb.org/cidr2005/papers/P19.pdf. Study Volcano iterators, Apache Arrow, Parquet, hash aggregation, external sort, and join algorithms next.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why DuckDB Vectorized Execution Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

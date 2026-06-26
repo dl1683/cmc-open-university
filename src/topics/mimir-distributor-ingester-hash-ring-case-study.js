@@ -177,114 +177,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The ingest-ring view follows one Prometheus remote-write series from distributor to ingesters. A series identity is the metric name plus labels for one tenant. Active nodes are handling the write now, found nodes are selected owners, and compare nodes check lifecycle state, zone placement, and acknowledgments.',
+        'The churn-case view shows why membership is part of correctness. Joining, active, leaving, and unhealthy ingesters are not equal write targets. The safe inference is that a write is accepted only when enough valid owners for that series acknowledge it under the current ring policy.',
+        {type:'callout', text:'A Mimir-style ring maps each series key to replicated ingester owners, but write safety depends on membership state and acknowledgments.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A long-term metrics backend has to accept high-rate Prometheus remote-write traffic without putting every sample on one machine. It also has to survive node churn, tenant bursts, and rolling upgrades while keeping recent samples available.',
-        'A Mimir-style write path exists to split that problem cleanly. Distributors validate and shard incoming series. Ingesters own recent series state. A hash ring decides which ingesters receive each series.',
-        {type:'callout', text:'A Mimir-style ring maps each series key to replicated ingester owners, but write safety depends on membership state and acknowledgments.'},
+        'A long-term metrics backend must accept high-rate remote-write traffic from many tenants. Recent samples cannot all land on one machine, and the system must survive rolling upgrades, node failures, and tenant bursts. The write path needs deterministic sharding plus replication.',
+        'Mimir splits the work between distributors and ingesters. Distributors receive and validate writes, while ingesters own recent in-memory series before data is flushed to durable storage. A hash ring tells distributors which ingesters own each series right now.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The naive design is to load-balance batches randomly across ingestion nodes. That spreads requests, but it does not give a time series a stable owner. Recent samples, ordering assumptions, and flush behavior become messy.',
-        'Another naive design is to route by tenant only. That protects tenant isolation, but hot tenants can overload a small set of nodes and high-cardinality tenants still need sharding inside the tenant.',
+        'The obvious approach is random load balancing across ingestion nodes. It spreads HTTP requests and looks stateless at the front door. It fails to give one time series a stable owner for recent samples, ordering checks, and flush behavior.',
+        'Another reasonable approach is tenant-level routing. That keeps a tenant together, but one large tenant can overload a small set of machines. High-cardinality tenants still need sharding inside the tenant because millions of series cannot be one ownership unit.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Metrics ingestion is stateful even when the front door looks stateless. Recent samples live in ingesters before they are flushed to durable storage. If ownership changes carelessly, writes can be under-replicated, rejected, or sent to nodes that are not ready.',
-        'Cardinality is the other wall. A few tenants or label sets can dominate memory, CPU, and network. The ring gives deterministic ownership, but it does not remove the need for limits and capacity planning.',
+        'Metrics ingestion is stateful even when requests arrive through stateless distributors. Ingesters hold recent samples in memory, enforce ordering, and later flush blocks or chunks. If ownership changes carelessly, writes can be lost, duplicated, under-replicated, or sent to nodes that are not ready.',
+        'Cardinality is the second wall. A tenant that creates millions of label combinations consumes memory and CPU on whichever ingesters own those series. A hash ring can spread work, but it cannot make an unbounded label schema cheap.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Treat each series identity as a key and map it through a hash ring to a small replicated owner set. Distributors can stay mostly stateless in the hot path because the ring tells them where to send writes.',
-        'The ring is not just service discovery. Token ranges, lifecycle states, replication factor, health, zone awareness, and acknowledgments are part of write correctness.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        "In the ingest-ring view, follow one time series key. The distributor validates the remote-write batch, hashes the series identity, finds the owning token range, and sends replicas to the selected ingesters.",
-        "In the churn-case view, watch lifecycle state. Joining, active, leaving, and unhealthy ingesters are not interchangeable. A write is safe only if the ring state and replication policy say enough valid owners accepted it.",
-        "The highlighted replication set is the control-plane answer to a data-plane question: where should this series live right now, and how many independent ingesters must acknowledge it?",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A remote-write request contains samples for `http_requests_total{tenant="acme", job="api", instance="a"}`. The distributor checks tenant limits and label validity, hashes the normalized series identity, and uses the ring to choose three ingesters across zones. The request succeeds only when the configured write condition is met.',
-        'During a rolling upgrade, one ingester is leaving and another is joining. The ring should prevent the joining node from receiving traffic before it is ready and should let the leaving node drain safely. If distributors disagree about ring state, writes may scatter, fail, or become under-replicated. That is why ring convergence is part of correctness, not merely discovery.',
+        'Map each tenant series key through a hash ring to a replicated owner set. The distributor can stay mostly stateless because the ring is the shared ownership map. Replication means recent in-memory samples survive individual ingester failures.',
+        'The ring is more than service discovery. Token ranges, ingester lifecycle state, zone awareness, replication factor, health, and acknowledgments define whether the write is safe. A node being present is not enough; it must be a valid owner for the current write.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A distributor receives a write request, validates labels and samples, checks tenant limits, and hashes the series. It uses the ingester hash ring to find the authoritative owner and then replicates the series to additional ingesters according to the replication factor.',
-        'Ingesters keep recent samples in memory and participate in the ring. The ring is shared through a key-value or memberlist mechanism. Ring state tells distributors which ingesters are active, joining, leaving, or unhealthy.',
+        'A distributor validates a remote-write batch, checks tenant limits, normalizes the series identity, and hashes it. It walks the ring to find the ingester that owns the hash range, then chooses additional replicas according to the replication factor and zone policy. It sends the samples and waits for the required acknowledgments.',
+        'Ingesters participate in the ring and store recent samples for their assigned series. Ring state is shared through a key-value store or gossip-style membership. During scale-up or rolling upgrades, lifecycle states control when a node can receive writes and when an old node can drain.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Consistent hashing makes ownership stable enough that most series keep landing on the same ingesters as the cluster changes. Replication protects recent in-memory samples while ingesters eventually flush blocks or chunks to durable object storage.',
-        'Tenant limits keep the front door honest. They stop a noisy tenant from turning the ring into an unbounded memory and cardinality sink.',
+        'The correctness invariant is deterministic ownership for a series at a ring version. If distributors agree on the ring, the same tenant series maps to the same replica set. Replication then protects recent data because the write is accepted only after enough owners have stored it.',
+        'Churn is safe only if lifecycle transitions preserve coverage. A joining ingester should not receive traffic before it is ready, and a leaving ingester should not drop ownership before replacements can accept writes. The ring must converge quickly enough that distributors do not route the same series to incompatible owner sets for long.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Replication improves availability but multiplies write work and memory. More ingesters add capacity but also add ring churn during scaling events. More tokens can improve balance but make ring state larger and operationally noisier.',
-        'Zone-aware replication, quorum behavior, and ring convergence decide whether writes remain safe during failures. A cluster can be up in a Kubernetes sense and still be unsafe for ingestion if ring state is stale or too many owners are unhealthy.',
-        'Cardinality dominates many costs. Each distinct series consumes memory, index work, and eventual storage. A perfect ring cannot save a tenant that creates millions of label combinations without limits, sampling, or better instrumentation discipline.',
+        'Replication multiplies write work. With replication factor 3, 100,000 incoming samples per second become up to 300,000 ingester appends before acknowledgments. Doubling the replication factor improves failure tolerance but directly raises network, CPU, and memory pressure.',
+        'Ring size and cardinality drive behavior. More tokens can improve balance but increase membership state and churn work. More active series increase ingester memory even if sample rate is modest, so label discipline and tenant limits are part of capacity planning, not optional policy.',
       ],
     },
     {
-      heading: 'Operational review',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Review the write path as a ledger: tenant id, sample count, label validation, rate-limit decision, series hash, ring version, chosen ingesters, acknowledgments, and failure reason. That ledger is how an operator distinguishes bad client data from ring churn or ingester overload.',
-        'Useful alerts separate validation failures, limit rejections, distributor queueing, ring health, ingester append latency, replication failures, and object-store flush lag. A single ingestion-error graph is too blunt for a system whose correctness depends on several layers.',
-      ],
-    },
-    {
-      heading: 'Capacity planning',
-      paragraphs: [
-        'Plan capacity around active series, samples per second, tenants, replication factor, flush bandwidth, and query pressure on recent data. The ring spreads ownership, but each ingester still has finite memory and CPU for active series. A tenant with explosive labels can create more pressure than a much larger tenant with disciplined cardinality.',
-        'Scale events should be treated as control-plane events. Adding ingesters changes token ownership, replication sets, and failure domains. Rolling upgrades should watch ring convergence and write success, not just Kubernetes pod readiness.',
-        'A practical review also asks what happens to recent data when an ingester dies before flushing. Replication and quorum policy define how much recent state survives, while object storage protects only data that has already been persisted.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'This design wins for horizontally scalable metrics ingestion where many distributors can accept remote-write traffic and many ingesters can own recent series state. It fits multi-tenant Prometheus-compatible storage systems such as Mimir-style architectures.',
-        'It is also a useful teaching example because the moving parts are concrete: tenant ledgers, series hashes, token ranges, ring membership, replication sets, lifecycle states, and flush paths.',
+        'This design fits horizontally scalable Prometheus-compatible storage such as Grafana Mimir. It is useful when many distributors must accept writes while many ingesters own recent tenant series state. The access pattern is append-heavy ingestion with deterministic ownership and replicated recent data.',
+        'The same pattern appears in distributed caches, sharded queues, and time-series systems that need stable key ownership under node churn. The lesson is to separate the request front door from the state owner map. The front door can scale freely only if it follows a shared ownership contract.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A hash ring is not magic load balancing. Hot tenants, high-cardinality metrics, unbalanced tokens, unhealthy ingesters, and uneven zone placement can still overload part of the cluster.',
-        'Another trap is treating service discovery as equivalent to write correctness. Membership state, replication factor, acknowledgments, and ring convergence determine whether a write is safely accepted.',
-        'It also fails when local operational policy is missing. Without tenant limits, cardinality controls, and clear onboarding rules, the ring becomes a fair way to distribute an unfair workload.',
-        'Do not overextend the model into the query path. The write ring explains where recent samples should be accepted, but historical query performance depends on block storage, compactors, store gateways, indexes, caches, and query splitting. A learner should keep those concerns separate before studying how they meet in a real incident.',
+        'A hash ring is not magic load balancing. Hot tenants, unbalanced tokens, bad zone placement, unhealthy ingesters, and explosive metric labels can still overload part of the cluster. The ring distributes the workload it is given; it does not make that workload fair.',
+        'It also fails when service discovery is confused with write safety. A live pod is not necessarily a valid ingester for a series. Membership state, replication policy, quorum behavior, and acknowledgment handling decide whether accepting the write is correct.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'A cluster rolls ingesters during a release. New ingesters join the ring, old ingesters leave, distributors refresh ring views, and incoming series continue to be hashed and replicated. If ring propagation lags or zones become imbalanced, a tenant can see ingestion errors or under-replication.',
-        'The operational controls are token balance, zone-aware replication, quorum behavior, per-tenant limits, ring-health alerts, and distributor observability that separates validation failures, rate limiting, ring churn, and ingester write latency.',
+        'A tenant sends samples for http_requests_total{job="api", instance="a"}. The distributor hashes tenant acme plus the normalized series identity to token 72,140 on a ring with 3 zones and replication factor 3. The ring chooses ingesters i-4, i-9, and i-15 in separate zones.',
+        'If the write batch has 1,000 samples and the quorum is 2 of 3, the distributor can return success after any 2 valid ingesters acknowledge. If i-9 is leaving and not a valid target, the distributor must choose the next valid owner rather than count i-9 as safe. The numeric success condition is about acknowledged replicas, not just sent HTTP requests.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Grafana Mimir hash ring architecture at https://grafana.com/docs/mimir/latest/references/architecture/hash-ring/, Mimir distributor docs at https://grafana.com/docs/mimir/latest/references/architecture/components/distributor/, and Mimir ingester docs at https://grafana.com/docs/mimir/latest/references/architecture/components/ingester/.',
-        'Study Consistent Hashing for ownership, Prometheus Remote Write WAL Shards for the sender side, Metric Label Cardinality Control for tenant pressure, Prometheus TSDB Case Study for local sample storage, Backpressure & Flow Control for bounded ingestion, and Quorums for replicated write safety.',
+        'Primary sources are Grafana Mimir hash ring architecture at https://grafana.com/docs/mimir/latest/references/architecture/hash-ring/, distributor docs at https://grafana.com/docs/mimir/latest/references/architecture/components/distributor/, and ingester docs at https://grafana.com/docs/mimir/latest/references/architecture/components/ingester/. Use these sources for mechanism claims before relying on secondary summaries.',
+        'Study Consistent Hashing for ownership, Quorums for replicated writes, Prometheus Remote Write WAL Shards for the sender side, Metric Label Cardinality Control for tenant pressure, Prometheus TSDB for local storage, and Backpressure for bounded ingestion. Start with the topic that explains the data shape, then move to the production system.',
       ],
     },
   ],

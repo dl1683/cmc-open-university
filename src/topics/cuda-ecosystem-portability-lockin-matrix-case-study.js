@@ -247,114 +247,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'CUDA portability lock-in exists because GPU software is not just kernels. It is compilers, libraries, profilers, collective communication, memory allocators, graph capture, vendor extensions, build systems, container images, and operational habits.',
-        'A team may say it wants accelerator portability, but the real question is where its code, performance assumptions, and debugging workflows depend on one vendor ecosystem. A lock-in matrix makes those dependencies visible.',
+        'Read the matrix from left to right as a dependency audit. Rows are workload layers such as framework code, custom kernels, math libraries, collective communication, profiling, deployment, and team knowledge. Active cells mark dependencies being inspected, found cells mark portable evidence, and blocked cells mark vendor-specific behavior that still owns the workload.',
+        'The safe inference rule is workload based. A row is portable only when that workload can run correctly, meet its service target, be debugged, and be operated on the target accelerator. Source translation alone is not enough evidence.',
         {type:'callout', text:'Accelerator portability is a workload-evidence problem across libraries, kernels, collectives, tooling, and people, not a checkbox for translated source code.'},
       ],
     },
     {
-      heading: 'The obvious shortcut',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious shortcut is to translate CUDA kernels to another language or backend and declare the system portable. That misses the ecosystem. Many workloads rely more on cuBLAS, cuDNN, NCCL, TensorRT, custom extensions, and profiler-guided tuning than on handwritten kernels alone.',
-        'Another shortcut is to wait for a framework to abstract everything. Frameworks help, but abstraction leaks when a model hits memory limits, kernel gaps, collective bottlenecks, numerics differences, or missing production tooling.',
+        'CUDA is NVIDIA\'s programming platform for general-purpose GPU computing. A GPU is a parallel processor built to run many simple operations at once, and CUDA gives programmers kernels, libraries, compilers, profilers, runtime APIs, and deployment conventions for using NVIDIA GPUs. The lock-in risk appears when those layers become part of the product, not just part of the build.',
+        'A team may want AMD, Intel, custom ASIC, or cloud bargaining power, but its real system may depend on cuBLAS, cuDNN, NCCL, TensorRT, CUDA graphs, driver behavior, container images, and engineers trained on one profiler. A lock-in matrix exists to turn that vague risk into rows that can be tested. It separates useful dependence from accidental dependence.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Portability is a stack property. Each layer has a different migration cost: source code, compiler, math libraries, communication libraries, runtime APIs, profiling, deployment, monitoring, and team expertise.',
-        'A useful matrix scores each dependency by importance, replaceability, performance sensitivity, correctness risk, and operational maturity. The goal is not ideology. It is to know which parts of the system can move and which parts are anchored.',
+        'The obvious approach is to translate kernels. If a .cu file becomes HIP, SYCL, Triton, or another backend, the code looks less tied to one vendor. This is a reasonable first step because handwritten kernels are visible, grepable, and often painful to maintain.',
+        'Another reasonable approach is to rely on PyTorch, TensorFlow, JAX, or another framework to hide the hardware. Frameworks do remove many direct calls. They do not remove every production dependency once a workload needs a fused kernel, a specific collective library, a graph-capture path, or a profiler-guided memory fix.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that accelerator software is a stack. A model can be portable at the Python layer and locked at the inference optimizer. A training job can use portable tensor operations and still depend on NCCL behavior for all-reduce, which is the collective operation that combines gradients across many devices.',
+        'The second wall is operational. A kernel may compile on another backend while p99 latency misses the service-level objective, numerical drift changes model quality, monitoring loses device counters, or on-call engineers cannot diagnose memory fragmentation. A demo proves possibility; production proves ownership.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Portability is not a property of code in isolation. It is a property of a workload running under a target correctness, performance, cost, and operations contract. The matrix works because each row states which layer owns part of that contract.',
+        'Each dependency should be scored by workload importance, replaceability, performance sensitivity, correctness risk, and operational maturity. The answer may be to port one layer, keep another CUDA path, and build a fallback for a third. The matrix is useful because it allows partial, evidence-backed decisions instead of slogans.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Start with an inventory. List kernels, framework operators, custom CUDA extensions, vendor libraries, communication paths, memory-management assumptions, build flags, container dependencies, and profiling tools. Tie each item to workloads and business-critical paths.',
-        'Then classify migration options. Some code can use portable framework ops. Some kernels can move through HIP, SYCL, Triton, WebGPU, or vendor-specific alternatives. Some dependencies need rewrites. Some should remain CUDA because the cost of moving is higher than the benefit.',
-        'Finally, run proof workloads. Portability is not a spreadsheet claim until latency, throughput, memory use, numerical behavior, failure handling, and debugging paths work on the target hardware.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The matrix view proves that lock-in is uneven. A training job may be portable at the PyTorch layer but locked at NCCL collectives or custom fused kernels. An inference path may be portable until TensorRT-specific optimizations define the latency target.',
-        'The migration-gate view proves that portability is staged. Inventory, replacement, correctness, performance, operations, and rollback all need gates. Skipping directly to performance tuning can hide correctness or support gaps.',
+        'Start with an inventory tied to real workloads. Record framework operators, custom extensions, vendor libraries, communication paths, memory allocation assumptions, graph-capture use, compiler flags, container images, profiling tools, and monitoring. Attach each item to a service route, batch job, or training run instead of counting files.',
+        'Then classify each item. Some dependencies can move through portable framework operators. Some can move through HIP, SYCL, Triton, OpenCL, WebGPU, or a vendor library on the target platform. Some should stay vendor-specific because the cost of replacing them is higher than the option value gained.',
+        'Finally, run proof workloads. Correctness tests check output tolerance, performance tests check latency and throughput, memory tests check peak and fragmentation, and operations tests check logging, profiling, rollback, and incident response. A row stays locked until the target path survives those gates.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The matrix works because it turns a vague platform debate into specific dependencies. A team can decide to keep one CUDA-only path, remove another, and create an abstraction around a third. Each decision has evidence.',
-        'It also works because migration risk is not uniform. A small utility kernel with tests may be easy to port. A numerically delicate fused attention kernel on the p99 path may require deep benchmarking and fallback support.',
+        'The correctness argument is evidence separation. If every layer used by a workload has a tested replacement or an intentional retained dependency, then the workload\'s portability claim can be traced to concrete facts. If one layer lacks evidence, the matrix prevents the team from pretending the whole workload moved.',
+        'The approach also works because migration risk is uneven. A deterministic preprocessing kernel with golden outputs can be ported cheaply. A fused attention kernel on the p99 path, where tiny numerical differences can change ranking or model behavior, needs deeper testing and probably a rollback path.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Portability costs engineering time, test infrastructure, benchmarking, and sometimes performance. A portable path that is 30 percent slower may be unacceptable for one workload and perfectly fine for another.',
-        'Lock-in also has a cost: supply risk, supplier pricing power, capacity shortages, deployment constraints, and hiring bottlenecks. The matrix helps compare the cost of staying with the cost of moving.',
+        'Portability spends engineering time, test infrastructure, benchmark time, and sometimes performance. If a route serves 10,000 requests per second and a portable backend is 30 percent slower, the business must buy about 43 percent more capacity to keep the same headroom, because 1 / 0.70 = 1.43. That cost can be worth paying for supply flexibility, but it is not free.',
+        'Lock-in also has cost behavior. Supplier pricing power, capacity shortages, hiring constraints, cloud-region limits, and incident dependence all grow as more critical routes rely on one ecosystem. The matrix lets a team compare the cost of staying with the cost of moving for each workload.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'This analysis wins for AI platforms, HPC systems, inference fleets, edge deployments, procurement planning, and any organization deciding whether to support AMD, NVIDIA, Intel, custom ASICs, or browser GPUs.',
-        'It is especially useful before a migration. Teams can prioritize low-risk portability work, identify hard blockers, and avoid discovering during a crisis that the only profiler, collective, or kernel path is vendor-specific.',
+        'AI platform teams use this analysis before supporting non-NVIDIA accelerators, moving inference to edge hardware, or negotiating cloud capacity. High-performance computing teams use the same pattern when deciding whether a simulation code can move between CUDA, HIP, SYCL, or CPU-vectorized paths. The matrix matters most when the workload has real service targets, not just compile targets.',
+        'The pattern also helps procurement and architecture planning. A credible secondary path for batch inference, offline evaluation, or preprocessing can create option value even if the main training path remains CUDA. Partial portability is still useful when it shifts demand, reduces outage exposure, or gives the business a tested alternative.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first failure is portability theater: code compiles on another backend, but performance, numerics, observability, or incident response is not production-ready. A demo is not a migration.',
-        'The second failure is ignoring people. Engineers know one profiler, one failure mode, one memory model, and one set of tuning habits. Training and debugging playbooks are part of the dependency graph.',
-        'The third failure is all-or-nothing thinking. Partial portability can still be valuable. Moving preprocessing, small models, batch jobs, or noncritical inference first may create real option value before the hardest kernels move.',
-      ],
-    },
-    {
-      heading: 'Migration checklist',
-      paragraphs: [
-        'Inventory every vendor-specific dependency and attach it to a workload. Measure current performance and correctness before porting. Build golden tests and numerical tolerances. Decide which regressions are acceptable for each workload.',
-        'Create fallbacks. A portable route should have rollback, canary, and observability before it carries critical traffic. The migration plan should state who owns kernel gaps, library gaps, profiler gaps, and incident response.',
-        'Report progress by working workload, not by lines translated. The only portability that matters is a workload that can run, meet its SLO, be debugged, and be operated by the team.',
+        'The matrix fails when teams score intentions instead of workloads. A row marked portable because a library exists is not evidence that the service route works. Performance, numerics, observability, packaging, and support all need proof under the real input shape.',
+        'It also fails when people treat lock-in as a moral category. A CUDA path can be the right primary path because it is faster, cheaper, and better supported for a given workload. The serious question is which dependencies are intentional, which are accidental, and which risks the business is paying to keep.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider an inference service using PyTorch, custom CUDA attention kernels, NCCL collectives, TensorRT export, CUDA graphs, and NVIDIA-specific monitoring. The model code may look portable, but the production path is anchored at several layers.',
-        'A first migration gate might move a small batch route to a portable framework operator set. A second gate might replace the custom kernel with Triton or a vendor alternative. A third gate might prove collective communication, profiling, and rollback on the target hardware.',
-        'The matrix prevents false confidence. If TensorRT is the reason p99 latency is acceptable, replacing only the source kernels does not make the route portable. The performance contract moved with the optimizer.',
+        'Consider an inference service that serves 2,000 requests per second. Its route uses PyTorch for model code, a custom CUDA attention kernel, TensorRT export, CUDA graphs, and NVIDIA-specific memory metrics. The Python model looks portable, but four rows in the matrix are still anchored to CUDA behavior.',
+        'The team ports a low-tier batch route first. Baseline p95 latency is 80 ms and p99 is 130 ms on the CUDA path. The target accelerator path returns correct answers within tolerance, but p95 is 104 ms and p99 is 190 ms, so the matrix marks correctness green and service latency yellow.',
+        'The decision is not all or nothing. The batch route can move because it has a 250 ms p99 target, while the interactive route stays CUDA because it has a 150 ms p99 target. That outcome is real portability for one workload and honest lock-in for another.',
       ],
     },
     {
-      heading: 'How to prioritize',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Start with workloads that are valuable but not existential. Batch jobs, offline evaluation, preprocessing, or low-tier inference can create portability muscle without risking the highest-value path.',
-        'Prioritize dependencies with clear tests and low numerical risk. A deterministic preprocessing kernel is easier to move than a fused training kernel whose tiny numerical differences change convergence.',
-        'Keep the business reason visible. Portability can mean lower cost, supply flexibility, edge deployment, negotiating power, or resilience. The right migration order depends on which of those goals matters most.',
-      ],
-    },
-    {
-      heading: 'What to watch in production',
-      paragraphs: [
-        'The hardest lock-in is usually operational, not syntactic. A kernel may port in a week while debugging, profiling, on-call training, capacity planning, and incident rollback take months. The matrix should track those human and operational dependencies with the same seriousness as code dependencies.',
-        'Watch benchmark selection. A portable backend that wins on a small tensor or offline batch can still fail the real service because the real service depends on graph capture, quantized kernels, collective overlap, or memory fragmentation behavior. Portability evidence must match the workload shape.',
-        'The end state may not be total neutrality. Many teams keep one optimized primary path and one credible secondary path. That is still useful if the secondary path can carry defined workloads, survive an incident, and give the business negotiating power. The goal is usable optionality, not a slogan.',
-      ],
-    },
-    {
-      heading: 'Common misconception',
-      paragraphs: [
-        'The misconception is that CUDA lock-in is a moral failure or a simple vendor preference. Often it is the result of years of optimized libraries, battle-tested debugging tools, trained engineers, stable deployment images, and known failure modes. Those are real assets.',
-        'The serious question is not whether lock-in is bad in the abstract. It is whether the benefits still outweigh the risk for a particular workload. A good matrix makes that question concrete enough to argue about: which layer creates the dependency, what it buys, what it would cost to replace, and what business risk remains if nothing changes.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Accelerator Kernel Compatibility Matrix, GPU AllReduce, Tensor Parallelism, WebGPU Buffer and Bind Group, MLIR, Triton Kernels, PagedAttention, and Heterogeneous AI Compute Workload Router. A useful exercise is to make a lock-in matrix for one model serving path from tokenizer to response.',
+        'Study NVIDIA CUDA documentation at https://docs.nvidia.com/cuda/, AMD ROCm documentation at https://rocm.docs.amd.com/, SYCL at https://www.khronos.org/sycl/, Triton at https://triton-lang.org/, and PyTorch backend notes at https://pytorch.org/docs/stable/. Then study GPU all-reduce, tensor parallelism, MLIR, kernel fusion, PagedAttention, WebGPU buffers, and heterogeneous workload routing.',
       ],
     },
   ],

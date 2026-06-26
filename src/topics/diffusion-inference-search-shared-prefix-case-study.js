@@ -230,74 +230,77 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'Why this topic exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Language-model search is usually explained with autoregressive models: generate the next token, branch into several possible next tokens, score the partial answers, and continue. That works, but it repeats a large amount of work. Every candidate has its own left-to-right path. The model also carries a separate KV-cache history for each surviving branch. Beam search, tree-of-thought search, and verifier-guided sampling can improve quality, but the bill rises quickly because each branch keeps asking the model to extend a different prefix.`,
-        `Diffusion language models change the shape of the problem. They do not have to commit one token at a time from left to right. A masked diffusion model can start with a partly or fully masked sequence, denoise many positions in parallel, and decide later which slots deserve more attention. That makes a new inference-time search pattern possible. If several candidate answers share the same early denoising trajectory, the system can do the coarse work once, then branch only after the important uncertainties become visible.`,
-        {type: 'callout', text: `In diffusion search, the reusable prefix is shared model state, so the controller should branch only when uncertainty becomes decision-critical.`},
+        'Read the tree as search over partially denoised answers. Shared nodes are model work reused by several candidates, branch nodes are places where hypotheses diverge, and verifier nodes decide whether a branch deserves more compute. The safe inference is that branching is cheap only while candidate states still share enough denoising history.',
       ],
     },
     {
-      heading: 'The naive approaches',
+      heading: 'Why this exists',
       paragraphs: [
-        `The first naive approach is to run the diffusion sampler independently for every candidate answer. If you want four candidates, you pay four complete denoising runs. This is simple to implement, and it keeps each candidate isolated, but it throws away the main advantage of a masked sampler. Early reverse steps often resolve broad structure that would have been common across candidates: answer length, rough argument shape, repeated context, and easy lexical slots. Recomputing those steps per branch is wasteful.`,
-        `The second naive approach is to copy autoregressive search directly. The controller tries to build a token tree, ranks partial strings, and treats the current visible text as the only prefix that matters. That misses the important difference. In diffusion search, the reusable prefix is not necessarily a text prefix. It is a model state: a mask bitset, a partially denoised token buffer, confidence margins for hidden slots, and sometimes a reveal schedule. If the controller stores only strings, it cannot tell which candidates still share denoising work and which have already diverged.`,
+        'Inference-time search improves answers by trying multiple candidates, but autoregressive search pays for each candidate token by token. A diffusion language model can fill many masked positions in parallel and delay commitment. That creates a chance to share early denoising work before splitting into separate candidate answers.',
+        {type: 'callout', text: 'In diffusion search, the reusable prefix is shared model state, so the controller should branch only when uncertainty becomes decision-critical.'},
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is beam search or tree-of-thought search. Keep several candidates, score them, and expand the best ones. This is reasonable because search can correct one bad path by keeping alternatives alive.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is duplicated model work. If 8 branches each generate 200 tokens autoregressively, the server runs about 1,600 branch-token steps before verifier cost. Many early steps are similar, but the left-to-right cache treats each prefix as a separate path once the candidates diverge.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `Shared-prefix diffusion search treats early denoising as a common computation over a set of possible answers. The system waits to branch until the remaining masked positions are both uncertain and important. A branch is created when two or more hypotheses need different commitments: a different operator in a proof, a different repair in code, a different entity in a factual answer, or a different ordering of reasoning steps. Before that point, all candidates ride the same reverse process.`,
-        `The word prefix is overloaded here. It does not mean "the first tokens in the sentence." It means "the common part of the inference state." Two candidates can share a denoising prefix even if they eventually place different words near the beginning of the final text, because those words may still be masked during the shared steps. The controller is trying to preserve the part of the computation that is still common, not a literal substring.`,
+        'In diffusion search, the shared prefix is not a text prefix. It is a shared denoising trajectory over a masked answer buffer. The controller should keep candidates together while uncertainty is broad, then branch only around slots where different hypotheses matter.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
-        `A practical controller keeps a small set of data structures. The mask bitset records which slots are still hidden. The candidate tree records which branches came from which shared state. A confidence table records token margins or distributional uncertainty for each slot. A budget ledger records denoising steps, active candidates, verifier calls, and latency. A verifier or reward model scores branch quality. A scheduler decides which slots should be unmasked, remasked, or left for later.`,
-        `One run might begin with a prompt and a masked answer buffer. The model performs several shared reverse steps, filling easy slots and giving the controller confidence estimates for hard ones. When the remaining uncertainty clusters around a few high-value positions, the controller forks candidates. Branch A tries one operator, branch B tries another, and branch C keeps the operator masked for another step. Each branch receives some local denoising budget. The verifier then scores support, consistency, syntax, or task-specific correctness, and weak branches are pruned or sent back for repair.`,
-        `Logic scheduling adds another layer. Instead of revealing slots only because their token probabilities are sharp, the scheduler asks what role a slot plays in the answer. Premises should usually be visible before conclusions. Definitions should be settled before derived claims. Operators should be chosen before the final arithmetic or proof step is committed. The reveal order becomes a dependency policy, closer to a small reasoning DAG than to a plain confidence sort.`,
+        'The system starts with a masked buffer and runs shared denoising steps to expose high-confidence structure. It tracks mask bitsets, candidate ids, confidence margins, verifier scores, and a budget counter. When a key slot remains uncertain, the controller branches, runs branch-local denoising, asks a verifier to score support, and may remask weak conclusions.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why it works',
       paragraphs: [
-        `The shared tree view is proving that the branch point should come after useful common work, not before it. The prompt and mask buffer feed a shared denoising path. Only after the shared steps do the candidate branches separate. The important lesson is that search can be organized around reusable model state. A candidate tree is not just a list of strings; it is a record of which computations are still shared and which computations are branch-local.`,
-        `The cost ledger makes the same point numerically. Shared steps cost about once, regardless of how many candidates will later exist. Branch-local steps multiply by the number of active candidates. That means the controller is always balancing two risks: branch too early and pay for duplicated work, or branch too late and let the model commit to a weak answer before alternatives are explored. The logic schedule view shows the semantic version of the same tradeoff. Reveal the support first, then let the conclusion compete.`,
+        'The correctness argument is a search invariant. Shared work is valid only while all surviving candidates agree on the state being shared or while the masked positions have not committed candidate-specific facts. Once a branch commits different content, later denoising and verifier state must be tracked separately for that branch.',
       ],
     },
     {
-      heading: 'Why it can work',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The method works when early denoising contains information that is useful to many possible completions. Many prompts have this property. A proof answer may share the same premises across several final derivations. A code repair may share imports, function boundaries, and failing-test context before choosing the exact patch. A structured extraction may share schema and field order before resolving a difficult entity. In those cases, the sampler can spend parallel compute on shared structure and reserve branch-local compute for the few decisions that matter.`,
-        `It also works because diffusion inference can expose uncertainty in a richer way than a committed token prefix. A masked slot can remain undecided while other slots become context. The controller can see that the conclusion is fluent but unsupported, remask it, and ask the model to denoise again after premises have stabilized. That is difficult in a strictly left-to-right sampler, where early commitments become part of the prompt for everything that follows.`,
+        'The cost benefit depends on how much work stays shared. If 8 candidates share 12 denoising steps and then each needs 4 branch-local steps, the run costs 12 + 8 * 4 = 44 step-units. Running all 8 independently for 16 steps would cost 128 step-units, so shared work cuts this stylized example by about 66 percent.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        `The main cost is control-plane complexity. The serving system must batch candidates with compatible step counts, mask shapes, and model states. It must compact candidate trees so memory does not grow with every speculative branch. It must store enough evidence to explain why a branch was pruned. It must also decide when a verifier is worth calling, because a verifier can dominate latency if it runs on every low-quality branch.`,
-        `There is also a quality tradeoff. A confidence margin is not the same as correctness. A logic schedule can enforce a sensible reveal order, but it cannot make a model understand the task. Remasking can repair premature commitments, but too much repair creates loops and latency spikes. The method should be judged against strong autoregressive baselines under the same latency and compute budget, not against a weak single-sample baseline.`,
+        'This fits reasoning, code repair, constrained generation, and answer verification where several candidates share a common problem setup. It is useful when the system can reveal premises before conclusions and when a verifier can reject unsupported branches. It also fits workloads where batch shape and mask state can be scheduled efficiently.',
       ],
     },
     {
-      heading: 'Real uses',
+      heading: 'Where it fails',
       paragraphs: [
-        `The natural uses are tasks where several candidate answers share context and differ at a small number of high-value decisions. Reasoning traces, proof search, code repair, symbolic planning, mathematical derivations, structured generation, and tool-call argument construction all fit that pattern. A verifier can check syntax, unit tests, schema validity, arithmetic consistency, source support, or domain rules. The search controller can spend extra denoising only on branches that might still pass those checks.`,
-        `The same idea also matters for serving research. If diffusion LLMs become competitive for production text generation, the interesting systems question will not be only how many denoising steps a single answer needs. It will be how to schedule many masked buffers, how to share early steps across candidates, how to batch irregular repair loops, and how to account for verifier cost. Shared-prefix search is one possible answer to that scheduling problem.`,
+        'It fails when candidates diverge early, when verifier scores are weak, or when mask scheduling commits fluent but unsupported text. The bookkeeping can also erase the gain: candidate trees, mask states, confidence margins, and cache versions all consume memory. A naive shared-prefix controller can be slower than ordinary beam search if it branches too late or shares invalid state.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Worked example',
       paragraphs: [
-        `The method fails when branches diverge too early. If every candidate needs a different hidden state after one step, there is little shared work to amortize. It also fails when the verifier is weak. A biased verifier can prune the unusual but correct branch and keep the fluent branch. A noisy confidence policy can overcommit common phrases and make later repair harder. A bad logic parser can force the wrong reveal order and damage the model's natural generation process.`,
-        `There are implementation limits too. Candidate state may be large. Mask patterns can make batching inefficient. Denoising step counts can be hard to compare across prompts. The method may improve average quality while hurting tail latency, which is unacceptable in many serving systems. The safest evaluation reports quality, latency distribution, accelerator utilization, verifier calls, branch counts, and failure slices, not just a single accuracy number.`,
+        'Suppose a proof answer has 20 masked slots. After 6 shared denoising steps, 12 slots have confidence above 0.9, 5 slots are medium confidence, and 3 slots define the final claim. The controller keeps one shared state for the first 12 slots and creates 4 branches only for the 3 claim slots.',
+        'Each branch then uses 5 local steps and one verifier call. Total denoising cost is 6 shared steps plus 4 * 5 local steps, or 26 step-units, instead of 4 * 11 = 44 if every candidate had run independently from the start. If the verifier rejects 2 branches, the remaining 2 can spend the saved budget on remasking the weakest medium-confidence slots.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources to read next are Large Language Diffusion Models, LogicDiff, Diffusion-of-Thought, and Simple and Effective Masked Diffusion Language Models. Inside this curriculum, study Discrete Diffusion Language Model Primer, Block Diffusion LLM Denoising Case Study, Diffusion LLM Serving Scheduler Case Study, Process Reward Models & Verifier Search, Tree of Thoughts Search Case Study, Speculative Decoding Runtime Controller Case Study, Transformer Inference Roofline, and LLM Continuous Batching. The useful mental bridge is this: diffusion changes what can be shared, but search still needs budgets, pruning rules, and evidence.`,
+        'Read Large Language Diffusion Models, LogicDiff, Diffusion-of-Thought, and Simple and Effective Masked Diffusion Language Models. Then study beam search, verifier-guided decoding, mask scheduling, confidence calibration, and diffusion LLM serving. The next engineering question is how to batch these candidate states without corrupting shared cache assumptions.',
       ],
     },
   ],

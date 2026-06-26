@@ -233,83 +233,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The compile-path view shows a goal becoming a directed acyclic graph, or DAG. A DAG is a graph whose edges point forward and never form a cycle, so it can express which steps must happen before others. Active nodes show classification, dependency extraction, contract creation, and gate insertion.',
+        'The runtime-plan view shows execution of that graph. Agent autonomy is inside bounded nodes, while dependencies, budgets, approvals, retries, and validators sit outside the model. The safe inference is that the graph owns control flow even when individual nodes use a language model.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         {type:'callout', text:'The fundamental tension: agents need freedom to handle uncertainty, but production workflows need explicit control flow, typed contracts, approval gates, and audit trails. The DAG compiler resolves this by confining agent autonomy to bounded nodes inside an explicit graph — deterministic where possible, model-driven only where necessary.'},
-        'A useful agent system has to do more than answer once. It may fetch data, classify intent, call tools, ask for approval, perform side effects, retry failures, verify results, and leave an audit trail. If that control flow lives only inside a prompt transcript, the system is hard to resume, inspect, budget, or trust.',
-        'The operational problem is turning an open-ended goal into a plan that is explicit enough for production and flexible enough for model work. The system needs to know which parts are deterministic workflow, which parts need agent judgment, where humans must approve, and what evidence proves each step ran correctly.',
+        'A useful agent system often needs to fetch data, classify intent, call tools, ask for approval, perform side effects, retry failures, verify results, and leave an audit trail. If all of that lives inside a chat transcript, the system is hard to resume, inspect, budget, or trust. Production work needs control state outside the prompt.',
+        'A DAG compiler exists to turn a goal into explicit workflow structure. It separates deterministic steps from model-driven steps, puts side effects behind gates, and gives every output a place in the trace. The agent still handles uncertainty, but it does so inside named boundaries.',
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to hand a general agent the goal and let it decide what to do next. That works for demos and genuinely exploratory work. It breaks down when a workflow needs durable state, approvals, cost limits, typed tool inputs, rollback boundaries, or a reliable account of why an action happened.',
-        'The opposite obvious approach is to hard-code everything as a rigid workflow. That is safe when the process is known, but it cannot handle ambiguous inputs, open-ended drafting, source triage, or tasks where the best next step depends on model judgment. The wall is choosing between chaos and brittleness.',
+        'The obvious approach is to give a general agent the goal and let it decide what to do next. This works for demos and open exploration because the agent can adapt freely. It also keeps the prototype small.',
+        'The opposite obvious approach is a hard-coded workflow. That works when the process is known and stable. It gives engineers clear steps, logs, retries, and permissions, but it handles ambiguity poorly.',
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The wall',
       paragraphs: [
-        'Compile the goal into a directed acyclic graph before execution. Each node is a step with an owner, input contract, output contract, tool permissions, budget, retry rule, approval rule, and trace identity. Edges state what must happen before what.',
-        'The graph does not remove agents. It confines autonomy to the nodes that need it. Deterministic work stays deterministic. Agent work happens inside bounded nodes with typed inputs and expected outputs. Side effects sit behind gates and ahead of verification.',
-        'The core insight is that an agent workflow is easier to govern when the uncertain work is inside explicit nodes instead of spread across the whole run. A model can still decide, draft, search, or repair, but the surrounding graph says what evidence it receives, what tools it may call, what output shape it owes, and what validator must accept the result.',
+        'Prompt-only agents hide state. A tool call may happen for a good reason, but the reason, input schema, retry boundary, budget, and approval status are buried in unstructured text. After a failure, the system may not know which step can be retried safely.',
+        'Rigid workflows hide judgment. They force ambiguous requests through fixed branches and fail when a step requires source triage, drafting, repair, or exception handling. The wall is not choosing agents or workflows; it is locating uncertainty precisely enough to govern it.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        'The compiler first classifies the requested work: pure function, fixed workflow, agent loop, or hybrid. It then emits a step table. At minimum, each row needs an id, mode, owner, parents, allowed tools, input schema, output schema, budget, timeout, retry policy, approval policy, and validator.',
-        'The runtime executes the DAG in dependency order. It checkpoints node outputs, pauses at approval nodes, records trace spans under step ids, and retries or repairs failed nodes without losing the rest of the plan. The important move is that runtime state attaches to graph structure, not to a loose sequence of chat messages.',
+        'Compile the work into a graph before execution. Each node has an id, owner, mode, parent list, input contract, output contract, allowed tools, budget, timeout, retry rule, approval rule, and validator. Edges state what evidence must exist before a node can run.',
+        'The uncertain work goes inside bounded nodes. Deterministic work stays deterministic, model work gets typed inputs and expected outputs, and external side effects sit between approval and verification. The graph makes autonomy inspectable without pretending it is deterministic.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'How it works',
       paragraphs: [
-        'A support system receives this goal: review a refund request and act if policy allows. A prompt-only agent might read policy, inspect the account, decide, issue the refund, and write the reply in one opaque run. A compiled DAG splits the work into fetch account, retrieve policy, classify eligibility, draft decision, human approval if risk is high, issue refund, verify transaction, and notify user.',
-        'That split changes failure handling. If policy retrieval times out, only that node retries. If a refund action is high value, the approval node pauses before the side effect. If verification fails, the repair loop has the transaction id and prior outputs. The final answer is not just text; it is the visible result of a controlled plan.',
+        'The compiler first classifies the request as pure function, fixed workflow, agent loop, or hybrid. It extracts recurring units of work and emits a step table. It then connects dependencies and inserts gates for human approval, budget limits, external side effects, and validation.',
+        'At runtime, the scheduler runs ready nodes in dependency order. It checkpoints outputs, records trace spans by step id, pauses at approvals, and retries failed nodes according to their local rule. A failed policy-retrieval node can retry without rerunning account fetch or final notification.',
+        'The graph can be extended when discovery reveals new work. That extension should be explicit: add nodes, connect dependencies, and validate contracts. Replanning is safer than pretending the first graph knew the whole task.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'A DAG makes causality explicit. Parents must finish before children run. A node output can be validated before it feeds another node. A side-effect node can be made idempotent because the runtime knows whether it already ran and what input it used.',
-        'The structure also creates clean ownership boundaries. A specialist can own a bounded node output. A manager can own the final merge. A human can own a gate. Observability tools can group spans, budgets, and failures by step id instead of trying to infer structure after the fact.',
+        'A DAG makes causality explicit. Parents finish before children run, and a child consumes named outputs rather than transcript fragments. This gives the runtime a stable place to attach validation, retries, budgets, and provenance.',
+        'The correctness argument is contract preservation. If every node runs only after its parents have valid outputs, and if every node output passes its validator before feeding children, then downstream steps see the evidence shape they were designed for. Approval gates add a second invariant: high-impact side effects cannot run until the gate records permission.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The compiler adds design work. Every node contract, approval rule, and validator must be specified. That cost is justified when the work is repeated, expensive, regulated, long-running, or side-effectful. It is overkill for a one-off exploratory conversation.',
-        'The main tradeoff is freedom versus control. Too little structure hides risk inside prompts. Too much structure forces an agent through a brittle script. The useful middle is a deterministic shell around uncertain model nodes, with explicit gates around actions that change external state.',
-        'There is also a migration cost. Teams often start with prompt-only agents because they are fast to prototype. Moving to a DAG means naming recurring steps, extracting validators, deciding which outputs deserve schemas, and accepting that some exploratory behavior should remain outside the compiled path until it becomes repeatable.',
+        'The compiler adds design work. Node schemas, validators, approval policies, retry envelopes, and trace fields must be specified. That overhead is justified for repeated, expensive, regulated, long-running, or side-effectful workflows.',
+        'Cost behaves with graph size and validator depth. A 6-node support workflow may add only milliseconds of scheduler overhead and a few kilobytes of trace data, while a 200-node research workflow can create substantial storage and coordination work. The payoff is bounded retries and clear audit, not raw speed.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A DAG compiler does not make a weak policy correct. If the step contracts are vague, the validators shallow, or the approval policy ceremonial, the graph only gives a false sense of control. The plan must actually constrain execution.',
-        'It also struggles with tasks whose shape is unknown until deep exploration. For those, use an outer loop that periodically recompiles or extends the DAG as evidence arrives. Do not pretend an early graph is complete when the task is still discovery.',
+        'Use this pattern for support operations, coding agents, research assistants, incident response, compliance review, data enrichment, and workflows with tool calls or approvals. The repeated signal is that someone asks what happened, what it cost, why an action ran, and whether it can resume safely.',
+        'The graph also gives security, finance, and product owners something concrete to inspect. Tool permissions, token budgets, human gates, external side effects, retry policies, and validation requirements are plan fields instead of prompt conventions.',
       ],
     },
     {
-      heading: 'Practical use',
+      heading: 'Where it fails',
       paragraphs: [
-        'Use this pattern for support operations, coding agents, research assistants, incident response, compliance review, data enrichment, and any agent workflow where tool calls and approvals matter. The repeated sign is the same: people ask what happened, what it cost, why an action ran, and whether it can be resumed safely.',
-        'The compiled graph also gives security, finance, and product owners something concrete to inspect. Token budgets, tool permissions, human approval points, external side effects, retry envelopes, and validation requirements are first-class plan fields instead of hidden prompt conventions.',
+        'A DAG compiler does not make vague policy precise. If contracts are shallow, validators only check shape, or approval is ceremonial, the graph gives false confidence. The plan must actually constrain execution.',
+        'It also struggles with tasks whose shape is unknown until deep exploration. For those, use a small outer discovery loop that periodically compiles or extends the graph. Do not freeze a complete-looking DAG before the evidence exists.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Worked example',
       paragraphs: [
-        'In the compile path view, follow the goal through triage into steps and dependencies before looking at runtime. The visual lesson is that agents are not added first. The plan is made explicit first, then policies and budgets turn it into an executable DAG.',
-        'In the runtime plan view, watch where uncertainty is isolated. Fetch, classify, and draft can run separately; approval sits before the side effect; verification and repair sit after it. A healthy production plan has those boundaries visible before the run starts.',
-        'For study, compare this with a prompt-only transcript. The transcript may contain the same decisions, but they are hard to resume or audit because the control state is implicit. The graph makes the control state visible: dependencies, retry scope, approval scope, and proof of completion all have a place before execution begins.',
+        'A support agent receives a refund request for $420. The compiled DAG has eight nodes: fetch account, fetch policy, classify eligibility, draft decision, risk score, human approval if risk >= 0.7 or amount > $300, issue refund, verify transaction, and notify user. The approval condition fires because the amount is over $300.',
+        'If policy retrieval times out, only that node retries. If the human rejects the refund, the issue-refund node never becomes ready. If the refund API returns transaction id tx_19 but verification fails, the repair node has the exact input, output, and side-effect id.',
+        'A prompt-only run might contain the same decisions, but the trace would be hard to resume. The DAG run can report 9 nodes executed, 1 approval pause, 2 policy retries, $0 external side effects before approval, and transaction verification status. Those numbers are operational control.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Microsoft Agent Framework at https://learn.microsoft.com/en-us/agent-framework/overview/, OpenAI Agents SDK overview at https://developers.openai.com/api/docs/guides/agents, OpenAI orchestration and handoffs at https://developers.openai.com/api/docs/guides/agents/orchestration, OpenAI Agents SDK handoffs at https://openai.github.io/openai-agents-python/handoffs/, and Anthropic Building Effective Agents at https://www.anthropic.com/research/building-effective-agents. Study Temporal Workflow Case Study, Multi-Agent Orchestration Topologies, Agent Model Router & Context Handoff Ledger, Agent Checkpoint Replay Ledger Case Study, Human Approval Interrupt Queue Case Study, Agent Run Trace Span Tree Case Study, and Distributed Tracing next.',
+        'Study Microsoft Agent Framework, OpenAI Agents SDK orchestration and handoffs, and Anthropic Building Effective Agents for current workflow and agent patterns. Study durable workflow systems such as Temporal to understand retry scope, idempotency, and history replay.',
+        'Study next: Temporal Workflow Case Study for durable execution, Multi-Agent Orchestration Topologies for delegation shapes, Agent Checkpoint Replay Ledger for resumability, Human Approval Interrupt Queue for gates, Agent Run Trace Span Tree for observability, and Distributed Tracing for cross-service causality.',
       ],
     },
   ],

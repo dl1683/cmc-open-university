@@ -1,4 +1,4 @@
-﻿// AI safety eval slice risk register: map risk classes and deployment slices
+// AI safety eval slice risk register: map risk classes and deployment slices
 // to eval cases, thresholds, owners, mitigations, and release decisions.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -193,149 +193,54 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        "Read the animation as the execution trace for AI Safety Eval Slice Risk Register Case Study. A governance-to-evaluation case study: risk register rows, eval slices, thresholds, human labels, judge calibration, mitigation owners, and release gates..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        {type:'callout', text:'A blended safety score is not a release control. A 98% pass rate can still include every prompt injection case for an agent with payment access. The register exists to connect each risk to a deployment slice, a threshold, an owner, and a release decision — so governance becomes a control surface, not a slogan.'},
-        'An AI safety eval slice risk register exists because model risk is not evenly distributed across a product. A model can look acceptable on broad helpfulness tests while failing on tool use, medical advice, hiring, minors, privacy-sensitive retrieval, prompt injection, multilingual abuse, or administrative actions. One blended score hides the exact places where deployment can hurt users or create operational risk. The register is the data structure that connects risk governance to runnable evaluation. Each row names a risk, the deployment slice where it matters, the eval cases that measure it, the human labels that anchor judgment, the automated judge or metric version, the threshold, the mitigation owner, the release decision, and the evidence packet that explains the decision later. It turns safety from a slogan into a control surface.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The reasonable first attempt is to run a standard eval suite and report an average pass rate. That is not foolish. A single score is easy to compare across model versions, easy to chart, and useful for catching obvious regressions. The wall appears when the product has uneven stakes. A 98 percent pass rate can still include every prompt injection case for an agent with payment access. A hiring assistant can pass general answer quality while failing prompts about disability accommodation. A customer-support model can pass English safety tests while failing a smaller language slice. The average is not a release control because it does not say which failure is allowed, who owns it, what threshold applies, or whether the failed slice can block launch.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'The core insight is that safety evaluation needs slice-level gates, not only model-level scores. A slice is a product-relevant subset of traffic or use: a user group, language, tool surface, domain, capability level, data source, or deployment mode. A gate is a rule that decides whether that slice can ship. The invariant is simple: no high-risk slice is green without an explicit threshold, evidence, owner, and residual-risk rationale. The register row is the unit of accountability. It links the abstract risk name to the concrete eval cases and the concrete deployment decision. That link is what governance frameworks need in practice. Without it, teams can have risk taxonomies, red-team reports, and dashboards while still lacking a release mechanism.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Start with a risk taxonomy that is specific enough to act on: prompt injection, harmful advice, privacy leakage, discrimination, unauthorized tool action, sycophancy, jailbreak success, child-safety failure, or domain-specific legal and medical overreach. Map each risk to product slices where it can occur. Attach eval cases that exercise the failure mode, and label a representative set with humans so automated judges have a calibration target. Store the judge prompt, judge model, metric version, label agreement, threshold, and date because judges drift and labels change as policy changes. Run the gate before release. If a row fails, assign a mitigation owner and an action: policy edit, retrieval filter, tool permission change, refusal rubric change, training data fix, UX guardrail, or rollback.',
-        'The register should connect to the rest of the release system. Feature flags should know which slices are blocked. Canary monitoring should report back into the same risk rows. Incident review should reference the row that failed or the missing row that should have existed. Audit packets should record the model version, eval version, slice definition, threshold, failure examples, mitigation, rerun result, and residual risk accepted by the release owner. The register can live in a database, spreadsheet, YAML file, or governance tool, but it must behave like structured state. Free-form notes are not enough because the release process needs stable fields for blocking, reporting, ownership, and review.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The correctness argument is not mathematical correctness in the way binary search has a sorted-array proof. It is control correctness. The register works when every deployment decision can be traced backward from ship or hold to slice result, threshold, evidence, owner, and accepted residual risk. That trace prevents the two common governance failures: unlabeled gaps and ownerless failures. If a slice has no cases, the row cannot be green. If a judge score has no human anchor, the confidence is limited. If a failure has no owner, it cannot silently age into accepted risk. If an owner accepts residual risk, that decision is visible. The register does not guarantee a safe model. It guarantees that the release process cannot honestly claim ignorance about known measured gaps.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'The graph view shows the path from a risk row to a release decision. Risk names alone do not control anything; they become operational only after they connect to slices, eval cases, human anchors, judge scores, thresholds, mitigation owners, and audit evidence. The matrix view shows why the gate is slice-specific. Broad chat may pass while tool-use, admin, minor-user, or hiring slices hold the release. The plot shows the failure mode of score-only governance: open high-risk gaps can accumulate while a blended score looks stable. The hiring example makes the lesson concrete. General quality passes, but the disability-related slice fails, so the register blocks release, assigns a mitigation, reruns that slice, and stores the proof.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The cost is maintenance. Slices multiply quickly, and each slice needs enough cases to mean something. Human labels are expensive. Judge calibration has to be rerun when the judge model, rubric, product, or user population changes. Thresholds require judgment because zero tolerance is right for some risks and wasteful or impossible for others. A register can also create false precision. A green row means the defined tests passed under the defined threshold; it does not mean the risk is gone. The practical design is to keep the register small enough to operate and explicit enough to block real failures. High-stakes slices need tight gates. Lower-risk slices may use monitoring, canaries, or human review instead of hard launch blocks.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'This structure fits products where model behavior changes release risk by context. AI agents with tools need slices for permissions, state-changing actions, prompt injection, and authorization boundaries. Retrieval systems need slices for sensitive documents, stale sources, private data, and citation support. Hiring, lending, education, healthcare, and child-facing products need user-group and domain slices because harms are concentrated. Frontier-model labs need capability categories, thresholds, safeguards, and escalation rules. Enterprise teams need the audit trail because customers, regulators, and internal review boards ask why a release shipped. The access pattern is repeated decision-making under changing model versions. A register lets the team compare version A and version B by risk row instead of arguing over one aggregate score.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'The register fails when it becomes theater. Stale slices, vague owners, inherited thresholds, missing label quality, unversioned judge prompts, and residual-risk approvals without rationale all weaken the control. It also fails when teams treat missing data as a pass. Unknown means unknown; the row should say gap, not green. Another failure is overfitting to the eval set. A model can learn the known cases while still failing the real product. The register must be paired with red-team discovery, incident intake, production monitoring, and periodic slice refresh. It is also the wrong tool for deciding product values by itself. It can record the threshold and owner, but humans still choose what risk appetite is acceptable.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary references are the NIST AI Risk Management Framework at https://www.nist.gov/itl/ai-risk-management-framework, OpenAI Preparedness Framework version 2 at https://cdn.openai.com/pdf/18a02b5d-6b67-4cec-ab64-68cdfbddebcd/preparedness-framework-v2.pdf, Anthropic Responsible Scaling Policy updates at https://www.anthropic.com/responsible-scaling-policy, and Google SAIF at https://saif.google/ with risks and controls at https://saif.google/secure-ai-framework/risks and https://saif.google/secure-ai-framework/controls. Study LLM judge calibration, human evaluation labeling queues, red-team attack taxonomies, jailbreak mutation search, incident corrective-action ledgers, AI audit evidence packets, prompt injection threat models, and release engineering with feature flags next. The most useful mental model is that evaluation cases measure behavior, slices localize risk, and the register decides what the organization is allowed to ship.',
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why AI Safety Eval Slice Risk Register Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the risk-register view as a release-control path. A slice is a product-relevant subset of traffic, such as tool use, hiring prompts, minors, private retrieval, or administrator actions.',
+      'Active nodes are the current control fields, found nodes are evidence that can support a ship decision, and compare nodes show a score or slice that is not enough by itself. A high-risk slice cannot ship without threshold, owner, evidence, and decision.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      {type:'callout', text:'A blended safety score is not a release control. A 98% pass rate can still include every prompt injection case for an agent with payment access. The register exists to connect each risk to a deployment slice, a threshold, an owner, and a release decision — so governance becomes a control surface, not a slogan.'},
+      'AI safety risk is uneven across product use. A model can pass general chat tests and still fail on tool permissions, private retrieval, hiring, health advice, child safety, or multilingual abuse.',
+      'The register connects risk governance to runnable evaluation. It turns a risk name into eval cases, human labels, judge or metric versions, thresholds, owners, mitigation, release state, and audit evidence.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is one standard eval suite and one average pass rate. That catches broad regressions and gives teams a simple model-to-model comparison.',
+      'The shortcut fails when stakes differ by slice. A 98 percent average can hide every payment-tool injection failure or every disability-accommodation failure in a hiring assistant.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is local risk. A product does not launch into an average user; it launches into concrete slices with different harm levels, owners, policies, and tolerance thresholds.',
+      'If a slice has no cases, the team has not measured it. If it has failed cases and no owner, the failure cannot become work; if it has no threshold, the release gate has nothing to enforce.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Use slice-level gates instead of model-level scores. Each row binds one risk to one slice, one eval set, one threshold, one owner, one mitigation state, and one release decision.',
+      'The invariant is row accountability. A green row means the named slice passed the named threshold under the named eval version, not that the whole model is safe everywhere.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'Start with risks specific enough to test, such as prompt injection, privacy leakage, harmful advice, discrimination, unauthorized tool action, or jailbreak success. Map each risk to slices where product harm can occur.',
+      'Attach eval cases and human labels. Store judge prompt, judge model, metric version, human agreement, threshold, date, owner, and rerun result because automated judges and policies drift.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is control traceability. For any ship or hold decision, the team can trace from decision to slice, threshold, eval result, human anchor, owner, mitigation, and residual-risk approval.',
+      'The register does not guarantee safe behavior outside the tested surface. It guarantees that known measured gaps cannot be honestly hidden behind a blended score.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The cost is slice upkeep. More product surfaces mean more cases, labels, judge calibration, thresholds, owners, and reruns after policy or model changes.',
+      'Cost behaves like coverage pressure. Five slices with 200 cases each may be operable, while 80 thin slices can create false precision and slow every release without improving control.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'The pattern fits AI agents, retrieval systems, hiring assistants, lending tools, education products, healthcare assistants, child-facing products, and frontier-model release processes. Each has local risks that an average score can hide.',
+      'Enterprise teams also use the register as audit evidence. A reviewer can see which slices were tested, which thresholds applied, which failures blocked release, and which residual risks were accepted.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'It fails when missing data becomes green. Unknown slices should remain gaps, not passes, because the absence of evidence is exactly what the gate must expose.',
+      'It also fails when teams overfit the eval set. The register needs red-team discovery, incident intake, production monitoring, and periodic slice refresh so known cases do not become the whole safety program.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A hiring assistant has a broad quality score of 96 percent across 1,000 prompts. The disability-accommodation slice has 80 prompts, 12 failures, and a threshold of at most 2 failures, so the row blocks release despite the strong average.',
+      'The owner changes the refusal rubric, adds 40 new accommodation cases, and reruns the slice. The row can ship only after the rerun has 1 failure out of 120, the judge version is recorded, and the release owner accepts residual risk.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Study the NIST AI Risk Management Framework, frontier-model preparedness and responsible-scaling frameworks, Google SAIF, human evaluation methods, LLM judge calibration, and red-team evaluation practice. Read each as a source for risks, thresholds, and evidence discipline.',
+      'Next study incident corrective-action ledgers, audit evidence packets, prompt-injection threat models, human labeling queues, jailbreak mutation search, and feature-flag release gates.',
+    ] },
+  ],
 };
-

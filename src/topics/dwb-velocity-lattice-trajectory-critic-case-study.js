@@ -212,62 +212,87 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        `DWB is a local navigation controller used in the Nav2 ecosystem. It is based on the Dynamic Window Approach: instead of planning a complete route from start to goal, it chooses the next safe velocity command for the robot. The global planner may already have produced a path through the building. DWB's job is narrower and more urgent. Given the robot's current velocity, acceleration limits, footprint, local costmap, and nearby segment of the global path, decide what command should be sent now.`,
-        `The controller can be understood as three linked data structures. The first is a velocity lattice: sampled linear and angular velocity pairs that are reachable soon. The second is a rollout table: for each sampled command, simulate the short trajectory it would create. The third is a critic score sheet: obstacle cost, path alignment, goal alignment, oscillation behavior, and other plugin scores are combined into a ranking. The lowest valid score becomes the next command.`,
+        'Read the animation as a local robot controller choosing one command for the next control cycle. DWB means Dynamic Window Based controller, a velocity lattice is a sampled grid of possible linear and angular velocities, and a critic is a scoring function that rewards or penalizes a simulated trajectory. Active state is the candidate command under evaluation, visited state is a rollout already checked, and found state is the lowest-cost valid command.',
+        'The safe inference is bounded. If a candidate trajectory collides with the current local costmap, it is invalid for this cycle. Among the sampled valid candidates, the lowest weighted critic score wins; that is not a proof of global optimal motion.',
         {type: 'callout', text: `DWB makes local navigation inspectable by sampling only reachable velocity commands, rolling out their futures, and ranking the collision-free candidates with separate critics.`},
       ],
     },
     {
-      heading: 'The obvious approach and wall',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to follow the global path directly. Pick the next point on the path, turn toward it, and drive forward. That works in an empty simulator with perfect localization and smooth dynamics. It breaks when the robot has width, inertia, acceleration limits, sensor delay, and nearby obstacles. A command that aims at the path may be physically unreachable in the next control cycle, or it may clip a shelf while the center point looks safe.`,
-        `The opposite obvious approach is to replan globally whenever something changes. That is too slow and too coarse for local motion. A global planner reasons over a map-scale graph or grid; it does not naturally answer whether this exact forward-left velocity for the next second clears the inflated footprint. DWB fills the gap by turning local control into a bounded search over commands the robot can actually execute right now.`,
+        'A mobile robot needs a global route and a local command. The global planner can choose a path through the building, but the controller must decide the immediate velocity while respecting robot shape, acceleration limits, nearby obstacles, and sensor delay. That local decision happens many times per second.',
+        'DWB exists because driving straight toward the next path point is not enough. The robot has inertia and width, and the world near the robot can change after the global path was planned. The controller needs a fast, inspectable way to choose a safe command now.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is pure path following. Pick the next point on the path, turn toward it, and drive forward. In an empty simulator with perfect localization, that can look fine.',
+        'Another obvious approach is to replan globally whenever an obstacle appears. That is too slow and too coarse for local control. A map-scale planner does not naturally answer whether this exact forward-left command clears the inflated robot footprint over the next second.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is physical reachability. A command may point in a good direction but require acceleration the robot cannot produce before the next cycle. A center point may pass through a gap while the robot footprint clips a shelf.',
+        'The wall is also time. The controller must decide within a control-loop budget, often tens of milliseconds. It cannot simulate every possible continuous velocity and path; it needs a bounded search over commands that are reachable from current odometry.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to score possible futures, not just possible headings. A velocity command is not a point decision. It produces a curve through space over a short horizon. If the controller samples many commands, rolls each one forward with the robot's kinematics, and checks those poses against the costmap, it can reject commands that would collide and rank the survivors by how well they serve the navigation task.`,
-        `The dynamic window makes this search practical. It does not sample every velocity the robot could ever drive. It samples velocities reachable from the current odometry under acceleration and speed limits. That keeps the lattice small and physically meaningful. Critics then separate concerns. One critic can punish obstacle proximity, another can reward staying near the global path, another can favor progress toward the goal, and another can discourage oscillation. Tuning changes the preference ordering without rewriting the controller.`,
+        'DWB scores possible futures rather than headings. It samples reachable velocity commands, rolls each command forward through the robot motion model, checks the resulting poses against the costmap and footprint, and scores the valid trajectories with critics. The selected command is the best visible candidate in this local table.',
+        'The dynamic window keeps the table small and physically meaningful. Critics separate concerns so obstacle clearance, path alignment, goal progress, and oscillation behavior can be tuned independently. The result is an evidence pipeline rather than a hidden steering rule.',
       ],
     },
     {
-      heading: 'Mechanism and data structures',
+      heading: 'How it works',
       paragraphs: [
-        `A control cycle starts with current pose, odometry, local costmap, footprint, global path segment, velocity bounds, acceleration limits, and sampling parameters. The trajectory generator creates candidate velocity commands. For each command, the controller integrates motion over a short simulation time at fixed granularity, producing a sequence of poses. Each pose can be checked against the footprint and costmap. Candidates that collide, leave valid space, or violate constraints are invalid before ranking begins.`,
-        `The score sheet should be stored as structured data, not just a final number. A candidate has command values, rollout poses, validity reason, critic scores, critic weights, total score, and selected-or-rejected status. The map version and timestamps matter too, because a good score over stale obstacle data is not evidence of safety. Rejected candidates are diagnostic artifacts. If every forward command is invalid, the robot is boxed in or the footprint is too conservative. If valid commands exist but the chosen one hugs a wall, the critic weights or inflation model may be wrong.`,
-        `A warehouse aisle shows why the separation matters. The global path may run down the centerline, but a cart blocks part of the aisle. Some sampled commands stay near the path and pass too close to the cart. Others drift away from the path but maintain clearance. A stop command is valid but makes no progress. The controller does not need philosophical judgment; it needs candidate rows that expose this tradeoff in numbers the robot can act on this cycle.`,
+        'A control cycle starts with current pose, odometry, velocity limits, acceleration limits, the local costmap, the robot footprint, the nearby global path, and sampling parameters. The trajectory generator creates candidate velocity pairs reachable soon. Each pair is integrated over a short horizon into a sequence of poses.',
+        'Each rollout is checked for collision and validity before ranking. Valid trajectories receive critic scores, each score is multiplied by its weight, and the totals are compared. The command with the lowest valid total is sent to the robot base for this cycle.',
       ],
     },
     {
-      heading: 'Why it works and what it costs',
+      heading: 'Why it works',
       paragraphs: [
-        `DWB works when the local world model is accurate enough over the rollout horizon and the command lattice is dense enough to include useful behavior. The safety argument is bounded: for the simulated horizon, a selected trajectory has passed collision checks using the current costmap and footprint. The quality argument is comparative: among the valid candidates sampled this cycle, the selected command has the best weighted critic score. It is not proof of global optimality; it is a fast local decision.`,
-        `The computational cost is roughly the number of velocity samples times the number of simulated poses times the cost of footprint and critic evaluation. More samples and longer horizons can improve available choices, but they raise latency and may make the controller react to stale information. A horizon that is too short misses upcoming turns. A horizon that is too long can overtrust a local costmap whose obstacle observations will change. Practical tuning is a latency, safety, and smoothness tradeoff.`,
-        `The sampled nature of the method also creates blind spots. If no candidate represents backing up, rotating in place, or taking a wider arc, DWB cannot select that behavior no matter how useful it would be. Recovery behaviors and global replanning exist because a local lattice can become empty or locally trapped. A good system treats a failed lattice as information, not as an exception to hide.`,
+        'The safety argument is local and model-based. For the simulated horizon, the selected trajectory has passed collision checks against the current costmap and footprint. If the map, pose, footprint, and motion model are accurate enough over that horizon, the command is locally safe by the checks the controller performed.',
+        'The quality argument is comparative. DWB does not prove that no better continuous command exists. It proves only that, among sampled reachable commands that passed validity checks, the selected command had the best weighted critic score.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `A DWB deployment should be evaluated with evidence from the lattice and critics. Useful signals include control-loop frequency, command latency, percentage of cycles with no valid trajectory, selected command score, best rejected score, per-critic contribution, minimum obstacle clearance, path-distance error, goal progress per second, oscillation resets, recovery triggers, and costmap age. These signals tell whether the robot is failing because it lacks feasible commands, ranks feasible commands poorly, or is seeing the wrong world.`,
-        `Common symptoms map to concrete causes. Wall hugging can mean obstacle or inflation costs are too weak compared with path-following critics. Freezing can mean the dynamic window is too narrow, acceleration limits are too strict, the footprint is oversized, or all rollouts collide in the local map. Wobble can mean oscillation behavior is underweighted or the path alignment terms fight heading progress. Late turns can come from a short horizon, sparse angular samples, low maximum angular velocity, or a global path that enters the local window too abruptly.`,
+        'The main cost is samples times rollout poses times critic work. If the controller samples 20 linear velocities and 20 angular velocities, it has 400 candidates. If each candidate simulates 20 poses and runs 6 critics, the cycle can involve up to 48,000 critic-pose evaluations before early rejection.',
+        'More samples can improve available choices, but they increase latency. A longer horizon sees farther, but it may trust stale obstacle data. A dense lattice with slow scoring can miss the control deadline, which is itself a safety problem.',
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Real-world uses',
       paragraphs: [
-        `DWB is useful for robots where fast local obstacle avoidance and path tracking matter more than globally optimal motion. Differential-drive and holonomic mobile bases in offices, labs, warehouses, hospitals, and classrooms fit the pattern well. The robot has a global path, a local costmap, moderate dynamics, and a need for explainable tuning. Critic scores are attractive because operators can see which preference dominated a command.`,
-        `It is also useful as a teaching case for control-plane design. The controller turns continuous motion into a sampled lattice, turns future geometry into a table of rollouts, and turns behavior preferences into composable scoring functions. That structure is easier to inspect than a black-box policy. When a run fails, engineers can replay the candidate set and ask which stage was wrong: reachable velocity generation, collision validity, critic weighting, or sensor-derived costmap state.`,
+        'DWB fits differential-drive and holonomic robots moving through offices, labs, hospitals, warehouses, and classrooms. The access pattern is a known global path plus a local costmap that changes as sensors observe people, carts, doors, and shelves. Operators can inspect critic scores when behavior looks wrong.',
+        'It is also useful as a control-plane teaching case. The system turns continuous motion into a finite lattice, future geometry into rollout rows, and behavior preferences into weighted scores. A failed command can be debugged by asking which stage rejected or overvalued it.',
       ],
     },
     {
-      heading: 'Where it fails and what to study next',
+      heading: 'Where it fails',
       paragraphs: [
-        `DWB fails when its assumptions are violated. A stale costmap, bad localization, wrong footprint, poor inflation radius, moving obstacles that are not represented in time, or actuator behavior that does not match the simulated model can make the best-scored command unsafe. It can also struggle in tight spaces if the lattice does not include the maneuver needed to escape, or if the scoring weights punish temporary path deviation too strongly. Local controllers cannot repair a bad global plan by themselves.`,
-        `Study the Nav2 DWB controller documentation, the DWB parameter reference, costmap inflation, footprint collision checking, A* or NavFn global planning, pure pursuit, model predictive control, velocity obstacles, and recovery behaviors. The deeper lesson is that local planning is an evidence pipeline. A command should be trusted only when the candidate set, validity checks, critic scores, and world model are all visible enough to explain why that command was chosen.`,
+        'DWB fails when its world model is wrong. Bad localization, stale costmaps, incorrect footprints, missing moving-obstacle prediction, or actuator behavior that differs from the simulation can make a high-scoring command unsafe. The controller can only score the candidates and world it sees.',
+        'It also fails in local traps. If the lattice lacks backing up, rotating in place, or a wider arc, the controller cannot choose that behavior. Recovery behaviors and global replanning exist because a local sampled controller can run out of valid candidates.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose DWB samples 7 forward speeds and 9 angular speeds, giving 63 candidate commands. The horizon is 2.0 seconds with a simulation step of 0.1 seconds, so each candidate has 20 poses. Before critics, collision checking can inspect up to 1,260 poses.',
+        'Candidate A drives at 0.4 m/s and 0.2 rad/s, stays 0.35 m from obstacles, and scores 8 obstacle, 4 path, and 3 goal for total 15. Candidate B stays closer to the path but passes 0.08 m from an obstacle and scores 40 obstacle, 1 path, and 2 goal for total 43. Candidate A wins because the weighted future is safer even though it deviates from the path.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources include the Nav2 DWB controller documentation at https://docs.nav2.org/configuration/packages/configuring-dwb-controller.html and DWB parameter reference at https://docs.nav2.org/configuration/packages/dwb-params/controller.html. Study costmap inflation, footprint collision checking, A* or NavFn global planning, pure pursuit, model predictive control, velocity obstacles, and robot recovery behaviors next.',
       ],
     },
   ],

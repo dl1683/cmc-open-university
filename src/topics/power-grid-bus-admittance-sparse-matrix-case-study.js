@@ -219,110 +219,89 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `A transmission grid is built from physical equipment: buses, lines, transformers, breakers, shunts, generators, and loads. Operators see topology. Numerical tools need equations. The bus admittance matrix, usually called Y-bus, is the data structure that turns the network graph into the electrical model used by solvers.`,
-        `Y-bus connects bus voltages to current injections. Once assembled, it becomes the common foundation for AC power flow, state estimation, contingency analysis, optimal power flow, voltage studies, and many planning workflows. If the matrix is wrong, every downstream result can look mathematically polished while describing the wrong grid.`,
+        'Read the Y-bus view as a compiler from grid topology to numerical state. Active branches are being translated into sparse matrix entries, found diagonal cells are self-admittance totals, and compare cells show places where topology or equipment status can change the result. A bus is an electrical node, and admittance is the complex conductance that relates voltage to current.',
+        'The topology-ledger view adds provenance. A matrix hash is only meaningful with the breaker states, transformer tap settings, bus ordering, and equipment parameters that produced it. The safe inference is that a solver result is valid only for the exact topology version behind its Y-bus.',
         {type:'callout', text:`Y-bus is the compiled form of grid topology: a sparse matrix that lets numerical solvers operate on the same physical network operators see.`},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png', alt:'Sparse matrix pattern with black nonzero entries on a white background.', caption:`Finite element sparse matrix, by Oleg Alexandrov, Wikimedia Commons, public domain.`},
       ],
     },
     {
-      heading: 'The obvious representation',
+      heading: 'Why this exists',
       paragraphs: [
-        `The natural first model is a graph. Buses are nodes. Lines and transformers are edges. Breakers, switches, tap ratios, status flags, limits, and ownership metadata are attributes. That graph is the right shape for topology processing, island detection, switching studies, and operator displays.`,
-        `Power-flow and state-estimation solvers need a different shape. They repeatedly evaluate equations, build Jacobians, and solve sparse linear systems. A graph tells you what is connected; a matrix lets the numerical engine compute currents, powers, sensitivities, residuals, and corrections. The engineering task is to preserve the graph truth while producing the matrix truth.`,
+        'Operators see a grid as buses, lines, transformers, shunts, breakers, generators, and loads. Power-flow software needs equations. The bus admittance matrix, called Y-bus, turns the physical graph into the sparse linear object used inside nonlinear solvers.',
+        'Y-bus is the shared foundation for AC power flow, state estimation, contingency analysis, and planning studies. If the matrix reflects a stale breaker state, the solver can return precise numbers for the wrong grid. That is worse than a visible failure because the result looks scientific.',
       ],
     },
     {
-      heading: 'Why dense matrices fail',
+      heading: 'The obvious approach',
       paragraphs: [
-        `A dense n by n matrix is the simplest thing to imagine, but a real grid is sparse. A bus connects to a small number of neighboring buses, not to every bus in the interconnection. Most off-diagonal entries are zero because most bus pairs have no direct branch between them.`,
-        `Dense storage wastes memory immediately and damages every later step. Factorization sees unnecessary zeros. Cache lines are spent on empty structure. Large studies become slower before the solver even reaches the electrical difficulty. Sparse storage is not a micro-optimization in this domain; it is the representation that matches the physics.`,
+        'The obvious representation is a graph. Buses are nodes, lines and transformers are edges, and status flags live as attributes. That form is right for operator displays, island detection, and switching workflows.',
+        'The next obvious representation is a dense n by n matrix because matrix equations are convenient. For n buses, every row and column pair gets a slot whether the buses are connected or not. That is simple for a four-bus example and wasteful for a real interconnection.',
       ],
     },
     {
-      heading: 'The core equation',
+      heading: 'The wall',
       paragraphs: [
-        `In the nodal admittance view, bus current injections are related to bus voltages through I = YV. Each Y-bus row describes how current at one bus depends on that bus voltage and neighboring bus voltages. The diagonal entry collects the admittances connected to the bus. Off-diagonal entries describe coupling through branches.`,
-        `For a simple line between bus i and bus j, the off-diagonal entries receive negative branch admittance terms, and the two diagonal entries receive positive self-admittance contributions. Shunts add to diagonals. Transformers with taps and phase shifts alter the pattern of values and may make the matrix asymmetric in practical formulations. The pattern is sparse, but the details matter.`,
+        'Real grids are sparse. A bus may connect to a handful of neighbors, not every other bus. A 10,000 bus dense complex matrix has 100,000,000 entries; if the average bus touches 4 branches, the useful nonzeros are closer to tens of thousands plus diagonals.',
+        'Dense storage wastes memory before the solver starts and makes factorization touch empty structure. The wall is not only capacity. Wrong topology provenance means a cached sparse matrix can silently outlive the grid state that made it correct.',
       ],
     },
     {
-      heading: 'Assembly mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        `A typical assembler starts from equipment records, not from a finished matrix. It assigns internal bus numbers, filters out out-of-service branches, expands transformer models, applies tap settings, adds line charging and shunts, and emits triplets such as row, column, complex value. Duplicate triplets are summed because multiple devices can contribute to the same matrix entry.`,
-        `After assembly, the triplets are converted to a compressed sparse format. COO-style triplets are convenient while building. CSR is convenient for row-oriented operations. CSC is often convenient for sparse factorization and column-oriented solver internals. Good systems distinguish the assembly format from the solver format instead of pretending one sparse layout is ideal for every stage.`,
+        'Y-bus stores only the electrical relationships that exist. Off-diagonal entries represent direct branch coupling between two buses, and diagonal entries collect the admittances connected to one bus. The sparsity pattern mirrors physical adjacency.',
+        'The invariant is Kirchhoff current balance in matrix form. Multiplying Y by the voltage vector gives current injections consistent with the modeled branches, shunts, and transformer terms. Every topology edit must preserve that physical meaning or invalidate the matrix.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'An assembler starts from equipment records and assigns internal bus numbers. It filters out out-of-service branches, expands transformer tap models, adds shunts and line charging, and emits triplets of row, column, and complex value. Duplicate triplets are summed because several devices can contribute to the same cell.',
+        'The builder often uses coordinate form during assembly, then converts to compressed sparse row or compressed sparse column storage for numerical work. CSR is convenient for row operations; CSC is common for sparse factorization. The assembly ledger records the topology inputs so cached matrices can be reused only when the key still matches.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The bus-admittance matrix works because it preserves Kirchhoff current balance in a sparse algebraic form. Each transmission line contributes equal and opposite relationships between the two buses it connects, and each bus diagonal accumulates the admittance touching that bus. The resulting row structure is a direct encoding of network topology, not an arbitrary table.',
-        'That structure is why solvers can trust the matrix. A voltage estimate multiplied by Ybus produces current injections consistent with the modeled branches, shunts, and transformer terms. When topology changes, the safe update is to rebuild or patch the exact affected sparse entries so the algebra still matches the physical network.',
+        'Correctness follows from local conservation. Each branch contributes a negative coupling term between its endpoint buses and positive self terms to the endpoint diagonals. Shunts add local diagonal terms. Summing all device contributions gives the nodal current equation for every bus.',
+        'Sparse storage does not change the equation; it only omits zeros. If every nonzero contribution is inserted with the right bus ordering and sign convention, the sparse matrix represents the same linear operator as the dense matrix. Solver trust depends on that equality plus the recorded topology version.',
       ],
     },
     {
-      heading: 'What the views show',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The Y-bus assembly view follows the conversion from network graph to sparse matrix. The highlighted branches become off-diagonal nonzeros, while the diagonal cells accumulate local effects. The point is not that the graph disappears. The point is that the graph has been compiled into the algebraic form that solvers consume.`,
-        `The topology ledger view shows the operational side. A matrix should carry provenance: topology version, breaker and branch status, transformer tap positions, bus ordering, island policy, equipment parameter version, and assembly options. Without that record, a solver result is hard to audit. You may know a voltage estimate, but not which grid it was estimated against.`,
+        'Dense storage grows as n squared. Doubling buses from 10,000 to 20,000 quadruples slots from 100 million to 400 million. Sparse storage grows closer to buses plus branches, so doubling a similarly connected grid roughly doubles the stored nonzeros.',
+        'The hard cost is sparse factorization, not reading the graph. Ordering, fill-in, island handling, and transformer conventions dominate runtime and correctness. A topology change that alters the nonzero pattern can force symbolic factorization again, while a value-only change may reuse more solver setup.',
       ],
     },
     {
-      heading: 'Topology versioning',
+      heading: 'Real-world uses',
       paragraphs: [
-        `A Y-bus matrix is correct only for one exact snapshot. Open a breaker, move a tap, switch a shunt, split a bus, retire a line, or correct an equipment parameter, and either the values or the sparsity can change. The matrix is not a timeless property of the utility. It is a compiled artifact from a particular topology and model version.`,
-        `This is why matrix caching must be tied to a serious key. The key should include bus ordering, branch statuses, parameters that affect admittance, tap settings, phase shifts, and any options that change assembly. Reusing a stale matrix is worse than failing fast because it can produce plausible numbers from the wrong model.`,
+        'Y-bus is used by control-room state estimators, planning power-flow tools, contingency screeners, optimal power-flow workflows, and restoration studies. It is the bridge between network models and numerical linear algebra.',
+        'MATPOWER, PYPOWER-style tools, commercial EMS platforms, and research solvers all rely on the same idea. They differ in device models and solver choices, but the sparse nodal admittance matrix remains the core compiled artifact.',
       ],
     },
     {
-      heading: 'Island handling',
+      heading: 'Where it fails',
       paragraphs: [
-        `Topology processing must detect islands before the solver trusts the matrix. An island with no source, no slack reference, or an impossible bus type assignment can make the numerical problem singular or meaningless. The sparse pattern can reveal disconnected components, but the operational decision is larger than graph connectivity.`,
-        `A robust pipeline records which buses belong to which island, which islands are energized, which slack or reference bus was assigned, and which measurements or injections were excluded. This matters in restoration and contingency work, where switching can intentionally create or remove islands. The matrix should not hide that topology event.`,
+        'Y-bus does not know whether SCADA measurements are fresh, whether a breaker indication is wrong, or whether a model parameter was entered with the wrong base. It can encode a false grid perfectly. Bad topology makes good numerical methods produce bad operations advice.',
+        'Implementation failures include tap-ratio convention errors, missing line charging, shunt sign mistakes, bus-order mismatches, duplicate triplets that were not summed, islands without a reference bus, and stale cached matrices. Many of these bugs pass shape checks because the matrix still has legal dimensions.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        `Suppose a four-bus system has lines B1-B2, B2-B3, B3-B4, and B4-B1, plus a transformer near B3. The sparse pattern has off-diagonal nonzeros for the electrically adjacent pairs and diagonal nonzeros for all four buses. If the B2-B3 line opens, the entries for that branch must be removed or changed, and the diagonal contributions at B2 and B3 must be adjusted.`,
-        `A control center should store the new topology version beside the rebuilt Y-bus. A power-flow run then records that matrix hash with the solution. If a state-estimation residual later flags a measurement near B3, engineers can compare measurement time, breaker status, tap position, and matrix version before concluding that the sensor is bad. A stale topology can make a good measurement look impossible.`,
+        'Take four buses with lines B1-B2, B2-B3, B3-B4, and B4-B1, each with series admittance 0.1 - j1.0. The sparse pattern has four diagonal entries and eight off-diagonal directed entries for the four undirected lines. A dense 4 by 4 view has 16 cells, but only 12 carry values here.',
+        'If line B2-B3 opens, entries Y23 and Y32 are removed and the diagonal totals at B2 and B3 each lose that line contribution. The matrix hash and topology version must change. A state estimator using the old matrix would still compute a voltage solution, but it would solve for a line that is physically open.',
       ],
     },
     {
-      heading: 'Solver consumers',
+      heading: 'Sources and study next',
       paragraphs: [
-        `AC power flow uses Y-bus to compute complex power injections from voltage magnitudes and angles. Newton-Raphson methods then build a Jacobian around those equations and solve correction steps. State estimation uses the same network model to compare SCADA or PMU measurements against a physically consistent state. Contingency analysis repeats this process across many outage scenarios.`,
-        `The matrix also affects performance. If the bus ordering is stable, sparse factorization can reuse symbolic analysis when the nonzero pattern does not change. If topology changes alter the pattern, the solver may need a more expensive rebuild. This is where data-structure choices become operational latency choices.`,
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        `Keep three layers separate: topology graph, assembly ledger, and solver matrix. The graph should answer what is connected and energized. The assembly ledger should explain exactly how the matrix was built. The solver matrix should be in the sparse format required by the numerical kernel. Mixing these layers makes debugging slow because an electrical error, a stale topology, and a sparse-format bug can look similar.`,
-        `Build validation around invariants. Check that branch statuses were applied, shunts landed on diagonals, transformer taps were modeled with the intended convention, bus ordering matches measurement ordering, islands have reference handling, and duplicate triplets are summed. Log the number of buses, branches, islands, nonzeros, and matrix hash for every study run.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `Y-bus does not know whether measurements are fresh, whether a switching action was authorized, whether a model parameter is wrong, or whether a contingency case is plausible. It is a compiled electrical model, not an operations brain. Treating it as complete state is a common source of false confidence.`,
-        `Common implementation failures include stale matrix caches, wrong tap-ratio convention, forgotten line-charging terms, shunt sign errors, unsorted or duplicated sparse entries, bus-order mismatch between matrix and injections, missing island detection, and reusing a symbolic factorization after the nonzero pattern changed. Each failure can survive basic type checks because the matrix still has the right shape.`,
-      ],
-    },
-    {
-      heading: 'Where it matters',
-      paragraphs: [
-        `Y-bus matters whenever a grid tool needs repeatable numerical studies over a large sparse network: load flow, voltage stability, optimal power flow, contingency screening, short-circuit variants, state estimation, restoration planning, and model validation. The larger the network, the more important it is that sparse structure and topology provenance are treated as first-class data.`,
-        `It is also a good teaching bridge between graph algorithms and numerical linear algebra. The network begins as a graph, becomes a sparse matrix, feeds a nonlinear solver, and then returns to operational decisions. Students who understand that pipeline can debug both algorithmic and systems failures more effectively.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: MATPOWER manual at https://matpower.org/docs/MATPOWER-manual-8.0.pdf, MATPOWER newtonpf documentation at https://matpower.org/docs/ref/matpower5.0/newtonpf.html, and MATPOWER AC power flow documentation at https://matpower.app/manual/matpower/ACPowerFlow.html.`,
-        `Study CSC Column Sparse Matrix Primer and GraphBLAS Sparse Matrix Graph Case Study for storage and sparse computation. Then study AC Power Flow Newton-Raphson Jacobian for the nonlinear solve, SCADA State Estimation for measurement reconciliation, Sherman-Morrison Rank-One Update for update intuition, and Disjoint Set Union for island-detection basics.`,
+        'Primary sources: MATPOWER manual at https://matpower.org/docs/MATPOWER-manual-8.0.pdf, MATPOWER AC power flow at https://matpower.app/manual/matpower/ACPowerFlow.html, and MATPOWER newtonpf reference at https://matpower.org/docs/ref/matpower5.0/newtonpf.html.',
+        'Study sparse matrix storage, GraphBLAS-style sparse computation, Newton-Raphson AC power flow, weighted least-squares state estimation, disjoint set union for island detection, and contingency analysis for the operational loop around Y-bus.',
       ],
     },
   ],

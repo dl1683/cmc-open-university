@@ -332,83 +332,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'LongLoRA is a method for extending the context window of pretrained language models without paying the full cost of dense long-context fine-tuning. The practical problem is familiar: a model trained for a shorter context may fail or degrade when asked to use much longer sequences. Training it densely at the target length is expensive because attention cost grows quickly with sequence length.',
-        'The method combines parameter-efficient tuning with shifted sparse attention during training. LoRA-style adapters reduce the number of trainable parameters. Shifted sparse attention reduces the cost of training on long sequences. The goal is not to invent a new serving architecture from scratch. The goal is to adapt an existing model to longer contexts at a more affordable training cost.',
+        'Read the shifted-groups view as a training schedule, not as the final serving path. Active group nodes show which tokens can attend during the current sparse pass, and the shifted nodes show the bridge that lets neighboring groups exchange signal.',
+        'A safe inference is local: if two tokens fall inside one active group, dense attention can connect them during that pass. If they are far apart, the animation has not proven a direct path; it has only shown that shifted groups reduce boundary isolation.',
         {type: 'callout', text: 'LongLoRA reduces long-context training cost, but serving cost and long-range evaluation remain separate gates.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/a/a9/Absolute_positional_encoding.png', alt: 'Heatmap visualization of absolute positional encoding values across token positions and embedding dimensions.', caption: 'Absolute positional encoding illustration by Nils Blumer, Wikimedia Commons, CC BY 4.0.'},
       ],
     },
     {
-      heading: 'The naive approaches and their walls',
+      heading: 'Why this exists',
       paragraphs: [
-        'The first naive approach is to fine-tune with full dense attention at the desired context length. That preserves the cleanest training signal, but the cost can be prohibitive. Long sequences stress memory, reduce batch size, complicate parallelism, and make experimentation slow. The longer the target context, the more expensive this path becomes.',
-        'The second naive approach is to apply positional scaling or context-extension tricks and hope the model generalizes. That may help, but it does not guarantee that the model learns to use long evidence. A model can accept a long prompt while still failing retrieval in the middle, losing short-context quality, or mishandling boundaries.',
-        'The third naive approach is to tune only a small adapter and ignore the parts of the model most affected by context length. LongLoRA highlights that embeddings and normalization layers can matter for context extension. Parameter efficiency is useful, but it should not become a superstition that forbids touching sensitive components.',
+        'LongLoRA exists because long-context fine-tuning is expensive before it is useful. A transformer with full attention compares every token with every other token, so an 8k training window has about 64 million pairwise attention positions per layer while a 64k window has about 4.1 billion.',
+        'The goal is context adaptation, not a new base model. A team may already like a pretrained 7B model but need it to read long contracts, repositories, or reports without spending the budget of dense long-context training.',
       ],
     },
     {
-      heading: 'The core mechanism',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The attention trick is S2-Attn, or shifted sparse attention. During training, the long sequence is divided into local groups. Tokens attend densely within their group, which is cheaper than attending across the full sequence. A shifted grouping pattern then changes the group boundaries so information can cross neighboring regions. Local groups keep cost bounded; shifts keep chunks from becoming isolated islands.',
-        'This is mainly a training-time cost reduction mechanism. The paper describes using sparse attention while fine-tuning, with the model able to use ordinary dense attention at inference. That distinction matters. LongLoRA can reduce the cost of adapting the model, but it does not automatically make long-context serving cheap.',
-        'The tuning stack matters too. LoRA adapters provide parameter-efficient updates, but the method also pays attention to embeddings and normalization. Extending context changes positional distributions and activation behavior. If those layers cannot adapt, the model may technically run at longer length while using the extra context poorly.',
+        'The obvious approach is to fine-tune the model with dense attention at the target length. That gives every token a direct route to every other token and keeps the training objective simple.',
+        'A cheaper obvious approach is ordinary LoRA, or Low-Rank Adaptation, where the base weights stay mostly frozen and small low-rank matrices learn the task update. That reduces trainable parameters, but by itself it does not solve the attention cost of training on very long sequences.',
       ],
     },
     {
-      heading: 'Why It Works and Correctness Boundaries',
+      heading: 'The wall',
       paragraphs: [
-        'LongLoRA can work because long-context fine-tuning does not necessarily need every token pair to interact densely at every step. Many useful long-context behaviors can be learned from local regions plus shifted bridges. The sparse pattern gives the model enough cross-boundary exposure to adapt while avoiding the full cost of dense attention over the entire sequence.',
-        'It can also work because the base model already contains substantial language and reasoning ability. Fine-tuning for longer context is partly about adapting positional use, attention behavior, and instruction following under long inputs. Parameter-efficient updates can be enough when the base model is strong and the target is adaptation rather than training from scratch.',
-        'Correctness here means preserving the contract of the adapted model, not proving that every distant token can influence every answer. The training recipe is credible only when the adapted model still passes short-context controls, position-sweep retrieval, boundary tests, and task-specific long-document checks.',
-        'The reason this is useful in practice is iteration speed. Long-context adaptation requires many experiments: data mixture, sequence length, positional scaling, adapter rank, which layers to tune, and evaluation slices. A cheaper training recipe lets teams run those experiments instead of spending the whole budget on one dense fine-tune.',
+        'The wall is quadratic attention cost. If sequence length grows from 8k to 64k, length grows 8x but the attention matrix grows 64x, so memory and compute can collapse batch size and slow every experiment.',
+        'There is also an evaluation wall. A model can accept a 64k prompt and still fail to use a fact in the middle, preserve a boundary condition, or keep short-context behavior intact. A bigger window is only capacity until tests prove recall and reasoning across position.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'The core insight',
       paragraphs: [
-        'LongLoRA fits teams that have a pretrained model and want to adapt it to longer documents, conversations, code contexts, or domain corpora without full dense long-context training. A legal team might fine-tune on long contracts. A code team might train on larger repository windows. A research assistant might adapt to long reports with cross-section references.',
-        'The method is especially useful as a curriculum bridge between LoRA and attention sparsity. LoRA teaches how to adapt a model with low-rank parameter updates. Sparse attention teaches how attention patterns control training cost. LongLoRA combines them for one concrete goal: context extension.',
-        'It is not a replacement for retrieval or verification. A model that can accept 100k tokens may still fail exact clause retrieval, quote fidelity, or source attribution. Long-context fine-tuning can improve the model\'s ability to use long inputs, but high-stakes systems still need evidence selection, citation checks, and task-specific evaluation.',
+        'The core insight is that long-context adaptation does not need dense global attention at every training step. LongLoRA uses shifted sparse attention, called S2-Attn in the paper, so tokens attend densely inside local groups and then attend inside shifted groups that overlap neighboring boundaries.',
+        'LoRA supplies the small trainable update, while the sparse schedule cuts the cost of exposing the model to long examples. The method also treats embeddings and normalization layers as context-sensitive parts of the recipe instead of assuming adapters alone can absorb the whole extension.',
       ],
     },
     {
-      heading: 'Costs and failure modes',
+      heading: 'How it works',
       paragraphs: [
-        'The main misconception is to confuse cheaper training with cheaper inference. If the adapted model uses dense attention at serving time, long prompts still create KV-cache and attention costs. Serving depends on FlashAttention, PagedAttention, KV-cache layout, batching, sequence parallelism, quantization, and workload shape. LongLoRA reduces one bottleneck, not all of them.',
-        'Another failure mode is boundary weakness. Shifted sparse groups are meant to reduce isolation, but evaluation still needs to test facts that cross group boundaries and appear at many positions. A model can look good on synthetic long prompts while failing middle-position retrieval or exact copy tasks.',
-        'Short-context regression is also possible. Extending context should not ruin the model\'s normal behavior. The release gate should include short instruction following, short QA, long retrieval, quote fidelity, multi-hop references, position sweeps, and latency and memory accounting under the real serving stack.',
+        'Split a long training sequence into groups. In one pass, each token attends within its group; in another pass, the group boundary shifts so tokens near an old boundary share a group with tokens from the neighbor region.',
+        'During fine-tuning, LoRA adapters learn low-rank deltas for selected weights while the shifted sparse schedule lowers attention memory. At inference, the adapted model may still use dense attention, so the training shortcut should not be confused with a serving shortcut.',
       ],
     },
     {
-      heading: 'A worked release gate',
+      heading: 'Why it works',
       paragraphs: [
-        'Suppose a team wants to adapt a 7B model for long legal contracts. The training plan uses LongLoRA with shifted sparse attention, adapters, and the context-sensitive layers the recipe calls out. The release gate should not ask only whether the model accepts a 64k or 100k prompt. It should ask whether the model can retrieve clauses at every position, preserve negations, follow definitions across sections, quote exact language, and still answer short legal questions as well as the base model.',
-        'The cost gate is separate. The team should measure dense-inference memory, tokens per second, p95 latency, maximum batch size, and cost per analyzed contract. If the fine-tune improves long retrieval but makes serving unaffordable, the product may need retrieval, chunking, or a smaller context target rather than a larger advertised window.',
+        'The correctness argument is a coverage argument, not a proof of perfect recall. Local dense groups preserve rich token interaction where most short-range syntax and discourse live, and shifted groups prevent every boundary from becoming a hard wall.',
+        'The base model already contains language ability, so fine-tuning mainly teaches it how to use longer positional regimes and domain examples. The release is justified only if short-context controls, boundary probes, middle-position retrieval, and domain tasks all stay inside tolerance.',
       ],
     },
     {
-      heading: 'Practical Comparison Guidance',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'LongLoRA should be compared against several baselines: the base model with no context fine-tune, positional scaling methods, retrieval-augmented chunking, dense long-context fine-tuning when affordable, and other sparse or sequence-parallel training approaches. The comparison should report both quality and training cost, because the method is mainly about making context extension practical.',
-        'The evaluation should also keep a short-context control set. Many context-extension demos focus only on long prompts, but a deployed assistant spends much of its time on ordinary short interactions. A model that becomes worse at common short tasks has paid an invisible tax for its longer window.',
-        'A useful report also separates training-time savings from serving-time cost. If the method makes fine-tuning cheap but every production request becomes too expensive, the architecture is only a partial solution. If the long-window model is used selectively, the routing policy becomes part of the design.',
+        'Dense attention over n tokens costs O(n^2) attention scores per layer. If a sparse group has size g and the sequence has n tokens, group attention behaves closer to O(n*g), so keeping g fixed makes the attention work grow roughly linearly with n during that training pass.',
+        'The saved cost becomes more experiments: adapter rank, training data mixture, context length, and layer policy can be tested instead of spending everything on one dense run. The tax is that implementation has more moving parts and serving a long dense prompt still pays KV-cache memory and attention cost.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Real-world uses',
       paragraphs: [
-        'LongLoRA is best understood as an efficient adaptation recipe. It uses parameter-efficient tuning and shifted sparse attention to make long-context fine-tuning more practical. The sparse attention is part of training cost control; it should not be mistaken for a complete serving-cost solution.',
-        'The deeper lesson is that context length is not one number. A system must preserve short behavior, use distant evidence, handle middle positions, keep inference affordable, and pass domain-specific tasks. A longer window is useful only when the model can actually use it.',
-        'For course design, LongLoRA is a good place to teach the difference between architecture, fine-tuning recipe, evaluation protocol, and deployment economics. Those are often collapsed into one marketing phrase, but they fail independently.',
+        'LongLoRA fits teams adapting an existing model to long legal documents, large code files, extended conversations, or research reports. The access pattern is many long examples during training and a need to keep the base model mostly intact.',
+        'It is also useful as a comparison point for RoPE scaling, retrieval-augmented generation, FlashAttention, RingAttention, and sequence-parallel training. Each attacks a different bottleneck, so a real system may combine several of them.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the sparse training path is mistaken for evidence that all long-range dependencies were learned. Shifted groups help adjacent regions, but they do not prove exact retrieval of a clause 40k tokens away.',
+        'It also fails as a deployment story if inference cost is ignored. A 100k-token prompt can still dominate latency, memory, batching, and cost per request even if the fine-tune was cheap.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a team extends an 8k model to 64k for contract review. Dense training attention grows from 8,192 * 8,192 = 67,108,864 score positions to 65,536 * 65,536 = 4,294,967,296 per layer, a 64x jump.',
+        'With 2,048-token groups, sparse group attention needs about 65,536 * 2,048 = 134,217,728 score positions per pass, before accounting for the shifted pass. That is far below dense 64k attention, but the release gate still asks whether facts at 4k, 32k, and 60k are retrieved correctly and whether ordinary 2k prompts regressed.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: LongLoRA at https://arxiv.org/abs/2309.12307 and the official implementation at https://github.com/dvlab-research/LongLoRA.',
-        'Study LoRA, Attention Mechanism, RoPE, LongRoPE Non-Uniform RoPE Scaling, FlashAttention Case Study, RingAttention Sequence Parallelism, Lost in the Middle, KV Cache, and Benchmark Variance & Model Selection next.',
+        'Study LoRA, Attention Mechanism, RoPE, LongRoPE Non-Uniform RoPE Scaling, FlashAttention Case Study, RingAttention Sequence Parallelism, Lost in the Middle, KV Cache, and Benchmark Variance and Model Selection next.',
       ],
     },
   ],

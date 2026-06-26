@@ -1,4 +1,4 @@
-// Alloy model finder: describe sets and relations under a finite scope, then
+﻿// Alloy model finder: describe sets and relations under a finite scope, then
 // ask the analyzer for satisfying instances or counterexamples.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -223,25 +223,91 @@ export function* run(input) {
 }
 
 export const article = {
-  references: [
-    { title: 'Alloy Analyzer Docs', url: 'https://alloy.readthedocs.io/en/latest/tooling/analyzer.html' },
-    { title: 'Alloy Commands Docs', url: 'https://alloy.readthedocs.io/en/latest/language/commands.html' },
-    { title: 'Alloy Analyzer FAQ', url: 'https://alloytools.org/faq/what_kind_of_analysis_does_the_alloy_analyzer_do.html' },
-  ],
   sections: [
-    { heading: 'Why this exists', paragraphs: [{type:'callout', text:'Alloy finds the small counterexample that invalidates a design claim — two active roles where only one should exist, orphaned records, impossible configuration combinations. The value is falsification: a concrete three-atom bad world is more useful than a long review meeting because you can inspect exactly which relation tuple violates the invariant.'}, 'Many design bugs are structural before they are algorithmic: two active roles where only one should exist, orphaned records, impossible configuration combinations, or a graph relation that permits a forbidden cycle.', 'Alloy exists for those small but slippery relational claims. You describe sets, relations, facts, predicates, and assertions, then ask for examples or counterexamples inside a finite scope. The Alloy docs describe the Analyzer as converting the model into a SAT formula to solve: https://alloy.readthedocs.io/en/latest/tooling/analyzer.html.'] },
-    { heading: 'The obvious approach', paragraphs: ['The obvious approach is to draw boxes and arrows, then write unit tests for a few cases. That is useful, but the examples usually mirror the designer assumptions. Missing uniqueness, missing reachability, and bad multiplicity constraints often survive because nobody drew the tiny bad instance.', 'The wall is combinatorial structure. Even with a few users, roles, workspaces, and permissions, the possible relations multiply quickly. Alloy asks the solver to search that space directly.'] },
-    { heading: 'The core insight', paragraphs: ['A signature declares atoms. A relation declares tuples over atoms. A fact constrains all instances. A `run` command asks for an example. A `check` command asks for a counterexample to an assertion.', 'The command docs state that commands run the analyzer and either find models satisfying a specification or counterexamples to properties: https://alloy.readthedocs.io/en/latest/language/commands.html. The key boundary is scope: Alloy gives bounded structural evidence, not an unbounded proof of every larger world.'] },
-    { heading: 'What the visual is proving', paragraphs: ['Read each atom as a concrete object in a small possible world and each edge as a relation tuple. When the analyzer shows a counterexample, it is not merely a picture. It is a model that satisfies your facts while violating your intended assertion.', 'In the authorization example, one user related to both admin and writer is the lesson. The bug is not that Alloy found a weird case; the bug is that the written facts allowed that case.', 'The scope plot is the other half of the lesson. A bounded model finder can search many relational combinations quickly, but the search space still grows with atoms and relation arity. Good Alloy work keeps the model small enough to explore while preserving the structure that could contain the bug.'] },
-    { heading: 'Why it works', paragraphs: ['Alloy works by translating bounded relational logic to SAT. Within the chosen scope, either the SAT instance has a satisfying assignment that becomes an example or counterexample, or no such assignment exists in that scope.', 'That makes it excellent for falsification. A tiny counterexample can invalidate a design quickly. A lack of counterexamples is still conditional on scope, facts, and the fidelity of the model.'] },
-    { heading: 'Complete case study', paragraphs: ['Imagine an authorization design with users, organizations, roles, and invitations. Product prose says a user can have at most one role per organization, an invitation must target exactly one organization, and deleting an organization should remove every role grant inside it. Those statements sound simple, but they are relational constraints across several sets.', 'In Alloy, the team can model User, Org, Role, Invite, and grant relations, then check assertions such as no user has two roles in the same org and no invite points to a missing org. A counterexample with three users and two orgs is more valuable than a long design meeting because it gives a concrete bad world the team can inspect and fix.'] },
-    { heading: 'Modeling habit', paragraphs: ['Treat every fact as a claim someone could challenge. If a fact says every invite belongs to one organization, ask what breaks if it is removed. If an assertion says every resource has an owner, ask whether deleted owners, transferred resources, and pending invitations are represented. Alloy rewards this habit because weakening one line can quickly reveal which invariant was doing the real work.', 'This also makes Alloy useful in reviews. A reviewer can read the signatures, facts, and assertions as a compact design document, then run the model to see whether the prose survives contact with small possible worlds.'] },
-    { heading: 'Cost and tradeoffs', paragraphs: ['The cost is modeling discipline. Alloy will answer the model you wrote, not the system you meant. If you forget time, identity, deletion, or multiplicity, the analyzer may find silly worlds or miss real ones. If you overmodel implementation detail, the solver drowns in irrelevant tuples.', 'The skill is choosing the right abstraction. Model the relationship that can break, not every line of code. Use small scopes first, inspect examples before checking assertions, then increase scope only when the model is behaving like the design.'] },
-    { heading: 'How to use it well', paragraphs: ['Start by writing a `run` command before writing assertions. If Alloy cannot produce ordinary examples of the design, the model is probably overconstrained or missing basic facts. Once examples look plausible, add assertions that encode promises the product depends on.', 'Name the intended invariant in plain language before encoding it. Then compare the counterexample with that sentence. If the counterexample is allowed by the model but impossible in the real system, add the missing fact. If it is possible in the real system, you found a design bug. If no counterexample appears, raise the scope and try nearby formulations before treating the result as evidence.'] },
-    { heading: 'Reader workflow', paragraphs: ['A useful Alloy session alternates between construction and criticism. First make the analyzer show a normal instance. Then make it show a deliberately bad instance by weakening a fact. Then restore the fact and check the assertion you actually care about. This prevents a common failure where a model passes only because it accidentally forbids every interesting world.', 'When the visualizer shows an instance, read it as data. Which atoms exist? Which relation tuples exist? Which expected tuple is missing? Which extra tuple violates the invariant? The small instance is not a toy afterthought; it is the artifact that lets humans understand the bug.'] },
-    { heading: 'What not to model', paragraphs: ['Do not model strings, UUID formats, timestamp parsing, or database indexes unless they are part of the structural claim. Use abstract atoms for users, files, roles, states, messages, and resources. Alloy is strongest when the question is about relationships among things, not the byte-level mechanics of those things.', 'Do not translate implementation code line by line. If the design claim is "every invoice has exactly one owner account," the model should express ownership and account existence directly. A faithful miniature is better than a huge transcription that nobody can inspect.'] },
-    { heading: 'Limits of bounded analysis', paragraphs: ['Alloy is intentionally bounded. Checking up to five users and three organizations is not a proof for all possible systems unless a separate small-scope theorem applies. The value is that many design bugs have small counterexamples. A two-node cycle, a missing owner, or a double grant often appears in tiny scopes.', 'The bounded nature should shape how results are reported. Say "no counterexample up to this scope under this model," not "the design is correct." That phrasing keeps the evidence honest and teaches readers what the tool actually guarantees.'] },
-    { heading: 'Where it wins and fails', paragraphs: ['Alloy wins on schemas, permissions, protocol shapes, dependency graphs, file-system invariants, configuration systems, and object models where the bug is a missing relation constraint. It prevents teams from trusting prose like "at most one" before the model actually enforces it.', 'It fails when you encode too much execution detail or forget that no instance can mean either impossible design or overconstrained facts. Keep the model structural, grow scopes deliberately, and treat "no counterexample" as bounded evidence.'] },
-    { heading: 'Study next', paragraphs: ['Study TLA+ State-Space Model Checking for temporal state machines, SMT Solver Theory Combination for richer formulas, Symbolic Execution Path Constraints for code paths, Hash Table and Graph BFS for the underlying search intuition, and Property-Based Testing Shrinking for executable counterexample discovery.', 'Then take one schema or permission rule from a real project and model only that rule. If Alloy finds a small counterexample, keep the model with the design docs so future changes can be checked against the same invariant.'] },
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation treats a design as a small universe of atoms and relations. An atom is one abstract object, such as a User or Role. A relation is a set of tuples, such as user u0 has role admin.',
+        'Active nodes are the modeling pieces being translated into a finite search problem. Found nodes are concrete instances or counterexamples. The scope plot shows why bounded analysis has a cost: more atoms and higher-arity relations create many more possible tuples.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        {type:'callout', text:'Alloy finds the small counterexample that invalidates a design claim — two active roles where only one should exist, orphaned records, impossible configuration combinations. The value is falsification: a concrete three-atom bad world is more useful than a long review meeting because you can inspect exactly which relation tuple violates the invariant.'},
+        'Alloy exists because many design bugs are relational before they are procedural. A system can compile and pass unit tests while still allowing two active roles, an orphaned record, a forbidden cycle, or an impossible configuration. These failures live in the shape of the state space.',
+        'Alloy lets the designer write signatures, relations, facts, predicates, and assertions, then asks a solver to search a finite scope. A finite scope means a fixed maximum number of atoms of each type. The result is either an example, a counterexample, or no such world within that scope.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to draw boxes and arrows, write prose invariants, and add a few unit tests. That works while the design is small and the tested cases match the designer\'s imagination. It fails when the bad case is a tiny combination nobody thought to draw.',
+        'Another approach is code review. Reviewers can spot missing constraints, but they must mentally enumerate possible worlds. Alloy makes that enumeration executable for bounded worlds, so the review can inspect a concrete bad instance instead of arguing from intuition.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is combinatorial growth. With 3 users and 3 roles, a binary grant relation has 9 possible user-role pairs, so there are 2^9 possible grant sets. Add organizations and time states, and manual reasoning stops being reliable.',
+        'The second wall is ambiguity. A sentence like "a user has one role" might mean one role globally, one role per organization, or one active role at a time. Alloy forces that sentence into a relation constraint, and the first counterexample usually reveals which meaning was missing.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Alloy reduces a structural design question to bounded relational satisfiability. Signatures define sets of atoms. Relations define possible tuples among atoms. Facts constrain every allowed world. Assertions state properties that should survive those facts.',
+        'The Analyzer translates the bounded model into a Boolean satisfiability problem, often called SAT. If the formula has a satisfying assignment, Alloy maps it back to atoms and tuples. If a checked assertion fails, the assignment becomes a counterexample the designer can inspect.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A typical session starts with signatures such as User, Org, Role, and Invite. Relations might include member: User -> Org and grant: User -> Org -> Role. Facts might say every invite targets exactly one organization, and no grant exists for a deleted organization.',
+        'The designer first uses run to find ordinary examples. If no ordinary example exists, the model is probably overconstrained. Then the designer uses check to search for counterexamples to claims such as no user has two active roles in the same organization.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Within the chosen scope, Alloy is exhaustive. It does not sample a few diagrams; it searches all assignments allowed by the bounds and facts. A counterexample is therefore not a suggestion. It is a concrete world that satisfies the model and violates the assertion.',
+        'The correctness limit is just as important. No counterexample up to 5 users is not a proof for 500 users unless a separate small-scope theorem applies. The honest claim is bounded evidence under this model and this scope.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Cost grows with atoms, relation arity, and constraints. A unary set over 6 atoms has 6 membership choices, but a ternary relation over 6 by 6 by 6 atoms has 216 possible tuples. The SAT encoding must reason about those choices and the constraints that connect them.',
+        'The behavior is manageable when the model is focused. If the design claim concerns role grants, model roles, users, organizations, and time state, not UUID parsing or HTTP handlers. Raising scope from 4 to 8 atoms can change a fast check into a slow one, so scope is a modeling decision.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Alloy is useful for permissions, schemas, dependency graphs, protocol state, configuration systems, file-system invariants, and object models. These are domains where a small bad relation can violate a large product promise. A three-atom counterexample can invalidate a design before implementation starts.',
+        'It also works as design documentation. A reviewer can read the signatures, facts, and assertions as a compact version of the system contract. Running the model checks whether the written contract admits worlds the team did not intend.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Alloy fails when the model omits the real source of risk. If time, deletion, identity, or concurrency matters but is not represented, the Analyzer cannot find bugs that require those concepts. The solver answers the model, not the real system.',
+        'It also fails when users overmodel implementation detail. Encoding strings, database indexes, request handlers, and every field can make the SAT problem large while hiding the invariant. The right model is small enough to inspect and precise enough to contain the bug.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose product policy says each user has at most one active role per organization. Model 2 users, 1 organization, and 2 roles: admin and writer. If grant is only constrained as User -> Role, Alloy can return u0->admin and u0->writer in the same organization.',
+        'That counterexample has only 4 atoms, but it proves the written facts are too weak. The fix is to constrain role uniqueness over the pair (user, org), not just the user. Rechecking at scope 3 users, 2 organizations, and 3 roles then searches 18 possible user-org-role tuples for the same class of violation.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Alloy Analyzer documentation, Alloy command documentation, and the Alloy FAQ on bounded analysis. Study SAT solvers, relational algebra, TLA+ for temporal systems, SMT solvers for richer theories, and property-based testing for executable counterexample generation.',
+        'The next exercise is to model one permission rule from a real system. Write run first, inspect a normal instance, then write the assertion and check it at several scopes. Keep the counterexample if it finds a real design gap.',
+      ],
+    },
   ],
 };

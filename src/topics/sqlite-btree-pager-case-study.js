@@ -210,84 +210,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'SQLite exists for the many cases where an application needs a real SQL database but does not want to run a separate database server. A mobile app, browser, desktop tool, embedded product, test runner, or edge cache may need indexes, transactions, crash recovery, and queries inside one ordinary file.',
-        'That constraint makes SQLite an unusually good teaching case. There is no server process to hide the machinery. A logical row becomes a record inside a B-tree cell, inside a page, inside a database file. The pager is the layer that turns page changes into durable, transactional file updates.',
-        'The point is not that every database should look like SQLite. The point is that SQLite makes storage architecture visible. B-trees, page caches, journals, WAL files, locks, and checkpoints become concrete engineering objects rather than abstract database vocabulary.',
+        'Read the animation as a boundary between logical records and physical pages. A B-tree is a sorted search tree whose nodes hold many keys, and the pager is the SQLite layer that reads, caches, journals, and writes fixed-size database pages. Active nodes show which layer owns the current decision.',
+        'Visited pages are pages whose role is already known in the lookup or commit path. Found markers mean the page or frame is now the authoritative next step. The safe inference is that B-tree correctness depends on sorted page contents, while transaction safety depends on the pager making page changes recoverable.',
         {type:'callout', text:'SQLite becomes teachable because logical B-trees and physical crash safety meet at the pager page boundary.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt:'Small B-tree with a root node and three child nodes containing sorted keys.', caption:'Small 3-5 B-tree example. CyHawk, Wikimedia Commons, CC BY-SA 3.0 or GFDL.'},
       ],
     },
     {
-      heading: 'The obvious approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The simple answer would be to store each table as a flat append-only file and scan it when needed. That keeps storage easy, but indexed lookup, ordered traversal, deletes, updates, transactions, and crash recovery become painful quickly.',
-        'The other wrong mental model is to treat SQLite like a small PostgreSQL server. SQLite is not organized around remote clients, background daemons, or many concurrent writers. It is a local file database, so page layout and locking rules are central, not incidental.',
-        'Another tempting simplification is to say SQLite is "just a B-tree." The B-tree matters, but it is not the whole database. Without the pager, transaction protocol, journal or WAL mode, schema table, locking, and page cache, the tree would not be a reliable SQL database stored in a single file.',
+        'SQLite stores a relational database inside one ordinary file. SQL asks for rows and indexes, but the operating system reads and writes byte ranges. SQLite needs a format that can find records quickly, update them safely, and survive process or machine failure.',
+        'The design splits the problem. B-trees organize records and index entries into sorted pages, while the pager owns page cache, locking, rollback journal or write-ahead log behavior, and recovery. The page is the shared unit that lets the layers cooperate.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The database file is divided into fixed-size pages. Tables and indexes are B-trees over those pages. Interior pages route search; leaf pages store records or index entries. Page 1 holds the database header and usually the root of sqlite_schema, so the file can describe its own tables and indexes.',
-        'The pager owns page caching, locking, transaction state, rollback journals, WAL frames, and durability. The B-tree layer asks for pages and changes logical tree contents; the pager decides how those page changes become safe bytes on disk.',
-        'That separation is the core insight. The B-tree layer is about logical structure: seek this key, insert this record, split this page, traverse this index. The pager layer is about physical safety: which page version is cached, which transaction owns a lock, what happens after a crash, and when modified pages reach the main file.',
+        'The obvious database file is an append-only list of rows. Inserting is easy because new bytes go at the end, and a full scan can still answer small queries. That breaks once lookup by primary key, range scan, deletion, and index maintenance become normal operations.',
+        'Another obvious idea is to rewrite pages in place as soon as rows change. That is fast until the program crashes between two related writes. After the crash, the file may contain half of a transaction, which is worse than being slow because the database can no longer explain its own state.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that a database needs both search structure and atomic change. A row lookup wants a tree path, usually root page to internal page to leaf page. A transaction wants all of its page changes to appear together or not at all.',
+        'Those goals conflict if every layer writes whenever it likes. The B-tree layer can know where a row belongs, but it cannot alone guarantee crash recovery. The pager can make page writes durable, but it needs the B-tree layer to preserve sorted cell order and page-link invariants.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Use fixed-size pages as the contract. A table or index B-tree is made of pages, and each page contains cells, headers, free space, and links according to its role. The pager can cache and protect pages without understanding every SQL operation.',
+        'Write-ahead logging changes the commit path by appending changed pages as frames to a WAL file before checkpointing them back into the main database. Rollback journaling preserves old page images before overwrite. Both schemes make page transitions recoverable.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'SQLite compiles SQL into bytecode for a virtual machine. That VM calls into the B-tree layer for table and index operations. The B-tree layer asks the pager for pages, interprets page cells, follows child pointers, splits pages when needed, and maintains sorted key order.',
-        'A B-tree page has structure: page header, cell pointer array, cells, and free space. Cells hold payload and sometimes child page pointers. The cell pointer array lets SQLite keep keys ordered inside a page while cells themselves can be variable-sized. That matters because records and index entries are not fixed-width rows.',
-        'The pager maintains a page cache and transaction state. In rollback journal mode, SQLite protects old page contents before overwriting the main file. In WAL mode, writes append changed page frames to a separate -wal file. A commit is represented in the WAL, and checkpointing later copies frames back into the main database file.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The page B-tree view proves the descent from logical SQL to physical pages. SQL bytecode performs operations. The B-tree layer maps tables and indexes onto page trees. The pager supplies cached pages. The main file stores stable pages. These are separate responsibilities even though they live inside one library.',
-        'The page anatomy table proves why "a page stores rows" is too vague. A page stores headers, ordered cell pointers, variable-sized cells, and free space. This layout lets SQLite search within a page, split pages, and store variable-length records without turning every page into a simple array.',
-        'The WAL view proves that commit flow is a storage design choice. WAL mode appends frames instead of immediately overwriting the main database. That lets readers keep using an older snapshot while a writer appends new state, but it also introduces checkpoint behavior and local-file constraints.',
+        'For a lookup, SQLite starts from a root page number known from schema metadata. It compares the key against sorted separator cells, follows a child page pointer, and repeats until it reaches a leaf. Inside a leaf, sorted cells identify the row payload or index entry.',
+        'For an update, the B-tree layer asks the pager for writable pages. The pager records enough recovery state before the change becomes permanent. In WAL mode, commit means appending a commit-marked frame sequence to the WAL; later checkpointing copies committed page versions back to the main file.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because B-trees match the needs of local indexed storage. They preserve sorted order, support logarithmic lookup, range scans, inserts, and deletes, and align naturally with fixed-size pages. A page is large enough to amortize disk and filesystem overhead but small enough to cache and rewrite.',
-        'It also works because the pager centralizes durability. If every higher layer wrote bytes directly, crash consistency would be impossible to reason about. By routing page reads and writes through the pager, SQLite can enforce transaction boundaries, lock states, journaling, WAL semantics, and cache behavior in one place.',
-        'The single-file design works because the database is embedded. The application and database engine share a process. There is no network protocol between them. That eliminates a large class of deployment complexity while making local filesystem behavior more important.',
+        'Search correctness follows the B-tree ordering invariant. Every separator key divides child ranges, and every leaf cell remains in sorted order. If a key is less than the separator, it cannot be in the child range to the right; the tree can discard that side without scanning it.',
+        'Crash correctness follows the pager invariant. After recovery, each page is either the old committed version or the new committed version named by a complete transaction record. There is no valid recovery state where only an arbitrary subset of transaction pages silently wins.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The tradeoff is local simplicity versus concurrent write scale. SQLite is fast partly because it is embedded and file-backed. But the single-file, one-writer shape is real. WAL improves reader/writer overlap, but it does not turn SQLite into a multi-writer server database.',
-        'Page size, cache size, fsync behavior, checkpoints, vacuuming, transaction length, lock modes, and filesystem semantics all matter. A long write transaction can block other writes. A checkpoint can create visible latency. A poorly chosen access pattern can churn the page cache.',
-        'The row-oriented B-tree layout is also not ideal for every workload. SQLite is excellent for local OLTP and mixed embedded workloads. Parquet, DuckDB-style columnar execution, or a server database may fit large analytical scans, distributed writes, or heavy multi-writer workloads better.',
+        'A lookup costs about the height of the B-tree in page reads, plus local search inside each page. With 4 KB pages and many cells per page, a tree with millions of rows can stay only a few levels deep. Doubling row count usually adds little cost until an additional tree level becomes necessary.',
+        'Writes cost page dirties plus journal or WAL traffic. WAL can make commits sequential, but it adds checkpoint work and a separate file to manage. Memory is spent on the page cache, dirty-page tracking, locks, and B-tree page metadata.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'SQLite fits mobile apps, desktop applications, browsers, edge devices, local caches, test fixtures, embedded products, and small services where one machine owns the data file and wants reliable SQL without running a separate database server.',
-        'A browser profile database is a good concrete example. Bookmarks, history, cookies, and settings live in local tables and indexes. Reads are cheap and local. WAL mode lets reading continue while writes append frames. Checkpoints and vacuuming become maintenance work for a long-lived file.',
-        'It also wins as an application file format. Instead of inventing a custom binary file, an application can store structured data in tables, use indexes, run migrations, and get transactional updates. The file remains portable and inspectable with standard SQLite tools.',
+        'SQLite is used when a process needs a durable local database without running a separate server. Mobile apps, browsers, desktop tools, embedded devices, tests, and edge services use it because a single file can provide indexes, transactions, SQL, and crash recovery.',
+        'The B-tree and pager split is also a general systems lesson. Many databases separate logical access methods from buffer management and recovery. SQLite makes that split easier to inspect because the page file, WAL, and transaction rules are documented and compact.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The biggest failure is treating SQLite like a remote multi-user database server. It can serve many important workloads, but write concurrency, network filesystems, long transactions, and process coordination require respect for SQLite’s locking and WAL behavior.',
-        'Another failure is ignoring checkpoint and vacuum behavior. WAL files can grow if checkpoints are blocked by long-lived readers. Deleted space may not shrink the main file until vacuuming or auto-vacuum behavior handles it. Storage maintenance is part of the operational model.',
-        'A third failure is using it for the wrong physical shape. If the workload is mostly large analytical column scans, SQLite’s B-tree row storage may be the wrong layout. If the workload needs many independent writers across machines, a client/server database or distributed system may be the right tool.',
+        'SQLite is not the right shape for every workload. Many concurrent writers, cross-machine replication, huge analytical scans, and server-side privilege management can push users toward client-server databases. The single-file design is a strength until the workload needs distributed coordination.',
+        'B-trees also pay update and locality costs. Page splits move cells, overflow pages complicate large payloads, and random writes can still hit storage limits. The pager makes crashes safe, but it cannot make a bad access pattern cheap.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Official sources: SQLite file format at https://www.sqlite.org/fileformat.html, architecture at https://sqlite.org/arch.html, B-tree module at https://sqlite.org/btreemodule.html, and WAL docs at https://sqlite.org/wal.html. Study B-Trees, B+ Tree Leaf Sibling Scan Case Study, Write-Ahead Log, Linux Page Cache XArray, OPFS Origin Private File System, MVCC Internals & VACUUM, Database Indexing, and Parquet Columnar Format Case Study next.',
-        'A useful exercise is to create a small SQLite database, inspect page size and WAL mode, run inserts inside and outside transactions, and watch the -wal file and checkpoint behavior. That turns the pager from a diagram into something you can observe.',
+        'Assume 4 KB pages and an index where an internal page can route to 200 children. One root page can cover 200 leaf pages, and two internal levels can cover 40,000 leaf pages. If each leaf stores 80 rows, those two levels can address about 3.2 million rows with root, internal, and leaf page reads.',
+        'Now update 10 rows that live on 6 distinct pages in WAL mode. The B-tree changes those 6 page images, and the pager appends 6 WAL frames plus commit metadata. If the process crashes after 4 frames without a commit record, recovery ignores the partial transaction; if the commit record is present, recovery can replay the committed frames.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources start with the SQLite database file format at https://www.sqlite.org/fileformat2.html. Then read SQLite locking at https://www.sqlite.org/lockingv3.html and WAL mode at https://www.sqlite.org/wal.html to connect pages to recovery.',
+        'Study B-tree for search invariants and Buffer Pool for cached pages. Then compare Write-Ahead Log, LSM Tree, and Filesystem Journaling to see how other systems separate lookup from recovery.',
       ],
     },
   ],

@@ -311,100 +311,54 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        "A human-evaluation labeling queue is the system that turns scattered human judgment into evidence a model team can trust. A product team may have thousands of model outputs, support tickets, safety reports, and edge cases. The queue decides which cases deserve human attention, who should review them, which rubric applies, how disagreement is resolved, and how the resulting labels become a versioned evaluation set.",
-        "The problem is not simply getting people to click buttons. Human attention is expensive, inconsistent, and easy to bias. If the process does not preserve case identity, rater identity, rubric version, response order, model version, and adjudication history, the labels cannot answer the hard questions: did the model improve, did the safety behavior regress, did the rubric drift, or did the rater pool change?",
-        {type:"callout", text:"A trustworthy label is a versioned process record, not a naked score detached from case, rater, rubric, and adjudication context."},
+        'Read the animation as a measurement pipeline, not a crowd-work dashboard. Active items are cases currently being sampled, routed, labeled, or adjudicated; visited items have already produced process records; found items are labels that can enter a versioned evaluation set. A safe inference is that a label is trustworthy only when the case, rater, rubric, response order, and adjudication state are preserved.',
+        {type:'callout', text:'A trustworthy label is a versioned process record, not a naked score detached from case, rater, rubric, and adjudication context.'},
       ],
     },
-    {
-      heading: 'Naive Approach',
-      paragraphs: [
-        "The naive approach is to send a spreadsheet of model answers to a few reviewers and ask which answer is better. That can be useful during early exploration, but it breaks down quickly. The team cannot tell whether a score changed because the model improved, because the raters saw the model name, because examples were easier this week, or because the rubric changed from broad preference to factuality.",
-        "A second naive approach is to label only obvious failures. That creates a repair set, not a benchmark. It over-represents visible failures and under-represents ordinary traffic. A release gate needs several lanes at once: fresh random traffic for coverage, risk slices for safety, known failures for regression testing, and repeated anchor cases for drift detection.",
-      ],
-    },
-    {
-      heading: 'The Wall',
-      paragraphs: [
-        "The wall is disagreement. Two competent raters can see the same answer differently because the instruction is ambiguous, the question requires domain knowledge, the response is partly correct, or the rubric mixes several criteria into one score. If the system only averages scores, it hides the most valuable information in the pipeline.",
-        "The wall is also sampling pressure. Labeling every case is too slow and too expensive, but labeling only what looks interesting creates biased evidence. The queue must spend human time where it has the highest expected value: uncertain examples, high-risk examples, failures that block launch, and cases that calibrate raters or automated judges.",
-      ],
-    },
-    {
-      heading: 'Core Insight',
-      paragraphs: [
-        "The core insight is that a human label is not a single value. It is a structured record produced by a controlled process. The record should say what case was reviewed, what the rater saw, which rubric version was used, what answer order was shown, what score or preference was chosen, what rationale was written, and whether the label was later aggregated or adjudicated.",
-        "Once labels are records, the rest of the system becomes a set of ordinary data structures. A priority queue schedules work. A routing table assigns cases to raters. A matrix measures agreement. An adjudication log records conflict reasons. A versioned eval set freezes selected labels into a release artifact. This is why the queue view matters: the queue is the bridge between human work and repeatable measurement.",
-      ],
-    },
-    {
-      heading: 'Mechanics',
-      paragraphs: [
-        "A production queue starts by creating a case object. The case contains the prompt or task, any needed context, the candidate outputs, source metadata, model and prompt versions, slice tags, risk tags, and the reason it was sampled. The queue then assigns priority. High-risk policy cases, fresh traffic from under-covered slices, recent production failures, and calibration anchors should not all wait in one flat FIFO line.",
-        "Routing comes next. Some cases need one reviewer, some need two blinded independent reviewers, and some need a domain expert. The router balances workload, avoids conflicts of interest, hides model identity when needed, randomizes response order, and ensures repeated anchor cases appear often enough to reveal rater drift. The output is a label record, not a private opinion.",
-        "Aggregation turns multiple label records into a usable case result. If raters agree, the system can aggregate directly. If they split, the case moves to conflict. Conflict can mean adjudication by an expert, a revised rubric, an added calibration example, or a decision that the task is too ambiguous for the current eval. The important part is to store the reason, not just the final winner.",
-      ],
-    },
-    {
-      heading: 'Why It Works',
-      paragraphs: [
-        "The system works because it separates three concerns that are often mixed together: sampling, judgment, and release. Sampling decides what humans should inspect. Judgment applies a rubric to a blinded task. Release freezes a selected set of labels and metadata so future model comparisons use the same evidence. Mixing those concerns is how teams accidentally overfit to the visible examples they just discussed.",
-        "Agreement metrics give the process feedback. High agreement does not prove the rubric is correct, but low agreement proves something needs investigation. A split may reveal a vague criterion, a confusing UI, a missing domain instruction, a rater training issue, or a genuinely hard case. Treating disagreement as an input to system design is the difference between measuring humans and learning from humans.",
-        "Versioning makes the evidence reproducible. A model launch decision should be able to cite eval-set version, rubric version, rater pool, sample window, disagreement rate, adjudication policy, and slice coverage. Without those fields, a passing score is just a number without provenance.",
-      ],
-    },
-    {
-      heading: 'Worked Example',
-      paragraphs: [
-        "Suppose a customer-support model produces two candidate answers for a refund request. The queue creates a case with the user question, order status, policy excerpt, model A output, model B output, tenant and language tags, and a sampling reason: recent refund-policy regressions. Because refunds are a high-risk slice, the case receives double blinded review.",
-        "Rater A prefers model A because it cites the policy correctly. Rater B prefers model B because it sounds more empathetic. The agreement matrix marks a split, so the case enters adjudication. The adjudicator finds that the rubric asked for helpfulness but did not separately score policy compliance and tone. The final case result may choose model A, but the more important output is a rubric repair: split the criterion into factual policy correctness, actionability, and tone.",
-        "That one case now improves the whole pipeline. Future labels use the clearer rubric, raters receive a calibration example, the eval set preserves the conflict reason, and automated judges can be checked against the same anchor. The queue did not merely produce a label; it found a weakness in the measurement system.",
-      ],
-    },
-    {
-      heading: 'What The Animation Teaches',
-      paragraphs: [
-        "The label-queue view shows the main path from case to eval set. A case is sliced by risk, placed in a priority queue, routed to blinded raters, turned into label rows, aggregated when agreement is clear, adjudicated when agreement splits, and finally written into a versioned evaluation artifact. The useful lesson is that human review is a pipeline with durable intermediate states.",
-        "The agreement-loop view shows the quality loop around that pipeline. Rubrics create tasks, tasks produce votes, votes become agreement signals or conflict cases, and those outcomes feed calibration, automated judge checks, and release gates. The release gate should depend on the health of the labeling process as well as the model score.",
-      ],
-    },
-    {
-      heading: 'Costs And Tradeoffs',
-      paragraphs: [
-        "The main cost is human time. Double review improves disagreement measurement, but it roughly doubles labeling cost for the selected cases. Expert review increases correctness on domain-heavy work, but it slows throughput. Active sampling reduces waste, but it can bias the eval set if the team forgets to keep a random fresh-traffic lane.",
-        "Rubric shape is a tradeoff. Likert scales preserve nuance but drift between raters. Boolean checklist items improve agreement but can feel rigid. Pairwise preference works well for open-ended outputs, but it needs response-order randomization and side-bias checks. Expert adjudication resolves conflicts, but overusing it can hide a broken rubric.",
-        "Automation is also a tradeoff. LLM judges can screen more cases than people can, but they inherit biases from training data, model family, prompt wording, answer length, and response position. They should be calibrated against human anchors and rechecked whenever the judged model, judge model, prompt, or rubric changes.",
-      ],
-    },
-    {
-      heading: 'Where It Wins',
-      paragraphs: [
-        "Human-evaluation queues win when the task cannot be scored by exact match. They are useful for open-ended writing quality, helpfulness, safety policy adherence, medical or legal review workflows, customer-support response quality, tool-use appropriateness, multilingual behavior, and preference data for reward modeling.",
-        "They also win when a team needs defensible release evidence. A release review can inspect slice coverage, disagreement trends, adjudication reasons, rater drift, and sealed-holdout behavior instead of relying on a single leaderboard number. That makes the system more useful for production governance than an informal tasting panel.",
-      ],
-    },
-    {
-      heading: 'Where It Fails',
-      paragraphs: [
-        "The queue fails when the rubric is vague. If raters cannot tell what counts as success, more labels only create more expensive noise. It fails when rater identity and timing are not logged, because fatigue, training, and pool changes can move the target. It fails when cases are not blinded, because model reputation and answer order can influence the vote.",
-        "It also fails when the eval set becomes public to the team. Once engineers repeatedly tune prompts against the same visible cases, the set stops measuring generalization. Keep a development set for iteration, a sealed holdout for release, and fresh production samples for drift. The queue should support all three lanes explicitly.",
-      ],
-    },
-    {
-      heading: 'Failure Modes',
-      paragraphs: [
-        "Common failure modes include label leakage, rubric drift, slice imbalance, adjudication shortcuts, rater overfitting to calibration examples, missing rationales, stale production samples, automated judge drift, and lack of replayable context. A label without the original prompt, candidate outputs, response order, and rubric version is often impossible to audit later.",
-        "Another failure mode is treating disagreement as embarrassment. Disagreement is one of the best signals in the system. It marks ambiguous policy, unclear instruction, borderline behavior, or missing expertise. The conflict queue should feed rubric repair and new golden examples, not disappear into an average.",
-      ],
-    },
-    {
-      heading: 'Sources And Study Next',
-      paragraphs: [
-        "Industrial labeling systems such as Amazon SageMaker Ground Truth show the queue, worker, workflow, and active-labeling side of the problem. HELM shows the benchmark side: broad scenarios, multiple metrics, transparency, and standardized evaluation conditions. MT-Bench and Chatbot Arena show the preference-evaluation side with pairwise comparison and judge calibration. Health-evaluation work from Google Research is a good example of how precise boolean rubrics can improve consistency and throughput.",
-        "Study Queue, Priority Queue, Message Queue, Rate Limiter, LLM Evaluation Harnesses, LLM Judge Calibration and Drift Monitor, RLHF and Preference Optimization, Benchmark Variance and Model Selection, Calibration and Reliability Diagrams, Data Leakage and Contamination, and Contextual Bandit Logged Policy Evaluation next. Together they explain how to schedule labels, preserve evidence, avoid overfitting, and turn preference data into model decisions.",
-      ],
-    },
+    { heading: 'Why this exists', paragraphs: [
+      'A model team often has thousands of prompts, outputs, support tickets, safety reports, and edge cases that cannot be scored by exact match. Humans can judge helpfulness, policy compliance, tone, factual support, and risk, but human attention is costly and inconsistent. A labeling queue exists to spend that attention where it creates evidence a release decision can use.',
+      'The hard problem is not asking people to click a score. The hard problem is preserving enough context to know whether a model improved or the measurement process changed. A release score without case identity, rubric version, rater pool, response order, and adjudication history is just a number with weak provenance.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to send a spreadsheet of model answers to reviewers and ask which answer is better. That can find obvious problems during exploration, and it is fast to start. It breaks when the team tries to compare model versions, because the process does not control what raters saw or which rubric they applied.',
+      'Another approach is to label only failures that engineers already noticed. That creates a repair list, not a benchmark. A release gate needs ordinary traffic, risk slices, known regressions, and calibration anchors because each lane answers a different question about model behavior.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is disagreement. Two careful raters can disagree because the instruction is ambiguous, the answer is partly correct, or the rubric mixes policy accuracy with tone. Averaging their scores hides the signal that the measurement itself may be under-specified.',
+      'The second wall is sampling bias. Labeling every case is too expensive, but labeling only unusual cases makes the evaluation set unrepresentative. The queue has to choose cases by expected value while keeping enough random fresh traffic to estimate real behavior.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'The core insight is that a human label is a structured record produced by a controlled process. The record should include the case, candidate outputs, blinded order, rater id, rubric version, score or preference, rationale, sampling reason, and adjudication result. Once that is true, the label can be replayed and compared across model releases.',
+      'The queue is built from ordinary data structures. A priority queue schedules cases, a routing table assigns raters, a matrix measures agreement, and an adjudication log records conflict resolution. The system turns subjective judgment into evidence by controlling the path that produced it.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'The system first creates a case object with prompt, context, candidate outputs, model versions, prompt versions, slice tags, risk tags, and sampling reason. It then assigns priority based on release risk, uncertainty, under-covered slices, recent production failures, and calibration needs. High-risk medical or legal cases may require expert review, while ordinary preference cases may use trained general raters.',
+      'Routing hides model identity when needed, randomizes response order, avoids conflicts of interest, and limits rater load. Aggregation handles agreement, while conflict sends the case to adjudication or rubric repair. The output is not only a final label; it is also evidence about rater agreement and rubric health.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is process reproducibility. If two model releases are compared on the same frozen eval-set version with the same rubric version and known rater protocol, score changes are more likely to reflect model behavior. If the cases, rubric, or rater pool changed, the system can say that the comparison is not clean.',
+      'Disagreement becomes useful because it is stored instead of erased. A split can reveal a vague criterion, a missing policy example, a confusing UI, or a genuinely hard case. The queue improves the measurement system by routing conflict back into rubric edits and calibration examples.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Human time is the dominant cost. If a case takes 90 seconds and costs 0.75 USD per review, 10,000 single-review cases cost 7,500 USD and about 250 reviewer hours. Double review doubles that selected-case cost, so it should be spent where disagreement or risk matters.',
+      'Rubric design also changes behavior. Pairwise preference is natural for open-ended answers but needs response-order randomization and side-bias checks. Boolean checklists improve agreement but can miss nuance, while broad Likert scores preserve nuance but drift across raters.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Human-evaluation queues win when outputs are open-ended and the cost of a bad release is real. They fit customer-support answers, safety-policy adherence, medical or legal review workflows, tool-use appropriateness, multilingual behavior, and preference data for reward modeling. They are also useful when automated judges need human anchors for calibration.',
+      'The pattern supports governance because a launch review can inspect slice coverage, disagreement rates, adjudication reasons, and sealed-holdout behavior. That is stronger than a single leaderboard score. It lets the team distinguish model quality from measurement drift.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'It fails when the rubric is vague. More labels do not fix a task that raters cannot interpret consistently. It also fails when model names, answer order, or prior reputation are visible, because those cues can steer the vote.',
+      'It fails when the eval set becomes a training target for the team. If engineers repeatedly tune prompts against the same visible cases, the set stops measuring generalization. A healthy process separates development cases, sealed holdout cases, and fresh production samples.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Suppose a support model produces two answers for a refund request, and the queue samples the case because refund policy regressions rose last week. The case packet includes the user question, order status, policy excerpt, model A output, model B output, tenant, language, and risk tag. Because refunds are high-risk, the queue assigns two blinded raters and randomizes answer order.',
+      'Rater 1 prefers A because it cites the refund policy correctly, while rater 2 prefers B because it sounds more empathetic. The conflict queue sends the case to adjudication, and the adjudicator finds that the rubric mixed policy correctness and tone into one helpfulness score. The final label may choose A, but the real output is a repaired rubric with separate policy, actionability, and tone fields.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Study Amazon SageMaker Ground Truth for managed labeling workflows, HELM for transparent model evaluation, MT-Bench and Chatbot Arena for pairwise preference evaluation, and recent LLM-as-judge calibration work. Then study Queue, Priority Queue, Message Queue, Benchmark Variance, Data Leakage, Calibration Curves, RLHF Preference Optimization, and LLM Judge Calibration Drift Monitor. The next skill is designing evaluation evidence that survives release review.',
+    ] },
   ],
 };

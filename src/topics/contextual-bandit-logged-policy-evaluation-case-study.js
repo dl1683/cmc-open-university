@@ -335,180 +335,55 @@ export function* run(input) {
   else throw new InputError('Pick a contextual bandit view.');
 }
 
-export const article = {
-  sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        "Read the animation as the execution trace for Contextual Bandit Logged Policy Evaluation Case Study. How production recommenders log contexts, actions, rewards, and propensities so future policies can be evaluated before they touch users..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `A contextual bandit chooses one action after observing context, then receives reward only for the action it actually took. A news site shows one story. An ad system shows one ad. A search page chooses one ranking treatment. The system never observes what the user would have done if a different action had been shown.`,
-        `That missing counterfactual is the central problem. Product teams want to improve policies without sending every risky candidate directly to users. They want to ask whether a new ranker, exploration rule, or personalization model would have performed better using old traffic. Ordinary analytics logs cannot answer that question because they record what happened, not how likely the old policy was to make the choice it made.`,
-        `Logged policy evaluation exists to make future counterfactual evaluation possible. The online system logs enough information about each randomized decision that a future policy can be evaluated honestly before live exposure. The most important field is the propensity: the probability that the logging policy assigned to the action it actually chose.`,
-        {type:'callout', text:'Logged bandit evaluation is only honest where the old policy propensity log gives the new policy overlapping, weighted evidence.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        `The obvious approach is to train a new policy on historical logs and compare its predictions to the rewards in those logs. If the new model scores clicked stories higher than unclicked stories, it looks better. This is useful for supervised learning, but it is not enough for policy evaluation. The old policy chose which actions entered the log, so the data is biased toward actions the old policy preferred.`,
-        `Another obvious approach is replay matching. Run the candidate policy on each old context and keep only rows where the candidate would have chosen the same action as the logger. Average the rewards of those matching rows. This can work for simple randomized experiments, but it wastes data and fails when the candidate is stochastic or assigns different probabilities rather than deterministic choices.`,
-        `The approach that scales is to log the old decision probability and use it during evaluation. The candidate policy is evaluated on the action that was actually shown, but the row is weighted by how much more or less likely the candidate would have been to choose that action. This turns the log into a reusable evaluation contract.`,
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        `The wall is support. If the logging policy never chose an action in a context where the candidate policy wants to choose it, the log contains no reward evidence for that counterfactual. No estimator can recover a missing outcome. A policy can be mathematically clever and still unevaluable because the old traffic did not explore the region it now wants to use.`,
-        `The second wall is variance. If the logger chose an action with probability 0.01 and the candidate would choose it with probability 0.50, that row receives a weight of 50. One row can become as loud as many ordinary rows. The estimate may be unbiased under the right assumptions and still too noisy to decide whether the candidate is safe.`,
-        `The third wall is log integrity. Missing propensities, changed action sets, duplicate events, delayed rewards marked too early, feature leakage, and stale policy versions break the evaluation contract. These are not minor instrumentation bugs. They change the mathematical object being estimated.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `A logged bandit row is a counterfactual contract. It must preserve the context, eligible actions or action features, chosen action, logging policy version, chosen-action probability, reward, and event identifiers needed to join delayed labels. Given that row, a future policy can ask: how likely would I have been to take the logged action in the same context?`,
-        `The importance weight is w = pi_new(a | x) / pi_old(a | x), where a is the logged action and x is the logged context. If the candidate policy would have chosen the logged action more often than the old policy, the row represents more candidate-policy worlds. If it would have chosen the action less often, the row represents fewer. If the old probability is zero, the row cannot support that counterfactual at all.`,
-        `The core invariant is that evaluation is honest only over overlap between the logging policy and the candidate policy. Propensities let the evaluator reweight observed rewards inside that overlap. They do not create observations for actions the logger never tried.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `The online loop starts with context features and an eligible action set. The policy scores the actions, converts scores into a probability mass function, samples one action, shows it, and writes an append-only decision row. The row should include a stable request id, user or session join key when allowed, policy version, feature version, action set representation, selected action, propensity, and enough metadata to reproduce eligibility.`,
-        `Reward arrives later. A click, conversion, dwell threshold, purchase, complaint, or cancellation may be joined minutes or days after the decision. The log therefore needs event ids, timestamps, attribution windows, and rules for finalizing labels. A premature negative label is a false reward. A duplicate join can count one reward twice. A missing join can make an action look worse than it was.`,
-        `Offline evaluation materializes candidate probabilities for the logged action. For each row, the evaluator computes pi_new(a | x), w, estimator contributions, support diagnostics, and effective sample size. The evaluation table is separate from the raw log so candidate code can be frozen, audited, and compared across policies without rewriting history.`,
-        `The animation's logged-propensity view shows this data path: context enters the old policy, the policy emits a probability distribution, a sampled action is logged with its probability, reward is joined later, and OPE uses the frozen rows. The estimator view then shows how large weights can dominate IPW and how model-based baselines can reduce variance in doubly robust estimation.`,
-      ],
-    },
-    {
-      heading: 'Estimator choices',
-      paragraphs: [
-        `Inverse propensity weighting, also called IPW or IPS in this setting, multiplies each observed reward by w and averages. Under the usual logged-bandit assumptions, it corrects for the logging policy's action bias. Its weakness is variance. Rows with tiny old propensities and high candidate probabilities can dominate the estimate.`,
-        `Self-normalized IPW divides the weighted reward sum by the sum of weights. This often stabilizes estimates, but it introduces bias because the denominator is itself random. Clipping or capping weights reduces variance further by limiting how loud any row can be, but it intentionally biases the answer toward the logging policy.`,
-        `The direct method trains a reward model and uses it to predict what the candidate policy would earn. It can use every context-action pair the model can score, but it inherits model bias. Doubly robust estimation combines a reward model with importance-weighted residuals. If the reward model is useful, DR can reduce variance. If both the model and propensities are wrong, DR is not magic.`,
-        `Estimator choice comes after support. A support audit asks whether every candidate action with positive probability has positive logging probability in the relevant context region. Effective sample size asks how much usable evidence remains after weighting. A high raw row count with poor overlap can have a small effective sample size.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The basic IPW argument is a change of measure. The log was generated by the old policy. Each observed reward for action a in context x is reweighted by how often the candidate would choose a compared with how often the logger chose a. Averaged over many randomized logged decisions, those weights make the old-policy sample estimate the candidate-policy value over the overlapping action support.`,
-        `The argument depends on the logging policy actually randomizing according to the recorded probabilities. If the logged propensity says 0.20 but a downstream rule always overrides the sampler, the weight is wrong. If the action set used by the candidate differs from the logged eligible set, the probability comparison is wrong. If reward labels are joined with future information unavailable at decision time, the estimate is contaminated.`,
-        `Doubly robust estimators work by using a model as a baseline and applying importance weighting to the residual error on observed actions. The model supplies broad coverage, while the weighted residual corrects the model where logged evidence exists. The name "doubly robust" refers to consistency when either the reward model or propensity model is correct under the estimator's assumptions, but production logs still need both to be treated seriously.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `The online cost is exploration. A logger that always chooses the current best action creates poor support for future policies. Adding exploration may reduce short-term reward, annoy users, or spend inventory on lower-ranked actions. The payoff is future learnability. The product must decide how much regret it is willing to spend for better evidence.`,
-        `The storage cost is a richer decision log. Context features, action features, eligible sets, probabilities, policy versions, timestamps, and join ids can be large. Teams often store compact feature hashes, action ids, model version references, and reproducible eligibility snapshots instead of full payloads. The log must still be sufficient to recompute or audit candidate probabilities later.`,
-        `The offline cost is variance management and replay discipline. Evaluating many candidate policies on the same log can overfit to logged noise. Thresholds for support, effective sample size, clipping, confidence intervals, and delayed-label finalization should be declared before looking at outcomes. Otherwise OPE becomes a leaderboard over historical quirks.`,
-        `The operational tradeoff is that OPE is a promotion gate, not a launch proof. It can reject policies with missing support, dangerous variance, or bad expected value. It can compare plausible candidates and size a safer experiment. It cannot reveal outcomes in regions the logger did not explore, and it cannot replace a live randomized guard for high-impact changes.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `Missing propensities are fatal for IPW and DR. If the old policy probability was not logged, later teams may try to reconstruct it from model code, but that reconstruction often misses overrides, filtering, exploration buckets, feature changes, or action-set differences. The logged probability should be the probability after all production gates that affected the sampled action.`,
-        `Deterministic logging destroys support. A recommender that always shows the top-ranked item cannot later evaluate a policy that would have explored the second item, because there is no reward for the second item in that context. More rows do not fix zero probability. The system needs exploration, constrained candidates, or a live experiment.`,
-        `Delayed labels can poison evaluation. If a conversion window is seven days and the evaluator reads labels after one day, many eventual positives look negative. If the join key is not unique, duplicates inflate reward. If the candidate feature pipeline can see data created after the decision, the policy is evaluated with information it would not have had online.`,
-        `Changing the action universe without logging eligibility makes probabilities incomparable. A candidate cannot assign a meaningful probability to an item that was not eligible at logging time unless the evaluation explicitly models that difference. Action catalogs, filters, inventory constraints, and policy rules are part of the counterfactual state.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `A news homepage chooses one story for each visit. The context includes device, coarse location, time of day, referrer, user segment, and recent behavior. The action set changes constantly as stories expire and new stories arrive. The logging policy scores eligible stories, converts scores to a PMF with exploration, samples one story, shows it, and logs the selected-story probability.`,
-        `Reward arrives as click, dwell time, subscription action, or a negative feedback signal. The evaluation pipeline waits for the attribution window, joins the reward to the decision row, and freezes a dataset. A candidate ranker is then run on the same context and eligible action set. For each logged action, the evaluator records the candidate probability, computes w, and builds IPW, self-normalized, direct-method, and doubly robust estimates.`,
-        `If the candidate puts most probability on stories the logger almost never showed, the support audit fails or the effective sample size collapses. The correct decision is not to ship because the estimated value looks high on a few lucky rows. The correct decision is to collect better exploration data, restrict the candidate, or run a guarded A/B test.`,
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        `Log the final chosen-action probability after all production filters, exploration rules, business rules, and fallback paths. If an override changes the selected action after the probability is computed, log the probability of the action that was actually displayed under the final decision process. Otherwise the evaluator weights the wrong policy.`,
-        `Version everything that affects replay: feature extraction, action eligibility, policy code, exploration settings, reward definitions, attribution windows, and deduplication rules. Store enough identifiers to rerun or audit the candidate probability calculation. A row that cannot be replayed is a descriptive event, not a reliable OPE row.`,
-        `Make support and variance diagnostics first-class outputs. Report action coverage, zero-propensity regions, weight histograms, maximum weight, effective sample size, clipped fraction, confidence intervals, delayed-label completeness, and segment-level estimates. A single overall value estimate hides the reasons it should or should not be trusted.`,
-        `Use OPE to reduce user risk, not to avoid experimentation forever. A healthy workflow is: exploration logger produces valid rows, offline evaluation rejects bad candidates, a small live experiment tests plausible candidates, and successful policies become new loggers with their own exploration contract.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: Vowpal Wabbit contextual bandit documentation at https://vowpalwabbit.org/docs/vowpal_wabbit/python/latest/tutorials/python_Contextual_bandits_and_Vowpal_Wabbit.html and news personalization tutorial at https://vowpalwabbit.org/docs/vowpal_wabbit/python/latest/tutorials/python_Simulating_a_news_personalization_scenario_using_Contextual_Bandits.html; Dudik, Langford, and Li, Doubly Robust Policy Evaluation and Learning at https://arxiv.org/abs/1103.4601; Open Bandit Pipeline documentation at https://zr-obp.readthedocs.io/en/latest/ and estimator notes at https://zr-obp.readthedocs.io/en/latest/estimators.html; the Cornell SIGIR counterfactual evaluation tutorial at https://www.cs.cornell.edu/~adith/CfactSIGIR2016/; Li et al. on unbiased offline evaluation of contextual-bandit news recommendation at https://arxiv.org/abs/1003.5956; and Li et al. on LinUCB news recommendation at https://arxiv.org/abs/1003.0146.`,
-        `Study next: LinUCB Personalized News Case Study, Importance Sampling and Off-Policy Estimation, Doubly Robust Estimation, Multi-Armed Bandits, Thompson Sampling, A/B Testing and p-values, RL Experiment Reproducibility Ledger, FTRL-Proximal Online CTR Case Study, Delayed Feedback Attribution Window Case Study, Feature Hashing Signed Projection Primer, Calibration Curves, and Training-Serving Skew Replay Diff.`,
-      ],
-    },
-      {
-      heading: 'Real-world uses',
-      paragraphs: [
-        "Show where this approach appears in products, libraries, or service designs.",
-        "Tie each use case to a workload shape, not a brand name.",
-        "The learner should know exactly when this pattern should be chosen next.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
 
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Contextual Bandit Logged Policy Evaluation Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
-};
+export const article = { sections: [
+  { heading: 'How to read the animation', paragraphs: [
+    'The logged-propensities view shows the future evaluation contract being written at decision time. Active nodes are context, old policy, probability mass function, sampled action, log row, and delayed reward join.',
+    'The estimator view shows how a candidate policy reuses the frozen log. The weight column is the key: w = p_new / p_old says how many candidate-policy worlds one observed reward represents.',
+  ] },
+  { heading: 'Why this exists', paragraphs: [
+    'A contextual bandit observes context, chooses one action, and receives reward only for that action. A recommender shows one story, an ad system shows one ad, and the log never contains what the user would have done for unshown actions.',
+    'Logged policy evaluation exists so teams can reject risky candidate policies before live traffic. It requires the old policy to log the probability of the chosen action, called the propensity, so later evaluation can correct for action-selection bias.',
+    {type:'callout', text:'Logged bandit evaluation is only honest where the old policy propensity log gives the new policy overlapping, weighted evidence.'},
+  ] },
+  { heading: 'The obvious approach', paragraphs: [
+    'The obvious approach is to train on historical rows and compare predicted rewards. That treats the log like ordinary supervised data, but the old policy chose which actions appear, so the data is biased toward what the old system already liked.',
+    'Another approach is replay matching: keep rows where the candidate would have chosen the same action and average those rewards. It wastes data and breaks down for stochastic policies that assign probabilities rather than one deterministic action.',
+  ] },
+  { heading: 'The wall', paragraphs: [
+    'The first wall is support. If the old policy had zero probability of showing action A in context X, the log contains no reward evidence for a candidate that wants A in X.',
+    'The second wall is variance. If p_old is 0.01 and p_new is 0.50, the weight is 50, so one lucky click can dominate the estimate even when the estimator is unbiased under its assumptions.',
+  ] },
+  { heading: 'The core insight', paragraphs: [
+    'A useful logged bandit row stores context, eligible actions, chosen action, logging policy version, chosen-action probability, reward, and join identifiers. That row lets a future policy ask how likely it would have been to choose the action that was actually observed.',
+    'The invariant is overlap. Propensities reweight observed rewards inside the region explored by the logger, but they do not create counterfactual rewards for actions the logger never tried.',
+  ] },
+  { heading: 'How it works', paragraphs: [
+    'Online, the policy scores eligible actions, converts scores into a probability mass function, samples one action, shows it, and logs the selected action with its final probability after filters and overrides. Reward arrives later through a click, dwell, purchase, complaint, or conversion join.',
+    'Offline, the candidate policy computes p_new for the logged action in the logged context. The evaluator computes weights, support diagnostics, effective sample size, and estimator contributions such as inverse propensity weighting, self-normalized weighting, direct method, or doubly robust estimates.',
+  ] },
+  { heading: 'Why it works', paragraphs: [
+    'Inverse propensity weighting is a change of measure. The log was generated by the old policy, and each reward is multiplied by how often the candidate would choose the logged action relative to how often the logger chose it.',
+    'Doubly robust estimation adds a reward model baseline and weights only the residual on observed actions. It can reduce variance when the model is useful, but it still depends on correct propensities, valid joins, and support.',
+  ] },
+  { heading: 'Cost and complexity', paragraphs: [
+    'The online cost is exploration regret. A logger that gives every eligible story at least 0.05 probability may show weaker items today so tomorrow\'s policies have measurable support.',
+    'The data cost is larger logs. A million decisions with 20 eligible actions each may need action ids, feature versions, probabilities, policy versions, timestamps, and join keys; compact hashes can help, but missing probability makes the row much less useful.',
+  ] },
+  { heading: 'Real-world uses', paragraphs: [
+    'This pattern fits news recommendation, search ranking treatments, ad placement, notification timing, offer ranking, and homepage modules. The common shape is one chosen action, partial feedback, and a need to screen candidate policies before live exposure.',
+    'It is also used as a promotion gate. Offline evaluation rejects policies with missing support, high variance, bad segment behavior, or label leakage before an A/B test spends user risk.',
+  ] },
+  { heading: 'Where it fails', paragraphs: [
+    'It fails when propensities are missing, reconstructed incorrectly, or logged before production overrides. The evaluator then weights the wrong policy and the estimate can look precise while being false.',
+    'It also fails when rewards are delayed or duplicated. Reading a seven-day conversion label after one day creates false negatives, while duplicate joins can make one conversion count several times.',
+  ] },
+  { heading: 'Worked example', paragraphs: [
+    'A news logger has five rows. Row 1 has reward 1, p_old 0.50, p_new 0.20, so w=0.4 and IPW contribution is 0.4; row 2 has reward 1, p_old 0.10, p_new 0.60, so w=6.0 and contribution is 6.0.',
+    'Across rows with contributions 0.4, 6.0, 0, 4.0, and 0, the average IPW estimate is 2.08 before normalization, dominated by two rare actions. A support audit and effective sample size warning should force more exploration data or clipping before anyone treats that number as a launch decision.',
+  ] },
+  { heading: 'Sources and study next', paragraphs: [
+    'Primary sources: Li et al. on unbiased offline evaluation of contextual-bandit news recommendation, Dudik, Langford, and Li on doubly robust policy evaluation, Vowpal Wabbit contextual bandit docs, and Open Bandit Pipeline docs. Study inverse propensity weighting, effective sample size, clipping, and delayed feedback next.',
+    'Then connect this topic to LinUCB, Thompson Sampling, FTRL-Proximal CTR, A/B testing, training-serving skew, calibration curves, and reinforcement learning off-policy evaluation. The shared discipline is honest counterfactual evidence.',
+  ] },
+] };

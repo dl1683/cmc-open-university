@@ -195,109 +195,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The word-count view traces a three-document job through all three MapReduce phases. Active nodes are the stage currently executing. Found edges mark data that has reached its destination. Watch how records start organized by input split and end organized by key -- that reorganization is the shuffle, and it is where the real cost lives.',
+        'The word-count view shows a batch job, which means a job that reads a finite input and writes a finite output. Active nodes are doing work now. Found edges show records that have reached the next phase. Watch how documents start grouped by file but finish grouped by word; that regrouping is the shuffle.',
         {type:'callout', text:'MapReduce scales batch work by making user code local and moving all global coordination into the shuffle boundary.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b6/MapReduce.svg', alt:'Diagram of input key-value pairs flowing through map tasks, shuffle, reduce tasks, and output.', caption:'MapReduce execution diagram by Joseba Alberdi, Wikimedia Commons, CC BY-SA 3.0 / GFDL.'},
-        'The failure view removes a map worker mid-job. The removed node shows intermediate output that disappeared. The runtime response -- rerun the map from durable input -- is the core fault-tolerance mechanism. Active nodes are healthy tasks; found nodes are tasks whose output is committed.',
+        'The failure view kills a worker after it has produced temporary output. The safe inference is that lost map output can be rebuilt from durable input. Found tasks are committed tasks; active tasks are currently running or being retried.'
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'By 2003, Google needed to build a web index, count term frequencies, compute PageRank contributions, and run dozens of other batch jobs over petabytes stored across thousands of commodity machines. Each job was conceptually simple -- read records, extract facts, group by key, aggregate -- but every team was independently solving the same hard problems: splitting input, scheduling tasks near data, retrying failures, handling slow machines, and committing output atomically.',
-        'Jeff Dean and Sanjay Ghemawat published "MapReduce: Simplified Data Processing on Large Clusters" (OSDI 2004) to factor out that repeated infrastructure. The programmer writes two functions: map (extract local facts from one input split) and reduce (combine all values for one key). The runtime owns everything else -- splitting, scheduling, data movement, retries, straggler mitigation, and output placement. Within a year, Google was running thousands of MapReduce jobs per day across clusters of commodity Linux machines.',
+        'MapReduce exists because many large batch jobs have the same shape: read a huge collection of records, extract local facts, group the facts by key, and combine each group. A key is the field used for grouping, such as a word in word count or a URL in web indexing. The hard part is not the word-count function; it is doing that work across thousands of machines while some fail.',
+        'Before MapReduce, every team that wanted this pattern had to solve splitting, scheduling, data movement, retry, slow-worker handling, and output commit. The 2004 Google paper made those concerns the runtime contract. The programmer writes map and reduce functions; the system owns the cluster behavior.'
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The natural first attempt is a single-machine script: read all the files, build a hash table of counts, write the result. For word count on 100 MB this takes seconds. For inverted-index construction on 100 GB it takes hours. For a web-scale crawl measured in petabytes, a single machine cannot even hold the intermediate data in memory, and a disk failure after 20 hours of work means starting over.',
-        'The next attempt is ad-hoc distribution: partition input by hand, run scripts on multiple machines, collect partial results, merge them. This works until a machine fails, a network partition drops results, one partition is ten times larger than the others, or a slow machine holds up the final merge. Every team writes its own failure handling, its own data routing, its own output commit logic -- and every implementation has different bugs.',
+        'The obvious approach is a single script. It opens every file, stores counts in a hash table, and writes the result. This is reasonable for 100 MB and still understandable for 10 GB if the machine has enough disk and time.',
+        'The next obvious approach is to run that script on many partitions and merge the partial files later. That works while partitions are balanced and machines stay alive. It stops being a system when every job has its own retry rules and its own broken merge step.'
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Ad-hoc distribution breaks at two points. First, fault tolerance: commodity clusters with thousands of machines see multiple disk and machine failures per day. If one worker dies and its partial output is lost, you need enough metadata to know which slice of input to recompute -- and the recomputed output must be identical if the rest of the pipeline already consumed some of it. Without deterministic re-execution over well-defined input splits, failure recovery is either impossible or requires expensive global checkpointing.',
-        'Second, data movement: the interesting computation usually requires grouping records by key across all machines. An inverted index needs all occurrences of a term together. A log aggregation job needs all events for one user together. This global regrouping -- the shuffle -- involves sorting, partitioning, network transfer, and spill-to-disk. Getting it right once in a reusable runtime saves every team from reimplementing the hardest 80% of distributed batch processing.',
+        'The wall is global grouping. A mapper can count words inside one file, but the final count for cat needs every cat count from every file. That forces a network and disk phase where records move from file ownership to key ownership.',
+        'Failure is the other wall. In a large commodity cluster, a worker can die after producing temporary data but before the job finishes. Unless the runtime knows exactly which input split created that data, recovery becomes guesswork or full restart.'
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Split the computation into two user functions with a structured data-movement boundary between them. Map operates on one input split and emits key/value pairs with no coordination. Reduce operates on one key and all its values with no knowledge of other keys. The shuffle between them is the only point of global coordination, and the runtime owns it entirely.',
-        'This split gives the runtime three powers: it can schedule map tasks near data (data locality), it can retry any failed task by re-reading durable input (fault tolerance via re-execution), and it can launch backup copies of slow tasks (straggler mitigation). The user writes two simple functions; the runtime turns them into a reliable cluster job.',
+        'Separate local extraction from global grouping. Map reads one input split and emits key-value pairs without coordinating with other map tasks. Reduce receives one key and all values for that key. The shuffle is the only required global handoff.',
+        'That boundary gives the runtime freedom. It can run map tasks near the input blocks, retry failed tasks from durable input, sort intermediate records by key, and send each key group to one reducer. The user code stays simple because the hard distributed behavior is standardized.'
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Phase 1 -- Map: the master splits input files (stored on GFS/HDFS) into M splits of 16-64 MB. It assigns each split to a worker, preferring machines that already hold a local replica of that block. Each map task reads its split, applies the user map function, and emits intermediate key/value pairs. The pairs are partitioned into R buckets (one per reducer) using hash(key) mod R and written to local disk.',
-        'Phase 2 -- Shuffle and sort: when map tasks complete, the master notifies reducers of intermediate file locations. Each reducer fetches its partition from every mapper over the network, then sorts the fetched data by key. This sort groups all values for the same key together. The shuffle is the most network-intensive phase and often the bottleneck.',
-        'Phase 3 -- Reduce: each reducer iterates over sorted key groups and calls the user reduce function once per key. For word count, reduce("cat", [1, 1]) writes "cat 2". Output goes to a final file on the distributed file system. With R reducers, the job produces R output files, each covering a disjoint key range.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Three documents: "cat sat" (split 1), "cat ran" (split 2), "dog sat" (split 3). Map phase: mapper 1 emits (cat,1) and (sat,1). Mapper 2 emits (cat,1) and (ran,1). Mapper 3 emits (dog,1) and (sat,1). Six pairs total, all produced independently with zero coordination.',
-        'Shuffle with R=2 reducers and partition boundary at M: keys A-M go to reducer 0, keys N-Z go to reducer 1. Reducer 0 receives cat:[1,1] and dog:[1]. Reducer 1 receives ran:[1] and sat:[1,1]. Each reducer sorts its keys and iterates.',
-        'Reduce: reducer 0 writes cat=2, dog=1 to part-0000. Reducer 1 writes ran=1, sat=2 to part-0001. Total network transfer: 6 key/value pairs shuffled. The map phase did the extraction locally; the shuffle paid the coordination cost once; the reduce phase produced the final answer without any reducer needing to know about another reducer\'s keys.',
+        'Input files are divided into splits. The master schedules one map task per split, preferably on a worker that already stores the block. Each map task emits intermediate pairs such as cat,1 or url,anchor_text.',
+        'The runtime partitions each intermediate pair by reducer, often using hash(key) mod R where R is the number of reducers. Reducers fetch their partitions from every mapper, sort by key, and call reduce once per key. Output is committed as one file per reducer in the distributed file system.',
+        'Slow workers are handled with backup execution near the end of the job. If a task is much slower than its peers, the master may start a duplicate copy elsewhere and keep the first copy that finishes. This spends extra work to avoid letting one slow machine hold the whole job.'
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness rests on two properties. First, map tasks are independent: each reads one input split and emits pairs with no side effects on other tasks. Any map task can be retried by re-reading its split from the durable file system, and the output is identical if the map function is deterministic. Second, the shuffle guarantees that all values for a given key arrive at exactly one reducer. Once that grouping is complete, each reduce call sees the full set of values for its key and can produce the correct final answer.',
-        'Fault tolerance follows from re-execution rather than replication. Input data is already replicated on GFS/HDFS. Intermediate map output lives on local disk -- if the machine dies, the master marks those map tasks as incomplete and reschedules them. Reduce output is written atomically to the distributed file system. The system tolerates arbitrary worker failures without losing completed work, as long as user functions are deterministic.',
+        'The correctness argument is grouping completeness. Every input record is assigned to exactly one map task. Every intermediate pair emitted by that map task is assigned to exactly one reducer partition. Therefore all values for a key reach the same reduce call.',
+        'Recovery works because map output is derived, not authoritative. If a worker loses intermediate files, the master reruns the map task from the original input split. Deterministic map and reduce functions make the recomputed pairs equivalent to the lost ones.'
       ],
     },
     {
-      heading: 'MapReduce versus SQL',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'SQL expresses the same word-count job as SELECT word, COUNT(*) FROM docs GROUP BY word. A query optimizer can choose join order, index usage, and parallelism strategy automatically. MapReduce is more general -- the map and reduce functions are arbitrary code, not declarative queries -- but harder to optimize because the runtime cannot inspect user functions to reorder or fuse stages.',
-        'This tradeoff explains why Google later built Dremel (interactive SQL over columnar storage) and why Hive put a SQL layer on top of Hadoop MapReduce. For structured data with known schemas, SQL wins on expressiveness and optimization. For unstructured parsing, custom feature extraction, or multi-stage pipelines with arbitrary logic, MapReduce\'s generality earns its keep.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Map cost scales linearly with input size: M map tasks each process one split. Shuffle cost depends on the volume of intermediate data and the number of reducers: every mapper writes R local partitions, and every reducer fetches one partition from every mapper, so shuffle involves M x R file transfers. If mappers emit as much data as they read, the shuffle moves the entire dataset across the network.',
-        'The dominant cost in practice is usually the shuffle. Disk I/O compounds the network cost: MapReduce writes all intermediate data to local disk before the shuffle reads it back. For a multi-stage pipeline (e.g., two MapReduce jobs chained), every stage boundary pays this disk-write-then-read tax. A 10-stage iterative algorithm writes and reads intermediate data 10 times. This disk I/O overhead is the single largest motivation for Spark\'s in-memory RDDs.',
-        'Straggler handling adds a constant-factor cost: near job completion, the master launches backup copies of slow tasks. The Dean & Ghemawat paper reported that disabling backup execution increased job completion time by 44%. The cost is running duplicate work on a few tasks; the benefit is that job latency tracks the median machine, not the slowest.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Disk I/O between stages is the fatal tax. Every MapReduce stage materializes its full output to disk before the next stage can read it. For iterative algorithms like PageRank or k-means that need 10-100 passes over the same data, each iteration pays a full read-write cycle. This is why Spark replaced MapReduce at most organizations: RDDs keep intermediate data in memory across iterations, cutting per-iteration cost by 10-100x for iterative workloads.',
-        'Key skew is the second failure mode. If one key (say a popular search term) has 100x more values than others, one reducer does 100x more work while the rest sit idle. The job completion time equals the slowest reducer. Combiners help (pre-aggregate on the map side), but they only work for associative, commutative reduce functions like sum and max -- not for joins or median.',
-        'The programming model also cannot express streaming or low-latency workloads. MapReduce is batch: it reads all input, processes it, and writes all output. For event-at-a-time processing, exactly-once semantics over unbounded streams, or sub-second latency, you need Flink, Kafka Streams, or a similar streaming engine.',
+        'Map work is linear in input bytes. If input doubles and the split size stays fixed, the number of map tasks roughly doubles. Reduce work is linear in the number of intermediate values assigned to each reducer.',
+        'The expensive behavior is the shuffle. With M mappers and R reducers, each mapper creates R partitions, so the system manages up to M times R intermediate transfer relationships. If 2 TB of input produces 1.5 TB of intermediate pairs, the network and disk system must move and sort about 1.5 TB before reducers can finish.',
+        'Memory is not the main storage contract. Intermediate data spills to local disk, and final output lands in the distributed file system. That makes the model robust but slow for multi-stage and iterative jobs because each stage materializes data before the next one starts.'
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Google used MapReduce internally for web indexing (map: parse HTML and emit term/URL pairs; reduce: build inverted index per term), distributed grep (map: emit matching lines; reduce: identity), URL access frequency counting, reverse web-link graph construction, and machine learning feature extraction. The paper reports production clusters running thousands of jobs per day on thousands of machines.',
-        'The evolution: Yahoo open-sourced Hadoop (2006), a Java reimplementation of MapReduce + GFS. Hadoop became the default big-data platform for a decade. Spark (2012, UC Berkeley) replaced Hadoop MapReduce for most workloads by keeping data in memory between stages -- the RDD abstraction eliminated the disk I/O tax for iterative and multi-stage jobs. Flink (2014) extended the model to streaming with event-time semantics and exactly-once guarantees. Google Dataflow (2015) unified batch and streaming under the Beam programming model.',
-        'The MapReduce pattern persists even in systems that do not use the name. Spark\'s reduceByKey is map + shuffle + reduce. SQL GROUP BY is map (project columns) + shuffle (hash partition by group key) + reduce (aggregate). Every data warehouse query plan has a shuffle boundary somewhere.',
+        'MapReduce fits web indexing, log aggregation, inverted-index construction, large joins, distributed grep, feature extraction, and offline reports. The common access pattern is many independent records that can be parsed locally before a grouped aggregation.',
+        'The idea remains inside newer systems. SQL group by, Spark reduceByKey, and many warehouse execution plans still perform local projection, shuffle by key, and grouped aggregation. Newer engines changed memory use, latency, and APIs; they did not remove the need for shuffle boundaries.'
       ],
     },
     {
-      heading: 'Rule of thumb',
+      heading: 'Where it fails',
       paragraphs: [
-        'Use the MapReduce mental model when the problem is batch, input is large, and the computation can be expressed as independent extraction followed by grouped aggregation. The one-sentence test: "map emits local facts, shuffle groups by key, reduce combines each group." If the job cannot be honestly described that way, another dataflow shape fits better.',
-        'When performance surprises you, inspect the shuffle before rewriting the mapper. Measure shuffle bytes, spill counts, reducer skew, and straggler time. The user function is usually not the bottleneck -- data movement is.',
+        'MapReduce is weak for iterative algorithms because every round writes and reads full intermediate state. PageRank, k-means, and graph algorithms may need many passes over related data. Spark and Flink became popular because they can keep state in memory or treat streaming state as a first-class object.',
+        'It also fails under key skew. If one word, user, or URL receives 100 times more values than other keys, one reducer becomes the job bottleneck. Combiners can reduce traffic for associative operations such as sum, but they do not solve arbitrary joins or medians.'
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose three documents contain cat sat, cat ran, and dog sat. The map phase emits six pairs: cat,1; sat,1; cat,1; ran,1; dog,1; sat,1. No mapper needs to know what the other mappers saw.',
+        'Use two reducers. Keys A through M go to reducer 0, and N through Z go to reducer 1. Reducer 0 receives cat values [1,1] and dog [1]. Reducer 1 receives ran [1] and sat [1,1].',
+        'The reducers output cat=2, dog=1, ran=1, and sat=2. The job paid six intermediate records of shuffle traffic. If the second mapper dies before reducers fetch its files, the runtime reruns only the split containing cat ran and regenerates cat,1 and ran,1.'
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Dean and Ghemawat, "MapReduce: Simplified Data Processing on Large Clusters," OSDI 2004 (https://research.google.com/archive/mapreduce-osdi04.pdf). This paper defined the model and reported production results from Google\'s clusters.',
-        'Study Hash Table next -- the shuffle phase partitions keys by hash(key) mod R, and the reduce phase groups values by key, both operations that depend on understanding hash-based grouping. Study Merge Sort to understand the external sort that happens during the shuffle when intermediate data exceeds memory. Study Consistent Hashing to see how distributed systems partition data across nodes without a fixed partition count.',
-        'For the evolution beyond MapReduce: study Spark RDDs (in-memory fault-tolerant datasets that eliminate the disk I/O tax), Apache Flink (streaming-first with event-time semantics), and Google Dataflow / Apache Beam (unified batch and streaming programming model).',
+        'Primary source: Jeffrey Dean and Sanjay Ghemawat, MapReduce: Simplified Data Processing on Large Clusters, OSDI 2004, https://research.google.com/archive/mapreduce-osdi04.pdf. Study hash tables for key grouping, merge sort for external shuffle sorting, distributed file systems for durable input, and Spark RDDs for the in-memory response to MapReduce stage materialization.'
       ],
     },
   ],
 };
-

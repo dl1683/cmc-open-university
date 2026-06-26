@@ -214,112 +214,25 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A UI is not just data on a screen. It is a workflow that moves through modes: editing, validating, submitting, failed, retrying, cancelled, and done. Bugs appear when those modes are stored as unrelated flags instead of one explicit state.',
-        'The hard part is not drawing the button. The hard part is deciding whether that button is legal now. A submit click, promise completion, retry timer, route change, or cancel action should mean different things in different modes.',
-        'State machines make that contract visible. They name the legal states, the events that can move between them, the guards that block illegal moves, the actions that run on transitions, and the async work owned by a state.',
-        {type:'callout', text:'State machines replace flag combinations with legal modes, making events ask the current state for permission before changing the UI.'},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/cf/Finite_state_machine_example_with_comments.svg', alt:'Finite state machine diagram showing open and closed states with labeled transitions.', caption:'Finite state machine example with comments. Wikimedia Commons, Macguy314; reworked by Perhelion, public domain.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach and its wall',
-      paragraphs: [
-        'The first implementation usually adds flags: `isDirty`, `isValid`, `isSubmitting`, `isDone`, `hasError`, and `canRetry`. Each event flips a few booleans. This is not a bad start. For one form and one request, the code is small and direct.',
-        'The wall is multiplication. Five booleans can represent 32 combinations even if the product has six legal modes. Some combinations are nonsense: loading and done, failed and still sending, invalid and submitted, cancelled and then successfully completed by a stale promise.',
-        'Scattered handlers make the problem worse. A DOM event, promise resolution, timer, and navigation callback can all mutate the same flags. Each handler knows its local intent, but no handler owns the whole workflow.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'A state machine replaces the cross-product of flags with a finite transition table. Current state plus event selects the next state. If the transition is absent, the event is illegal in that state. If a guard fails, the state does not change.',
-        'Actions belong to transitions. Async work belongs to states. That distinction is what keeps side effects from drifting through the UI. Enter `submitting`, start the payment request. Leave `submitting`, clean it up or ignore its completion.',
-        'A statechart extends the same idea when a flat machine gets too large. Hierarchy groups common behavior. Parallel regions model independent concerns. History can return to the last child state. Invoked services attach async work to a specific state instead of to a random callback.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A checkout machine might start in `idle`. CHANGE moves it to `editing`. VALID moves it to `valid`. SUBMIT is legal only from `valid`, so it enters `submitting` and invokes `POST /pay`.',
-        'While the machine is in `submitting`, the UI derives its rendering from that state: disable the submit button, show progress, keep the form stable, and expose cancellation if the product supports it. DONE moves to `success`. FAIL moves to `failure`. RETRY moves from `failure` back to `submitting`.',
-        'CANCEL is not a boolean cleanup afterthought. It is a transition. The action may call an AbortController, clear a retry timer, or record that any late promise completion should be ignored. The next state says what the user can do after cancellation.',
-        'Context stores extended data such as form values, error messages, request ids, or retry counts. State stores the mode. Mixing them is a common source of bad machines: not every data value deserves its own state, and not every mode should be hidden in context.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the checkout-flow view, start with the boolean table. The crossed-out combinations are the lesson: the UI can express states the product never designed. The graph replaces those combinations with named nodes and legal events.',
-        'Watch the guard frame closely. SUBMIT does not become legal because the user clicked. It becomes legal only after the form reaches the valid state or a validation guard passes. That one transition prevents a large class of double-submit and invalid-request bugs.',
-        'The async frame shows ownership. The payment request is active because the machine is in `submitting`. DONE and FAIL are not arbitrary callbacks; they are events that are meaningful only while that state owns the request.',
-        'In the statecharts view, read hierarchy and parallel regions as compression tools. They are useful only if they make the real UI smaller to reason about. The testing table shows the payoff: state, event, guard, and action can be tested separately from rendering.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The invariant is that the machine is always in one legal state configuration. A transition function is the only way to change that configuration. Illegal flag combinations cannot appear unless the model itself allows them.',
-        'Events become predictable because legality is state-dependent. A DONE event in `submitting` may move to `success`. The same DONE event in `editing` can be ignored because no request is owned by that state. This is how the model handles stale promise completions.',
-        'Testing becomes finite. Instead of testing many accidental flag combinations, you test legal transitions, blocked transitions, guard predicates, and side effects. The workflow shape becomes a contract rather than an emergent property of handlers.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A user edits a checkout form. The machine receives CHANGE and enters `editing`. Validation passes, so it enters `valid`. SUBMIT enters `submitting`, records a request id, and starts the payment request.',
-        'If the network rejects the card, FAIL moves to `failure` with an error in context. RETRY is legal from `failure`, so the machine re-enters `submitting` and starts a new request. If the user cancels while the request is in flight, CANCEL aborts the request and moves back to `editing`.',
-        'The bug this prevents is stale success. If the cancelled request resolves later, its DONE event no longer matches the active request or the active state. The machine can ignore it instead of showing a receipt for an operation the user already abandoned.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Runtime cost is usually tiny compared with rendering and network work. The real cost is design. Someone must name the modes, events, guards, actions, and context, and those names must match product behavior.',
-        'A flat machine can grow too large if every combination becomes its own node. Statecharts reduce that pressure with hierarchy and parallel regions, but they add their own tax: a reader must understand nesting, event bubbling, and history rules.',
-        'Machines also move complexity earlier. That is the point. The team pays the modeling cost before bugs become production states that nobody can reproduce.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Machines win when the UI has meaningful modes, asynchronous work, cancellation, retries, timers, or navigation boundaries. Checkout, uploads, onboarding, approval queues, auth modals, media controls, and collaborative edit sessions are good fits.',
-        'They also win when different people need to reason about the same behavior. A designer can point to a transition and ask what the user sees. QA can enumerate blocked events. An engineer can attach cleanup to the transition that leaves a state.',
-        'They are especially useful when the UI must be resilient to out-of-order events. Promise completions, reconnects, tab restores, retries, and route changes are much easier to handle when every event asks the current state for permission.',
-      ],
-    },
-    {
-      heading: 'Where it is the wrong tool',
-      paragraphs: [
-        'A machine is overhead for a one-toggle component, a simple controlled input, or display state that has no legal workflow. A boolean is fine when the product really has two modes and no interesting transitions.',
-        'Do not lift every pixel into one global machine. Local UI state, derived data, server cache state, and workflow state are different tools. A good machine models the user journey, not every CSS class.',
-        'Do not use a statechart to hide unclear requirements. If the team cannot say when submit is legal or what cancellation means, the first job is product clarification, not more nesting.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The most common failure is putting arbitrary mutable work inside actions and calling the result deterministic. Actions can call APIs, mutate stores, or start timers, but the model should still make ownership and cleanup explicit.',
-        'Another failure is stale context. History states and retries are useful only if the restored data is still valid. Returning to an old child state after permissions, inventory, route params, or form schema changed can resurrect a bad UI.',
-        'A third failure is over-modeling. If every small value becomes a state, the machine becomes harder to understand than the flags it replaced. Modes should describe behavior that changes what events are legal.',
-      ],
-    },
-    {
-      heading: 'Primary references',
-      paragraphs: [
-        'David Harel, "Statecharts: A Visual Formalism for Complex Systems": https://www.state-machine.com/doc/Harel87.pdf.',
-        'W3C SCXML state machine notation: https://www.w3.org/TR/scxml/.',
-        'Stately state machines and statecharts documentation: https://stately.ai/docs/state-machines-and-statecharts. XState documentation: https://stately.ai/docs/xstate.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Finite State Machines first if transition tables are still new. Study DOM Event Propagation and Promise Microtask Queue next to understand where UI events come from.',
-        'Study AbortController Cancellation Graph for async cleanup, History API Session Stack for navigation state, React Suspense Resource Cache for rendering around async resources, Optimistic UI Mutation Log for client/server reconciliation, and Form Validation Dependency Graph for guard design.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the checkout view as a workflow. Active nodes show the current state or transition, removed cells show impossible flag combinations, and found nodes show legal outcomes.',
+      'A state is a named mode. An event is an input such as CHANGE, SUBMIT, DONE, FAIL, or CANCEL. The safe rule is: an event is legal only when the current state has a transition for it and its guard passes.',
+      {type:'callout', text:'State machines replace flag combinations with legal modes, making events ask the current state for permission before changing the UI.'},
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/cf/Finite_state_machine_example_with_comments.svg', alt:'Finite state machine diagram showing open and closed states with labeled transitions.', caption:'Finite state machine example with comments. Wikimedia Commons, Macguy314; reworked by Perhelion, public domain.'},
+    ]},
+    { heading: 'Why this exists', paragraphs: ['A UI is a workflow with modes: editing, valid, submitting, failed, retrying, cancelled, and done. Bugs appear when those modes are stored as unrelated flags instead of one explicit state.']},
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is boolean state: isDirty, isValid, isSubmitting, hasError, isDone, and canRetry. Each event handler flips the flags it cares about, which is direct for one small form.']},
+    { heading: 'The wall', paragraphs: ['Five booleans can represent 32 combinations even if the product has only 6 legal modes. Some combinations are nonsense, such as submitting and done or failed and still sending.']},
+    { heading: 'The core insight', paragraphs: ['Replace flag combinations with a transition table. Current state plus event selects the next state, optional guard, optional action, and optional invoked async work.']},
+    { heading: 'How it works', paragraphs: ['A checkout machine can start in idle. CHANGE moves to editing, VALID moves to valid, and SUBMIT from valid moves to submitting and starts the payment request. DONE moves to success, FAIL moves to failure, RETRY resubmits, and CANCEL runs cleanup before returning to editing.']},
+    { heading: 'Why it works', paragraphs: ['The invariant is that the UI is always in one legal state configuration. The transition function is the only way to change it, so a late DONE after cancellation can be ignored because editing does not own that request.']},
+    { heading: 'Cost and complexity', paragraphs: ['Runtime cost is tiny compared with rendering and network work. The real cost is modeling names for states, events, guards, actions, context, and cleanup rules. Statecharts reduce large flat machines with hierarchy and parallel regions, but add concepts the team must test.']},
+    { heading: 'Real-world uses', paragraphs: ['State machines fit checkout, uploads, auth modals, onboarding, approval queues, media controls, wizards, retry flows, and collaborative editing. The common pattern is meaningful modes plus events that are legal only in some modes.']},
+    { heading: 'Where it fails', paragraphs: ['A machine is overhead for a one-toggle component or display-only value. It also fails when unclear product rules are hidden inside nested states instead of clarified first.']},
+    { heading: 'Worked example', paragraphs: [
+      'A checkout form starts in idle. CHANGE moves to editing, VALID moves to valid, and SUBMIT starts request id 41 in submitting. The API fails after 700 ms, RETRY starts request id 42, and CANCEL after 120 ms marks id 42 inactive and returns to editing.',
+      'If request id 42 resolves later, DONE is ignored because the active state is editing and there is no active request id. That prevents a stale receipt for an operation the user already cancelled.',
+    ]},
+    { heading: 'Sources and study next', paragraphs: ['Read David Harel, Statecharts: A Visual Formalism for Complex Systems, the W3C SCXML specification, Stately state machine documentation, and XState documentation. Study Finite State Machine, DOM Event Propagation, Promise Microtask Queue, History API Session Stack, React Suspense Resource Cache, Optimistic UI Mutation Log, and Form Validation Dependency Graph next.']},
   ],
 };

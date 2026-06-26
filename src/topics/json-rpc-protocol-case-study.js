@@ -200,88 +200,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read each JSON-RPC message as an envelope. A request names a method, may include params, and carries an id if it expects a response. A response carries the same id and either result or error. A notification has no id, so it deliberately gives up the response path.',
+        'Active nodes show the current message path. The pending-map view is the important client data structure: it joins an asynchronous response back to the promise or callback that is waiting for that id.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `JSON-RPC exists because many systems need a small, language-neutral way to say "call this named method with these parameters and tell me the result." Editors talk to language servers. Agent hosts talk to tools. Local applications talk to subprocesses. Services talk over HTTP or WebSocket. In all of those cases, the caller needs a compact envelope that can carry a request, a response, or an error without inventing a new protocol each time.`,
-        `The data-structure lesson is not the JSON syntax. It is the correlation discipline. A request has a method, optional params, and maybe an id. A response carries the same id and either a result or an error. A notification omits the id, so the sender deliberately gives up the reply channel. That tiny shape creates a reliable join key between two asynchronous timelines.`,
-        {type:`callout`, text:`JSON-RPC works because every asynchronous request and response carries enough envelope structure to rejoin the right timeline.`},
+        'Many systems need a small language-neutral way to say, "call this method with these parameters and tell me the result." Editors talk to language servers, agent hosts talk to tools, local applications talk to subprocesses, and services talk over HTTP, stdio, or WebSocket.',
+        'JSON-RPC supplies the envelope and correlation rule. It does not prescribe one transport. The protocol says what requests, responses, errors, notifications, and batches mean, while the surrounding system decides how bytes move.',
+        {type:'callout', text:'JSON-RPC works because every asynchronous request and response carries enough envelope structure to rejoin the right timeline.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is to send a JSON object with a command string and wait for the next JSON object that comes back. That works for one request at a time on a perfect connection, but it collapses as soon as several calls are in flight. The first response may belong to the third request. A slow operation may return after a faster later one. A failed operation needs to report failure without looking like a successful result.`,
-        `Another tempting shortcut is to rely on transport order. That is fragile. JSON-RPC can run over ordered streams, but the protocol still matches by id because servers may process work concurrently and batches may return responses in a different order. The id is the join key; array position and arrival order are not the contract.`,
+        'The obvious approach is to send a JSON object with a command string and wait for the next JSON object that comes back. That works for one call at a time on a perfect connection. It fails when several calls are in flight.',
+        'A slow request may return after a faster later request. A failed request needs an error without pretending to be a successful result. A notification should not create a pending caller at all.',
       ],
     },
     {
-      heading: 'Naive failure modes',
+      heading: 'The wall',
       paragraphs: [
-        `Without a pending map, the client cannot safely connect a response to the promise or callback waiting for it. Without a timeout, a dropped response leaves the caller hanging forever. Without cleanup, completed calls leave stale entries and timers behind. Without duplicate-id protection, one response can wake the wrong caller.`,
-        `Notifications are another common trap. A notification is valid when the sender truly does not need success or failure. It is wrong for commands that modify important state. If the server rejects a notification or never receives it, there is no response path to tell the caller what happened.`,
+        'The wall is correlation under concurrency. Arrival order is not the contract. Even on an ordered transport, the server may process work concurrently, and a batch response does not have to mirror request order.',
+        'Without a pending map keyed by id, the client cannot safely wake the right caller. Without timeouts and cleanup, dropped responses leave stale entries. Without duplicate-id protection, one response can resolve the wrong operation.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        `The core insight is that JSON-RPC separates message semantics from byte transport. The protocol says what a request, response, error, notification, and batch mean. A transport such as stdio, HTTP, WebSocket, or a custom framed stream decides how bytes are carried and where message boundaries are found.`,
-        `That separation is why the envelope is so reusable. A method table on the server can dispatch by name. A pending map on the client can correlate by id. A structured error object can distinguish parse failure, invalid envelope, unknown method, invalid params, and internal failure. The transport can change without changing the core method vocabulary.`,
+        'The id is a join key between two asynchronous timelines. The client timeline creates a pending entry before sending the request. The server timeline later returns a result or error with the same id. The response handler joins them.',
+        'Notifications prove the rule by omission. No id means no response is expected and no pending entry exists. That is correct for fire-and-forget signals and wrong for important state changes that need confirmation.',
       ],
     },
     {
-      heading: 'How the client works',
+      heading: 'How it works',
       paragraphs: [
-        `A client starts by allocating an id that is unique among currently in-flight calls. It inserts a pending entry keyed by that id. The entry usually stores a resolver, rejecter, timeout handle, method name, cancellation state, and trace metadata. Only after the entry exists should the bytes be sent, because an immediate response can otherwise arrive before the caller is ready to match it.`,
-        `When a response arrives, the client checks response.id, looks up the pending entry, and completes exactly that waiting call. A result resolves the promise. An error rejects it with the structured error object. Either path clears the timer and deletes the entry. A late response with no pending entry should be logged or ignored according to policy, not delivered to an arbitrary caller.`,
+        'A client allocates an id unique among in-flight calls, inserts a pending entry with resolve, reject, timeout, method, and trace metadata, then sends the request bytes. Creating the entry before sending prevents an immediate response from arriving before the client can match it.',
+        'When a response arrives, the client reads response.id, looks up the pending entry, and completes exactly that caller. A result resolves it, an error rejects it with structured code and data, and both paths clear the timer and delete the pending entry.',
+        'A server parses an envelope, validates the shape, dispatches by method name, validates params, runs the handler, and returns either result or error with the same id. For notifications, it runs the handler or drops the message according to policy but returns no response.',
       ],
     },
     {
-      heading: 'How the server works',
+      heading: 'Why it works',
       paragraphs: [
-        `The server receives a parsed envelope, validates that it has the required shape, and dispatches by method name. The method table is just a map from string to handler. Before the handler runs, params should be validated against the method's expected schema. After the handler runs, the server returns either a result or an error object with the same id.`,
-        `The error object is a real interface, not decoration. Numeric codes let clients distinguish bad JSON, invalid request structure, missing methods, invalid params, and server-side failures. The optional data field can carry structured details for logs or user-facing diagnostics. Clients should not scrape error.message as a machine-readable API.`,
+        'Correctness depends on a lifecycle invariant. Every request with an id creates exactly one pending entry, and every response with that id completes at most that entry. After completion or timeout, the entry is removed.',
+        'That invariant separates protocol errors from application errors. A broken stream, invalid JSON, an unknown method, invalid params, a handler exception, and a timeout are different states. Preserving the envelope and pending map lets the client report the right failure instead of guessing from arrival order.',
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The envelope view proves that there are three different paths, not one generic message shape. A request with an id must eventually be matched by a result or error with that same id. A notification intentionally bypasses the pending map and never expects a response. Error and result are sibling outcomes of the same request, not separate protocols.`,
-        `The pending-map view proves that the important client structure is an ordinary hash table with strict lifecycle rules. Create the entry, send the request, wait with a timeout, match by id, and clean up. Most production JSON-RPC bugs are not about parsing JSON; they are about violating one of those lifecycle steps under concurrency, cancellation, reconnects, or retries.`,
+        'Lookup in the pending map is O(1) expected time per response. Memory is O(k), where k is the number of in-flight requests. If 5,000 calls are pending and each entry stores a resolver, timer, method, and trace id, the client carries 5,000 live records until they complete or timeout.',
+        'The operational cost is outside the JSON syntax. JSON parsing takes CPU, schema validation takes code, and side-effecting retries need idempotency keys because the JSON-RPC id is not a global transaction id. A timed-out request may still execute on the server.',
       ],
     },
     {
-      heading: 'Batches and concurrency',
+      heading: 'Real-world uses',
       paragraphs: [
-        `A batch is an array of request and notification envelopes. It saves overhead when a client has several calls ready at once, but it does not remove the need for ids. The server may process batch entries in parallel, and the response array does not have to mirror request order. Notifications inside the batch produce no response objects.`,
-        `This means batch clients must treat the response array as an unordered set keyed by id. Missing ids may mean notifications, server errors, transport failures, or broken implementations, depending on the envelope. A robust client records which ids were sent and resolves only those ids that actually return.`,
+        'JSON-RPC works well for editor protocols, subprocess tools, local agents, service control APIs, and systems with a moderate method vocabulary. The Language Server Protocol uses this shape to connect editors with completion, hover, diagnostics, rename, and formatting servers.',
+        'Modern agent protocols use the same idea for tools and resources. The useful structure is method names, typed params, capability negotiation, cancellation, trace ids, and pending-map discipline on top of the small request-response envelope.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Where it fails',
       paragraphs: [
-        `JSON-RPC is small and easy to debug because messages are plain JSON. That simplicity is valuable for local tools, editor integrations, agent protocols, and services where human-readable traces matter. The cost is that JSON carries runtime parsing overhead, weak schema discipline unless the application adds validation, and no built-in streaming, authentication, authorization, retry, or exactly-once semantics.`,
-        `The id field is also scoped to the connection or client context. It is not a global trace id and not an idempotency key. If a request times out and the client retries, the server may still execute the first request. Side-effecting methods need application-level idempotency keys, transactions, or compensating logic just like any other distributed command.`,
+        'It fails when notifications are used for commands that require confirmation. It also fails when clients assume response order, leak pending entries, reuse ids while old calls are alive, or retry side effects without idempotency.',
+        'JSON-RPC also does not provide authentication, authorization, rate limits, sandboxing, streaming, retries, or exactly-once execution. Those are application and transport responsibilities, not properties of the envelope.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Worked example',
       paragraphs: [
-        `JSON-RPC wins when the method vocabulary is moderate, the caller and server can agree on params/result schemas, and the transport is chosen for the environment. The Language Server Protocol uses JSON-RPC to let editors and language servers share hover, completion, diagnostics, rename, and formatting features. A single envelope shape carries many editor behaviors.`,
-        `The Model Context Protocol also uses JSON-RPC-style envelopes for tool and resource interactions. The important lesson is that a modern agent or editor protocol does not need a custom wire format for every operation. It needs disciplined method names, structured params, capability negotiation, and the pending-map machinery that makes asynchronous calls safe.`,
+        'A client sends id 7 for textDocument/hover and id 8 for textDocument/completion. Completion is faster, so response id 8 arrives first with 20 items. The pending map resolves only the completion promise and leaves id 7 waiting.',
+        'Then response id 7 arrives with hover text. The client resolves the hover promise and deletes entry 7. If id 9 times out after 5 seconds, the client rejects only id 9 and removes it; a late response for id 9 is logged or ignored by policy.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Sources and study next',
       paragraphs: [
-        `The common failures are predictable: duplicate ids, leaked pending entries, missing timeouts, response-order assumptions, treating notifications as reliable commands, using prose errors as stable APIs, and retrying side effects without idempotency. Another frequent bug is conflating transport failure with application failure. A broken stream, a parse error, an unknown method, and a handler exception should not all become the same generic exception.`,
-        `Security boundaries must be explicit. JSON-RPC does not authenticate the peer, authorize the method, rate-limit calls, validate schemas, or sandbox handlers. A local tool host that accepts JSON-RPC over stdio can still expose dangerous methods if the surrounding permission model is weak.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study Hash Table for the pending map, Event Loop for promise scheduling, Message Queue for delivery and retry intuition, Distributed Tracing for correlation across service boundaries, and JSON Parser Stack Case Study for the parser underneath the envelope. Idempotency is the right next stop for safe retries of side-effecting methods.`,
-        `Then study Model Context Protocol Case Study, Agent2Agent Protocol Task State Case Study, Schema Registry Case Study, Constrained Decoding, and AbortController Cancellation Signal Tree Case Study. Those topics show how a small envelope grows into a real tool protocol with schemas, capability negotiation, cancellation, observability, and permission checks.`,
+        'Primary sources are the JSON-RPC 2.0 specification and the Language Server Protocol specification. Study hash tables for pending maps, event loops for promise scheduling, message queues for delivery semantics, idempotency keys for retries, JSON parser stacks, and Model Context Protocol next.',
+        'A useful exercise is to implement a tiny client that sends three requests and returns responses in reverse order. If the code uses arrival order, it fails. If it uses the id-keyed pending map, it resolves all three correctly.',
       ],
     },
   ],

@@ -1,4 +1,4 @@
-﻿// SLO burn-rate alerting: convert user-visible failures into rolling-window
+// SLO burn-rate alerting: convert user-visible failures into rolling-window
 // budget spend so pages fire on risk, not on statistically interesting noise.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -241,155 +241,75 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for SLO Error Budget Burn Rate Alert. How SLO alerting uses good/total counters, rolling windows, burn rates, and multi-window policies to page only when reliability budget is being spent too fast..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Read the counters as a reliability budget ledger. Active windows are being evaluated now, visited windows already contributed evidence, and found alerts mean current harm plus budget risk. The safe inference is that burn rate is about spending the allowed error budget, not about a graph looking high.',
         {type:"callout", text:"Burn-rate alerting turns raw failures into a budget-spending signal so pages fire on current user harm and urgency."},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'SLO burn-rate alerting exists because alerting should be tied to user harm, not to every interesting graph movement. A production service can have high CPU, a full queue, a noisy dependency, or a strange latency shape without requiring a human to wake up immediately. The page should fire when the service is spending its reliability budget fast enough that the product promise is at risk.',
-        'The key word is budget. A service-level objective says how reliable the service is supposed to be over a period. A 99.9 percent availability target allows 0.1 percent of events to be bad during that period. That allowance is the error budget. Burn-rate alerting asks how quickly the current stream of bad events is spending that allowance. It gives teams a way to page on impact and urgency instead of raw surprise.',
+        'A service-level objective, or SLO, states a user-facing reliability target such as 99.9 percent good requests over 30 days. The remaining 0.1 percent is the error budget. Burn-rate alerting exists so pages fire when that budget is being spent too fast.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The naive alert pages when a metric crosses a fixed threshold: CPU above 90 percent, p99 latency above two seconds, 5xx rate above one percent, queue depth above a chosen number. This feels concrete, and it is often useful for dashboards. It is weak as a paging policy because it does not ask whether users are losing the promised experience. High CPU during a planned batch job may be healthy. A small latency bump on an internal endpoint may not matter. A short 100 percent error spike over two requests may not justify an incident.',
-        'Another naive design uses one long rolling window over the SLI. The long window is stable, but it reacts late and resolves late. After a fix is deployed, the long window can remain bad because it still contains the outage. Humans stay paged even though current users are no longer being harmed. The opposite mistake is one tiny window, which reacts quickly but pages on noise. Burn-rate alerting is the compromise that keeps the user promise at the center.',
+        'The obvious alert is a fixed threshold: CPU over 90 percent, p99 over two seconds, or 5xx over 1 percent. Those signals can help diagnosis, but they do not directly say whether users are losing the promised experience. A single long window is stable but reacts and resolves late.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is separating noise from current user harm. A one-minute spike over 10 requests may be noise, while a 1 percent error rate over millions of checkouts can be urgent. A page should represent impact, speed of budget loss, and whether the problem is still happening.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to normalize observed failures by the amount of failure the service is allowed to have. First define the service-level indicator, usually good events divided by total eligible events. Then define the objective, such as 99.9 percent good events over 30 days. The allowed error rate is one minus the objective, so 99.9 percent means 0.1 percent bad events are allowed. Burn rate is observed error rate divided by allowed error rate.',
-        'That ratio makes very different services comparable. If the allowed error rate is 0.1 percent and the current observed error rate is 1 percent, the service is burning at 10x. It is spending budget ten times faster than planned. A 1x burn uses the budget exactly on pace. A 50x burn can consume a 30-day budget in roughly 14 hours. The alert is no longer saying "the graph is high." It is saying "the reliability budget is disappearing at this speed."',
+        'Normalize current error rate by allowed error rate. If the SLO is 99.9 percent, the allowed error rate is 0.1 percent. An observed 1 percent error rate is a 10x burn because the service is spending budget ten times faster than planned.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The system starts by classifying events. For an API, each request may be good if it returns a valid response under the latency target. For a checkout system, an eligible attempt may be good if it completes successfully. For a streaming product, seconds of playback may be the event. The counters are usually total events and bad events, sometimes sliced by route, tenant, region, or dependency. From those counters the platform computes error rate, burn rate, and budget consumed over rolling windows.',
-        'The alerting rule then combines windows. A common pattern is multi-window multi-burn-rate alerting: require both a long window and a short window to be above threshold. The long window proves the error budget is under real threat, not just a one-minute blip. The short window proves the problem is still happening and lets the alert resolve quickly after the fix. A severe page might use a one-hour window and a five-minute window. A slower page or ticket might use six hours and thirty minutes, or three days and six hours, depending on the policy.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'The burn-rate-window view proves the transformation from raw traffic to reliability risk. Events become an SLI. The SLI defines bad events. Bad events spend a fixed error budget. The burn-rate table translates error percentages into time-to-exhaustion. This is the conceptual move that makes the alert actionable: a responder can reason about how much time remains before the service violates its promise.',
-        'The multi-window view proves why the rule uses two pieces of memory. A short bad window alone is evidence, but it may be noise. A long bad window alone may describe an outage that has already stopped. Short bad plus long bad means current harm and sustained budget risk. Long bad plus short good means the service is recovering and the alert should be allowed to close. The visual is not just showing alert thresholds; it is showing how the rule distinguishes urgency from historical damage.',
+        'The system counts eligible events and bad events, computes error rate, then computes burn rate over rolling windows. Multi-window alerting requires a short window and a long window to both exceed threshold. The long window filters brief noise, and the short window proves the harm is still active.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Burn-rate alerting works because it aligns three things that are often separated: the user promise, the amount of unreliability the business is willing to tolerate, and the urgency of the current failure. Raw latency and error graphs do not know the monthly objective. Error budgets do. A 5 percent error rate has very different meaning for a 99 percent SLO and a 99.99 percent SLO, and burn rate captures that difference directly.',
-        'The multi-window policy works because it uses one window for persistence and one for freshness. The long window reduces false positives from brief spikes. The short window reduces false positives after recovery and improves time to resolution. It is a small state machine over rolling counters: if both windows burn too fast, page; if only the long window is bad, treat it as residual history; if only the short window is bad, watch or route to a lower-urgency signal.',
+        'Correctness comes from matching the alert to the SLO math. A burn-rate page means the observed bad-event stream can consume the allowed budget at the stated speed. The two-window rule is a small state machine: short bad plus long bad pages, long bad plus short good resolves, and short bad alone can route to lower urgency.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The first cost is SLI design. The metric must reflect user-visible success, and that is harder than choosing CPU or a generic 5xx rate. The team must decide which events count, which users or routes are in scope, how to treat retries, how to handle client cancellations, how to include latency, and whether low-volume slices should page. Bad SLI design produces clean math over the wrong promise.',
-        'The second cost is operational tuning. Window pairs and burn thresholds control fatigue, speed, and severity. Aggressive thresholds catch incidents early but can page on transient problems. Conservative thresholds reduce noise but may wait too long. The policy also needs volume guards, missing-data behavior, maintenance handling, and labels that point responders to the affected user population. Burn-rate alerting reduces noise only when the data pipeline is trustworthy.',
+        'The cost is SLI design and data quality. An SLI, or service-level indicator, must count the events users care about, handle retries and cancellations, and avoid label explosions. Doubling the number of routes or tenants can double alert cardinality unless the policy defines which slices page.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'This pattern is useful for API availability, checkout success, search freshness, streaming playback, data pipeline deadlines, model-serving latency, and any product promise that can be expressed as good events over total events. A payments team may alert on successful authorizations. A collaboration product may alert on document sync operations that complete within a target. An inference platform may alert on requests that meet time-to-first-token and inter-token latency objectives.',
-        'A good page carries the evidence directly: SLI name, objective, burn rate, long window, short window, budget consumed, affected route or tenant, current volume, recent deploys, and representative traces or logs. Incident automation and AIOps systems become more useful when this packet exists. They can correlate incidents by user impact rather than trying to infer which of hundreds of graph spikes deserves attention.',
+        'Burn-rate alerts fit API availability, checkout success, search freshness, streaming playback, model-serving latency, and data pipeline deadlines. A good page carries SLI name, objective, burn rate, short and long windows, affected slice, volume, recent deploys, and trace links.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Burn-rate alerts fail when the SLI is not user-visible. If the SLI measures an internal proxy that users do not care about, the team will optimize the wrong thing with great discipline. They also fail without volume awareness. A 100 percent error rate over two requests is not the same operational event as a 5 percent error rate over millions of checkouts. Low traffic may need longer windows, synthetic probes, or ticket-level alerts instead of pages.',
-        'They also do not explain root cause by themselves. A burn-rate page tells the team when user harm is urgent. It does not say whether the cause is a bad deploy, a dependency, a database lock, a cache stampede, a network partition, or overload. CPU, queue depth, traces, exemplars, logs, deploy metadata, and dependency health still matter after the page fires. The point is to separate paging evidence from diagnostic evidence, not to discard the latter.',
+        'It fails when the SLI is not user-visible or when low volume makes ratios meaningless. It also does not explain root cause. After the page fires, engineers still need deploy metadata, traces, logs, dependency health, queues, and saturation metrics.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study sliding windows and streaming counters first, because burn-rate alerting is a data structure over time. Then study service-level indicators, error budgets, tail latency, percentile pitfalls, and Prometheus-style time series evaluation. The math is simple, but the operational behavior depends on counter reset handling, label cardinality, scrape gaps, and window alignment.',
-        'After that, study OpenTelemetry metrics and exemplars, distributed tracing, incident response, alert routing, and post-incident review. The mature version of this topic is not a formula on a dashboard. It is an incident contract: the page proves current user harm, the payload names the affected promise, and the supporting telemetry lets the responder move from budget burn to cause without guessing.',
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'A checkout service has a 99.9 percent 30-day SLO, so it may spend 0.1 percent errors. In a 1,000,000-request hour, 12,000 requests fail, giving 1.2 percent observed errors. Burn rate is 1.2 divided by 0.1, or 12x; if both the 5-minute and 1-hour windows stay above threshold, the page is justified.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Study Google SRE error budgets, multi-window multi-burn-rate alerts, Prometheus counter rates, OpenTelemetry metrics, exemplars, tail latency, incident response, and post-incident review. Then practice designing an SLI before writing any alert rule.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why SLO Error Budget Burn Rate Alert moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

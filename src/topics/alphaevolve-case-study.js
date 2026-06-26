@@ -1,4 +1,4 @@
-// Case study: AlphaEvolve. LLMs propose code, evaluators score it, and an
+﻿// Case study: AlphaEvolve. LLMs propose code, evaluators score it, and an
 // evolutionary program database keeps the search moving toward better
 // algorithms.
 
@@ -203,73 +203,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        {type:'callout', text:'The key lesson is not "LLMs write code." It is that unreliable proposal generation becomes useful when wrapped in a strict propose-execute-score-select loop. The model is allowed to be creative, redundant, or wrong. The evaluator is not. That asymmetry is what turns many cheap, noisy ideas into a smaller set of measured improvements.'},
-        `AlphaEvolve exists because many valuable algorithms are hard to invent but easy to score once a candidate exists. A scheduler can be simulated. A circuit rewrite can be checked for functional equivalence. A matrix multiplication identity can be tested and sometimes proved. A kernel can be benchmarked. In these domains, the bottleneck is not judging every possible answer by hand. The bottleneck is searching a huge space of programs without getting stuck in the first plausible idea.`,
-        `DeepMind describes AlphaEvolve as an evolutionary coding agent for scientific and algorithmic discovery. The system uses large language models to propose code, automatic evaluators to score that code, and an evolutionary program database to decide what gets reused. The key lesson is not "LLMs write code." The key lesson is that unreliable proposal generation can become useful when it is wrapped in a strict propose, execute, score, select loop.`,
+        'The animation is a closed search loop. The prompt sampler chooses context, the LLM ensemble proposes candidate code, the evaluator scores the candidate, and the program database stores measured survivors. Active nodes show the current part of the loop; found nodes show candidates that earned their way back into the population.',
+        'Read the evaluator view as the safety rail. Unit tests, benchmarks, proof checks, and canaries are not after-the-fact cleanup. They define what the search is allowed to learn.',
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious way to use an LLM for discovery is to ask for a clever algorithm, read the answer, and try to judge whether it sounds right. That can help a human brainstorm. It does not create a reliable search process. The model may hallucinate a proof, repeat a known method, optimize the wrong case, or produce code that only works on the examples shown in the prompt.`,
-        `A slightly better approach is to ask for many candidates and run tests. That still leaves a memory problem. Which candidates should seed the next round? How should the system preserve diversity? How does it avoid losing a small improvement that becomes useful after several later edits? A one-shot prompt has no ratchet. AlphaEvolve adds the ratchet.`,
+        {type:'callout', text:'The key lesson is not "LLMs write code." It is that unreliable proposal generation becomes useful when wrapped in a strict propose-execute-score-select loop. The model is allowed to be creative, redundant, or wrong. The evaluator is not. That asymmetry is what turns many cheap, noisy ideas into a smaller set of measured improvements.'},
+        'AlphaEvolve exists because some valuable programs are hard to invent but easy to test once proposed. A matrix multiplication identity can be checked on many inputs. A scheduling policy can be simulated. A compiler rewrite can be tested for equivalent output and measured for speed.',
+        'The useful unit is not a single model answer. It is a loop that creates many candidates, executes them, rejects invalid ones, and preserves measured improvements. That turns language models into mutation engines inside a search system.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to ask an LLM for a better algorithm and read the response. That can help brainstorming, but it does not create reliable discovery. The model can sound confident while producing wrong code, repeated ideas, or a benchmark trick.',
+        'A better first attempt is to generate many candidates and run tests. That still lacks memory and selection. Without a population, the system forgets partial gains and restarts from prompt luck each round.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is objective design. Search will exploit the score, including mistakes in the score. Narrow tests invite candidates that pass examples and fail real cases. Noisy benchmarks invite candidates that look faster because timing jitter selected them.',
+        'The other wall is cost. If each candidate requires a 10-minute simulation and the system tries 10,000 candidates, one sweep costs about 100,000 minutes of evaluator time before parallelism. A serious system needs staged filters, caching, timeouts, and reproducible measurement.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to treat the LLM as a mutation operator, not as an oracle. Evolutionary search already has the shape: keep a population, generate variants, score them, and select parents for the next generation. AlphaEvolve swaps in modern code-generating models for richer mutations, then relies on evaluators to decide which mutations survive.`,
-        `That boundary matters. The model is allowed to be creative, redundant, or wrong. The evaluator is not. If a candidate fails to compile, violates correctness, loses on the benchmark, or breaks a proof check, it does not become evidence of progress. This is how the system turns many cheap, noisy ideas into a smaller set of measured improvements.`,
+        'The core insight is to make the model unreliable in the cheap part and strict in the expensive part. The LLM proposes mutations; the evaluator decides survival. Evolutionary search supplies the population, diversity, parent selection, and ratchet that a one-shot prompt lacks.',
+        'This boundary makes progress measurable. A candidate that fails to compile, violates correctness, or loses the benchmark is not an improvement. A candidate that passes stronger gates can seed future prompts, so small real gains can compound.',
       ],
     },
     {
-      heading: 'How the mechanism works',
+      heading: 'How it works',
       paragraphs: [
-        `A prompt sampler builds context from the problem, prior high-scoring programs, diversity samples, constraints, and current objective. An ensemble of models proposes code edits or whole candidate programs. The system compiles and runs those candidates in a controlled environment. Evaluators measure correctness, quality, runtime, proof validity, resource use, or any other objective the task can define.`,
-        `Passing candidates enter the program database with their scores and metadata. Selection chooses which programs shape future prompts. Strong candidates get exploited. Diverse candidates keep the search from collapsing into one local neighborhood. The database is therefore not just storage; it is the search state. It decides what the models see, what gets forgotten, and which improvements can compound.`,
+        'The system samples prior programs, instructions, constraints, and scores into a prompt. One or more models propose edits or full replacements. The runtime compiles the candidate, runs correctness tests, measures performance, and writes a score record.',
+        'The program database stores code, score, lineage, and metadata. Selection chooses parents for later prompts, balancing exploitation of winners with enough diversity to avoid one local neighborhood. The loop keeps running while evaluator budget and improvement rate justify the cost.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why it works',
       paragraphs: [
-        `The agent-loop view proves that AlphaEvolve is a closed search system. The prompt sampler and program database are memory. The LLM ensemble is the mutation engine. Candidate code is the artifact under test. The evaluator supplies fitness. The arrows matter because a good candidate must reenter the population before its structure can influence the next generation.`,
-        `The evaluator view proves the main engineering constraint. Unit tests, benchmarks, proof checks, and production canaries catch different kinds of failure. Narrow tests invite wrong answers. Noisy timing invites fake speedups. Leaked holdouts invite benchmark overfit. The visual is not saying that evaluation is a final cleanup step. It is saying that evaluation is the objective the search will learn.`,
+        'It works when evaluation is cheaper than human invention and more reliable than model judgment. A human may not know the best schedule, but a simulator can compare two schedules. A human may not trust a proposed rewrite, but an equivalence checker can reject unsafe code.',
+        'The correctness argument is conditional on the evaluator. If tests cover the contract and benchmarks measure the real target, selection pressure moves toward useful programs. If the evaluator is weak, the system becomes an efficient way to find evaluator loopholes.',
       ],
     },
     {
-      heading: 'Why the method works',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The method works when the evaluator is cheaper and more reliable than human invention. A human may not know the best scheduler heuristic, but a simulator can compare candidates. A human may not immediately see whether a circuit rewrite is safe, but equivalence checking can reject invalid rewrites. Search becomes useful because correctness and quality are externalized into repeatable tests.`,
-        `The evolutionary part gives the system memory and selection pressure. A single model response has no guarantee of improvement. A population can keep many partial ideas alive, sample from winners, and combine local gains over time. This does not make the search guaranteed to find the global best program. It makes progress measurable when the space is large, candidates are executable, and the score is honest. That is a narrower claim than general intelligence, and it is the claim that makes the architecture useful.`,
+        'Cost behaves like candidates times evaluator cost. If a cheap syntax and unit-test stage takes 2 seconds and rejects 90 percent of 10,000 candidates, only 1,000 reach a 60-second benchmark stage. That staged design costs about 20,000 seconds plus 60,000 seconds, not 600,000 seconds.',
+        'Complexity lives in reproducibility. Candidate execution needs sandboxes, fixed dependencies, deterministic seeds where possible, timeout rules, hardware labels, score provenance, and heldout tests. Without those records, the best program may be a measurement artifact.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        `The obvious cost is evaluator calls. A serious candidate may require compilation, sandboxing, correctness tests, repeated benchmarks, proof search, simulation, or canary deployment. If each score is expensive, the whole loop can become expensive fast. Production versions need caching, deduplication, parallel execution, staged filters, timeout policy, and careful measurement hygiene.`,
-        `The deeper cost is objective design. The optimizer will optimize exactly what is scored, not what the team meant. If the benchmark is narrow, candidates may specialize to it. If timing is noisy, selection may amplify noise. If the visible tests are too complete, the system may overfit to them. Good deployments use cheap public tests, stronger private tests, adversarial cases, repeated measurements, locked holdouts, and human review for changes whose blast radius is high.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `AlphaEvolve-style search is strongest when proposals are cheap enough to generate at scale and evaluation is objective enough to trust. DeepMind reports applications in data-center scheduling, hardware design, AI training efficiency, matrix multiplication, and other mathematical or scientific problems. The shared property is measurability: the candidate either runs faster, preserves function, proves valid, or fails.`,
-        `This pattern also fits smaller engineering work. A team can evolve SQL rewrite rules, compiler peepholes, kernel variants, routing heuristics, feature transformations, or solver tactics if it can build a reliable evaluator. The LLM does not need to understand the whole domain perfectly. It needs to create enough promising variants for the evaluator to find and preserve real gains.`,
+        'The pattern fits compiler rewrites, kernels, scheduling heuristics, solver tactics, matrix algorithms, routing policies, and generated tests. The shared property is an objective evaluator that can run many times without human interpretation. If the evaluator is slow, batching and staged filters become part of the design.',
+        'It is less about replacing engineers than about changing where engineers spend attention. Humans define the search space, write evaluators, inspect surprising winners, and decide deployment risk. The loop spends compute on variants humans would not enumerate manually.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The pattern fails when the evaluator is weaker than the generator. Subjective goals, policy choices, legal judgments, product taste, and open-ended strategy are hard to compress into a score without losing the thing that matters. In those domains, AlphaEvolve can still assist with variant generation or test construction, but it should not be treated as the primary truth machine.`,
-        `It can also fail through unsafe execution. Candidate code may be malicious, resource-hungry, flaky, or dependent on environmental quirks. A serious system needs sandboxing, deterministic builds where possible, resource limits, provenance tracking, and reproducible score records. Without that infrastructure, the evolutionary loop can produce results that are impressive in the dashboard and useless in the real environment.`,
+        'It fails on subjective goals that cannot be scored faithfully. Brand voice, legal judgment, product strategy, and open-ended taste can use generated variants, but a scalar score will hide too much. Human review stays central there.',
+        'It also fails when execution is unsafe or leaky. Candidate code may read files, depend on hidden answers, exploit benchmark quirks, or consume unbounded resources. Sandboxing and locked holdouts are not optional.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Primary sources: the Google DeepMind AlphaEvolve announcement at https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/ and the AlphaEvolve technical report at https://arxiv.org/abs/2506.13131. In this curriculum, study Evolutionary Search first, then Hyperparameter Search, Cross-Validation and Honest Evaluation, Data Leakage and Contamination, Code World Models Case Study, and Git Internals. The common thread is feedback discipline: a search system is only as good as the artifact it preserves and the score it trusts.`,
+        'Suppose the target is a sorting-network generator for 16 inputs. The evaluator checks 1,000 random arrays, then all 2^16 binary inputs, and finally counts comparator depth. Candidate A uses 63 comparators at depth 10, and candidate B uses 61 at depth 10, so B survives if both pass the full correctness gate.',
+        'Now suppose a model proposes candidate C with 58 comparators but it fails 3 of the 65,536 binary cases. C is discarded even though its score would look better on depth alone. That is the AlphaEvolve pattern in miniature: proposal can be noisy, but the survival rule must be exact for the claim being optimized.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: the Google DeepMind AlphaEvolve announcement and the AlphaEvolve technical report. Study evolutionary search, genetic programming, property-based testing, benchmark variance, compiler optimization, and proof assistants next.',
+        'The practical exercise is to evolve a small function with a locked evaluator. Keep public tests, hidden tests, repeated timing, and a log of every accepted candidate. The log will teach why search quality follows evaluator quality.',
       ],
     },
   ],

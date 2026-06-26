@@ -311,86 +311,55 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `Long-context transformers run into a plain hardware wall: the sequence is too large for one accelerator to hold and process comfortably. Attention connects every query token to key-value tokens. Even when kernels avoid materializing the full attention matrix, the activations, KV blocks, masks, temporary buffers, and gradients still create a large memory and bandwidth problem. Cutting the context shorter is easy, but it changes the task.`,
-        `RingAttention exists because some workloads genuinely need long contexts: long video, long documents, codebases, scientific sequences, agent traces, retrieval-heavy training examples, and multi-turn transcripts. The goal is not to invent approximate attention. The goal is to keep exact attention while distributing the sequence dimension across devices so no single device owns the whole context.`,
-        {type:'callout', text:`RingAttention preserves exact attention by keeping query shards stationary, rotating key-value blocks, and treating the schedule ledger as part of correctness.`},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/75/RingNetwork.svg', alt:'Ring network diagram with six connected nodes arranged in a loop.', caption:`Ring network diagram by GW Simulations, public domain, via Wikimedia Commons.`},
-      ],
-    },
-    {
-      heading: 'The naive approach',
-      paragraphs: [
-        `The naive distributed approach is to gather the whole sequence onto every device whenever attention runs. Each device can then compute the same attention math it would compute in the single-device case. This is attractive because it preserves a familiar mental model: copy the missing data, run the kernel, move on.`,
-        `That gather is exactly the problem. For very long contexts, all-gathering the full sequence or full KV set turns memory pressure into network pressure. Every device repeatedly receives data it cannot permanently keep. The system spends bandwidth rebuilding a global view that the computation only needs block by block. A second naive approach is to split attention approximately, but that changes model behavior and can make evaluation hard. RingAttention instead changes the schedule while keeping the attention result exact.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `The core insight is to make query ownership stationary and key-value ownership mobile. Each device owns a shard of query tokens and accumulates the output for those queries. Key-value blocks rotate around a ring. At each step, a device computes attention between its local query block and the KV block currently in its memory, then passes the KV block onward.`,
-        `After enough rotations, every query shard has interacted with every key-value shard. No device had to hold the full sequence at once. The exact result is recovered by keeping online softmax statistics for each query block, so partial attention outputs can be merged as if the full score vector had been processed together.`,
-      ],
-    },
-    {
-      heading: 'How the mechanism works',
-      paragraphs: [
-        `Suppose four devices split one long sequence into four blocks. GPU 0 starts with Q0 and KV0, GPU 1 with Q1 and KV1, and so on. During the first local step, each device computes attention for its own query block against its own KV block. Then every device sends its KV block to the next device in the ring and receives a KV block from the previous device.`,
-        `The device does not replace its query block. It keeps Q fixed and updates an accumulator. For each received KV block, it computes local attention scores, applies the relevant mask, updates the running softmax maximum and denominator, and updates the partial output. This online softmax part is the same mathematical trick that lets blockwise attention avoid materializing a full matrix: rescale old partial sums when a new block changes the maximum score, then add the new block's contribution.`,
-        `The schedule also needs a ledger. The ledger says which original token positions are in each block, which KV block is present at each rotation, what causal mask applies, how RoPE or other positional encoding is interpreted, and where the final output shard belongs. Without that ledger, the ring can look fast while silently attending to the wrong positions.`,
-      ],
-    },
-    {
-      heading: 'Causal balancing',
-      paragraphs: [
-        `Causal language modeling adds a second problem. The attention pattern is lower triangular: earlier query blocks see fewer previous tokens, and later query blocks see more. If blocks are assigned naively, one device may own much more work than another. The ring then stalls on the slowest participant even if total memory fits.`,
-        `Load-balanced sequence parallelism reorders or pairs blocks so the triangular work is spread more evenly. That reordering is not a cosmetic optimization. Once the physical block order changes, masks, positions, and output assembly must follow the same map. This is why long-context attention is a distributed-systems problem as much as a kernel problem. The correct object is not only the ring. It is the ring plus the block schedule plus the metadata that makes the schedule faithful to the original sequence.`,
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        `The ring-pass view proves the main conservation law: query blocks stay home, KV blocks rotate, and every query block eventually sees every KV block. The accumulators in the middle are not decoration. They represent the running softmax state that lets exact attention be assembled from blockwise work.`,
-        `The causal-balance view proves why a simple equal sequence split is not enough. The naive triangular matrix leaves later query blocks with more work. The balanced schedule spreads heavy and light regions so devices finish closer together. The hybrid-mesh view then shows why RingAttention is one piece of a larger parallel plan. Ulysses-style all-to-all, tensor parallelism, pipeline parallelism, data parallelism, and optimizer-state sharding all compete for the same network and memory budget.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `RingAttention works because attention over a sequence can be partitioned by key-value blocks while each query block keeps enough statistics to merge the pieces. For one query row, the full softmax output is a weighted sum over all key-value positions. Processing those positions in blocks is safe if the algorithm tracks the running maximum, the running normalizer, and the running weighted output. When a later block contains a larger score, previous partial sums are rescaled before the new contribution is added.`,
-        `The ring schedule covers the full set of KV blocks exactly once for each query shard, so no attention term is missing and no term is counted twice. Correctness then depends on masks and positions. In non-causal attention, each query can see every KV block. In causal attention, a query may only see allowed positions. The schedule is correct only if the mask is applied according to original token order, not according to whichever device happens to hold a block at that rotation.`,
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        `RingAttention buys memory headroom by spending coordination. Each rotation moves KV blocks through the network. The design is attractive when compute on each block is large enough to hide communication, but weak when blocks are too small, the network is slow, or topology forces traffic through a bottleneck. The best case is not "free communication." It is communication overlapped with useful matrix work.`,
-        `The method also does not remove the total cost of exact attention. Longer context still means more attention work, more activation state, more optimizer pressure during training, and more chances for numerical or schedule bugs. RingAttention changes the memory distribution and communication pattern. It does not make quadratic attention disappear.`,
-        `Block size is a real tuning knob. Larger blocks improve kernel efficiency but increase memory pressure and may reduce overlap opportunities. Smaller blocks improve streaming and balance but can waste GPU efficiency. Production systems also have to choose how sequence parallelism composes with tensor parallelism, pipeline parallelism, FSDP or ZeRO, activation checkpointing, and mixed precision.`,
-      ],
-    },
-    {
-      heading: 'Real use cases',
-      paragraphs: [
-        `Ring-style sequence parallelism is most relevant for training or fine-tuning models on contexts that exceed a comfortable single-device activation budget. Examples include book-length document modeling, long-code repository examples, long-video or multimodal sequences, genomics-like token streams, and agent traces that preserve many tool calls and observations.`,
-        `A practical deployment review would record context length, device mesh, block size, head count, grouped-query or multi-query attention layout, causal load-balance strategy, network bandwidth, achieved overlap, peak memory, model FLOP utilization, and numerical agreement against a shorter single-device reference. Those checks matter because a sequence-parallel run can fail silently: the loss may move, the GPUs may be busy, and the masks may still be wrong.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `The most dangerous failure is a corrupted schedule ledger. If RoPE positions, causal masks, block ids, or output reassembly do not agree, the model may attend to future tokens, skip legal tokens, or write outputs into the wrong order. These bugs can be hard to see from throughput metrics.`,
-        `The common performance failure is exposed communication. If the ring step takes longer than the local attention work, the devices wait. If one device owns more causal work, the others wait. If the ring crosses a poor topology boundary, bandwidth drops. If the implementation uses block sizes that fight the attention kernel, GPU utilization falls.`,
-        `The product failure is treating long context as automatically better. More tokens can help only if the data, objective, retrieval, and evaluation actually reward long-range use. Sequence parallelism can make a longer experiment possible, but it cannot prove the task needed the extra context.`,
-      ],
-    },
-    {
-      heading: 'What to study next',
-      paragraphs: [
-        `Study the attention mechanism and multi-head attention first, because RingAttention is a schedule for exact attention, not a replacement for attention. Study FlashAttention to understand online softmax and blockwise memory behavior. Study tensor parallelism, pipeline parallelism, ZeRO or FSDP, GPU all-reduce, and transformer roofline models to understand the rest of the distributed training budget. Useful starting papers are Ring Attention with Blockwise Transformers at https://arxiv.org/abs/2310.01889, DeepSpeed Ulysses at https://arxiv.org/abs/2309.14509, and Unified Sequence Parallelism at https://arxiv.org/abs/2405.07719.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read each GPU as owning one shard of the sequence. Active edges are key-value blocks moving around the ring, found nodes are accumulators holding partial attention output, and compare marks show the single-device or imbalanced schedule being avoided.',
+      'The safe inference rule is conservation of attention terms. If every query shard attends to every allowed key-value shard exactly once, and the online softmax accumulator keeps the right maximum, denominator, and weighted output, the distributed schedule computes exact attention.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'RingAttention exists because long-context attention does not fit comfortably on one accelerator. Attention lets each query token compare with key and value tokens, and exact attention over long sequences needs large activation memory, high bandwidth, and careful masking.',
+      'The goal is not approximate attention. The goal is to keep exact attention while sharding the sequence across devices, so no one device holds the entire context at once.',
+      {type:'callout', text:`RingAttention preserves exact attention by keeping query shards stationary, rotating key-value blocks, and treating the schedule ledger as part of correctness.`},
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/75/RingNetwork.svg', alt:'Ring network diagram with six connected nodes arranged in a loop.', caption:`Ring network diagram by GW Simulations, public domain, via Wikimedia Commons.`},
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious distributed approach is to gather the full sequence or full key-value set onto every device before attention runs. That preserves the single-device mental model: copy missing data, run the normal kernel, and continue.',
+      'The cost is repeated global movement of data that each device only needs block by block. Another easy approach is to shorten the context or approximate attention, but that changes the model behavior the experiment is trying to test.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is the product of memory and network pressure. If eight devices each need the full 1 GB key-value set, an all-gather can move about 7 GB of received data across the group for one attention layer, and it repeats across layers and steps.',
+      'Causal masking adds a second wall. Later query blocks have more legal keys than earlier blocks, so a naive split can leave one device with much more work. A ring that waits on the slowest device wastes the parallelism it created.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Keep query blocks stationary and rotate key-value blocks. Each device accumulates output for its own query block while key-value blocks circulate through the ring.',
+      'After enough rotations, every query block has seen every key-value block it is allowed to see. Online softmax lets the device merge blockwise results without materializing the full attention score matrix.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'With four devices, GPU 0 starts with Q0 and KV0, GPU 1 with Q1 and KV1, and so on. Each device computes local attention for its query block against the key-value block it currently holds, then sends that key-value block to the next device.',
+      'The query block does not move. The accumulator stores the running softmax maximum, normalization denominator, and weighted value sum for that query block. When a new key-value block arrives with larger scores, the old partial output is rescaled before the new contribution is added.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'Attention for one query row is a sum over key-value positions after softmax normalization. Splitting those positions into blocks is safe when the running softmax state is updated exactly as if the full row had been processed at once.',
+      'The ring schedule covers the key-value shards once for each query shard, so no term is missing and no term is counted twice. Correctness then depends on the ledger for original token positions, causal masks, RoPE positions, and output reassembly.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'RingAttention buys memory headroom by spending communication and scheduling complexity. The best case occurs when local attention work is large enough to hide the key-value transfer to the next device.',
+      'It does not remove the total compute cost of exact attention. Longer context still means more attention work and more activation state. Block size controls the tradeoff: larger blocks use kernels efficiently but increase memory pressure, while smaller blocks improve overlap but can waste GPU efficiency.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Ring-style sequence parallelism is useful for training or fine-tuning on book-length documents, large code repositories, long video or multimodal streams, genomics-like sequences, and agent traces with many tool calls.',
+      'It also appears inside larger parallel plans. Real systems combine sequence parallelism with tensor parallelism, pipeline parallelism, data parallelism, optimizer-state sharding, activation checkpointing, and mixed precision.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'The worst correctness failure is a broken schedule ledger. If masks, positions, block ids, or output order disagree, the model can attend to future tokens, skip legal tokens, or write results into the wrong slot.',
+      'The common performance failure is exposed communication. If the transfer step is slower than the local attention step, devices wait. If causal work is not balanced, the ring waits on the heaviest shard. If the topology is poor, point-to-point movement can cross slow links.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Suppose a 131072-token sequence is split across 8 GPUs, so each device owns 16384 query tokens and one 16384-token key-value shard. A single-device run would need room for the whole sequence activation set; the ring run keeps one query shard and one rotating key-value shard resident per device.',
+      'The ring takes 8 local attention steps. If one step takes 6 ms of matrix work and 2 ms of communication that is fully overlapped, the pass costs about 48 ms. If communication is 8 ms and cannot be hidden, the same pass costs about 64 ms or more. The memory win is real, but the runtime win depends on overlap.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Ring Attention with Blockwise Transformers at https://arxiv.org/abs/2310.01889, DeepSpeed Ulysses at https://arxiv.org/abs/2309.14509, and Unified Sequence Parallelism at https://arxiv.org/abs/2405.07719.',
+      'Study Attention Mechanism, Multi-Head Attention, FlashAttention, Tensor Parallelism, Pipeline Parallelism, ZeRO or FSDP, GPU All-Reduce, Transformer Inference Roofline, and NCCL Algorithm Protocol Selector next.',
+    ] },
   ],
 };

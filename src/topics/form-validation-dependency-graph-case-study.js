@@ -184,108 +184,44 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Forms are small data systems. A checkout form may have local rules, cross-field rules, async checks, server-only business rules, dirty state, touched state, pending validation, and submit state.',
-        'Validation exists to keep feedback fast while keeping submission honest. The user should learn about fixable local mistakes early, and the app should still treat the server as the final correctness boundary.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The field-graph view shows form fields as nodes and validation dependencies as edges. Active nodes are fields whose value or error is being recomputed. Found nodes are fields with current valid state. Compare edges show one field invalidating another, such as password invalidating confirm password.',
+        'The validation-flow view shows layers: native constraint, local rule, schema resolver, async check, submit gate, and server response. The safe rule is that client validation improves feedback, while the server remains the final correctness boundary.',
         {type:'callout', text:'A robust form treats validation as a graph of field dependencies, async facts, error paths, and submit-state transitions.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The first attempt is one `isValid` boolean and a submit handler that checks every field. That works for a small contact form.',
-        'The next attempt adds per-field errors, but cross-field rules soon leak into random `onChange` handlers: country changes postal-code rules, password changes confirm-password validity, and cart changes coupon validity.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Global validation does too much work and gives poor feedback. Per-field validation alone misses dependencies. A stale async uniqueness check can mark submit valid after the user has already typed a different email.',
-        'The missing structure is a graph of named fields, dependencies, validation layers, subscribers, and an error tree. The graph tells the form what must be rechecked and who must be notified.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Form validation is a dependency graph over field records. Each field has a name, value, metadata, local rules, maybe schema dependencies, maybe async validators, and subscribers that care about its value or error.',
-        'Local constraints handle one field. Cross-field edges tell the runtime which other fields must revalidate when a dependency changes. The error tree stores the result in the same shape the UI uses to render messages and gate submit.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        "In the field-graph view, read each edge as a reason one field can invalidate another. Country changes postal-code rules. Password changes confirm-password validity. Cart contents change coupon validity. The graph is what prevents those dependencies from hiding in random handlers.",
-        "In the validation-flow view, follow the layers: native constraint, local rule, schema resolver, async check, submit gate, and server response. Each layer answers a different question, and none of the client layers replaces server validation.",
-        "The highlighted error tree is the user-facing proof. A useful validation system can explain which field or form-level path failed, which rule produced the failure, and what state must change before submit can proceed.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A checkout form asks for country, postal code, email, coupon, password, and confirm password. Changing country changes the postal-code pattern. Changing password invalidates confirm password. Changing cart contents can invalidate a coupon. Typing email launches a debounced uniqueness check that must be ignored if the user changes the email before the response returns.',
-        'A dependency graph makes those updates explicit. Country points to postal code. Password points to confirm password. Cart points to coupon. Email points to an async validator with a version token or abort signal. When a source changes, only the affected slice of validation work reruns, and the error tree stays aligned with the UI.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A field registry gives every control an address. `email` maps to value, rules, dirty state, touched state, current error, and subscribers. Native constraints catch cheap local failures such as required, type=email, min, max, pattern, minlength, and maxlength.',
-        'Schema or resolver validation handles form shape and cross-field rules. Country affects postal code. Password affects confirm password. Cart contents affect coupon validity. When a dependency changes, affected fields revalidate even if their own input did not change.',
-        'Submit runs the whole graph and acts like a state-machine transition. It blocks side effects when errors exist, marks pending validation or submitting honestly, sends the request only when the client state is valid enough, and merges server errors back into the same error tree.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The invariant is that every displayed error belongs to a named field or form-level path, and every cross-field rule declares the values it reads. If a dependency changes, the affected validation result is no longer trusted until it is recomputed.',
-        'Client and server validation have different jobs. Client validation improves feedback and prevents accidental mistakes. Server validation owns correctness because requests can be forged, scripts can be disabled, and client state can be stale.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Local validation is cheap and usually proportional to one field. Schema validation can be proportional to the whole form or to the touched dependency slice. Async validation pays network latency and needs cancellation, debouncing, or version checks to avoid stale results.',
-        'The space cost is field records, metadata, dependency edges, subscriptions, validation queues, and an error tree. Subscription islands matter in large forms because re-rendering every field on every keystroke turns typing into a global update.',
-        'Validation timing is part of the user experience. Validate too early and the form scolds before the user has finished typing. Validate too late and the submit button becomes the first honest feedback. Good systems choose per-field timing: immediate for cheap format checks, blur for noisy checks, and submit for expensive or server-owned rules.',
-      ],
-    },
-    {
-      heading: 'Async safety',
-      paragraphs: [
-        'Async validation needs identity. A response for `old@example.com` must not mark `new@example.com` valid. Use abort signals, monotonically increasing request versions, or compare the returned value with the current field value before committing the result.',
-        'Pending state should be honest. If a field has a uniqueness check in flight, the UI should not silently treat the whole form as valid. The submit gate can wait, allow optimistic submit with server enforcement, or show a pending marker, but it should not pretend the async fact is already known.',
-      ],
-    },
-    {
-      heading: 'Server boundary',
-      paragraphs: [
-        'The server is the final validator because it owns authorization, current inventory, uniqueness, fraud policy, and business rules. The client graph can make the experience fast and clear, but it cannot prove that a request is allowed at the moment it reaches the backend.',
-        'A strong form system therefore maps server errors back into the same error tree. If the server rejects `coupon.code`, the UI should show that path. If the whole submit is rejected because the cart changed, the form should represent that as a form-level error and refresh the affected dependencies.',
-        'That shared shape is what keeps recovery understandable. The user should see the affected field, the reason, and the next action, regardless of which validation layer found the problem.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'A validation graph wins in checkout, onboarding, admin editors, medical intake, tax forms, and any form where fields depend on other fields or server facts.',
-        'It also makes UI behavior consistent. Field messages, submit disabled state, dirty warnings, server errors, and retry all read from explicit validation and workflow state instead of ad hoc flags.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Do not build a heavy validation graph for a two-field form with no dependencies. The structure pays off when the form has cross-field rules, async checks, many subscribers, or high cost for bad submission.',
-        'Do not hide dependencies in random handlers, re-render the whole form for every keystroke, or let submit depend on stale async validation. Treat validation state as data, and still validate on the server.',
-        'It also fails when validation messages are technically correct but unhelpful. The graph can identify the broken rule, but the article, form, or curriculum still has to teach the user how to recover. Good validation explains the fix, not only the failure.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: React Hook Form useForm at https://react-hook-form.com/docs/useform, register at https://react-hook-form.com/docs/useform/register, subscribe at https://react-hook-form.com/docs/useform/subscribe, watch at https://react-hook-form.com/docs/useform/watch, useWatch at https://react-hook-form.com/docs/usewatch, formState at https://react-hook-form.com/docs/useform/formstate, MDN Constraint Validation API at https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Constraint_validation, and the HTML forms standard at https://html.spec.whatwg.org/multipage/forms.html. Study Signals Reactivity Dependency Graph, UI State Machine Workflow, DOM Event Propagation & Path, AbortController Cancellation Graph, and Optimistic UI Mutation Log next.',
-      ],
-    },
+      ] },
+    { heading: 'Why this exists', paragraphs: [
+        'Forms are small data systems. A checkout form may contain local rules, cross-field rules, async uniqueness checks, dirty state, pending validation, submit state, and server-only business rules. Validation exists to keep feedback fast without pretending the client owns truth.',
+      ] },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is one isValid boolean and a submit handler that checks every field. That works for a tiny contact form. The next approach adds per-field errors, but dependencies soon leak into random change handlers.',
+      ] },
+    { heading: 'The wall', paragraphs: [
+        'The wall is stale dependency state. Country changes postal-code rules, password changes confirm-password validity, cart contents change coupon validity, and an old email uniqueness response can arrive after the user typed a new value. Per-field validation alone cannot keep those facts coherent.',
+      ] },
+    { heading: 'The core insight', paragraphs: [
+        'Treat validation as a dependency graph over field records. Each field has value, metadata, rules, errors, and subscribers. Edges say which fields must revalidate when another field changes. The error tree stores results in the same shape the UI renders.',
+      ] },
+    { heading: 'How it works', paragraphs: [
+        'A field registry gives every control an address. Cheap native constraints run first. Schema rules handle cross-field logic. Async validators use abort signals, request versions, or value comparison so stale responses cannot overwrite current state. Submit runs the graph and merges server errors back into the same tree.',
+      ] },
+    { heading: 'Why it works', paragraphs: [
+        'The invariant is that every displayed error belongs to a named path and every cross-field rule declares the values it reads. When a dependency changes, affected validation results become untrusted until recomputed. The server boundary preserves correctness when clients are stale, disabled, or forged.',
+      ] },
+    { heading: 'Cost and complexity', paragraphs: [
+        'Local validation is usually O(1) for one field. Schema validation may be O(n) for n fields or proportional to the dependency slice. Async validation pays network latency and needs cancellation. Large forms also pay for subscriptions; rerendering 200 fields on each keystroke makes typing feel slow.',
+      ] },
+    { heading: 'Real-world uses', paragraphs: [
+        'Validation graphs fit checkout, onboarding, admin editors, medical intake, tax forms, loan applications, and any workflow where fields depend on other fields or server facts. They also align dirty warnings, disabled submit state, field messages, and retry behavior around one state model.',
+      ] },
+    { heading: 'Where it fails', paragraphs: [
+        'It is unnecessary for a two-field form with no dependencies. It also fails when dependencies hide in ad hoc handlers, when async responses lack identity, or when the UI treats pending checks as known facts. The graph can find a broken rule, but message text still has to help the user recover.',
+      ] },
+    { heading: 'Worked example', paragraphs: [
+        'A checkout form has country, postal code, email, coupon, password, and confirm password. Country points to postal code, password points to confirm password, cart points to coupon, and email points to an async uniqueness check. If the user changes email from old@example.com to new@example.com before the first request returns, request version 17 must not overwrite version 18. Only affected fields revalidate, and the submit gate waits or falls back to server enforcement.',
+      ] },
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary sources: React Hook Form useForm at https://react-hook-form.com/docs/useform, register at https://react-hook-form.com/docs/useform/register, subscribe at https://react-hook-form.com/docs/useform/subscribe, formState at https://react-hook-form.com/docs/useform/formstate, MDN Constraint Validation API at https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Constraint_validation, and the HTML forms standard at https://html.spec.whatwg.org/multipage/forms.html.',
+        'Study Signals Reactivity Dependency Graph, UI State Machine Workflow, DOM Event Propagation and Path, AbortController Cancellation Graph, and Optimistic UI Mutation Log next.',
+      ] },
   ],
 };

@@ -223,83 +223,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
         {type:'callout', text:'MessageChannel is for one scoped conversation; BroadcastChannel is for disposable same-origin signals. The browser moves messages, but your protocol owns durability, ordering, and backpressure.'},
-        'Modern browser applications are no longer one script running in one page. A single app may have several tabs open, a dedicated worker doing CPU work, a shared worker coordinating state, a service worker handling network and cache behavior, and iframes or embedded contexts that need controlled communication. These contexts do not share a normal call stack, but they still need to coordinate.',
-        'MessageChannel and BroadcastChannel exist because browser coordination needs two different shapes. Sometimes you need a private request/reply pipe between two contexts. Sometimes you need a same-origin announcement that every interested context can hear. Using one global message handler for both shapes becomes confusing quickly.',
-        'The educational point is that transport is not protocol. The browser gives you structured-clone messages, transferable ports, and broadcast fanout. You still have to decide what a request means, how replies match requests, where durable state lives, how cancellation works, and what happens when a context closes.',
+        'Read the channel view as endpoint ownership. MessageChannel creates two MessagePort endpoints; transferring one endpoint gives another context a private pipe back to the caller. Read the broadcast view as same-origin fanout: every live listener on the named channel can hear the signal, but the signal is not stored.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Browser apps are split across pages, tabs, workers, service workers, and frames. These contexts do not share one call stack, yet they need to coordinate login state, local data, cache changes, compute work, and network retry. Messaging APIs exist to cross those isolation boundaries without pretending every context shares one heap.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to attach one onmessage handler everywhere and switch on a type string. That works for a toy worker. It breaks when several subsystems share the same mailbox, when replies arrive out of order, when a request times out, when a page navigates away, or when two features accidentally reuse the same message shape.',
-        'Another obvious approach is to use BroadcastChannel as if it were shared state. That is also wrong. BroadcastChannel is a same-origin signaling bus. It does not persist messages, replay history to late listeners, enforce authorization, or define a total order across all tabs.',
-        'A third mistake is sending large objects everywhere. Structured clone is convenient, but cloning a big payload to every listener can create memory and latency problems. The better design often sends a small invalidation hint or durable ID, then lets each context read canonical state from IndexedDB, Cache API, OPFS, or the server.',
+        'The obvious approach is one global onmessage handler with a type field. That works until several features share the same mailbox, replies arrive out of order, or a tab navigates away while work is in flight. Another tempting approach is treating BroadcastChannel like shared state, but it is only a notification path.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is to separate conversation from announcement. MessageChannel creates two entangled MessagePort endpoints. If one side keeps port1 and transfers port2 to another context, the two sides now have a scoped pipe. That is the right shape for request/reply, RPC-like worker calls, and service-worker reply paths.',
-        'BroadcastChannel creates a named same-origin fanout channel. It is the right shape for logout, cache invalidation, document changed, presence hint, or sync wakeup signals. Every same-origin listener on the same channel may hear the event, but the event itself should usually be small and disposable.',
-        'Once those shapes are separated, the rest of the architecture becomes clearer. MessagePort protocols need request IDs, cancellation, timeouts, backpressure, close handling, and versioning. Broadcast protocols need durable state elsewhere, idempotent handlers, and a way to recover if a message was missed.',
+        'The wall is lifecycle and pressure. Workers can terminate, service workers can stop, tabs can close, and listeners can appear after a broadcast already happened. A fast producer can also post messages faster than a slow consumer can clone and process them, so transport alone does not create backpressure.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Separate conversation from announcement. MessageChannel is for a scoped request/reply pipe where the caller can track request IDs, timeouts, cancellation, and close behavior. BroadcastChannel is for small same-origin hints such as logout, cache dirty, document changed, or sync wakeup.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'MessageChannel starts by creating two ports. A page can keep one port and transfer the other to a worker, iframe, or service worker through postMessage with a transfer list. From then on, each side sends messages through its port, and the other side receives message events. The port is the conversation endpoint.',
-        'BroadcastChannel starts by opening a channel with a name. Any same-origin context that opens that name can post messages and receive messages from other contexts. It is not a queue with retention. If a tab was closed or had not yet opened the channel, it cannot rely on receiving old events.',
-        'Both APIs use structured clone for message payloads. That means plain data structures can move without manual JSON serialization, and transferables such as MessagePort, ArrayBuffer, and streams in related APIs can move ownership rather than copy bytes. But structured clone does not define application semantics. It only moves data.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The channel-topology view proves that a private pipe is made from ownership of two endpoints. The page creates a channel, keeps one port, and transfers the other. Once that transfer is complete, the worker or service worker can answer through the private path instead of competing on a global message handler.',
-        'The protocol table proves that MessagePort is only the transport. If a page sends ten requests and the worker responds in a different order, request IDs must connect replies to callers. If the user navigates away, the port may close. If the worker is slow, the page needs timeouts and in-flight limits. Those behaviors are application protocol, not API magic.',
-        'The broadcast view proves the durable-state pattern. Write the real state first, then broadcast a hint. Other contexts treat the hint as a reason to reload, compare versions, or wake a sync process. The hint is not the database.',
+        'A page creates a MessageChannel, keeps port1, and transfers port2 to a worker, iframe, or service worker through postMessage. Both sides then receive message events on their port. A BroadcastChannel is opened by name; same-origin contexts that opened the same name receive posted messages from other channel objects.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because browser contexts already have isolation boundaries. Workers should not share normal heap objects with the page. Service workers may outlive a page and serve several clients. Tabs cannot safely mutate each other directly. Message passing gives those contexts a structured way to coordinate without pretending they share one process model.',
-        'MessageChannel works well because it scopes a conversation. Instead of multiplexing every request through one mailbox, a feature can own a port, keep a request map, and close the port when the feature ends. That makes lifecycle easier to reason about.',
-        'BroadcastChannel works well because many browser coordination events are not commands. They are announcements that something changed: authentication ended, a cache key is dirty, a document has new heads, a theme changed, or a sync worker should wake. Fanout is the natural shape for those events.',
+        'MessageChannel works because ownership of a port scopes the conversation. A reply on that port belongs to the feature that owns it, and request IDs connect replies to callers when several requests are in flight. BroadcastChannel works when messages are idempotent hints and durable truth is read from IndexedDB, Cache API, OPFS, or the server after the hint arrives.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'MessageChannel adds protocol bookkeeping. You need request IDs, timeouts, cleanup, cancellation, error messages, and close behavior. Without those, a private pipe can still leak promises or memory. The benefit is that all of that bookkeeping is localized to the conversation instead of spread across global handlers.',
-        'BroadcastChannel adds fanout cost. Every listener receives the message, and payloads are structured-cloned. A small event such as { type: "doc-changed", id } is cheap. Broadcasting a large document to every tab is wasteful and can block useful work. Durable state should live elsewhere.',
-        'Both APIs also have lifetime tradeoffs. Workers can terminate. Tabs can close. Service workers can be stopped and restarted. A robust system must be able to reconstruct state from IndexedDB, Cache API, OPFS, a server log, or another durable source after any context disappears.',
+        'MessageChannel costs protocol state: one pending map entry, timeout, and cleanup path per in-flight request. BroadcastChannel costs fanout and structured-clone work; sending a 500 KB document to four tabs can clone roughly 2 MB of payload work. When tab count doubles, broadcast handling roughly doubles, so small hints beat large state dumps.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'MessageChannel wins for worker RPC, iframe bridges, service-worker replies, delegated compute, test harnesses, and any feature that benefits from a scoped two-way channel. It is especially useful when several independent features talk to the same worker and should not share one response mailbox.',
-        'BroadcastChannel wins for same-origin coordination: logout across tabs, cache invalidation, local-first document changed hints, settings changes, presence hints, and waking background sync logic. It is simple and effective when the message can be treated as disposable notification.',
-        'A local-first editor is the complete example. A tab writes a CRDT change to IndexedDB, broadcasts the document ID and version heads, and other tabs reload missing changes. A worker may use a MessagePort for a private sync conversation. The service worker may keep the shell offline and retry network work. Each layer has a different job.',
+        'MessageChannel fits worker RPC, iframe bridges, service-worker replies, and delegated compute where one caller expects one answer. BroadcastChannel fits logout across tabs, local cache invalidation, local-first document changed hints, presence pings, settings changes, and waking a sync worker. A local-first editor often uses both: IndexedDB stores truth, BroadcastChannel wakes peers, and MessageChannel handles private sync calls.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'BroadcastChannel fails as a database, queue, permission model, or global ordering primitive. Same-origin transport does not replace product authorization, replay, conflict resolution, durable storage, or version checks. If missing one message corrupts the app, the design is wrong.',
-        'MessageChannel fails when request maps grow without cleanup. Every request needs completion, cancellation, timeout, or close handling. Late replies must be ignored or routed safely. Ports should be closed when the conversation is over.',
-        'Another failure is ignoring backpressure. A fast producer can post messages faster than a consumer can process them. The APIs do not make the application protocol flow-controlled by default. Production protocols need queue limits, dropping policies, batching, or pull-based reads.',
+        'BroadcastChannel fails as a queue, database, authorization layer, or global ordering primitive. MessageChannel fails when ports stay open forever, request maps leak, or late replies update state after cancellation. Same-origin messaging still needs product-level permission checks because same origin is not the same as same user intent.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: MDN MessageChannel at https://developer.mozilla.org/en-US/docs/Web/API/MessageChannel, MDN Channel Messaging API at https://developer.mozilla.org/en-US/docs/Web/API/Channel_Messaging_API, MDN ServiceWorker.postMessage at https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorker/postMessage, MDN BroadcastChannel at https://developer.mozilla.org/en-US/docs/Web/API/BroadcastChannel, and Chrome for Developers BroadcastChannel overview at https://developer.chrome.com/blog/broadcastchannel.',
-        'Study Structured Clone & Transferables first because ports and payloads ride through that machinery. Then study Web Workers, Service Workers & Offline-First, Cache Storage Versioned Precache, Background Sync Outbox Queue, Web Push Subscription Delivery, Web Streams Backpressure Queues, AbortController Cancellation Graph, Web Locks API Lock Manager, IndexedDB Object Store Case Study, Local-First Sync Engine Case Study, Collaborative Awareness Presence CRDT, Message Queue, Backpressure, and Transactional Outbox.',
+        'Tab A writes document version 184 to IndexedDB, then broadcasts { type: "doc-changed", id: "doc9", version: 184 }. Tabs B and C receive about 50 bytes of hint and load missing changes from IndexedDB instead of receiving a 500 KB document body. If Tab C was closed, it misses the hint but can still read version 184 when opened later.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: MDN MessageChannel at https://developer.mozilla.org/en-US/docs/Web/API/MessageChannel, MDN BroadcastChannel at https://developer.mozilla.org/en-US/docs/Web/API/BroadcastChannel, MDN ServiceWorker.postMessage at https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorker/postMessage, and the HTML standard messaging sections at https://html.spec.whatwg.org/.',
+        'Study Structured Clone and Transferables, Web Workers, Service Workers and Offline-First, IndexedDB Object Store Case Study, Web Streams Backpressure Queues, AbortController Cancellation Graph, Web Locks API Lock Manager, and Local-First Sync Engine Case Study.',
       ],
     },
   ],

@@ -224,88 +224,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        `A streaming system receives facts before it knows the whole story. Mobile clients reconnect after being offline. Ad impressions arrive before clicks. Sensors buffer readings and upload them later. A payment event may be processed after a refund event even though the payment happened first. The business question is usually phrased in event time: how many checkouts happened between 10:00 and 10:05, which users were active in a session, what was the p99 latency during an incident window? The machine sees processing time: when bytes arrived at a worker.`,
-        `The Google Dataflow Model matters because it treats this mismatch as the central design problem, not as an implementation detail. Streaming is not merely batch computation with an endless input. A useful stream processor must say what time a record belongs to, when a partial answer is worth emitting, how corrections are represented, and when the system is allowed to give up on very late data.`,
-        {type:`callout`, text:`Dataflow makes time a first-class contract by separating event time, processing time, watermarks, triggers, and correction policy.`},
+        'Read the animation as a timeline split into two clocks. Event time is when the business event happened, while processing time is when a worker saw the record and had a chance to compute.',
+        'The safe inference is that a record belongs to the window chosen by its event timestamp, not by its arrival order. A watermark is only a progress estimate, so a late pane can still revise a result after an on-time pane has already been emitted.',
+        {type:'callout', text:'Dataflow makes time a first-class contract by separating event time, processing time, watermarks, triggers, and correction policy.'},
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The simplest stream processor groups records by arrival time. Count whatever reached the worker during the last five minutes, write the result, and move on. This is easy to implement and often looks correct in a local demo where events arrive in order. It fails in the real world because arrival time is an artifact of queues, retries, network delay, batching, mobile connectivity, and worker scheduling.`,
-        `Another naive approach waits until the system is certain that no more records can arrive for a window. That produces cleaner answers but destroys latency. For unbounded data there may never be a perfect completion signal. A pipeline that waits for certainty can hold state forever, while a pipeline that never waits can publish answers that users quietly treat as final even though late events will later contradict them.`,
+        'A stream processor handles data that has no natural end. Purchases, ad clicks, sensor readings, and logs keep arriving, and many of them arrive late because devices buffer, networks retry, and queues reorder work.',
+        'Google Dataflow exists because the useful question is often about when something happened in the real world. A checkout at 10:03 should count in the 10:00 to 10:05 business window even if it reaches the pipeline at 10:09.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to group records by the time they arrive at the worker. Count the last five minutes of arrivals, publish the number, and clear the state.',
+        'That approach is simple and cheap because every record is handled once in arrival order. It can be acceptable for queue monitoring or worker throughput, where arrival time is the fact being measured.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is that correctness, latency, and cost are tied together. If the pipeline keeps every window open forever, it can correct almost anything but pays unbounded state cost. If it closes windows quickly, it lowers cost and latency but drops valid late data. If it emits early, users see fast results but downstream sinks must handle revisions. None of these policies is universally right.`,
-        `The Dataflow paper's enduring contribution is the separation of questions that older systems often blended together. What result are you computing? Where in event time does each record belong? When should the system emit a result? How should later panes relate to earlier panes? How long should late data be accepted? Those choices form a contract between the pipeline and everyone who reads its output.`,
+        'The wall appears when arrival order stops matching domain order. A mobile purchase can happen at 10:03, arrive at 10:09, and still be part of the 10:00 to 10:05 revenue answer.',
+        'Waiting forever for perfect completeness is also wrong. The system would keep every window open, state would grow without bound, and dashboards would never show a useful current answer.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        `Dataflow makes time explicit. Event time describes when the thing happened in the domain. Processing time describes when the system observes and acts on it. Windows group event-time records into bounded units of work. Watermarks estimate how far event-time input has progressed. Triggers decide when to emit panes. Accumulation mode decides whether a pane is a replacement, a delta, or an accumulating refinement.`,
-        `Once those pieces are explicit, batch and streaming become two cases of the same model. Bounded data has a known end and can still be windowed by event time. Unbounded data has no natural end, so it needs watermarks, triggers, allowed lateness, and state management. The transform logic can stay close to the batch expression, while the temporal policy says how the answer becomes visible over time.`,
+        'Dataflow separates four decisions that simple stream processors blend together. It asks what event time a record belongs to, which window contains it, when to emit a pane, and how later panes correct earlier panes.',
+        'That separation turns streaming into a contract. The aggregation can stay the same, while the window, watermark, trigger, accumulation mode, and allowed lateness state how the answer becomes visible over time.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        `A record enters the pipeline with a timestamp, either supplied by the source or assigned by the pipeline. A window function maps that timestamp to one or more windows. Fixed windows produce simple non-overlapping buckets such as five-minute counts. Sliding windows answer rolling questions but duplicate work because one event may belong to many windows. Session windows merge nearby activity separated by gaps, which is useful for user behavior but requires dynamic window merging.`,
-        `A watermark is a progress estimate, often phrased as: the system believes it has probably seen all events up to event time T. It is not proof. Sources can produce bad estimates, partitions can stall, and late records can still arrive. A trigger consumes the watermark and other signals, such as processing-time timers or element counts, and decides when to emit. Early panes give fast approximate answers, on-time panes fire when the watermark passes a window boundary, and late panes revise the result when stragglers appear before allowed lateness expires.`,
+        'Each record enters with a timestamp from the source or from pipeline logic. A window function maps that timestamp to a fixed, sliding, or session window, which makes an unbounded stream finite enough to aggregate.',
+        'A watermark estimates that the input has probably advanced past some event time. A trigger uses the watermark, processing-time timers, or element counts to emit early, on-time, or late panes.',
+        'Accumulation mode defines what each pane means. Discarding mode emits only the new contribution, accumulating mode emits the running total, and retracting designs give downstream systems enough information to replace an older answer.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Why it works',
       paragraphs: [
-        `Suppose a dashboard counts purchases in five-minute event-time windows. Event A happened at 10:01 and arrived at 10:05, so it belongs to the 10:00 to 10:05 window. Event B happened at 10:07 and arrived at 10:08, so it belongs to the next window. Event C happened at 10:03 but arrived at 10:09. A processing-time system would count C in the later arrival period. A Dataflow-style system assigns C to the earlier event-time window and treats it as late data.`,
-        `Now choose a trigger policy. The dashboard may emit an early pane every minute so operators see movement quickly. It may emit an on-time pane when the watermark passes 10:05. If C arrives after that but inside the allowed lateness interval, the pipeline emits a correction pane. The sink might overwrite the previous value, add a delta, or keep all panes with version metadata. The model does not pretend this policy is free. It exposes the policy so users can decide whether the dashboard should favor freshness, finality, or auditability.`,
+        'The correctness argument is that every record is assigned by a stable event-time rule before aggregation. If two records have timestamps inside the same five-minute window, they affect the same logical result even when they arrive in different processing-time order.',
+        'Triggers do not change the meaning of the aggregate; they change when partial knowledge is exposed. Late panes are correct when the sink can identify the same window and apply the documented correction policy.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The first view shows why the timestamp column is more important than arrival order. Events A and C share an event-time window even though C arrives later. That is the essential move: the stream is not interpreted by the order in which a worker happens to see it. The pipeline assigns domain time first, then uses windows to make unbounded input finite enough to aggregate.`,
-        `The second view shows why watermarks and triggers are separate. A watermark estimates completeness. A trigger is a policy decision about output. That separation is what lets one pipeline emit speculative early answers, corrected later answers, and final closed-window results without changing the meaning of the aggregation itself.`,
+        'The main cost is state held per key and window. If one million user keys each keep a five-minute count, the pipeline stores one million counters plus timers and checkpoint metadata until the lateness horizon expires.',
+        'When allowed lateness doubles, the amount of retained window state can nearly double for the same input rate. Early triggers reduce visible latency but increase sink writes, so a dashboard that emits every minute over a ten-minute window may write ten provisional versions before the final answer.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Long allowed lateness improves correctness for delayed records but keeps state alive. State means memory, checkpoint size, recovery time, hot-key pressure, and cleanup work. Early triggers reduce user-visible latency but increase the number of writes to sinks. If the sink is a database table, every correction can become an upsert. If the sink is an append-only log, every correction needs a downstream interpretation rule.`,
-        `Watermarks are a source of operational risk. An optimistic watermark can close windows too early and force many late corrections or drops. A conservative watermark can hold back output and grow state. In a distributed source, one slow partition can pin the watermark for the whole computation unless the system has idleness detection or per-key progress handling. The right policy depends on the product: billing, fraud, alerting, and exploratory dashboards have different tolerance for revision.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `Dataflow-style semantics win when the domain cares about when things happened, not just when the pipeline saw them. Advertising metrics, real-time finance controls, sessionization, observability windows, IoT telemetry, fraud features, machine-learning feature stores, and data-quality monitors all need event-time reasoning. The model is especially valuable when the same logic must run once over historical data and continuously over live data.`,
-        `It also wins as a communication tool. A pipeline configured with windows, watermarks, triggers, accumulation, and allowed lateness can be reviewed. A data scientist can ask whether a training feature uses point-in-time safe windows. An SRE can ask why state is growing. A product owner can ask whether a number is final or provisional. Without these terms, the same questions become guesses about hidden system behavior.`,
+        'Dataflow-style semantics fit advertising metrics, fraud features, billing windows, observability rollups, IoT telemetry, sessionization, and machine-learning feature stores. These systems care about event time because late data can change revenue, alerts, model inputs, or audit records.',
+        'The model is also useful when the same logic must run over historical files and live streams. A batch backfill and a streaming job can share the transform while using different watermarks, triggers, and lateness policies.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The model does not remove the need for good timestamps. If producers stamp records with local clock time, bad device clocks, ingestion time, or mixed semantics, event-time correctness becomes fiction. It also does not make sinks magically idempotent. Late panes and retries can duplicate writes unless output records carry stable keys, pane metadata, and clear update semantics.`,
-        `Dataflow can be overkill for simple operational streams where arrival order is the business fact. A worker queue that processes jobs by enqueue time may not need event-time windows. The model is also harder to operate when keys are highly skewed, sessions grow without bound, or external side effects cannot be replayed safely after checkpoint recovery.`,
+        'The model fails when timestamps are untrustworthy. If producers mix device clock time, ingestion time, and server time, event-time correctness becomes a clean abstraction over dirty facts.',
+        'It is also heavy for jobs where arrival order is the business truth. A work queue that measures how fast workers drain messages may not need windows, watermarks, or correction panes.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        `Common failures are semantic, not syntactic. Teams confuse Kafka offset order with event-time order. They publish early panes without marking them provisional. They drop late events and call the metric real time without documenting the bias. They use processing-time joins for machine-learning features and accidentally leak future information into training. They aggregate in event time but write to a sink that cannot retract or update old values cleanly.`,
-        `Another failure is treating the watermark as a guarantee. It is an estimate produced by source logic and runtime observation. When that estimate is wrong, the pipeline must still behave predictably: emit late panes, route records to dead-letter or audit streams, or drop them under a documented lateness policy. The absence of a late-data policy is itself a policy, usually a bad one.`,
+        'Suppose the pipeline counts purchases in five-minute event-time windows. Records A, B, C, and D have event times 10:01, 10:04, 10:07, and 10:03, but they arrive at 10:02, 10:04, 10:08, and 10:09.',
+        'A processing-time counter reports two purchases in the 10:00 to 10:05 arrival window and two in the 10:05 to 10:10 arrival window. A Dataflow counter reports three purchases for 10:00 to 10:05 and one for 10:05 to 10:10, with D emitted as a late correction if the watermark had already passed 10:05.',
+        'If state for each open window costs 64 bytes and there are 500,000 active keys, one extra open window costs about 32 MB before checkpoint overhead. That number is why allowed lateness is an economic decision, not just a correctness setting.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Google Research page at https://research.google/pubs/the-dataflow-model-a-practical-approach-to-balancing-correctness-latency-and-cost-in-massive-scale-unbounded-out-of-order-data-processing/ and paper PDF at https://research.google.com/pubs/archive/43864.pdf. Apache Beam is the most direct practical descendant of the model, while systems such as Flink and Spark Structured Streaming expose related ideas with their own operational choices.`,
-        `Good next topics are Streaming Watermarks for progress estimation, Backpressure for what happens when workers or sinks cannot keep up, Kafka-style logs for source ordering, Delta Lake for table sinks, Feature Store for point-in-time correctness, t-digest for streaming quantiles, and Distributed Snapshot for the checkpointing problem beneath reliable stream processing.`,
+        'Primary sources are the Google Dataflow paper at https://research.google.com/pubs/archive/43864.pdf and the Google Research publication page at https://research.google/pubs/the-dataflow-model-a-practical-approach-to-balancing-correctness-latency-and-cost-in-massive-scale-unbounded-out-of-order-data-processing/. Apache Beam, Apache Flink, and Spark Structured Streaming show production versions of the same timing problems.',
+        'Study streaming watermarks next for progress estimation, then backpressure for overloaded workers, distributed snapshots for checkpointing, Kafka logs for source ordering, and feature stores for point-in-time training correctness.',
       ],
     },
   ],

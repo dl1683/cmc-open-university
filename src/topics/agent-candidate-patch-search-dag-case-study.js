@@ -198,78 +198,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
         {type:'callout', text:'A candidate patch search DAG turns repair from a chat transcript into a search data structure. Nodes represent repository states, candidate diffs, verifier observations, and merged lessons. A branch can die, but the reason it died stays available. That is the difference between retrying and learning.'},
-        "Coding agents fail differently from ordinary autocomplete. They are not choosing one next token and stopping. They inspect a repository, form a diagnosis, edit files, run tools, read failures, and try again. If each retry overwrites the last one, the agent loses the most expensive thing it bought: evidence.",
-        "A candidate patch search DAG exists to make that evidence explicit. Nodes represent repository states, candidate diffs, verifier observations, merged lessons, and final proof records. Edges show ancestry. A branch can die, but the reason it died remains available. That turns repair from a chat transcript into a search data structure.",
+        'Read the graph as a search structure, not as a conversation. A DAG is a directed acyclic graph: edges point from earlier states to later states, and no edge can lead back to an ancestor. Here the nodes are task state, candidate patches, verifier results, merged lessons, and the final selected patch.',
+        'Active nodes are live branches receiving budget. Removed nodes are pruned branches whose evidence is still stored. The safe inference is that a branch can stop consuming verifier calls while still teaching the system what not to try again.',
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        "The naive approach is linear retry. The agent proposes one patch, runs a verifier, reads the failure, edits again, and repeats until something passes or the budget ends. This can work on small bugs, and it is easy to implement because the current workspace is the only state.",
-        "The wall appears when several plausible diagnoses compete. One branch fixes lint but misses behavior. Another fixes the target test but risks a public API. A third rewrites too much and creates regressions. A linear transcript may remember these in prose, but the control plane cannot query them, dedupe them, score them, or train from them reliably.",
+        'A coding agent usually needs more than one attempt. It reads the repository, forms a diagnosis, edits code, runs a verifier, and revises when the verifier fails. If every retry overwrites the last one, the agent loses the evidence it paid to collect.',
+        'A candidate patch search DAG exists to make repair state queryable. It records which patch came from which parent, which tests ran, what failed, what cost was spent, and why a branch was kept or dropped. That lets the system learn from failed branches instead of repeating them in new wording.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is linear retry. The agent proposes one patch, runs tests, reads the output, edits again, and repeats until the budget ends or a test passes. This is easy because the workspace itself is the only state.',
+        'Linear retry is not foolish. For a one-line syntax bug, keeping one current patch may be enough. The problem appears when several diagnoses are plausible and each needs a different verifier path.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is evidence loss. One branch fixes lint but misses behavior, another fixes the target test but touches a risky public API, and a third rewrites too much. A transcript may mention those attempts, but the control plane cannot dedupe, score, replay, or train from prose reliably.',
+        'The cost wall is verifier budget. A full test suite can take minutes, while a syntax check takes seconds. If the agent spends full-suite calls on near-identical patches, cost rises without new information.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "The core insight is to treat each patch attempt as a node with provenance, not as a disposable edit. A candidate has parents, touched files, a diff fingerprint, a cost, a verifier result, a score, and a next action. A verifier observation is also a node because a test failure changes what the system knows.",
-        "The final answer is a pointer into this DAG. It is not simply the last patch. It is the selected branch under budget, supported by evidence and connected to the failed alternatives it avoided. That ancestry is useful for debugging the agent, replaying the search, and training future repair models.",
-        "Branch identity must be stable enough to compare attempts. Two patches with different whitespace but the same semantic edit may deserve one verifier call, while two patches touching the same file may still represent different hypotheses. The DAG needs fingerprints, but it also needs reason codes.",
+        'Treat each patch attempt as a node with provenance. Provenance means the recorded origin of an artifact: parent state, diff fingerprint, touched files, command results, verifier score, and decision reason. A verifier observation is also a node because it changes what the search knows.',
+        'The final answer is a pointer into the DAG, not the last message in a chat. It is the best branch under budget, backed by verifier evidence and linked to alternatives it avoided. That ancestry is useful for debugging, replay, and training future repair systems.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "The search starts at a task root: the issue, failing test, repository snapshot, and allowed edit surface. The agent proposes several candidate patches from that root. Each candidate is applied in a reproducible workspace or patch application layer, then checked by cheap verifiers first: formatting, syntax, lint, type checks, targeted tests, or a small reproduction.",
-        "Promising branches receive more budget. They may run broader tests, request deeper inspection, or spawn child patches. Failed branches are not erased. The DAG stores the error message, command, exit status, and a short failure signature. A dedupe index prevents the agent from spending another verifier call on an equivalent patch.",
-        "Merging is a knowledge operation, not necessarily a Git merge. One branch can teach that a parser assumption was wrong. Another can show that tokenizer behavior is the real surface. The merge node records the distilled plan that survives across branches, and a final node stores the selected patch plus its proof.",
-        "Replay is the boundary that keeps this honest. A candidate id should point to the base commit or snapshot, the exact diff, the commands that ran, and the observed outputs. If those pieces cannot be replayed, the graph is only a memory aid. If they can be replayed, the graph becomes an audit trail and a training object.",
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        "The first visual proves that patch search has branching structure. The root is shared repository state. Patch nodes are competing hypotheses. Verifier nodes are observations. The merge node keeps lessons that survive across branches. The final node is chosen because it carries proof, not because it happened to be generated last.",
-        "The pruning visual proves the tax. Keeping every branch forever explodes. Keeping only the current branch forgets useful evidence. Logged pruning gives the middle ground: drop duplicate, broad, slow, failing, or risky branches while preserving the reason code so the agent does not repeat them.",
+        'The search starts with a task root: issue text, base commit, failing test, allowed edit surface, and budget. The agent creates several child candidates. Each candidate is applied in an isolated workspace or patch layer and checked by cheap verifiers first.',
+        'Promising branches receive more budget. They may run targeted tests, then broader regression tests, then full suites if they become finalists. Failed branches keep their error signature, exit status, touched files, cost, and pruning reason.',
+        'Merge nodes store lessons rather than raw Git merges. One branch may prove that the tokenizer surface matters, while another proves that a parser rewrite is too wide. The merge node turns those observations into a smaller final plan.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "The method works because it preserves the invariant that every promoted patch has an explainable path from the task root to its current score. If two branches share an ancestor, the system can reuse that ancestry. If a branch fails, the system can block similar future attempts. If a branch passes, the proof is attached to the exact diff that passed.",
-        "This is close to beam search in spirit, but the state is executable. A candidate patch can be applied, reverted, hashed, compared, tested, and replayed. That makes the search stronger than a list of natural-language thoughts. The verifier is not just an opinion; it produces artifacts that can be attached to the DAG.",
+        'The invariant is that every promoted patch has an explainable path from task root to current score. If a branch passes a verifier, the pass is attached to the exact diff that passed. If a branch fails, the failure signature blocks equivalent future work.',
+        'This is a correctness argument about search control, not about proving the code bug is fixed in all possible worlds. The selected patch is correct relative to the verifier set because the DAG records which checks accepted it and which competing branches were weaker, duplicate, forbidden, or more expensive.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "The main cost is verifier budget. If the agent runs the full test suite on every candidate, the DAG becomes expensive fast. A practical system stages verification: parse and format first, then targeted tests, then relevant regression tests, and only then full suites for finalists.",
-        "Memory and bookkeeping also matter. The DAG stores diff fingerprints, parent ids, touched files, logs, scores, cost, and pruning decisions. That is more complex than a retry loop. The payoff is control. You can ask which branch used the most budget, which failures repeated, which verifier caught regressions, and which edits were pruned because they touched forbidden files.",
+        'Let b be the number of candidate branches and v be the average verifier cost. A naive search that runs every verifier on every branch costs about b * v. A staged DAG lowers behavior cost by running cheap filters first and spending expensive tests only on survivors.',
+        'For example, suppose syntax costs 2 seconds, targeted tests cost 30 seconds, and the full suite costs 6 minutes. With 20 candidates, running the full suite on all of them costs 120 minutes. If syntax drops 8, targeted tests drop 9 of the remaining 12, and only 3 run the full suite, the verifier time is 40 seconds + 6 minutes + 18 minutes, or about 24.7 minutes.',
+        'The tradeoff is bookkeeping. The DAG stores parent ids, diff hashes, logs, scores, costs, and pruning decisions. That overhead buys behavior: fewer duplicate verifier calls, clearer failure analysis, and a sampler that can learn from branches that did not ship.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        "This structure wins when repair has several plausible routes and verifier calls are expensive enough to manage. Real examples include parser bugs, compatibility fixes, flaky test triage, dependency upgrades, performance regressions, migration work, and security patches where broad rewrites are risky.",
-        "It is also valuable for training data. A final patch alone teaches what worked. A patch DAG teaches what was tried, what failed, what evidence changed the plan, and why the final diff was selected. That is closer to the real work of software engineering than a static before-and-after pair.",
+        'This structure fits parser fixes, compatibility repairs, dependency upgrades, flaky-test triage, security patches, and performance regressions. It is most useful when several plausible edits exist and each verifier call has meaningful cost.',
+        'It is also useful as training data. A final patch alone teaches what worked. A patch DAG teaches what was tried, what failed, what evidence changed the plan, and why the final diff was selected.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        "The DAG can overfit to a narrow oracle. If the only score is one target test, the search will find patches that satisfy that test while breaking unmeasured behavior. The fix is not to trust the DAG more. The fix is to improve staged verification and promote finalists through broader checks.",
-        "Branch explosion is the other failure. A generous generator can produce many tiny variants, and a cautious pruning policy can keep too many alive. Silent pruning is also dangerous because later analysis cannot tell whether a branch was bad, too expensive, forbidden, or merely unlucky. Pruning must be explicit and logged.",
-        "A patch DAG also depends on reproducibility. If tests are flaky, workspaces are dirty, or tool outputs are not tied to the exact patch, the ancestry becomes misleading. The structure is only as reliable as the replay boundary around each candidate.",
+        'The DAG fails when the verifier is too narrow. If the only score is one target test, the search will find patches that satisfy that test while breaking unmeasured behavior. Better branch control cannot compensate for a weak oracle.',
+        'It also fails when branch generation is uncontrolled. A model can create many tiny variants that differ syntactically but not semantically. Without dedupe and pruning thresholds, the DAG becomes an expensive archive of the same idea.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        "Study Beam Search for the frontier-pruning baseline, Tree of Thoughts Search Case Study for semantic branch states, Process Reward Models & Verifier Search for scoring partial work, Verified Agent Trajectory Store for durable provenance, and Agent Interface Portability Audit for execution environments.",
-        "For primary background, read SWE-agent at https://arxiv.org/abs/2405.15793, SWE-bench at https://arxiv.org/abs/2310.06770, Git apply at https://git-scm.com/docs/git-apply, and AlphaEvolve at https://arxiv.org/abs/2506.13131. Then compare this topic with Synthetic Bug Mutation Oracle Case Study and Web Agent Evaluation Trace Ledger Case Study.",
+        'Assume a parser issue has a $3 verifier budget and 30 minutes of wall-clock budget. The agent creates five candidates. P1 edits whitespace and fails lint in 2 seconds, P2 adds a tokenizer guard and passes a 30-second target test, P3 rewrites the parser and fails after 6 minutes, P4 combines P2 with a smaller parser guard and passes, and P5 changes a public API and is held for risk.',
+        'The DAG selects P4 because it inherits the tokenizer lesson from P2, avoids the broad rewrite in P3, and has a smaller risk surface than P5. The final proof says: syntax passed, target test passed, related parser tests passed, changed files are tokenizer.js and parser.js, and broad rewrite branch was pruned for failing plus touching 8 files.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study SWE-agent at https://arxiv.org/abs/2405.15793, SWE-bench at https://arxiv.org/abs/2310.06770, Git apply at https://git-scm.com/docs/git-apply, and AlphaEvolve at https://arxiv.org/abs/2506.13131. Then study Beam Search, Tree of Thoughts Search Case Study, Process Reward Models and Verifier Search, Verified Agent Trajectory Store, and Agent Trajectory Dedupe and Provenance Hash.',
       ],
     },
   ],

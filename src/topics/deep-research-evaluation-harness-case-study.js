@@ -327,74 +327,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A deep research evaluation system tests agents that browse, read files, run tools, compare sources, and write long answers. It is not a style contest for polished reports. Its job is to decide whether the agent actually did the research work: found relevant sources, weighted them correctly, read the right spans, noticed contradictions, used tools when calculation was required, and connected every important claim to evidence that can be inspected later.',
-        'The evaluation system treats a research answer as the final object produced by a larger process. That process includes the original task, the allowed tools, the pages and files available at the time, the actions the agent took, the claims it extracted, the contradictions it faced, and the scorer decisions that turned all of that into a pass or fail. For curriculum purposes, this is the key shift: evaluate research as a data pipeline with durable artifacts, not as an isolated paragraph of text.',
+        'Read the animation as an evaluation pipeline, not as a grader staring at one answer. Active nodes are task records, run traces, claim ledgers, scorer checks, and regression gates. Found nodes are evidence that can be replayed: source spans, tool outputs, accepted claims, rejected claims, and scorer rationales.',
+        'The safe inference rule is artifact before score. A pass is meaningful only if the harness can reconstruct what the agent saw, what it did, which claims it made, which evidence supported them, and why the scorer accepted the result. Without that trail, a score is just an opinion about polished text.',
         {type:'callout', text:'Deep research quality becomes measurable only when the evidence path is logged as durable task records, claim ledgers, trace events, and regression gates.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is to store a prompt and an answer, then ask a judge model to grade the answer. That can be useful for surface quality, but it collapses most of the real difficulty. A fluent report can cite weak sources, hide stale facts, skip uploaded files, ignore a contrary benchmark, or invent a calculation result. A judge looking only at the final answer often has no way to know which failure happened.',
-        'The wall appears as soon as the tasks become long, time-sensitive, or file-heavy. Two agents may both produce plausible reports, but one may have read the primary document and the other may have summarized a blog post about it. One may have noticed that a source is three years old and another may have treated it as current. One may have used Python to verify a numerical claim and another may have guessed. Without process artifacts, the scoring system cannot distinguish good research from confident narrative.',
+        'A deep research evaluation harness tests agents that browse, read files, run tools, compare sources, and write long answers. The output is not just a paragraph; it is the final product of a process. The harness exists to decide whether that process did the research work the user needed.',
+        'A final answer can look good while missing a primary document, citing a stale page, ignoring a contradiction, or guessing a calculation. A harness needs to evaluate the answer and the path that produced it. That requires durable records, not only judge-model impressions.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is prompt, answer, judge. Store the task and final response, then ask a model or human to grade the response against a rubric. This is cheap and often catches style failures or obvious factual mistakes.',
+        'The next obvious approach is to add citations to the final answer. That helps, but it still may not reveal whether the agent read the right spans, skipped uploaded files, used a weak secondary source, or ignored a stronger contradictory source. Citations are outputs, not the whole evidence path.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is process ambiguity. Two agents can produce similar reports, but one may have read the primary PDF and the other may have summarized a blog post about it. A final-answer judge may score both as plausible because the missing work is invisible.',
+        'The second wall is regression. A team can improve fluency while hurting source quality, file use, freshness, or tool accuracy. If the harness stores only final answers, it cannot tell which internal behavior changed when a new model or prompt ships.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is that research quality becomes measurable when the evidence path is represented explicitly. The final answer should be backed by a claim ledger. Each material claim gets an id, a source or file span, a freshness label, an authority label, and sometimes a contradiction edge to a source that says something different. The scorer then evaluates whether the answer used that ledger responsibly.',
-        'This changes the release gate. Instead of asking whether the answer sounds expert, the gate asks whether the evidence trail survives inspection. Did the agent cite the source that actually supports the claim? Did it preserve uncertainty where sources disagree? Did it reopen the plan after a contradiction, or did it smooth the conflict into vague balanced prose? Deep research evaluation is therefore a provenance problem, a workflow problem, and only then a writing problem.',
+        'Evaluate research as a data pipeline with durable artifacts. The core records are task definitions, run traces, source ledgers, claim ledgers, contradiction edges, tool outputs, scorer decisions, and cost records. The final answer is one artifact in that pipeline.',
+        'A claim ledger is the central data structure. Each material claim gets an id, source span, freshness label, authority label, confidence, and sometimes a contradiction edge. Scoring then asks whether the final answer used that ledger responsibly.',
       ],
     },
     {
-      heading: 'Task records and run records',
+      heading: 'How it works',
       paragraphs: [
-        'A strong evaluation setup begins with a task record. It stores the exact user request, expected output shape, allowed tools, source constraints, uploaded files, time sensitivity, hidden evaluation notes, risk tags, budget, and any seed material the task designer wants available. This matters because research tasks are easy to mutate accidentally. If one run can browse and another cannot, or one run has a PDF and another does not, their scores no longer compare the agents cleanly.',
-        'The run record is the second data structure. It should preserve the plan, searches, pages opened, snippets or spans used, file pages read, commands run, intermediate notes, extracted claims, citations, contradictions, final answer, scorer results, and cost. Some products also store screenshots, browser states, or parsed document maps. The important rule is simple: if a future reviewer cannot reconstruct why a claim appeared in the report, the run record has not captured enough evidence.',
-      ],
-    },
-    {
-      heading: 'Stressors and adversarial fixtures',
-      paragraphs: [
-        'Clean research questions are not enough. A real benchmark environment includes stressors that expose the failures research agents actually make. It should include stale pages, vendor pages with selective claims, secondary sources that paraphrase badly, long files with relevant facts buried deep inside, distractor documents with similar vocabulary, conflicting benchmarks, missing data, and tasks that require a small calculation rather than another search.',
-        'Every serious failure should become a fixture. If an agent missed the release date buried on page 47 of a PDF, keep that task, file, trace, wrong answer, and scorer rationale. If an agent trusted an old document when a newer one reversed the recommendation, preserve that as a freshness test. Over time, the evaluation suite becomes a library of failure classes, not just a leaderboard. That library is what lets teams detect regressions before customers do.',
-      ],
-    },
-    {
-      heading: 'Scoring mechanisms',
-      paragraphs: [
-        'Research scoring should combine several methods because no single scorer sees the whole system. Exact checks are useful when a task has a known answer. Span checks verify that cited text actually supports the claim. Rubric judges can score synthesis, critique, and usefulness, but they need access to the evidence ledger. Trace analysis can catch loops, shallow file use, missing tool calls, and late-session drift. Human audits calibrate the automatic scorers and reveal failure modes the rubric forgot.',
-        'The scores should remain separate until the final gate. Factuality, citation support, source authority, freshness, contradiction handling, file use, synthesis quality, workflow reliability, latency, and cost are different dimensions. Collapsing them too early hides product risk. A faster agent that loses citation support is not an improvement for a research product. A cheaper agent that skips uploaded files is not acceptable when the user explicitly supplied documents.',
+        'A task record stores the exact user request, expected output shape, allowed tools, source constraints, uploaded files, hidden evaluation notes, risk tags, budget, and time sensitivity. This keeps repeated runs comparable. If one run can browse and another cannot, their scores should not be compared as the same task.',
+        'A run record stores the plan, searches, pages opened, file spans read, commands run, intermediate notes, extracted claims, citations, contradictions, final answer, scorer outputs, latency, and cost. The harness should preserve enough detail for a reviewer to reconstruct why an important claim appeared. Missing trace data becomes an evaluation failure in itself.',
+        'Scoring combines exact checks, span-support checks, rubric judging, trace analysis, and human audit. These scores should remain separate until the gate because factuality, citation precision, source authority, freshness, contradiction handling, file use, workflow reliability, latency, and cost are different product risks.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The system works because it makes invisible research behavior inspectable. Source choice becomes a ledger. Reading becomes spans. Claims become ids. Contradictions become edges. Tool use becomes trace events. Cost becomes a run attribute. Once these objects exist, evaluators can ask precise questions: which unsupported claims survived, which files were ignored, which source type dominated, which tasks caused drift after an hour, and which model version improved synthesis while hurting freshness.',
-        'It also works because it creates regression pressure. A one-off judge score encourages teams to optimize a prompt until the answer sounds better. A replayable evaluation suite encourages teams to fix durable failures. When a failed trace becomes a fixture, future agents must survive the same source trap, file-depth trap, or contradiction trap. That gives curriculum builders a stable way to teach both research strategy and data-structure design.',
+        'The correctness argument is traceability. If every material claim points to inspected evidence and every scorer decision points to a recorded artifact, then a reviewer can audit the result without trusting the agent\'s final prose. Unsupported claims, stale sources, and ignored files become detectable states.',
+        'The harness also works as a regression system. When an agent fails because it missed page 47 of a PDF or trusted an old benchmark, that case becomes a fixture. Future agents must survive the same source trap before they pass the release gate.',
       ],
     },
     {
-      heading: 'Where it is useful and where it fails',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'This pattern is useful for market research, technical due diligence, legal and policy synthesis, scientific literature review, competitive intelligence, benchmark audits, incident retrospectives, and any assistant that must combine web pages with local files. It is especially valuable when the answer is not a single fact but a defended position assembled from mixed evidence.',
-        'It fails when the scoring setup measures the wrong artifact. Source count is not source quality. Long traces are not deep reasoning. A beautiful citation table is useless if the cited spans do not support the claims. It also fails when teams tune repeatedly on the sealed holdout, when source snapshots drift without versioning, or when the task designer writes vague rubrics that reward generic completeness instead of the specific work the task required.',
+        'Logging and scoring add storage, latency, implementation work, and reviewer time. A run with 50 opened pages, 200 extracted claims, 30 cited spans, and 12 scorer checks can store far more metadata than final answer text. That overhead is the price of knowing why the answer passed.',
+        'Cost should be measured as behavior. If a new agent reduces average task cost from 4 dollars to 2 dollars but doubles unsupported material claims from 3 percent to 6 percent, it is not a clear improvement for a research product. The harness must keep quality and cost dimensions separate until product owners decide the tradeoff.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Healthy signals include support coverage per material claim, citation precision, primary-source share, stale-source rate, contradiction detection rate, file-span coverage, tool-required task pass rate, retry count, late-session quality, p95 duration, cost per completed task, and scorer disagreement. For multi-agent systems, add handoff loss, duplicate source work, and lead-agent synthesis quality. These metrics should be sliced by task type, source type, file length, language, and time sensitivity.',
-        'The most important operational habit is keeping the event contract stable. The product should serve research tasks, log traces, score artifacts, and replay failures using the same identifiers. If the logger calls a file page one thing and the scorer calls it another, the evidence chain breaks. If the browser snapshot is not versioned, freshness claims become impossible to audit. Evaluation quality depends on boring data hygiene.',
+        'This harness pattern fits market research, technical due diligence, legal and policy synthesis, scientific literature review, benchmark audits, incident retrospectives, and competitive intelligence. These tasks are evaluated by defended claims, not by one canonical answer. The access pattern combines web sources, local files, tools, and long synthesis.',
+        'It also fits internal AI product development. Teams can compare model versions, prompt changes, browser tools, file parsers, and retrieval systems on the same preserved tasks. The value is not a leaderboard alone; it is knowing which failure class changed.',
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Study claim graphs, source ledgers, retrieval evaluation, human evaluation queues, contextual bandit logged-policy evaluation, distributed tracing, workflow engines, prompt-injection threat models, and document parsing. WebGPT is useful for reference-backed browsing. STORM is useful for pre-writing structure and perspective discovery. GAIA is useful for tool-use tasks that humans can understand. Deep research system cards are useful for thinking about browsing, file interpretation, Python analysis, and long-horizon synthesis.',
-        'Inside a data-structures curriculum, connect this topic to graphs, matrices, priority queues, inverted indexes, provenance DAGs, append-only logs, finite-state workflows, and regression test stores. A research evaluation system is not one algorithm. It is a coordinated set of records and gates that keeps a long reasoning process honest.',
+        'The harness fails when it measures easy proxies. Source count is not source quality, long traces are not deep research, and citation tables are not support unless the cited spans actually prove the claims. A benchmark can reward busy work if the rubric is vague.',
+        'It also fails when teams overfit the test set. Repeated prompt tuning on a sealed holdout turns the holdout into training data. Source snapshots can drift, pages can disappear, and hidden notes can leak, so versioning and access control are part of evaluation quality.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a benchmark has 100 research tasks. Each task allows browsing and local-file reading, has a 30-minute budget, and requires claim-level citations. The harness logs actions, creates source records, extracts claim cards, and scores support, freshness, contradiction handling, file use, and final usefulness.',
+        'Agent A costs 3.20 dollars per task, averages 18 sources, and passes 72 of 100 tasks. Agent B costs 2.10 dollars per task, averages 9 sources, and passes 68 tasks, but fails 20 file-heavy tasks because it stops reading after the first matching span. The pass rate alone hides the file-depth regression.',
+        'The harness turns that failure into a fixture. The next release must read the buried span, cite it correctly, and preserve the contradiction that made the first answer wrong. The score improves only when the trace and final answer both improve.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study WebGPT at https://arxiv.org/abs/2112.09332, GAIA at https://arxiv.org/abs/2311.12983, STORM at https://arxiv.org/abs/2402.14207, OpenTelemetry tracing concepts at https://opentelemetry.io/docs/concepts/signals/traces/, and human evaluation guidance from model-evaluation literature. Then study claim graphs, retrieval evaluation, provenance DAGs, workflow engines, prompt-injection threat models, document parsing, and regression test stores.',
       ],
     },
   ],

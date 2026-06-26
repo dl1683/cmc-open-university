@@ -208,79 +208,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The distributed training problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A parameter server is a distributed machine-learning architecture for a specific pressure: the model state is too large, too frequently updated, or too sparsely accessed for a simple single-machine loop. Workers process training data. Server nodes own shared parameters. Workers pull the parameter ranges they need, compute updates, and push those updates back to the servers that own the relevant state.',
-        'The design matters because training is not only math. It is also a distributed state-management problem. Gradients have to move across the network. Model variables have to be partitioned, replicated, checkpointed, and recovered. Some algorithms need strict synchronization. Others can tolerate stale reads if the extra throughput improves wall-clock convergence. A parameter server makes those choices explicit instead of hiding them behind one vague idea of "distributed training."',
+        'Read the graph as ownership, not as a message diagram. Active workers compute on mini-batches, found server shards own parameter ranges, and compare nodes show replication or consistency costs that appear after the simple push-pull loop begins.',
+        'A parameter is a learned value such as a weight or embedding row. The safe inference rule is that a worker may compute locally, but the owning shard is the authority for its parameter range.',
         {type:'callout', text:'A parameter server turns model training into a sharded state-management system where consistency, ownership, and update routing are explicit design choices.'},
       ],
     },
     {
-      heading: 'The naive approaches and their walls',
+      heading: 'Why this exists',
       paragraphs: [
-        'The simplest approach is full replication. Give every worker a full copy of the model, let each worker compute gradients, then synchronize all workers at every step. That can work well for dense neural networks when collective communication is efficient. But it is painful for huge sparse models, recommendation features, embeddings, and workloads where each example touches only a tiny fraction of the parameters. Moving the whole model or all gradients on every step wastes bandwidth.',
-        'The other simple approach is a central model owner. All workers send updates to one server. That quickly becomes a hot spot. The central server runs out of network, CPU, memory bandwidth, or lock capacity. Worse, one busy parameter range can slow the whole system. Large-scale training needs state ownership to be partitioned.',
-        'Rigid synchronization is another wall. If every worker must finish every step before any worker can continue, the slowest worker controls the pace. In real clusters, stragglers happen. Machines vary, data partitions differ, network hiccups occur, and preemption or failure interrupts long jobs. Some ML algorithms can still make progress with stale or asynchronous updates, so a system that enforces strict barriers may leave performance unused.',
+        'Large models and sparse feature spaces can have more state than one machine should own during training. A recommendation model may have 500 million embedding rows, while one mini-batch touches only 20,000 of them.',
+        'A parameter server exists to split model state across server shards while workers process data in parallel. The system lets workers pull the slices they need, compute updates, and push changes back to the shards that own those keys.',
       ],
     },
     {
-      heading: 'Core insight and architecture',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core move is to partition parameters across server shards. A worker reads a mini-batch, determines which parameters it needs, pulls those values from the owning shards, computes gradients or updates, and pushes the updates back. The routing layer maps parameter keys or ranges to server shards. Sparse models benefit because a worker communicates only with the shards for the features present in its data.',
-        'This turns the model into a distributed key-value store with ML-specific semantics. The values are weights, embeddings, counters, accumulators, optimizer state, or other learned parameters. The operations are pull, push, update, aggregate, checkpoint, and recover. The system needs to handle sparse keys, dense tensors, hot parameters, stale values, and long-running failures.',
-        'The architecture can also support replication. Parameter shards may have backups for fault tolerance or may be replicated for read scalability. Checkpointing is essential because training jobs can run for a long time and produce state that is expensive to reconstruct. A parameter server is therefore part storage system, part communication fabric, part optimizer runtime.',
+        'The obvious approach is full replication. Give every worker a full model copy, compute gradients, then synchronize everyone at each step.',
+        'That works for many dense models when all-reduce collectives are efficient. It is wasteful for sparse models because every worker communicates dense state even when its examples touched a tiny key subset.',
       ],
     },
     {
-      heading: 'Consistency is an algorithmic choice',
+      heading: 'The wall',
       paragraphs: [
-        'Parameter-server systems are educational because consistency is not only a systems property; it changes the optimization algorithm. In synchronous training, workers compute updates from the same logical parameter version and the system applies a coordinated step. This gives cleaner reasoning but waits for stragglers. It can also require large synchronization traffic.',
-        'In asynchronous training, workers pull parameters, compute updates, and push them without waiting for all other workers. Throughput can rise because workers keep moving, but a worker may compute from stale parameters. The update it sends may no longer match the current model. Sometimes that is acceptable. Sometimes it harms convergence or final quality. You cannot judge the system only by examples per second.',
-        'Bounded staleness sits between those extremes. Workers may lag, but only within a configured limit. This preserves some throughput advantage while limiting how old the parameters can be. The important lesson is that the right consistency model depends on the model, data distribution, optimizer, loss surface, and quality target. Systems metrics and ML metrics must be measured together.',
+        'The first wall is bandwidth. If a model has 10 GB of parameters and each step touches 50 MB of sparse rows, moving the whole model or a full dense gradient can waste two orders of magnitude of network traffic.',
+        'The second wall is synchronization. A strict barrier waits for the slowest worker, so one straggler can idle a cluster even when the optimizer could tolerate some stale updates.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Make learned state a sharded distributed key-value store with machine-learning update semantics. Workers own compute; server shards own parameter ranges; a router maps keys to shards.',
+        'Consistency becomes an algorithm choice. Synchronous, asynchronous, and bounded-stale training are not only storage modes, because they change which parameter version a gradient was computed against.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A worker reads a mini-batch, extracts the parameter keys it needs, pulls those values from the owning shards, computes gradients or updates, and pushes changed keys back. The server applies updates, stores optimizer state, checkpoints progress, and may replicate state for recovery.',
+        'Sparse models benefit because the pull and push sets are much smaller than the model. Dense paths may still use collectives, while sparse embedding rows use server ownership and key routing.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design works when model access is naturally partitionable. Sparse feature models and embedding-heavy recommenders are classic fits. Each example touches a small set of keys, so workers avoid moving the whole model. Server shards let the system scale memory and update bandwidth across machines.',
-        'It also works when the training algorithm can tolerate some communication delay. If staleness does not destroy convergence, asynchronous or bounded-stale execution can use more cluster capacity than strict barriers. This is the same systems trade seen elsewhere: give up some freshness to gain throughput, then verify that the final result still meets the quality target.',
-        'The architecture gives operators explicit levers. They can change the sharding function, add server capacity, split hot ranges, checkpoint more or less often, tune staleness, or separate dense and sparse parameter paths. That visibility is useful. A distributed training job that hides all state movement inside a black-box collective may be simpler when it works, but harder to diagnose when a sparse feature range becomes hot.',
+        'The correctness property is ownership. For any parameter key at a logical time, the system has a shard responsible for applying updates and serving reads, so workers do not invent conflicting authorities.',
+        'Training correctness depends on the optimizer tolerance. If stale gradients still reduce the loss toward the target quality, asynchronous execution can improve time to quality; if staleness breaks convergence, the system must tighten barriers or staleness bounds.',
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Parameter servers have been used in large-scale recommendation systems, ads models, sparse logistic regression, topic models, embeddings, and distributed neural-network training. They are especially natural when the parameter space is keyed and sparse: feature IDs, user IDs, item IDs, word IDs, or embedding rows.',
-        'The pattern also helps explain later systems choices. TensorFlow variables, distributed embeddings, actor-based training systems, model-parallel serving, and feature-store consistency all contain echoes of the same question: who owns this state, who can update it, how fresh must reads be, and how does the system recover?',
-        'Parameter servers are not the only answer. Dense data-parallel training often favors all-reduce collectives because every worker needs to communicate dense gradients and high-performance collective libraries can use the network efficiently. Sharded optimizers, model parallelism, pipeline parallelism, and fully sharded data parallelism solve different shapes. The parameter server remains a key conceptual tool because it makes ownership and consistency visible.',
+        'Per step, the worker pays compute for the mini-batch and network for the pulled and pushed parameter slices. If 100 workers each touch 20 MB per step, the servers see about 2 GB of traffic per step before replication and protocol overhead.',
+        'When workers double, compute capacity doubles only if shard bandwidth, hot-key load, and update locks keep up. The practical bottleneck is often a popular embedding range that receives far more updates than an even partition predicted.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Hot shards are the most obvious failure. A clean hash or range partition can still fail if a few popular features receive most updates. The server that owns those keys becomes the bottleneck. Sparse communication reduces total bytes but can increase skew. Good systems need hot-key detection, better partitioning, caching, replication, or special treatment for popular parameters.',
-        'Staleness is the most subtle failure. Throughput can look excellent while the optimizer wastes work or converges to a worse model. The right metric is not examples per second. It is time to target quality, final model quality, and cost to reach that quality. A faster system that needs many more updates may be worse.',
-        'Checkpointing and recovery are also central. A parameter server stores valuable learned state. If checkpoints are too frequent, IO can dominate. If they are too rare, failures lose too much work. Recovery must restore both parameter values and enough metadata to avoid applying stale or duplicated updates incorrectly.',
+        'Parameter servers fit sparse logistic regression, recommendation systems, ads models, topic models, large embedding tables, and older distributed neural-network training. The access pattern is keyed and sparse: each example touches a small fraction of a very large parameter space.',
+        'The pattern also explains modern systems that look different on the surface. Distributed embeddings, actor-owned state, feature-store freshness, and model-serving state placement all ask who owns the value, who can update it, and how fresh a read must be.',
       ],
     },
     {
-      heading: 'Practical guidance',
+      heading: 'Where it fails',
       paragraphs: [
-        'Use a parameter-server design when model state is large, naturally keyed, sparsely updated, or too large for comfortable full replication, and when the algorithm can be evaluated under explicit consistency choices. Measure convergence time and final quality, not only throughput.',
-        'Watch server shard load, hot key ranges, network bytes per step, pull latency, push latency, update staleness, checkpoint time, worker stragglers, retry rates, and recovery time. Split dense and sparse paths when needed. If the model is dense and balanced, collectives may be simpler and faster.',
+        'It fails for balanced dense training when collectives can move gradients more efficiently than a routed server design. In that case, all workers need most parameters every step, so the key-value advantage disappears.',
+        'It also fails when throughput metrics hide optimizer damage. A run can process 2 times more examples per second and still cost more if stale or noisy updates require 3 times more steps to reach the same validation score.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Worked example',
       paragraphs: [
-        'A parameter server is not just a box that stores weights. It is a distributed ownership model for learned state. Workers compute. Server shards own parameters. Consistency choices decide how old a worker view may be. Those choices change both systems performance and ML behavior.',
-        'The deep lesson is to evaluate distributed training at the intersection of throughput and convergence. A system can move many examples per second and still be poor if it creates hot shards, excessive staleness, weak recovery, or lower final quality.',
+        'A model has 1,000,000 embedding rows, each 128 float32 values, so the embedding table is about 512 MB. A mini-batch touches 4,000 rows, which is about 2 MB of parameter data.',
+        'With 50 workers, a parameter server design moves about 100 MB of pulls plus 100 MB of pushes per step before compression. Full dense synchronization would move 25.6 GB per direction for the embedding table alone, even though most rows were untouched.',
+        'Now assume one feature row appears in 30 percent of examples. The shard that owns it becomes hot, so the system may need row replication, local caching, frequency-aware partitioning, or a separate dense-style path for that key.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: OSDI paper at https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-li_mu.pdf, USENIX page at https://www.usenix.org/conference/osdi14/technical-sessions/presentation/li_mu, and CMU abstract at https://www.cs.cmu.edu/~dga/papers/osdi14-paper-li_mu-abstract.html. Study Gradient Descent, Backpropagation, TensorFlow Dataflow Case Study, Ray Distributed Execution Case Study, Feature Store: Offline/Online Consistency, and LLM Inference Cost Stack next.',
+        'Study the OSDI parameter server paper at https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-li_mu.pdf and the USENIX page at https://www.usenix.org/conference/osdi14/technical-sessions/presentation/li_mu. Read it for the ownership model, consistency choices, and sparse communication argument.',
+        'Next, study Gradient Descent, Backpropagation, All-Reduce Collective Communication, TensorFlow Dataflow Case Study, Ray Distributed Execution Case Study, Feature Store Offline and Online Consistency, and LLM Inference Cost Stack. These topics show where parameter servers fit and where newer training systems choose different communication shapes.',
       ],
     },
   ],

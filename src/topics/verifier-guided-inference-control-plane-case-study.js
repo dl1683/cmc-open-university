@@ -302,83 +302,21 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'Verifier-guided inference is a production control plane around generation. The model proposes candidate answers or reasoning traces. Verifiers score those candidates. A policy turns scores into actions: accept, branch, repair, terminate, fall back, or escalate. That makes inference scaling a routing problem instead of a blind request for more samples.',
-        {type:'callout', text:'Verifier-guided inference turns test-time compute into an audited routing policy, not an uncontrolled request for more samples.'},
-        'The local Inference Scaling notes in the provided corpus name verifiers as a Tier 3 lever for agentic and legal systems: reward or scoring models can prune, stop, or redirect generations after lower-level serving wins have already been captured. This topic separates that operational pattern from the narrower process-reward-model primer.',
-      ],
-    },
-    {
-      heading: 'The obvious attempt',
-      paragraphs: [
-        'The obvious way to improve a hard generation task is to sample more answers and keep the one that looks best. This is useful when the model has latent capability but one greedy path often misses it. It is also expensive and uncontrolled. More samples can mean more token cost, more latency, more duplicated errors, and more opportunities for a weak scorer to choose a polished wrong answer.',
-        'Another tempting answer is to put all checking in the final prompt: ask the model to verify itself. That can catch surface mistakes, but it has the same failure modes as generation. A production system needs verifiers with explicit inputs, versions, calibration, thresholds, allowed actions, and audit records. The verifier loop should be service logic, not a vague instruction.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is to separate proposal from control. The generator explores candidate answers, traces, tool calls, citations, or plans. The verifier evaluates them against narrower criteria. The route policy decides what to do with the score: accept a candidate, branch search, repair a missing citation, terminate early, fall back to a safer mode, or escalate to a human.',
-        'This turns test-time compute into an allocation problem. Spend more only while the expected gain is worth the token cost, latency, and risk. Stop when marginal value falls below the threshold. Keep enough diversity alive that an imperfect verifier does not prune the only valid path too early.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The route-decisions view is proving that a candidate answer is not the unit of production control; the decision packet is. A useful packet says which candidate was scored, which verifier produced which score, which threshold fired, which evidence was checked, what action was taken, and how much budget remains. That record is what lets the team debug a bad accept or an expensive repair loop.',
-        'The cost-frontier view asks whether extra inference calls are buying accepted quality, lower risk, or only more expense. The knee and cap markers are practical. Once search has diminishing returns, the next dollar should improve the verifier, data, calibration, retrieval, or prompt contract instead of generating more candidates into the same weak scoring function.',
-      ],
-    },
-    {
-      heading: 'Core data structures',
-      paragraphs: [
-        'A robust verifier loop needs more than a final score. The decision packet should include candidate id, trace spans, score vector, score source, calibration band, threshold policy, domain risk, evidence refs, allowed actions, remaining budget, route reason, verifier version, and audit id. Those fields let the system replay why one answer shipped and another branch was pruned, which is the only way to debug false stops and expensive repairs.',
-        'The search ledger is the companion structure. Each candidate is live, pruned, repaired, accepted, or escalated. Each transition records token cost, latency cost, verifier scores, evidence pointers, and the policy rule that fired. Without that ledger, test-time scaling becomes expensive folklore.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A verifier-guided loop starts by generating one or more candidates. The system captures enough trace information to score them: final answer, intermediate reasoning if available, tool outputs, citations, constraints, schema validity, or domain-specific checks. Verifiers produce a score vector rather than one vague grade. For example: citation support, mathematical consistency, policy compliance, tool-call validity, uncertainty, and expected user value.',
-        'The policy layer turns those scores into actions. Low-risk supported answers can be accepted. A candidate with missing evidence can be repaired. Conflicting candidates can trigger branching or retrieval. A high-risk answer with uncertain verification can escalate. A route that has spent its budget can terminate with a conservative answer or a refusal. The key is that each transition is logged and reversible in analysis.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Verifier guidance works when the verifier is cheaper, narrower, or more reliable than asking the generator to solve the whole problem again. A citation checker can be narrower than a legal memo generator. A unit test can be narrower than a code agent. A schema validator can be deterministic. A process reward model can score partial reasoning steps before the final answer hides the mistake.',
-        'It also works because hard tasks often have a search structure. There may be several plausible proof paths, plans, citations, or patches. A verifier can prune some branches and concentrate compute on candidates that pass early checks. The danger is that a flawed verifier can concentrate compute in the wrong place, so calibration and audits are part of the algorithm.',
-      ],
-    },
-    {
-      heading: 'Complete case study: legal research agent',
-      paragraphs: [
-        'Suppose a legal research agent drafts an answer with citations. A cheap first pass builds candidate claims and source links. A citation verifier checks whether each claim is supported. A policy verifier checks jurisdiction, recency, and risk class. A process verifier checks whether the reasoning path depends on an unsupported premise. The route policy can accept low-risk supported claims, repair missing citations, branch on contradictory authority, or escalate high-risk conclusions.',
-        'The important engineering point is that every action is explicit. A false stop can hide the only valid branch. A weak citation checker can approve a polished hallucination. An unbounded repair loop can increase cost while only changing style. The control plane therefore caps attempts, keeps at least some diversity alive, records route reasons, and audits high-stakes answers after deployment.',
-      ],
-    },
-    {
-      heading: 'Research case studies',
-      paragraphs: [
-        'Process Reward Models & Verifier Search covers the training-side idea: process supervision labels intermediate steps and can outperform outcome-only supervision on mathematical reasoning. OpenAI\'s Let\'s Verify Step by Step reports that process supervision outperformed outcome supervision on the MATH setting and released PRM800K with 800,000 step-level labels: https://arxiv.org/abs/2305.20050 and https://github.com/openai/prm800k.',
-        'Tree of Thoughts turns language-model inference into deliberate search over thought units rather than one greedy path: https://arxiv.org/abs/2305.10601. Self-Consistency samples diverse reasoning paths and selects the most consistent final answer: https://arxiv.org/abs/2203.11171. Reward-Guided Tree Search for Inference Time Alignment, also called DARWIN, uses a reward model to guide inference-time search: https://aclanthology.org/2025.naacl-long.625/ and https://arxiv.org/abs/2406.15193.',
-        'Newer work also clarifies the danger. Scaling Flaws of Verifier-Guided Search finds that verifier-guided search can outperform repeated sampling at limited sample sizes but underperform as sample size grows when imperfect verifiers misrank or prune valid paths: https://arxiv.org/abs/2502.00271. Rewarding Progress reframes process rewards as progress signals and reports process advantage verifiers that improve test-time search efficiency over outcome reward models: https://arxiv.org/abs/2410.08146.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and controls',
-      paragraphs: [
-        'The main pitfall is Goodharting the verifier. If the generator learns phrases that the verifier likes, search can amplify a scoring flaw. If the verifier is uncalibrated, threshold rules can stop too early or overspend. If the verifier is out of distribution, it can confidently prune the only correct path. Calibration Curves, Threshold Optimization, Uncertainty Quantification, and Benchmark Variance Model Selection are not optional side topics; they are the measurement layer for this control plane.',
-        'The second pitfall is latency laundering. A verifier may reduce invalid outputs while increasing p99, token spend, and operational complexity. The exit metric should be cost per accepted answer at target latency and protected quality slices, not verifier score alone.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Process Reward Models & Verifier Search, Self-Consistency Reasoning Vote, Chain of Draft Reasoning Token Budget Case Study, Tree of Thoughts Search Case Study, Monte Carlo Tree Search & UCT Primer, LLM Inference Scaling Playbook, Early-Exit Transformer Layer Skipping, Speculative Decoding, Constrained Decoding, Calibration Curves, Picking a Threshold with Real Costs, Uncertainty Quantification, LLM Evaluation Golden Sets, Agentic AI Patterns, Deep Research Agent Architecture, Deep Research Evaluation System Case Study, Execution-as-a-Service Verifier Economy, Claim Graph & Source Ledger, and Distributed Tracing next.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the route graph as a control loop around generation. Active nodes show a candidate being generated, traced, verified, and routed; found nodes show a shipped answer and an audit record.',
+      'A verifier is a narrower checker for an answer, trace, citation, test result, or tool output. A control plane turns scores into actions such as accept, branch, repair, stop, or escalate.',
+      {type:'callout', text:'Verifier-guided inference turns test-time compute into an audited routing policy, not an uncontrolled request for more samples.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: ['Hard model tasks often improve when the system spends more inference-time compute. Without a policy, extra samples become extra cost and latency without a clear reason to stop.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is repeated sampling. Generate many answers, ask a judge to pick one, and hope the selected answer is better than the first attempt.'] },
+    { heading: 'The wall', paragraphs: ['The wall is that search amplifies the verifier, including its mistakes. A weak verifier can prune the only valid path or reward polished wrong text.'] },
+    { heading: 'The core insight', paragraphs: ['The core insight is to make the route decision the production object. The system needs candidate ids, verifier scores, thresholds, actions, budget, evidence, and verifier versions.'] },
+    { heading: 'How it works', paragraphs: ['The generator produces candidates with traces, tool outputs, citations, or structured state. Verifiers score narrower properties, and a policy maps score bands to accept, branch, repair, stronger model, or human review.'] },
+    { heading: 'Why it works', paragraphs: ['The method works when the verifier is cheaper, narrower, or more reliable than solving the whole task again. Unit tests, citation checks, schema validators, and process reward models can reject bad routes before more budget is spent.'] },
+    { heading: 'Cost and complexity', paragraphs: ['Cost behaves like search width times model cost plus verifier cost and repair loops. If one candidate costs 2,000 tokens and checking costs 700 tokens, six candidates cost 16,200 tokens before any repair.'] },
+    { heading: 'Real-world uses', paragraphs: ['Verifier guidance fits code agents with tests, math solvers with step checks, retrieval systems with source support, legal assistants with citation rules, and structured-output systems with schemas.'] },
+    { heading: 'Where it fails', paragraphs: ['It fails when the verifier is miscalibrated, easy to game, too correlated with the generator, or blind to the domain error that matters. Search then makes bad scoring more confident.'] },
+    { heading: 'Worked example', paragraphs: ['A code agent tries 6 patches, each costing 2,000 tokens, with 700 tokens of checks per patch. If 2 pass tests, 1 needs a small repair, and 3 fail behavior, a 20,000-token cap can rerank the passing patches and stop with a route ledger.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: Let us Verify Step by Step at https://arxiv.org/abs/2305.20050, Tree of Thoughts at https://arxiv.org/abs/2305.10601, Scaling Flaws of Verifier-Guided Search at https://arxiv.org/abs/2502.00271, and Rewarding Progress at https://arxiv.org/abs/2410.08146. Study calibration curves, threshold selection, Monte Carlo tree search, self-consistency, and claim-source ledgers next.'] },
   ],
 };

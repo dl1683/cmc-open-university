@@ -217,96 +217,91 @@ export function* run(input) {
 }
 
 export const article = {
-  references: [
-    { title: 'OpenROAD Global Placement Documentation', url: 'https://openroad.readthedocs.io/en/latest/main/src/gpl/README.html' },
-    { title: 'OpenROAD Detailed Placement Documentation', url: 'https://openroad.readthedocs.io/en/latest/main/src/dpl/README.html' },
-    { title: 'RePlAce Repository', url: 'https://github.com/The-OpenROAD-Project/RePlAce' },
-  ],
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `A synthesized netlist tells us which standard cells and macros exist and which pins are connected. It does not tell the foundry where those cells sit. Placement turns logical connectivity into coordinates on a real chip floorplan: rows have fixed heights, sites have legal x positions, macros and blockages occupy space, power rails impose orientation rules, and routing layers above the cells have limited capacity.`,
-        `The placement stage matters because later tools inherit its geometry. Static timing sees wire delay from physical distance. Clock-tree synthesis sees where sequential elements live. Global routing sees crowded macro channels. Power and thermal analysis see whether switching activity has been packed into one region.`,
-        `The reason placement is split into phases is that one phase cannot solve every constraint at full detail. Global placement uses approximate continuous coordinates and coarse density models. Legalization and detailed placement convert those targets into manufacturable row and site assignments.`,
+        'Read the animation as two coordinate systems for the same chip block. Global placement gives movable standard cells continuous x and y targets, while row legalization snaps those cells onto fixed rows and discrete placement sites. Active bins or cells are the current pressure points.',
+        'Visited row sites are occupancy facts already accounted for. Found markers show a legal or high-pressure state that the next phase must respect. The safe inference is that a legalizer may move cells, but it must preserve non-overlap, row compatibility, site alignment, and fixed blockages.',
         {type:'callout', text:`Placement succeeds by separating continuous optimization from discrete row legality, then measuring how much the repair moved the design.`},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/aa/Silicon_chip_3d.png', alt:'3D rendering of metal and polysilicon structures in a small standard cell.', caption:'3D view of a small integrated circuit standard cell. David Carron, Wikimedia Commons, public domain.'},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A synthesized netlist says which logic cells exist and which pins must connect. It does not say where those cells should sit on silicon. Placement turns logical connectivity into physical coordinates that routing, timing, power, and manufacturing rules can use.',
+        'The split between global placement and legalization exists because the useful optimization problem is smoother than the legal manufacturing problem. Global placement can reason about wirelength, density, congestion, and timing with approximate coordinates. Legalization then repairs the result into rows and sites that can actually be fabricated.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        `The reasonable first attempt is to put connected cells close together. If a net connects U1, U2, and U3, bringing those instances near each other usually reduces half-perimeter wirelength, lowers capacitance, and helps timing.`,
-        `That approach breaks when thousands or millions of movable instances all follow the same local rule. Connected cells pile into the same region, especially near high-fanout logic, IO pin clusters, SRAM macros, or timing-critical datapaths. A placement that optimizes only net length creates density overflow, pin-access pressure, routing congestion, and local hot spots.`,
-        `A second naive approach is to legalize greedily as each cell is placed: scan for the nearest free row site and drop the cell there. This commits too early. A locally nearest site for one cell may push a more critical neighbor far away, fragment a row, or preserve a bad global shape.`,
+        'The obvious approach is to place connected cells close together. If U1 drives U2, and U2 drives U3, short distances usually reduce wire capacitance and timing delay. That local rule works in a small hand layout.',
+        'At chip scale, the same rule creates piles. High-fanout logic, macro edges, IO regions, and timing-critical paths can pull too many cells into one area. A placement that minimizes local wirelength can be unroutable or illegal because physical area is finite.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is that the best mathematical position is often not a legal physical position. Global placement can represent a cell at x = 103.7 in the middle of another cell because that continuous coordinate helps the optimizer express force, density, and net-length gradients. Silicon cannot use that coordinate. The final instance must start on an allowed site, fit within a row, respect orientation, avoid fixed objects, and not overlap another instance.`,
-        `Legalization is hard because every repair has side effects. Sliding a cell right may fix one overlap and create another. Moving a cell to a new row may reduce row overflow and stretch a critical net. Spreading a dense region may relieve routing pressure and increase clock skew risk. Macro blockages break the simple model of one long free row.`,
-        `The most important failure mode is treating legalization as cleanup. It is part of the optimization loop. If legalization changes the design too much, the global placement was misleading. If it changes too little, the design may stay illegal. A good flow keeps displacement, timing impact, density, and routability visible while it repairs overlaps.`,
+        'The wall is that the best continuous coordinate can be illegal. A global placer may put a cell at x = 103.7 because that is where the force model balances, but the row grid may allow only integer site starts such as x = 100 or x = 104. Worse, another cell or macro blockage may already occupy that span.',
+        'Repair is not free. Moving one cell right can overlap another cell, moving it to a new row can stretch a critical net, and spreading a dense region can increase routing detours. Legalization is a constrained optimization step, not cosmetic cleanup.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to use two representations of the same design. The global placer sees a coarse geometric optimization problem: movable cells have target coordinates, nets have bounding boxes, density bins have capacity, and timing or routability weights modify the force on each instance. The legalizer sees a row/site packing problem: each row contains ordered intervals, blocked sites, fixed cells, and movable cells with preferred x positions.`,
-        `That separation gives each phase the right data structure. Density bins answer the question, "Which regions are overfull?" Net bounding boxes answer, "Which movements probably shorten wire?" Row occupancy structures answer, "Where can this cell legally start?" Clusters answer, "Which overlapping cells should move together because separating them one at a time would create unnecessary displacement?"`,
-        `An Abacus-style row legalizer is a useful mental model. Sort cells by global x target within a row. When a new cell overlaps the previous occupant, merge the touching cells into a cluster. Shift the cluster to the nearest legal span, then split or merge clusters as needed. The invariant is simple: committed cells are ordered, non-overlapping, and site-aligned while staying close to their global targets.`,
+        'Use different data structures for different phases. Density bins summarize regional area pressure, net bounding boxes estimate wirelength, timing weights pull critical paths, and row occupancy intervals answer what physical sites are free. No single structure captures all of those facts cheaply.',
+        'An Abacus-style legalizer makes the row problem concrete. Sort cells assigned to a row by target x, merge overlapping neighbors into clusters, shift each cluster to a legal span, and keep committed clusters ordered and non-overlapping. The invariant is legal occupancy with minimal local displacement.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
-        `A placement flow starts from a floorplan. Rows, sites, macros, IO pins, blockages, voltage areas, and keep-out margins define the legal region. The netlist supplies movable standard cells and connectivity. The global placer assigns approximate coordinates by minimizing a weighted objective, often combining wirelength, density overflow, timing pressure, and routability estimates. The output is useful but not manufacturable.`,
-        `Density bins give global placement its pressure field. If too much cell area wants to occupy a bin, the placer pushes instances away from that region. If a timing-critical chain is stretched too far, timing weights pull related cells back together. These forces compete. The score curve in the visualization shows why there is no single monotonic win: improving density can hurt wirelength, and improving wirelength can create overflow.`,
-        `Legalization then snaps cells to rows and sites. It chooses candidate rows near each cell target, checks blockages and row compatibility, builds clusters when cells overlap, and measures displacement cost. Detailed placement may follow with local swaps, shifts, and reordering to recover wirelength or timing without violating legality.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The density-bins view proves that placement is not sorting cells into empty boxes. The highlighted hot bins are evidence that local connectivity decisions have created regional pressure. The macro is not just another cell; it removes legal placement and routing area around it. The plot view shows the tradeoff directly: one objective can improve while another gets worse, so the placement database must carry all relevant evidence instead of one score.`,
-        `The row-legalization view proves the handoff from approximate geometry to legal occupancy. Floating cell centers become row intervals. Overlaps become cluster repairs. Blocked sites become hard constraints. The final graph keeps the important net relationships close to the original placement, but it also admits the truth: a legal placement is close to the global solution, not identical to it.`,
+        'The flow starts from a floorplan with rows, sites, macros, blockages, power domains, and IO pins. The global placer assigns approximate locations by repeatedly adjusting cells against wirelength, density, timing, and routability costs. The output is a strong hint, not a legal layout.',
+        'Legalization maps each movable cell to candidate rows near its target. It checks blocked intervals, row compatibility, site grid alignment, and overlap. Detailed placement can then perform small swaps or shifts to recover wirelength and timing while preserving legality.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument for legalization is an invariant argument. Within each processed row segment, cells are kept in legal order, aligned to sites, and non-overlapping. When cells or clusters overlap, merging them preserves relative order and computes a nearby legal cluster position. Boundary shifts restore legality without changing the ordering that prevents crossings inside the row.`,
-        `The reason this does not destroy global placement quality is locality. Most legal moves are small compared with the chip scale. The global stage already placed related cells near each other and spread density across regions. The legalizer mainly removes discretization and overlap errors. When displacement becomes large, that is a signal, not a harmless repair: the global placement may be overfull, the floorplan may be too tight, or a macro channel may need a different shape.`,
-        `The whole flow works because feedback connects phases. Timing analysis can increase weights on critical nets. Global routing can mark congested regions. Pin-access checks can penalize dense cell arrangements near macros. Legalization is not trusted blindly; it produces a manufacturable state that later analyses can challenge.`,
+        'Correctness for legalization is an invariant argument. After each row segment is processed, committed cells are site-aligned, inside legal row intervals, and non-overlapping. When two cells or clusters overlap, merging them preserves their relative order and computes a new legal cluster location.',
+        'Quality comes from locality, not from a proof of global optimality. The global placer has already found a useful shape for the netlist. If legalization displacement stays small, the repaired layout remains close to that shape. Large displacement is evidence that the floorplan, density target, or global placement needs another pass.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Global placement is dominated by repeated passes over cells, nets, and density bins. More cells increase force computation, more nets increase wirelength and timing updates, and finer bins increase density work. Good implementations keep these operations near linear or near-linear per iteration with sparse connectivity and incremental updates.`,
-        `Legalization is cheaper than global placement but still important at scale. Sorting cells by row or x position costs roughly O(n log n) when done directly, though flows can reduce this with existing order and partitioning. Row repair then walks ordered cells and clusters mostly linearly within row segments. Memory is spent on placement records, row occupancy, blockage intervals, net bounding boxes, bin maps, and analysis annotations.`,
-        `The tradeoff is that the phase split hides exact constraints from global optimization. A smoother model is easier to optimize, but it can lie near hard physical boundaries. A more exact model catches legality earlier, but it is harder to solve globally. Production flows choose a middle path: approximate early, legalize locally, analyze, and repair.`,
+        'Global placement is dominated by repeated passes over cells, nets, and density bins. If cell count doubles with similar net degree, each iteration roughly doubles its graph work and bin updates. More timing corners and congestion estimates add heavier constants.',
+        'Legalization usually sorts or buckets cells by row and x position, then walks row segments and clusters. Direct sorting is O(n log n), while the repair walk is close to linear after ordering. Memory is spent on cell records, row intervals, bin maps, net bounding boxes, timing annotations, and blockage data.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Row legalization is the right tool whenever a standard-cell block has a plausible global placement that must be made manufacturable. It wins because standard cells share row structure: same-height cells fit into repeated placement rows, site grids give discrete x positions, and most repairs are local. The data layout matches the physical fabric.`,
-        `It is also useful as a diagnostic surface. Large displacement points to overfull regions. Repeated row failures point to floorplan blockages or utilization that is too aggressive. Timing damage after legalization points to critical cells that need stronger constraints, buffering, or local refinement. The legalizer is both a repair algorithm and a measurement tool for placement quality.`,
+        'This is the standard shape of digital physical design. OpenROAD, commercial EDA tools, and research placers all separate approximate global placement from legal and detailed placement because chip blocks are too large for one exact solve.',
+        'The access pattern is iterative analysis. Timing analysis can raise weights on critical nets, routing estimates can mark congested regions, and legalizer displacement can signal overfull areas. Placement is useful because it produces a physical state that later tools can challenge.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `Legal placement is not the same as routable placement. A design can have no overlaps and still fail because pins are inaccessible, macro channels are saturated, via resources are scarce, or timing paths cannot tolerate the needed detours. Legalization also struggles when global placement is too compressed; no local algorithm can place more cell area into a row segment than the segment physically holds.`,
-        `The technique is the wrong mental model for large fixed macros, analog blocks, memories, and floorplanning choices that change the shape of the available space. It also becomes more complex with multi-height cells, power domains, mixed threshold-voltage constraints, scan-chain ordering, and local clocking rules. In those cases, row legalization is one component inside a broader physical-design loop, not a complete placement answer.`,
+        'It fails when the global model lies too much. If bins are too coarse, macro channels are too tight, pin access is ignored, or timing weights arrive late, legalization can produce a legal layout that is still unroutable or too slow. A legal coordinate is not a closed design.',
+        'It also fails near hard constraints. Fixed macros, voltage-area boundaries, clock cells, multi-height cells, and power-grid rules break the simple picture of identical cells in long rows. Production flows need special cases and feedback loops for those boundaries.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study global routing next because routability is one of the strongest feedback signals into placement. Study static timing analysis to understand why two placements with similar wirelength can have different slack. Study interval trees and sweep-line algorithms for row occupancy and overlap detection. Study dynamic AABB trees or R-trees for spatial indexing around macros and blockages.`,
-        `Primary sources for this page are OpenROAD global placement documentation at https://openroad.readthedocs.io/en/latest/main/src/gpl/README.html, OpenROAD detailed placement documentation at https://openroad.readthedocs.io/en/latest/main/src/dpl/README.html, and the RePlAce repository at https://github.com/The-OpenROAD-Project/RePlAce. Read them with the phase split in mind: continuous placement creates a target; legalization turns the target into a legal row/site state; later routing and timing decide whether the target was good enough.`,
+        'Assume one row has sites 0 through 19, and each site is 1 unit wide. U1 has width 4 and target x = 5.2, U2 has width 3 and target x = 7.0, and U3 has width 5 and target x = 10.1. Rounding alone gives spans 5..8, 7..9, and 10..14, so U1 and U2 overlap.',
+        'A cluster legalizer merges U1 and U2 into a 7-site cluster and places it near the weighted target, for example 5..11 with U1 at 5..8 and U2 at 9..11. U3 at 12..16 then avoids overlap with 1.9 sites of displacement from its target. The row becomes legal, and the cost is the measured displacement and any wirelength damage.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources start with OpenROAD global placement at https://openroad.readthedocs.io/en/latest/main/src/gpl/README.html. Then read OpenROAD detailed placement at https://openroad.readthedocs.io/en/latest/main/src/dpl/README.html and the RePlAce repository at https://github.com/The-OpenROAD-Project/RePlAce.',
+        'Study Half-Perimeter Wirelength for net cost and Static Timing Analysis Timing Graph for timing pressure. Then connect placement to Global Routing, Clock Tree Synthesis, and Interval Scheduling for the constraints that appear after legalization.',
       ],
     },
   ],

@@ -1,4 +1,4 @@
-﻿// Case study: Meta's Code World Model. The reusable idea is execution
+// Case study: Meta's Code World Model. The reusable idea is execution
 // grounding: train on state transitions, not only static code text.
 
 import { matrixState, InputError } from '../core/state.js';
@@ -224,166 +224,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'Read each frame as a comparison between three learning surfaces: static code, execution traces, and agent trajectories. The active cell is the signal being explained. The found cell is the system asset that survives beyond one benchmark result.',
-        'In the execution-grounding view, rows are kinds of training data and columns are what the model can observe, learn, and still miss. In the portability view, rows are system boundaries that change when an agent leaves the training harness.',
-        {
-          type: 'note',
-          text: 'The animation is not saying traces are magic. It is showing a contract: an action is only useful supervision when the before state, after state, and verifier are all well defined.',
-        },
-        'At each frame, ask one question: what state transition became visible that a static code corpus would have forced the model to infer indirectly?',
+        'Read each frame as a comparison between static code text, execution traces, and agent trajectories. Static code shows files and tokens. An execution trace shows before state, action, after state, and verifier result. An agent trajectory extends that idea to files, commands, tests, and edits.',
+        'The active cell is the signal being explained, and the found cell is the reusable asset that survives one benchmark run. The safe inference is that an action is useful supervision only when the environment state and success check are well defined. A final patch without the failing run and passing run is weaker evidence.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Most code models start with text. They see files, comments, imports, diffs, issue descriptions, and patches. That teaches syntax and many repair patterns, but software is not only a sequence of tokens. A program is a state machine: variables change, heap objects alias, stack frames appear, exceptions redirect control flow, tests observe behavior, and shell commands mutate files.',
-        'Meta CWM is a useful case study because it turns that distinction into a training system. The paper describes a 32B open-weights coding model mid-trained on observation-action trajectories from Python interpreter traces and agentic Docker environments, then post-trained with reasoning and reinforcement learning in verifiable tasks. The reported model is still a transformer language model, but the supervision is closer to "predict the next state" than plain "predict the next token."',
-        {
-          type: 'quote',
-          attribution: 'FAIR CodeGen team, CWM paper, 2025',
-          text: 'what code does when executed',
-        },
-        'That short phrase is the whole educational point. If a learner understands CWM only as another benchmark table, they miss the reusable design pattern: when a domain has state, actions, and an oracle, the best data often records the transition process rather than only the final answer.',
+        'Code models start from text: repositories, comments, docs, diffs, issues, and patches. That teaches syntax and common repairs, but software is a running state machine. Variables change, objects alias, stack frames appear, exceptions redirect control flow, tests observe behavior, and shell commands mutate files.',
+        'Code world models exist to train on those state changes directly. A world model predicts how an environment changes after an action. For code, the environment can include local variables, files, terminal output, test results, containers, dependencies, and tool responses.',
         {type:'callout', text:'Code world models matter because execution traces teach causal state transitions that static code text only implies.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The reasonable first attempt is large-scale static code training. Collect repositories, package docs, issues, commits, pull requests, accepted contest solutions, failing tests, and final patches. Train the model to predict code and text. This works well enough to produce useful autocomplete, code explanation, boilerplate generation, and many simple bug fixes.',
-        'It is not a foolish baseline. Static corpora contain real style, API usage, naming conventions, common data structures, project layout, and repair idioms. A diff often encodes a solved problem: one version failed, the next version passed. For many tasks, that final patch is enough signal.',
-        {
-          type: 'bullets',
-          items: [
-            'Static code teaches what valid code looks like.',
-            'Diffs teach common edit shapes.',
-            'Issue-to-patch pairs teach coarse task intent.',
-            'Documentation teaches names and expected API behavior.',
-            'None of those directly records each runtime state change.',
-          ],
-        },
+        'The obvious approach is large-scale static code training. Collect repositories, accepted contest solutions, package docs, issue-to-patch pairs, and pull requests, then train the model to predict code and text. This produces useful autocomplete, explanations, boilerplate, and many simple fixes.',
+        'That baseline is strong because static corpora contain real API usage, naming patterns, imports, project layout, and repair idioms. A diff often encodes a solved problem. For many tasks, the final patch is enough signal to teach a useful pattern.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is hidden state. A static patch can show that "append(x[-1] + 2)" was added, but it does not show the intermediate list before the append, the value read from x[-1], the new list after mutation, or which branch was skipped. The model can guess those facts from patterns, but it is not being supervised on the machine transition itself.',
-        'This matters most in code because many bugs live in operational details. Aliasing changes one object through two names. A loop invariant fails only after the third iteration. A try block catches one exception but leaks another. A shell command changes the working tree before the next command runs. A patch passes one visible test and fails a hidden one. Text alone leaves all of that as implied structure.',
-        {
-          type: 'table',
-          headers: ['Training signal', 'What it exposes', 'What remains weak'],
-          rows: [
-            ['Static repository text', 'Syntax, idioms, imports, naming, local context', 'Runtime state, branch outcomes, mutation effects'],
-            ['Issue-to-patch diff', 'Task wording and final repair shape', 'Why the old behavior failed and which evidence proved the fix'],
-            ['Python execution trace', 'Line-level before/action/after state', 'Long-horizon planning and non-Python environments'],
-            ['Agent trajectory', 'Read, edit, run, fail, retry, verify loop', 'Portability across tools, shells, edit grammars, and oracles'],
-          ],
-        },
+        'The wall is hidden state. A patch can show that "append(x[-1] + 2)" was added, but it does not show the list before the append, the value read from x[-1], the list after mutation, or which branch was skipped. The model can infer those facts, but static text does not supervise the transition itself.',
+        'This matters because many bugs live in operational details. Aliasing changes one object through two names, a loop invariant can fail after the third iteration, and a shell command can change the working tree before the next command. A patch may pass visible tests and fail hidden tests, so text alone leaves the important runtime facts implicit.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'CWM treats code as a world-modeling problem. A world model predicts how an environment changes after an action. For code, the environment includes local variables, stack frames, files, terminal output, tests, containers, dependencies, and tool responses. The action can be a Python statement, a shell command, a file edit, or a submitted patch.',
-        'The invariant is simple: a useful trace preserves a causal triple. There is a before state, an action chosen under that state, and an after state checked by an executor or oracle. If any side is missing, the supervision becomes weaker. Without before state, the model cannot know what preconditions made the action legal. Without after state, it cannot learn the effect. Without verification, it cannot distinguish a plausible repair from a working one.',
-        {
-          type: 'diagram',
-          alt: 'Execution-grounded training converts code into before-action-after trajectories checked by a verifier.',
-          label: 'Execution grounding as a data structure',
-          body: '  static corpus\n      |\n      v\n  source context\n      |\n      v\n  before state  --action-->  after state\n      |                         |\n      +--------- verifier -------+\n                  |\n                  v\n        trusted trajectory record\n\nA training example is valuable when the record can be replayed\nor checked well enough to preserve this causal chain.',
-          text: '  static corpus\n      |\n      v\n  source context\n      |\n      v\n  before state  --action-->  after state\n      |                         |\n      +--------- verifier -------+\n                  |\n                  v\n        trusted trajectory record\n\nA training example is valuable when the record can be replayed\nor checked well enough to preserve this causal chain.',
-        },
+        'The core insight is to make the causal triple explicit: before state, action, after state. A verifier checks whether the after state is acceptable. Without before state, the model cannot know why the action was legal; without after state, it cannot learn the effect; without verification, it cannot distinguish a plausible repair from a working one.',
+        'For a Python trace, the action may be one statement and the state may be local variables. For an agent trace, the action may be reading a file, applying an edit, or running a test, while the state is the repository plus tools. The same structure applies at different scales.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The paper describes two important mid-training signals. The first is Python execution tracing: actions are Python statements, and observations include local-variable state around those statements. The second is ForagerAgent data: an agent interacts with Dockerized software environments through file views, edits, and shell-like commands. Both turn software work into observation-action sequences.',
-        'A minimal trace can be expressed as structured records. The model sees source context plus a sequence of state transitions. It can learn that "append" mutates an existing list, that "return" ends the frame, and that an exception interrupts the normal path. Those are not comments about code; they are executable consequences.',
-        {
-          type: 'code',
-          language: 'javascript',
-          body: "const trace = [\n  {\n    before: { x: [] },\n    action: 'x.append(1)',\n    after: { x: [1] },\n    event: 'line'\n  },\n  {\n    before: { x: [1] },\n    action: 'x.append(x[x.length - 1] + 2)',\n    after: { x: [1, 3] },\n    event: 'line'\n  },\n  {\n    before: { x: [1, 3] },\n    action: 'return x',\n    after: { result: [1, 3] },\n    event: 'return'\n  }\n];",
-          text: "const trace = [\n  {\n    before: { x: [] },\n    action: 'x.append(1)',\n    after: { x: [1] },\n    event: 'line'\n  },\n  {\n    before: { x: [1] },\n    action: 'x.append(x[x.length - 1] + 2)',\n    after: { x: [1, 3] },\n    event: 'line'\n  },\n  {\n    before: { x: [1, 3] },\n    action: 'return x',\n    after: { result: [1, 3] },\n    event: 'return'\n  }\n];",
-        },
-        'Agent trajectories add another scale. The state is no longer one stack frame; it is the repository plus tools. The action might be "open this file," "run this test," or "apply this patch." The observation might be a compiler error, failed assertion, lint output, diff, or passing test. That teaches the repair loop: inspect evidence, make a hypothesis, change code, and check the result.',
+        'A trace generator runs code under instrumentation and records selected state around each step. It may record locals, return values, exceptions, branch outcomes, stdout, stderr, and test results. The model trains on sequences that connect source context to observed consequences.',
+        'An agent-data generator runs tasks in a container or sandbox. The trace records observations, file reads, edits, commands, failures, retries, and verifier results. The model sees not only the final diff but the evidence loop that produced it: inspect, hypothesize, edit, run, and check.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Execution traces work because they put the missing invariant into the data. For each recorded step, the after state must be the result of applying the action to the before state under the executor. The model is trained against that operational rule thousands or millions of times, so it gets direct pressure to represent mutation, control flow, return values, and error paths.',
-        'Agent trajectories work for the same reason at a larger boundary. A good trajectory connects a task to a sequence of evidence-producing operations. Running tests is not decoration; it is the oracle that tells the system whether the current patch satisfies the task. File reads are not context stuffing; they decide which state the next edit is conditioned on.',
-        'The correctness argument is not that the model becomes a perfect interpreter. It is that the training objective aligns better with the actual job. A coding agent must predict consequences: if I edit this branch condition, which tests change? If I run this command, what evidence will I get? If I choose this patch, what new failure might appear? Trace data supervises those consequence predictions more directly than final text alone.',
+        'Execution traces work because they put the missing invariant into the data. For each recorded step, the after state must be the result of applying the action to the before state under the executor. Repeating that pressure teaches mutation, control flow, return values, and error paths more directly than static code alone.',
+        'The correctness claim is modest. The model does not become a perfect interpreter. It receives training signal aligned with the actual coding-agent job: predict consequences, choose useful actions, and use verifier feedback. A patch that passes because the oracle is weak is still weak training data.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Execution-grounded data is expensive because every example needs an environment, not just a document. The paper reports building executable repository images, tracing Python programs, collecting agent interactions, filtering data, and training across pre-training, mid-training, supervised fine-tuning, and RL. The cost drivers are container build reliability, dependency rot, instrumentation overhead, trace storage, duplicate filtering, and verifier quality.',
-        {
-          type: 'table',
-          headers: ['Asset', 'Cost driver', 'Failure if neglected'],
-          rows: [
-            ['Executable repository image', 'Dependencies, system packages, CI assumptions', 'Tasks fail before the model can learn anything useful'],
-            ['Trace instrumentation', 'Capturing enough state without huge logs', 'Transitions become incomplete or too expensive to store'],
-            ['Oracle or test suite', 'Flakiness, coverage gaps, hidden behavior', 'Bad patches look successful'],
-            ['Trajectory dedupe', 'Near-identical command and edit sequences', 'The model memorizes rituals instead of operations'],
-            ['Refresh pipeline', 'Repos, dependencies, and benchmarks change', 'Training data becomes stale or benchmark-specific'],
-          ],
-        },
-        'When input size doubles, text-only training mostly doubles tokens. Execution-grounded training can more than double work because setup, execution, trace capture, and validation also scale. One repository can produce many traces, but each trace inherits the fragility of the environment that generated it.',
-        {
-          type: 'note',
-          text: 'The scarce data structure is not "a trace." It is a replayable, licensed, deduplicated, verified trajectory whose state boundary is clear enough to teach the intended operation.',
-        },
+        'Execution-grounded data is expensive because every example needs an environment, not just a document. Container builds fail, dependencies rot, tests are flaky, instrumentation adds overhead, and traces can become huge. Doubling text tokens mostly doubles text processing, but doubling executable tasks can more than double setup, run, capture, and validation work.',
+        'Suppose one repository image takes 6 minutes to build and each traced task takes 30 seconds to run. One hundred tasks cost about 56 minutes of wall-clock worker time before filtering, storage, and training. If 20 percent fail for environment reasons, the data pipeline must either repair those environments or avoid turning setup failures into model lessons.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'The CWM pattern wins when the environment gives crisp feedback. Unit-test repair, compiler-error fixing, type-error correction, runtime exception debugging, contest programming, data-pipeline validation, migration scripts, and benchmark optimization all have an executor and a reasonably objective success signal.',
-        'The same idea transfers outside code only when the state/action/oracle triangle survives. A financial simulator can expose portfolio state, trades, and backtest results. A robotics simulator can expose pose, action, collision, and task completion. A legal workflow can expose document state and rule checks, but the oracle is weaker because legal judgment is not the same as passing a deterministic test.',
-        {
-          type: 'bullets',
-          items: [
-            'Use execution grounding when actions have observable effects.',
-            'Use it when failures can be replayed.',
-            'Use it when the oracle is cheaper than human review.',
-            'Use it when static examples hide the state transition that matters.',
-          ],
-        },
+        'The pattern wins where the environment gives crisp feedback. Unit-test repair, compiler-error fixing, type-error correction, runtime exception debugging, migration scripts, contest programming, and data-pipeline validation all have actions whose effects can be observed. The verifier is what turns activity into supervision.',
+        'The idea can transfer outside code only when the state-action-oracle triangle survives. A simulator can expose portfolio state and trades, or robot pose and collisions. A legal workflow can expose document state and rule checks, but the oracle is weaker because judgment is not the same as a deterministic test.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The first tax is portability. A model can learn the habits of one harness: a particular shell, edit command, timeout, repository layout, test runner, or patch format. Move it to a new agent interface and the learned sequence may no longer be legal. That is why the animation highlights tool restrictions, edit grammar, and harness changes as system failures rather than minor deployment details.',
-        'The second tax is incomplete state. Python local variables do not capture global services, filesystem races, network calls, randomness, permissions, clock time, GPU nondeterminism, or hidden tests. A trajectory that omits those dependencies may be locally true and globally misleading.',
-        'The third tax is benchmark optimism. The reported CWM numbers are model-plus-system measurements: prompts, tools, test-time scaling, verifier, dataset, and timeout all matter. A benchmark score can show that an execution-grounded agent loop works under one contract; it does not prove the same behavior will transfer to every software organization.',
+        'It fails when the trace omits important state. Local Python variables do not capture network calls, hidden services, filesystem races, time, randomness, permissions, GPU nondeterminism, or hidden tests. A trajectory can be locally true and globally misleading.',
+        'It also fails through harness overfitting. A model may learn one shell, edit command, timeout, repository layout, or patch grammar. Move it to another agent interface and the learned sequence may no longer be legal. Portability is a system property, not a benchmark score.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose a task says: "fix makeSeries so it returns [1, 3]." Static code shows only a candidate function. A trace-grounded agent records the failing behavior before it edits anything.',
-        {
-          type: 'diagram',
-          alt: 'A failing function is repaired by preserving each observed state transition through a test oracle.',
-          label: 'From failure to verified repair',
-          body: '  task: makeSeries() should return [1, 3]\n\n  run test\n    before: source has x.append(2)\n    after:  observed [1, 2]\n    oracle: fail, expected [1, 3]\n\n  edit\n    action: replace 2 with x[-1] + 2\n\n  run test\n    before: patched source\n    after:  observed [1, 3]\n    oracle: pass\n\nThe useful record is the whole chain, not just the final diff.',
-          text: '  task: makeSeries() should return [1, 3]\n\n  run test\n    before: source has x.append(2)\n    after:  observed [1, 2]\n    oracle: fail, expected [1, 3]\n\n  edit\n    action: replace 2 with x[-1] + 2\n\n  run test\n    before: patched source\n    after:  observed [1, 3]\n    oracle: pass\n\nThe useful record is the whole chain, not just the final diff.',
-        },
-        'The lesson is not that this toy bug is hard. The lesson is the shape of the record. The failing run proves the old behavior. The edit names the intervention. The passing run proves the new behavior under the same oracle. A verifier factory tries to create this shape at repository scale.',
+        'Suppose makeSeries should return [1, 3] but currently returns [1, 2]. Static training may show only the final diff from "append(2)" to "append(x[-1] + 2)." A trace-grounded record first runs the failing test, records output [1, 2], applies the edit, then records passing output [1, 3].',
+        'The useful numbers are small but concrete. The before state is x = [1], the bad action is append(2), the observed after state is [1, 2], and the expected after state is [1, 3]. The repaired action reads x[-1] = 1 and writes 1 + 2 = 3. The verifier passes because the output now matches the expected list.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: "CWM: An Open-Weights LLM for Research on Code Generation with World Models" (arXiv:2510.02387). The paper reports CWM as a dense 32B decoder-only model, trained with context up to 131k tokens, mid-trained on Python execution traces and agentic Docker-environment trajectories, and evaluated on coding and reasoning benchmarks including SWE-bench Verified and LiveCodeBench.',
-        'Study next by role. For data provenance, read Verified Agent Trajectory Store and Agent Trajectory Dedupe & Provenance Hash. For the state representation, read Execution Trace State Diff Case Study and Dynamic Scratchpad Execution Trace Case Study. For planning around the model, read Tree of Thoughts Search Case Study, Monte Carlo Tree Search & UCT Primer, and Process Reward Models & Verifier Search. For portability, read Abstract Agent Operation Graph and Agent Interface Portability Audit.',
+        'Primary source: "CWM: An Open-Weights LLM for Research on Code Generation with World Models" (arXiv:2510.02387). Read it for the distinction between static code data, Python execution traces, agent trajectories, supervised fine-tuning, and reinforcement learning. Treat benchmark numbers as model-plus-harness results, not proof that every coding environment transfers.',
+        'Study execution trace state diffs, dynamic scratchpads, verified agent trajectory stores, trajectory deduplication, process reward models, tree search, and agent interface portability next. The recurring question is whether the trace preserves enough state to make the action and verifier meaningful.',
       ],
     },
   ],
 };
-

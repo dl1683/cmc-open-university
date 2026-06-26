@@ -308,75 +308,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Target encoding converts a categorical value into a statistic of the target for that value. Instead of giving merchant_42 a one-hot column, encode it as the smoothed fraud rate observed for merchant_42. Instead of one-hotting publisher_id, encode it as historical click-through rate. This is a compact, high-signal data structure: category key -> sum, count, prior, smoothing policy, timestamp or fold boundary, and version.',
-        'The danger is built into the name: the encoder uses y. If a training row receives a statistic that includes its own label, the row has leaked part of the answer into its features. High-cardinality categories make this especially bad. A near-unique user_id can become an almost perfect label copier unless the encoding is ordered, cross-fitted, smoothed, or replaced by a safer native categorical method. Feature Hashing Signed Projection Primer is the sibling option when you need bounded memory and streaming rather than label-rate statistics.',
+        'Read the animation as the state machine for leakage-safe target encoding. Active items are the current decision point, found items are committed results, and removed items are paths ruled out by the invariant. The first safe inference is to name what state changed and why that move is legal.',
         {type: 'callout', text: 'Safe target encoding treats every row label as forbidden input for that row, using folds, time order, and smoothing to preserve signal without leakage.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4b/KfoldCV.gif', alt: 'Animated diagram of 3-fold cross-validation with training and testing folds rotating across observations.', caption: 'K-fold cross-validation diagram by MBanuelos22, Wikimedia Commons, CC BY-SA 4.0.'},
+        'This topic is a case study, so the visual is not decoration. It shows which records, counters, queues, maps, or gates must agree before the system can return a trustworthy result.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'Why this exists',
       paragraphs: [
-        'Every edge into the encoder map is a possible leak path. A safe encoding can use other rows, earlier rows, or other folds; it cannot use the target from the row being encoded.',
-        'In the cross-fit view, the held-out fold is the correctness boundary. The encoder map is fit without that fold, applied to that fold, and then rotated until every training row has an out-of-fold value. The invariant is simple: no row may help compute its own feature value.',
+        'leakage-safe target encoding exists because a simple implementation works on a small example but fails when scale, latency, privacy, or correctness constraints arrive. The system needs a data structure that keeps the useful fast path without hiding the boundary conditions.',
+        'The practical problem is not only speed. Cost, auditability, rollback, freshness, and slice-level behavior all affect whether the design is usable in production.',
       ],
     },
     {
-      heading: 'The data structure',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A target encoder is a keyed aggregate map. For binary classification, each category stores positive_count, total_count, and a global prior. A smoothed value can be read as (positive_count + prior_weight * global_rate) / (total_count + prior_weight). Regression uses sums and counts. Multiclass encoders can emit one statistic per class. The implementation is usually a hash map offline, but the production contract is closer to a model artifact: the map must be versioned, reproducible, and tied to the split policy that produced it.',
-        'CatBoost-style ordered target statistics add an ordering dimension to the map. CatBoost documentation describes permuting input objects and computing categorical statistics in that order, where counts include only objects that already have the value calculated. That turns the full-dataset aggregate into a prefix aggregate. Prefix maps are the central anti-leak move: row i can use previous rows, but not row i itself.',
+        'The obvious approach is to keep one global rule, one score, one cache, one dashboard, or one list. That is easy to build and easy to explain. It often works until traffic shape or correctness requirements become more specific.',
+        'The next obvious approach is to add capacity or widen the search. That may improve the average case, but it usually fails to encode the rule that decides which work is allowed, fresh, fair, or safe.',
       ],
     },
     {
-      heading: 'Ordered and cross-fitted encodings',
+      heading: 'The wall',
       paragraphs: [
-        'There are two common honesty patterns. Ordered encoding uses a permutation or real time order, then computes each row from prior rows only. Cross-fitted encoding splits training data into k folds, fits the category map on k-1 folds, transforms the held-out fold, and concatenates the out-of-fold encodings. Both enforce the same invariant: the row being encoded did not contribute its own target to the statistic it receives.',
-        'scikit-learn TargetEncoder makes this distinction explicit. Its documentation discourages plain fit followed by transform on training data because it can introduce leakage, while fit_transform uses a cross-fitting scheme for training encodings. The associated example shows why: without cross-fitting, high-cardinality uninformative features can receive exaggerated downstream weight and overfit badly.',
+        'The wall is the missing boundary. A system can look correct globally while a narrow slice is wrong, stale, unfair, or too expensive. Once the boundary is missing, more throughput can make the failure faster.',
+        'The concrete failure is usually visible as mixed state: one version reads another version cache, one user receives another user answer, one queue loses priority, or one metric hides a failing slice. The design needs an invariant that prevents that mixture.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to make the boundary a first-class data structure in leakage-safe target encoding. Keys, clocks, queues, ledgers, folds, or gates are not metadata; they are the mechanism that preserves correctness.',
+        'The invariant should be checkable from stored state. If an operator cannot reconstruct why a result was allowed, denied, filled, scored, or rolled back, the system is relying on memory instead of design.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The mechanism starts by normalizing the input into records with stable identities. It then routes those records through the smallest structure that can answer the current decision: a map lookup, ordered queue, version gate, slice table, or witness search.',
+        'Each step writes enough state for the next step to be local. Local means a cancel finds one order id, a cache gate checks one record, a rollout query joins one packet id, or a checker advances one legal candidate. That locality is what turns a broad problem into an executable workflow.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Ordered and cross-fitted encodings work because they make the training feature generation resemble prediction time. At prediction time, the model never knows the label of the row it is scoring. A safe training encoder preserves that ignorance while still using historical or out-of-fold aggregate signal.',
-        'Smoothing works because rare categories are noisy. A merchant with one fraud event should not receive a perfect fraud-rate feature. Pulling the category statistic toward a global or segment prior reduces variance and prevents rare ids from becoming memorized labels.',
+        'The correctness argument is preservation. Before a step, the invariant names which records may interact. The step reads only allowed state, writes the result, and leaves the invariant true for the next step.',
+        'This is stronger than a dashboard claim. A dashboard can show an average after the fact; the invariant prevents an illegal result from being served in the first place. When the invariant fails, the system should produce a denial, rollback, miss, or counterexample instead of a quiet answer.',
       ],
     },
     {
-      heading: 'Complete case study: marketplace fraud',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A marketplace fraud model has merchant_id, buyer_region, card_bin, shipping_zip, device_family, order_amount, and a delayed fraud label. merchant_id has 900,000 possible values, so one-hot encoding is too wide. A naive SQL target encoding groups all training rows by merchant_id, computes fraud_rate, joins it back, and reports excellent validation AUC. The score is fake if the join used each order fraud label to encode that same order, or if chargeback labels from the future updated earlier rows.',
-        'The leakage-safe version uses temporal cross-fitting. For a prediction at time t, the merchant statistic is computed from orders and labels available before t, smoothed toward the global fraud prior and bounded by a minimum count. Group folds keep the same merchant family from crossing the wall if the business problem requires cold-merchant generalization. The encoder map is deployed with the model, unknown merchants fall back to the global or segment prior, and monitoring tracks unseen-category rate, rare-category volume, and drift in encoded rates.',
+        'The main cost is extra state. Maps, ledgers, clocks, slice tags, fold maps, queues, and audit rows consume memory and engineering time. The payoff is that expensive work becomes targeted instead of global.',
+        'Cost behaves with the number of records, versions, slices, or live candidates. Doubling traffic does not only double compute; it can double cache pressure, queue length, audit rows, or search width. The dominant operation is the one on the hot path for the real workload.',
       ],
     },
     {
-      heading: 'Complete case study: ad click prediction',
+      heading: 'Real-world uses',
       paragraphs: [
-        'An ad ranking system has publisher_id, campaign_id, creative_id, geography, device, and hour. The target is click or no click. Target encoding campaign_id as historical CTR is useful, but only if the historical window matches serving. If the training encoder uses full-week clicks to predict Monday morning impressions, the model learned from the future. If the encoder is refreshed every hour in production but backfilled daily for training, training-serving skew can dominate the model.',
-        'A robust design treats the encoder like a feature store feature. The offline map is point-in-time: for each impression, use only clicks and impressions that had arrived before that impression. The online map is a low-latency counter table with the same decay, smoothing, and fallback logic. The model registry records encoder version, data snapshot, delay policy, and smoothing parameters. That connects this topic directly to Feature Store, Point-in-Time Feature Join Index, and Training-Serving Skew Replay Diff.',
+        'leakage-safe target encoding fits systems where correctness is operational, not just mathematical. Fraud models, retrieval systems, matching engines, model-serving stacks, evaluation gates, and rollout systems all need stored evidence for why one result was chosen.',
+        'The access pattern determines fit. Repeated decisions benefit from maps and caches, ordered fairness needs queues and sequence numbers, release safety needs ledgers, and concurrent correctness needs histories that can be searched.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Do not run target encoding before the train/test split. Do not compute a global category mean and join it back to the same rows. Do not use random folds when entities, time, or groups define the real leakage boundary. Do not let rare categories become perfect rules. Do not deploy a model without the encoder map version it was trained with. And do not assume every library uses the same categorical strategy: CatBoost ordered Ctrs, scikit-learn cross-fitted TargetEncoder, and LightGBM native categorical splits solve adjacent but different engineering problems.',
-        'The method is also weak for cold-start categories unless the fallback policy is good. Unknown keys need a global prior, segment prior, hierarchy, hash fallback, or native categorical handling. If unseen-category rate rises after launch, the model may still run but its most useful categorical feature has gone stale.',
+        'It fails when the boundary is chosen for convenience instead of the product promise. Random folds fail for time-forward prediction, global canaries fail for slice-specific regressions, and similarity search fails when authorization is the real question.',
+        'It also fails when evidence is not versioned. A stale record can be more dangerous than a miss because it looks supported. The design needs no-store, deny, rollback, or human-review paths for cases outside the invariant.',
       ],
     },
     {
-      heading: 'Operational checklist',
+      heading: 'Worked example',
       paragraphs: [
-        'Version the encoder as part of the model, not as a casual preprocessing step. Record the aggregation window, fold policy, time cutoff, smoothing strength, prior, unknown-category fallback, and source tables. A model cannot be reproduced if its category map is missing or rebuilt with a different label horizon.',
-        'Monitor the feature, not only the model score. Track unknown-category rate, low-count-category volume, shifts in encoded means, delayed-label backfill, and differences between offline point-in-time values and online serving values. Most target-encoding failures look like ordinary model drift until the feature pipeline is inspected closely.',
-        'Decide what the category means operationally. A merchant id, user id, publisher id, and zip code age differently, leak differently, and need different fallback rules. The fold or time boundary should follow that business meaning, not the convenience of a random split.',
+        'Suppose the global fraud rate is 2%, prior_weight is 20, and merchant A has 8 fraud labels in 100 allowed past orders. The smoothed value is (8 + 20 * 0.02) / (100 + 20) = 8.4 / 120 = 0.07. The model sees 7% risk, not the raw 8%.',
+        'Merchant B has 1 fraud label in 1 allowed order. The raw rate is 100%, but the smoothed value is (1 + 20 * 0.02) / (1 + 20) = 1.4 / 21 = 0.0667. One event no longer becomes a perfect fraud rule.',
+        'In a 1000000-row, 5-fold training set, each row receives an encoding computed from about 800000 other rows. The validation estimate is less inflated because no row donates its own label to its own feature.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: CatBoost categorical transformation docs at https://catboost.ai/docs/en/concepts/algorithm-main-stages_cat-to-numberic, CatBoost categorical feature docs at https://catboost.ai/docs/en/features/categorical-features, CatBoost paper at https://arxiv.org/abs/1706.09516, scikit-learn TargetEncoder docs at https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.TargetEncoder.html, scikit-learn TargetEncoder cross-fitting example at https://scikit-learn.org/stable/auto_examples/preprocessing/plot_target_encoder_cross_val.html, and LightGBM categorical feature docs at https://lightgbm.readthedocs.io/en/latest/Advanced-Topics.html. Study Data Leakage & Contamination, Cross-Validation & Honest Evaluation, Tabular Feature-Basis Orientation Primer, Feature Hashing Signed Projection Primer, Tabular Deep Learning vs GBDT Case Study, Gradient Boosting, Feature Store, Point-in-Time Feature Join Index, and Benchmark Variance & Model Selection next.',
+        'Primary sources: CatBoost categorical docs at https://catboost.ai/docs/en/features/categorical-features, CatBoost paper at https://arxiv.org/abs/1706.09516, scikit-learn TargetEncoder docs at https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.TargetEncoder.html, and LightGBM categorical feature docs at https://lightgbm.readthedocs.io/en/latest/Advanced-Topics.html. Study Data Leakage and Contamination, Cross-Validation and Honest Evaluation, Feature Store, and Point-in-Time Feature Join Index next.',
       ],
     },
   ],

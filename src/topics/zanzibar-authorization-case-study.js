@@ -1,4 +1,4 @@
-﻿// Zanzibar case study: global authorization with relationship tuples,
+// Zanzibar case study: global authorization with relationship tuples,
 // namespace configs, recursive checks, caveats around freshness, and zookies.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -185,162 +185,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Zanzibar Authorization Case Study. Google Zanzibar as an authorization-system lesson: relation tuples, recursive checks, consistency tokens, and graph-shaped permissions..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-        {type: "callout", text: "Zanzibar turns authorization into relationship graph evaluation with explicit freshness, so access is a data and consistency problem rather than scattered service logic."},
+        'Read the animation as an authorization check over a relationship graph. Active nodes are the relation or tuple being evaluated now, compare nodes are possible paths not yet proven, and found nodes are paths that already justify access. A safe inference is this: an allow decision is valid only if a path from subject to permission exists in the chosen snapshot.',
+        'A tuple is one stored relationship, such as document D has viewer team ML. A userset is a set of users named by a relation, such as the members of team ML. A zookie is an opaque freshness token that tells the checker how new the snapshot must be.',
+        {type: 'callout', text: 'Zanzibar turns authorization into relationship graph evaluation with explicit freshness, so access is a data and consistency problem rather than scattered service logic.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Zanzibar exists because modern authorization is too large and too subtle for scattered if statements. A collaboration product may have users, groups, folders, documents, organizations, public links, inherited permissions, owners, editors, viewers, and temporary grants. A single page load can need many access checks, and a single revocation can become a privacy incident if stale permissions are accepted.`,
-        `The core problem is not only deciding allow or deny. It is deciding allow or deny for billions of objects, across many services, with low latency, explainable policy, global replication, cache pressure, and consistency requirements after grants and revokes. Zanzibar is the case study that turns fine-grained authorization into a systems problem: data model, schema language, recursive graph evaluation, consistency tokens, storage, caching, and operational audit all have to work together.`,
+        'Modern products have permissions that depend on relationships. Alice can view a document because she belongs to a group, the group can view a folder, and the folder contains the document. That is not a single role on Alice; it is a path through data.',
+        'Zanzibar exists because every service writing its own permission logic creates inconsistent answers. A revoke that reaches Drive but not Photos would be a privacy bug. The system needs one data model, one checker, and one consistency contract for many products.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The naive approach is to put authorization logic inside each service. A document service has an ACL table. A folder service has inheritance rules. A team service has group membership. A sharing service has links. Each product writes its own checks, caches its own answers, and tries to remember every edge case. This starts simple and then becomes untestable. Different services interpret policy differently, and a permission change may take effect in one path but not another.`,
-        `A second naive approach is role-based access control with a few global roles. That works for coarse systems, but it does not express relationship-heavy products well. "Alice can view doc D because she is a member of team ML, which is viewer on folder F, which is parent of doc D" is not a simple global role. It is a path through a relationship graph.`,
-        `A third naive approach is to cache answers aggressively and hope the cache expires soon. That creates the new-enemy problem: after access is revoked, a user who should no longer see the object may still get an allow answer from an old snapshot. Authorization caching has to be tied to a freshness contract, not only a time-to-live.`,
+        'The obvious approach is to put access-control lists in each product database. A document service checks document rows, a group service checks membership rows, and a sharing service checks link rows. This starts simple because each team owns its own tables.',
+        'The approach weakens when policies compose. A document permission may depend on a folder, a group, and an organization rule. If each service caches one piece differently, the final answer can be fast but wrong.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is stale permission after change. If Bob is removed from team ML at 10:00 and can still read a confidential document at 10:01 because one cache is old, the system has failed. Authorization cannot treat freshness as an afterthought.',
+        'The other wall is negative proof. To deny Bob, the checker must fail to find any valid path under the schema, not only fail one direct lookup. Deep groups and inherited folders make that search expensive unless the data model and cache keys are built for it.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to represent authorization as relationship data plus schema, then evaluate checks as graph queries. The basic record is a tuple: object, relation, user or userset. For example, team:ml has member user:alice. Folder F has viewer team:ml#member. Doc D has parent folder:F. A userset such as team:ml#member means "the users who are members of team ML."`,
-        `Namespace configuration tells the system how relations compose into permissions. Owner may imply editor. Editor may imply viewer. A document may inherit viewers from its parent folder. A group relation may expand into its members. The check engine asks whether a subject belongs to the userset defined by a permission on an object. That is why Zanzibar-style authorization is often described as relationship-based access control.`,
-        `This separates product policy from service code. Product teams define namespaces and write relationship tuples. The authorization service stores the tuples, expands usersets, applies the schema, observes consistency rules, and returns an answer. The product can evolve policy without copying graph traversal logic into every backend.`,
-      ],
-    },
-    {
-      heading: 'How checks work',
-      paragraphs: [
-        `A check request has a subject, an object, a permission, and a desired consistency level. "Can alice view doc:D?" starts by expanding the view permission for doc:D using the document namespace. The definition may include direct viewers, owners, editors, public links, or inherited viewers from a parent folder. Each clause becomes a search over relationship tuples.`,
-        `If the check reaches a tuple that names alice directly, it can return allow for that branch. If it reaches a userset, the engine recursively expands that userset. Team membership, folder inheritance, organization membership, and nested groups all become edges in a graph. The engine needs cycle handling, depth limits, cache keys, and short-circuit rules because real relationship graphs can be large and uneven.`,
-        `Zanzibar also supports consistency tokens called zookies. After a client observes a permission write, it can carry a zookie into later checks. The check should not be answered from a snapshot older than the one the client has already observed. That gives clients a way to ask for an answer that is fresh enough for the current user flow, instead of pretending all replicas are instantly current.`,
-        `The result is a distributed graph evaluator with a storage and consistency contract. It is not just an ACL table. It is a query engine for authorization state.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `It works because the data model is uniform. Users, groups, folders, documents, and organizations can all be represented as objects with relations. Direct permissions and inherited permissions are both tuples plus schema. That uniformity lets one service answer many product-specific questions without every product inventing a new access-control engine.`,
-        `It also works because usersets compose. A tuple does not need to point only to one concrete user. It can point to another relation. That makes nested groups, folder inheritance, and sharing through teams expressible as graph reachability. The engine can evaluate the same model recursively and cache repeated subproblems.`,
-        `The consistency model works because freshness is explicit. Some checks can tolerate a slightly older snapshot. Others, especially after revocation or during a write-followed-by-read flow, require an answer at least as fresh as a known token. Zanzibar exposes that distinction instead of hiding replication lag behind a single endpoint.`,
+        'The core insight is to store permissions as relationship tuples and evaluate access as graph reachability. A tuple has an object, a relation, and a subject or userset. For example, doc:Q has parent folder:F, folder:F has viewer team:ML#member, and team:ML has member user:alice.',
+        'Schema defines how relations imply permissions. Owner may imply editor, editor may imply viewer, and parent folders may grant inherited viewing. The checker follows those rules until it either finds the user in the target userset or exhausts the valid paths.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `The relationship graph visual proves that an allow decision can be a path, not a row lookup. Alice is allowed because alice is a member of team:ml, team:ml#member is viewer on folder:F, and folder:F is a parent that grants view on doc:D. The edge labels are the policy. The traversal is the proof.`,
-        `The tuple matrix proves the important modeling move: the third column can be a user or a userset. That is what lets the system point from one relation to another. The consistency visual proves that the answer is not complete unless the system can say what snapshot it used. The zookie is part of the authorization result because freshness is part of correctness.`,
+        'A check request names a subject, an object, a permission, and a freshness requirement. For can Alice view doc Q, the checker expands the view permission for doc Q. It tries direct viewers, implied editors, inherited parent viewers, and usersets named by tuples.',
+        'If the checker reaches team:ML#member, it recursively checks whether Alice belongs to that userset. Cache entries can store subproblem answers, but each answer must be tied to a snapshot or freshness rule. The zookie lets a client say that a later check must be at least as fresh as a write it already observed.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Why it works',
       paragraphs: [
-        `The cost is graph work under latency pressure. A check may fan out through groups, folders, and inherited relations. Hot groups can appear in many checks. Deep nesting can consume budget. Cycles must be detected. Negative answers may be expensive because the engine has to prove that no valid path exists within the schema.`,
-        `Caching is both necessary and dangerous. Low latency needs cached tuple reads, cached subproblem answers, and local replicas. Revocation safety needs freshness. A stale deny after a grant is usually frustrating. A stale allow after a revoke can expose private data. Production systems need explicit consistency choices, invalidation streams, tuple-versioning discipline, and observability for why a cache entry was trusted.`,
-        `Schema design is another tradeoff. A flexible namespace language lets products model real policy, but it also lets teams create confusing inheritance, privilege escalation, or checks that are too expensive. A serious Zanzibar-style deployment needs schema review, depth limits, explain tools, static analysis where possible, and runtime budgets.`,
+        'Correctness comes from separating policy meaning from product code. The schema says which paths count, the tuple store says which relationships exist, and the checker applies the same traversal rule for every service. If a path exists in the required snapshot, allow is justified by data rather than by scattered if statements.',
+        'Freshness is part of correctness. A cached allow from an old snapshot is not correct after a revoke that the user flow has observed. By making the snapshot requirement explicit, Zanzibar can trade latency against consistency without hiding that trade inside a cache.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The main time cost is graph fanout. If a document inherits from 5 folders and each folder points to 20 groups, a check can create 100 membership subchecks before caching. A deny can be more expensive than an allow because the engine must rule out every valid path within the budget.',
+        'The space cost is tuples, indexes, cached subproblems, and consistency metadata. Doubling the number of relationships roughly doubles the stored tuple data, but it can more than double hot-check load if schema fanout grows too. Production systems need depth limits, cycle handling, and explain traces for expensive answers.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Zanzibar-style systems are used or imitated in document sharing, cloud IAM, enterprise SaaS permissions, collaboration tools, organization membership, consumer media sharing, and fine-grained authorization platforms such as OpenFGA and SpiceDB. The pattern is useful whenever permissions depend on relationships rather than a few global roles.`,
-        `The model is also central to enterprise AI. A RAG system should not retrieve private documents and ask the model to ignore unauthorized text. It should use authorization checks before or during retrieval, filter candidates by the current user, and log which relationship path allowed each document into context. In AI systems, Zanzibar is part of the data boundary, not a final UI check.`,
+        'Zanzibar-style systems fit document sharing, cloud IAM, enterprise SaaS permissions, media libraries, organization membership, and fine-grained authorization platforms such as OpenFGA and SpiceDB. The common shape is relationship-based access control, where access depends on edges between objects and users. A global role table is too coarse for that shape.',
+        'The same model matters for retrieval-augmented generation. A search system should not fetch private documents and hope the model ignores them. It should filter candidates through authorization before text enters context, then log which relationship path allowed each document.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The first failure mode is bad schema design. A relation may imply too much, inheritance may flow farther than intended, or a public-link relation may bypass a product rule. The second is unbounded traversal. Nested groups and parent chains can create checks that are correct in theory but too slow in practice. The third is stale authorization after revocation. This is the failure Zanzibar's consistency model is designed to make explicit.`,
-        `The fourth failure mode is poor explainability. Users and support teams need to know why access was allowed or denied. Without an explain path, authorization becomes a black box and policy bugs are hard to fix. The fifth is list-query mismatch. "Can Alice view doc D?" is not the same as "which docs can Alice view?" A production system often needs check, expand, lookup, list, and watch APIs, each with its own cost profile.`,
-        `A Zanzibar-style system also does not decide product policy for you. It provides a powerful representation and evaluator. Humans still have to define the policy, review the schema, manage migrations, and decide which consistency level each user flow requires.`,
+        'It fails when policy is not really graph-shaped. A rule such as allow only during business hours from a managed device is attribute and context logic, not just relationship reachability. A Zanzibar-style checker may need to work beside a policy engine rather than replace it.',
+        'It also fails under bad schema design. A relation can imply too much, a parent edge can inherit farther than intended, and a public-link relation can bypass a product rule. The checker can evaluate the schema faithfully while the schema itself encodes the wrong policy.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study the Zanzibar paper beside Graph BFS, Cache Invalidation and Versioning, Spanner, Distributed Tracing, Transaction Isolation Levels, Capability Security and Attenuation, OPA Rego Policy Decision Graph, UCAN Delegation Proof Chain, and Clocks and Ordering from Lamport to TrueTime. The point is to see authorization as a composition of graph search, storage consistency, and policy language design.`,
-        `For practice, model a document product with users, groups, folders, and documents. Write tuples for direct owners, group membership, folder parents, and inherited viewers. Then answer three questions: can Alice view doc D, why can Alice view doc D, and what must become fresh after Alice is removed from the group? If the model cannot answer all three clearly, it is not ready for production authorization.`,
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Suppose doc:Q has parent folder:F, folder:F has viewer team:ML#member, and team:ML has member user:alice. The check can alice view doc:Q starts at doc:Q view, follows parent to folder:F, follows viewer to team:ML#member, and then finds Alice in team ML. That four-edge path is the reason for allow.',
+        'Now remove Alice from team ML at tuple version 50. If a later read carries a zookie requiring version at least 50, a checker using snapshot 49 cannot safely answer allow. It must read a fresher snapshot or fail the consistency requirement, because the old path may no longer exist.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Start with Pang et al., Zanzibar: Google\'s Consistent, Global Authorization System, at https://www.usenix.org/conference/atc19/presentation/pang. Then read OpenFGA and SpiceDB documentation as implementation descendants, while keeping the paper as the primary system design source.',
+        'Study Graph BFS for reachability, Cache Invalidation for stale answers, Spanner Case Study for globally consistent storage, OPA Rego Policy Decision Graph for rule-based policy, and UCAN Delegation Proof Chain for a contrasting capability model.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Zanzibar Authorization Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

@@ -187,115 +187,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A robot motion plan lives in continuous configuration space. Grid search can work for small maps, but a robot arm, drone, or car may have many degrees of freedom. Discretizing every dimension finely becomes impossible.',
-        'Sampling-based planners avoid filling the whole space. They probe it. RRT* grows a tree through valid states and improves that tree over time.',
+        'Read the tree as a record of legal local motions, not as decorative lines. A node is a robot state, an edge is a collision-checked move between two states, and the active node is the state being tested against nearby parents.',
+        'The important visual event is rewiring. When a new state gives an old neighbor a cheaper path from the start, the parent pointer changes and the cost stored at that neighbor drops without invalidating any checked edge.',
         {type:'callout', text:'RRT* converts random exploration into improving motion plans by rewiring the tree whenever a cheaper local connection becomes available.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/62/Rapidly-exploring_Random_Tree_%28RRT%29_500x373.gif', alt:'Animated rapidly exploring random tree growing through a two-dimensional space.', caption:'Animated RRT growth by Javed Hossain, CC BY-SA 3.0, via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'The obvious wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'A grid planner discretizes space and searches cells. That works for small two-dimensional maps, but it breaks down when the robot has many joints or continuous constraints. Every extra degree of freedom multiplies the grid.',
-        'A pure random search also fails because random valid states do not automatically form a usable path. RRT* solves the wall by growing a connected tree of valid local motions while using randomness to explore the continuous space.',
+        'Motion planning asks for a path through configuration space, the set of all states a robot can occupy. A two-joint arm already has a two-dimensional space, a six-joint arm has six dimensions, and a mobile robot with heading has position plus orientation.',
+        'The planner must find a collision-free path before the world changes or the control system needs a command. RRT*, short for Rapidly-exploring Random Tree star, exists because continuous spaces are too large to enumerate but can often be sampled.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to draw a grid over the space and run A* or Dijkstra on the grid cells. That is reasonable in a small two-dimensional map because each cell has a few neighbors and collision checks are simple.',
+        'It also gives a clean correctness story: if the grid resolution is accepted as the world, graph search can find the cheapest grid path. The hidden assumption is that the grid is small enough and fine enough at the same time.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is dimensionality. If one dimension uses 100 bins, two dimensions use 10,000 cells, six dimensions use 1,000,000,000,000 cells, and most of those cells may never matter to the final path.',
+        'A second wall is geometry. Narrow passages, robot footprints, joint limits, and obstacles make the useful states a thin subset of the full space, so a uniform grid spends most work proving that irrelevant cells are empty or blocked.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'RRT finds a path by pulling a tree toward random samples. RRT* adds a cost invariant: when a new node is inserted, choose the best nearby parent and then rewire nearby nodes if the new route is cheaper.',
-        'The tree is both a search structure and a proof artifact. Every edge in the tree has been checked for collision, and every node knows its parent and accumulated cost.',
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        "In the tree-growth view, read every accepted edge as a collision-checked motion, not just a line. The tree is a record of feasible local motions from the start state.",
-        "In the rewire view, watch parent pointers and cost-to-come. RRT* improves because it is willing to change earlier local decisions when a new sample creates a cheaper route through the same free space.",
+        'RRT* replaces exhaustive enumeration with a growing tree of feasible motions. Random samples pull the tree into unexplored free space, and nearby-neighbor searches decide where the new state should connect.',
+        'The star in RRT* is the cost invariant. Each node stores the cheapest known path cost through the current tree, and rewiring repairs earlier parent choices when a later sample exposes a cheaper local route.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Sample a state. Find nearby tree nodes. Steer from a candidate parent toward the sample. Collision-check the edge. Insert the new node if the motion is valid. Then inspect nearby nodes and change their parent when routing through the new node lowers cost without creating a collision.',
-        'In the manipulator case, early samples may produce a rough path around an obstacle. More samples reveal shorter connections. Rewiring lowers path cost while preserving the collision-free edge invariant.',
+        'Each iteration samples a candidate state, finds nearby tree nodes, steers from one of those nodes toward the sample, and collision-checks that local edge. If the edge is valid, the candidate enters the tree with a parent and a cost-to-come, which means total cost from the start.',
+        'RRT* then checks nearby existing nodes. If routing one of them through the new node is cheaper and the connecting edge is valid, that old node changes parent and its descendants inherit lower path costs.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The planner is probabilistic. Random samples eventually cover more of the reachable free space. The nearest-neighbor and steering steps connect those samples into a tree. Collision checks prevent invalid edges from entering the plan.',
-        'RRT* improves on RRT because rewiring can repair earlier greedy choices. As samples grow, the tree has more opportunities to route through cheaper local neighborhoods.',
-        'The important guarantee is asymptotic, not immediate. With enough samples and the right conditions, RRT* approaches an optimal path. In a real robot, the planner usually stops early under a time budget, so the returned path is a best-so-far artifact with a validity timestamp.',
+        'The feasibility argument is an invariant: every edge in the tree has passed the collision checker, so every root-to-node path is collision-free in the modeled world. Rewiring never breaks that invariant because it only installs a new parent after checking the replacement edge.',
+        'The improvement argument is monotonic for stored best-known tree costs. A node keeps its old parent unless a valid cheaper route appears, so rewiring can lower known cost but cannot make a recorded node path invalid.',
+        'The optimality claim is asymptotic, which means it appears as sample count grows under the required assumptions. In a real robot, a timeout returns the best valid path found so far, not proof that no better physical path exists.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Runtime is usually dominated by nearest-neighbor search and collision checking. A better spatial index can help, but collision checking against robot geometry and obstacles often remains the expensive part.',
-        'RRT* is anytime: it can return a feasible path early and improve it with more time. That is useful in robotics, where a decent path now can be more valuable than an optimal path too late.',
+        'With n samples, the expensive work is nearest-neighbor search, neighborhood scans, and collision checking. A naive nearest-neighbor search costs O(n) per sample, while a spatial index can reduce typical lookup cost but adds maintenance and metric limits.',
+        'Cost behaves like a budget trade. Doubling the sample count can improve path quality, but it also roughly doubles collision-check opportunities and increases the number of neighbors considered during rewiring.',
+        'Memory is O(n) for nodes, parent pointers, costs, and edge metadata. In practice, collision checking often dominates CPU time because it touches robot geometry, obstacle maps, and joint constraints.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'RRT* works well in high-dimensional continuous spaces where grid planning is too expensive and where collision checking can answer whether a sampled edge is valid.',
-        'It also wins when an anytime planner is useful. The system can take an early feasible path, keep improving while time remains, and hand the controller a path that is valid under the current map and robot model.',
+        'RRT* fits robot arms, warehouse robots, drones, and autonomous-vehicle subsystems when the state space is continuous and a collision checker is available. It is useful when a quick feasible path is valuable and extra planning time can improve path length or clearance.',
+        'It also appears in simulation and planning benchmarks because it separates two hard problems cleanly: sampling the space and validating local motion. A stack can use RRT* for global geometric planning, then pass the result to smoothing, time-parameterization, and control.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'RRT* struggles with narrow passages, bad distance metrics, dynamic obstacles, stale maps, and systems where kinematic feasibility is not enough. A path that ignores velocity, acceleration, traction, or timing may be geometrically valid and physically useless.',
-        'It can also fail quietly when the collision checker is wrong. If the robot footprint, map frame, obstacle inflation, or joint limits are stale, the tree may prove feasibility in the wrong world.',
+        'RRT* fails when the distance metric lies about the robot. A car, drone, or arm with dynamics may be unable to execute a geometrically short connection even though the edge is collision-free.',
+        'It also struggles in narrow passages because random samples may rarely land in the small region that matters. Bad obstacle inflation, stale map frames, wrong joint limits, or an incomplete collision model can make the tree prove safety in the wrong world.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A warehouse robot starts on one side of a shelf and needs to reach a dock. RRT quickly finds a zig-zag path around the shelf by sampling free states and connecting valid edges. That path is feasible but long.',
-        'As more samples arrive, one new sample near a corridor opening lets several old nodes rewire through a shorter route. The states did not change; the parent pointers did. That is the RRT* distinction: improve the tree, not only grow it.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Define the state space, distance metric, steering function, collision checker, and cost function before tuning sample counts. A beautiful tree in the wrong metric can still produce bad robot behavior.',
-        'Use a nearest-neighbor index when sample counts grow. Keep collision checking conservative and frame-consistent. Store parent, cost-to-come, and edge validity for every accepted node so rewiring cannot create an invalid path.',
-        'Smooth or time-parameterize the returned path before execution when the robot needs velocity, acceleration, or dynamic feasibility. RRT* solves geometric planning unless the state and cost model explicitly include dynamics.',
-      ],
-    },
-    {
-      heading: 'Rule of thumb',
-      paragraphs: [
-        'Use RRT* when the search space is continuous, high-dimensional, and collision checking is available, and when an anytime planner is acceptable. It is strongest when a quick feasible path is useful and extra time can improve cost.',
-        'Do not confuse asymptotic optimality with a real-time guarantee. A planner stopped after 200 milliseconds returns the best tree it has, not a proof that no better path exists.',
-      ],
-    },
-    {
-      heading: 'What to watch in production',
-      paragraphs: [
-        'The planner is only as good as its world model. Bad obstacle inflation, stale map frames, wrong robot footprint, or missing joint limits can make an invalid path look valid. Treat collision-checker configuration as safety-critical data.',
-        'Monitor planning time, first-feasible time, final path cost, collision-check count, nearest-neighbor time, failure reason, and how much smoothing changed the path. Those metrics tell you whether the planner is exploring badly, checking too expensively, or returning rough paths that the controller has to repair.',
-        'Also log seeds for failures. Sampling planners can be hard to debug because two runs differ. Reproducible seeds turn a rare bad plan into a case the team can inspect.',
-      ],
-    },
-    {
-      heading: 'Common misconception',
-      paragraphs: [
-        'The misconception is that RRT* is just RRT with a cleanup pass. The rewiring step changes the nature of the tree. Each new sample can improve old routes, so the structure is not only exploring free space; it is maintaining a cost-aware approximation of better paths through that space.',
-        'Another misconception is that a prettier geometric path is automatically executable. Many robots need curvature limits, acceleration limits, dynamic feasibility, and controller tracking margin. RRT* can be part of that pipeline, but the state and edge checker must include the constraints the robot actually obeys.',
-        'The planner should also be judged against alternatives. A* on a grid, PRM roadmaps, trajectory optimization, and lattice planners all have domains where they are cleaner. RRT* is strongest when sampling continuous free space is easier than enumerating it.',
-        'That is why good robotics stacks treat RRT* as one component. The global planner proposes a route, local planners and controllers make it smooth and executable, and perception keeps updating whether the world still matches the assumptions behind the tree.',
+        'A warehouse robot must move from (0, 0) to (10, 0) around a shelf that blocks x from 4 to 6 and y from -1 to 1. A first feasible tree might route through (2, 3), (7, 3), and (10, 0), for a path length near 12.2 meters.',
+        'After 500 samples, a new node at (5, 1.4) connects two old branches with valid clearance. Rewiring changes the route to (0, 0), (3.8, 1.5), (6.2, 1.5), and (10, 0), lowering length to about 10.6 meters while preserving the collision-checked edge invariant.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: OMPL RRTstar class reference at https://ompl.kavrakilab.org/classompl_1_1geometric_1_1RRTstar.html and MoveIt OMPL planner tutorial at https://moveit.picknik.ai/humble/doc/examples/ompl_interface/ompl_interface_tutorial.html.',
-        'Study A* Search for discrete shortest paths, Quadtree Spatial Index for spatial pruning, Nav2 Costmap Inflation Layer for robot planning costs, Delaunay/Voronoi for geometric roadmaps, and Dynamic AABB Tree Broadphase for collision candidate pruning.',
+        'Primary sources: OMPL RRTstar class reference at https://ompl.kavrakilab.org/classompl_1_1geometric_1_1RRTstar.html and the RRT* paper by Karaman and Frazzoli at https://arxiv.org/abs/1105.1186. Study A* search for the discrete contrast, probabilistic roadmaps for another sampling planner, and collision broadphase structures for the cost hidden inside each edge check.',
       ],
     },
   ],

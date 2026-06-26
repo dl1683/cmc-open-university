@@ -209,11 +209,17 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read every memory request as an address that must be mapped to physical resources before bytes can move. The visual path from stack to channel to pseudo-channel to bank to row is the path where parallelism is either created or destroyed.',
+        'Active banks or pseudo-channels are schedulable now. A safe inference is that two requests can overlap only when the address map and timing rules put them on independent resources, or when they hit the same open row without forcing a row switch.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'HBM exists because accelerators need far more memory bandwidth than ordinary off-package DRAM paths can provide. Transformer training, inference decode, graph analytics, stencil kernels, and vector databases can all become memory-bandwidth problems before they become arithmetic problems.',
-        'The mistake is to imagine HBM as one giant fast bucket. A request is not sent to HBM in the abstract. It is mapped through a hierarchy: stack, channel, pseudo-channel, bank group, bank, row, and controller queue. Peak bandwidth appears only when requests spread across those independently schedulable resources.',
-        'That makes this a data-structure topic, not just a hardware topic. The controller is maintaining queues, address maps, row state, refresh debt, fairness counters, and thermal limits. If those structures line up with the workload, the accelerator sees bandwidth. If they do not, advertised bandwidth stays theoretical.',
+        'High Bandwidth Memory, or HBM, exists because accelerators can consume data faster than ordinary off-package memory can feed them. Transformer inference, training, graph analytics, and simulations often wait on bytes before they wait on arithmetic.',
+        'HBM is not one giant fast bucket. A request is routed through stacks, channels, pseudo-channels, bank groups, banks, rows, controller queues, refresh windows, and thermal limits.',
         {type:'callout', text:'HBM bandwidth is earned by scheduling independent resources well: address maps, queues, banks, rows, refresh, and thermals decide whether peak throughput appears.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/62/AMD%4028nm%40GCN_3th_gen%40Fiji%40Radeon_R9_Nano%40SPMRC_REA0356A-1539_215-0862120_DSC04466_%2829461603171%29.jpg', alt:'Radeon R9 Nano graphics card showing GPU package and HBM memory stacks.', caption:'AMD Radeon R9 Nano package with HBM memory. Fritzchens Fritz, Wikimedia Commons, CC0.'},
       ],
@@ -221,75 +227,76 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to treat the memory datasheet as the performance model. If the package advertises huge bandwidth, the kernel should be fed. When the kernel stalls, the blame moves to compute, compiler, or model architecture.',
-        'That fails because advertised bandwidth is a best-case aggregate. Bad address mapping can pin traffic to one pseudo-channel or bank group. Row misses, refresh, read/write turns, fairness, and thermal limits can all remove issue slots while compute is ready to consume data.',
-        'Another shortcut is to optimize only for locality. Row hits are valuable, but a scheduler that serves one row-local stream forever can starve other queues. HBM performance is a balance between locality, spread, fairness, maintenance, and thermals.',
+        'The obvious approach is to read the bandwidth number on the datasheet and treat it as the speed the kernel will see. If the package advertises enormous bandwidth, then a memory-bound kernel appears to be solved by buying that package.',
+        'Another reasonable first attempt is to optimize only for locality. Keeping a row open helps, so a scheduler might keep serving row hits from one stream before considering other queues.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is independent-resource utilization under timing rules. Pseudo-channels increase the number of places the controller can schedule work, but only if the address map and request stream expose enough parallelism.',
-        'The controller first maps each request to stack, channel, pseudo-channel, bank, and row. Then the scheduler chooses whether to issue a row hit, precharge and activate another row, drain writes, reserve refresh, or throttle for temperature and power.',
-        'A good HBM mental model is a priority queue under physical constraints. Every request has an address, type, age, row-hit status, bank conflict status, and quality-of-service context. The scheduler is constantly deciding which request can be issued now without violating DRAM timing or starving another class of work.',
+        'The wall is resource skew. A stride pattern, tensor layout, allocator, or hash function can send too much traffic to one pseudo-channel or bank while the rest of the stack has idle capacity.',
+        'Pure locality also hits a wall because fairness and maintenance are real. A scheduler that serves row hits forever can starve other streams, delay writes, miss refresh timing, or push the stack into thermal throttling.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is independent-resource utilization under physical timing rules. HBM gives many lanes, but the controller must expose enough address diversity and issue work without violating row, bank, refresh, power, and temperature constraints.',
+        'The scheduler is a priority queue with hardware rules attached. Each request carries address, operation type, age, row-hit status, bank conflict status, quality-of-service context, and sometimes stream ownership.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'An HBM request enters a memory-controller queue as a read, write, DMA transfer, prefetch, page fill, or kernel-generated stream. Address mapping assigns it to a stack, channel, pseudo-channel, bank, and row. That mapping decides whether many requests can proceed in parallel or collide on one hot resource.',
-        'If the target row is already open in a bank, the request may be a row hit and can be cheap to serve. If another row is open, the controller may need precharge and activate operations before it can access the new row. Those timing rules make issue order matter.',
-        'Pseudo-channels expose more scheduling slots by splitting channel resources. They help only when the request stream is diverse enough. A tensor layout, stride pattern, or hash function that concentrates traffic can underuse the stack even when many streams exist.',
-        'Refresh and thermal management steal slots because DRAM cells need maintenance and HBM stacks operate inside power and temperature envelopes. These are not failures; they are part of the real schedule.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The stack-hierarchy view proves that HBM is a hierarchy, not one scalar bandwidth number. The path from request to stack, channel, pseudo-channel, bank, and row is the path where parallelism is either created or destroyed.',
-        'The bandwidth plot proves the difference between spread and skew. More streams help when they distribute across independent resources. If address mapping sends them to the same pseudo-channel or bank, the curve flattens far below peak.',
-        'The scheduler ledger proves what operators should measure: row-hit rate, read/write turns, refresh debt, fairness age, temperature, and throttling. Without that evidence, HBM stalls look like generic GPU underutilization.',
-        'The row-hit frame also proves why order matters. Two requests to the same open row can be cheap together, while two requests to different rows in the same bank may force expensive turnarounds. The scheduler is trying to preserve locality without letting one stream monopolize the device.',
+        'A memory request enters the controller as a read, write, DMA transfer, page fill, prefetch, or kernel-generated access. Address mapping assigns it to a stack, channel, pseudo-channel, bank, and row.',
+        'If the target row is already open, the request can be a row hit and is cheaper to serve. If a different row is open in the same bank, the controller must close one row and activate another before the access can proceed.',
+        'Pseudo-channels split scheduling resources so more independent work can be issued. They help only when the workload distributes requests across them rather than concentrating traffic on one hot path.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'HBM works by putting many DRAM resources close to the accelerator and exposing enough independent lanes that the controller can keep several operations in flight. The wide interface matters, but the scheduler has to feed it with compatible requests.',
-        'Row-buffer locality works because keeping a row open avoids some activation cost. Bank-level parallelism works because independent banks can make progress while another bank waits. Pseudo-channeling works because it gives the controller more granular scheduling resources.',
-        'The speedup appears when software and hardware cooperate. Tensor layout, tiling, batching, prefetching, cache policy, and address mapping decide whether the memory stream is spread, row-friendly, and fair enough for the controller to exploit.',
+        'HBM works when the controller has enough independent ready work to hide the waiting time of any one bank or row. While one bank is activating a row, another bank or pseudo-channel can serve a compatible request.',
+        'Row locality works because an open row avoids repeated activation. Bank-level parallelism works because separate banks have separate timing state, so a stall in one bank does not always stall the stack.',
+        'The correctness argument is a scheduling invariant: every issued command must respect DRAM timing and ownership rules, and every queued request must eventually either issue, be cancelled, or be throttled by a declared policy. Bandwidth is the result of satisfying that invariant while keeping many resources busy.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'HBM is expensive in package complexity, capacity, power, and supply. It gives enormous bandwidth close to compute, but it is not as cheap or deep as external memory. That is why model serving still worries about KV-cache pressure, quantization, paging, and offload.',
-        'Scheduler policy is also a tradeoff. Favoring row hits improves locality but can hurt fairness. Draining writes can improve bus turnaround behavior but delay reads. Strict QoS can protect latency-sensitive streams while reducing aggregate throughput.',
-        'Thermal and power limits matter because HBM sits physically close to compute. A memory-bound kernel can become part of the thermal budget, and throttling can reduce throughput even when the code and address map look good.',
+        'The cost is package complexity, power density, capacity limits, and scheduler sophistication. HBM gives high bandwidth near compute, but it is not as cheap, deep, or thermally forgiving as simpler memory paths.',
+        'Behaviorally, doubling compute lanes does not double throughput when the address stream is skewed. If 80 percent of requests land on one pseudo-channel, then the bottleneck is the hot pseudo-channel, not the arithmetic units waiting downstream.',
+        'Scheduler policy has visible cost. Favoring row hits improves local efficiency, draining writes reduces read/write turnaround penalties, and strict quality of service protects latency-sensitive streams, but each choice can reduce aggregate throughput under another workload.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'HBM is central to AI accelerators because transformer weights, activations, attention blocks, and KV cache all create high bandwidth demand. Training stresses activation movement and collectives. Inference stresses repeated weight reads and KV-cache growth.',
-        'It also wins in HPC, graphics, simulation, analytics, and workloads where each byte must reach compute quickly and repeatedly. The common pattern is high arithmetic capacity waiting on data movement.',
-        'Micron describes HBM3E as using a 1024 I/O pin interface and states that HBM3E offers 16 independent channels and 32 pseudo channels: https://www.micron.com/products/memory/hbm/hbm3e. Samsung describes HBM3E as a high-bandwidth memory product for data-center and AI workloads: https://semiconductor.samsung.com/dram/hbm/hbm3e/.',
+        'HBM is central to GPUs and AI accelerators because weights, activations, attention blocks, and key-value cache all move large amounts of data. Training stresses activation movement and collectives, while inference often stresses repeated weight reads and growing cache state.',
+        'It also fits high-performance computing, graphics, simulation, analytics, and bandwidth-heavy vector search. The shared pattern is high arithmetic capacity that becomes useless unless bytes arrive on time.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The abstraction fails when HBM is treated as one pool of bandwidth. Collisions inside the hierarchy reduce sustained throughput, and row-buffer behavior still matters even though the memory is close to compute.',
-        'Another failure is ignoring layout. Strides, tensor sharding, page placement, and allocator behavior can create hot pseudo-channels or banks. The compute kernel may look parallel while the address stream is not.',
-        'A third failure is adding compute for a memory-bound path. If a model is waiting on memory, more arithmetic lanes do not help unless the address map, scheduler, and cache policy deliver bytes fast enough.',
-        'A fourth failure is hiding memory-controller evidence from performance tools. If profilers only show low GPU utilization, engineers may optimize kernels while the real issue is pseudo-channel skew, refresh windows, or thermal throttling.',
-        'The practical debugging move is to change one axis at a time. Vary tensor layout, stride, batch shape, and placement while watching sustained bandwidth and stall counters. If performance moves sharply when addresses are remapped but not when arithmetic changes, the bottleneck is inside the memory hierarchy.',
+        'HBM fails as a mental model when engineers treat it as a single scalar bandwidth number. Collisions inside banks, rows, pseudo-channels, refresh windows, and thermal envelopes can hold sustained throughput far below peak.',
+        'It also fails when software layout fights the hardware map. A stride, shard boundary, page placement, or tensor layout can look parallel at the kernel level while concentrating requests inside the memory hierarchy.',
+        'More compute is not a fix for a memory-bound path. If the kernel is waiting on bytes, additional arithmetic lanes sit idle unless layout, prefetching, caching, or scheduling changes the byte stream.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Sources: Micron HBM3E at https://www.micron.com/products/memory/hbm/hbm3e, Samsung HBM3E at https://semiconductor.samsung.com/dram/hbm/hbm3e/, and Synopsys HBM3 overview at https://www.synopsys.com/glossary/what-is-high-bandwitdth-memory-3.html. Study Chiplet Interconnect Case Study, Transformer Inference Roofline, KV Cache, FlashAttention, GPU Memory Pool Fragmentation Ledger, KV Cache Quantization & Compression, and Tensor Parallelism next.',
+        'Assume an HBM stack has 16 pseudo-channels and a kernel issues 1,600 equal read bursts. If the address map spreads them evenly, each pseudo-channel receives 100 bursts and the controller can keep many lanes busy.',
+        'Now assume a bad stride maps 1,200 of those bursts to four pseudo-channels and the remaining 400 to the other twelve. The hot pseudo-channels each carry 300 bursts, so completion time follows the hot group even though most pseudo-channels are underused.',
+        'The correction is not abstract tuning. Changing tensor layout, page coloring, shard placement, or address hashing can move the same 1,600 bursts from a 300-burst hot lane to a 100-burst balanced lane, which changes observed bandwidth without changing the math kernel.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study the JEDEC HBM specifications, vendor HBM3 and HBM3E product briefs from Micron and Samsung, and accelerator architecture papers that discuss memory bandwidth and controller behavior. Use those sources to separate advertised peak bandwidth from sustained workload bandwidth.',
+        'Study Transformer Inference Roofline, KV Cache, FlashAttention, GPU Memory Pool Fragmentation Ledger, Tensor Parallelism, Chiplet Interconnect Case Study, and Cache-Friendly Blocking next. They all ask the same question: which resource is actually limiting progress.',
       ],
     },
   ],

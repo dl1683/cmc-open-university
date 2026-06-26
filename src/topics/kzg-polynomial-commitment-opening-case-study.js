@@ -215,113 +215,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The commit-and-open view shows one large object becoming a polynomial, then one compact commitment. A polynomial is an expression such as f(x) = ax^2 + bx + c over a finite field, which is arithmetic modulo a large prime. The point z and value y form the opening claim.',
+        'The batched-opening view shows several claims checked through one quotient relation. The safe inference is algebraic: if y equals f(z), then f(x) - y has root z, so x - z divides f(x) - y. KZG turns that divisibility claim into a pairing check on group elements.',
+        {type: 'callout', text: 'KZG makes a large object verifiable by binding it to one polynomial commitment and proving each opening as a quotient relation checked in the exponent.'},
+        {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/5/5a/Lagrange_polynomial.svg', alt: 'Graph showing Lagrange basis polynomials and their interpolating polynomial through four points.', caption: 'Lagrange polynomial diagram by Glosser.ca and Rayhem, Wikimedia Commons, CC BY-SA 3.0 or GFDL.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Many systems need to commit to a large object and later prove small facts about it. A rollup may publish a commitment to blob data. A stateless-client design may want a compact proof that one position in a large vector has a claimed value. A proof system may need to bind a prover to a polynomial before revealing selected evaluations.`,
-        `A KZG polynomial commitment solves a narrow version of that problem. The prover commits once to a degree-bounded polynomial, then later opens the commitment at selected points. The verifier checks the claimed value without downloading the whole polynomial.`,
-        {type: `callout`, text: `KZG makes a large object verifiable by binding it to one polynomial commitment and proving each opening as a quotient relation checked in the exponent.`},
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/5/5a/Lagrange_polynomial.svg`, alt: `Graph showing Lagrange basis polynomials and their interpolating polynomial through four points.`, caption: `Lagrange polynomial diagram by Glosser.ca and Rayhem, Wikimedia Commons, CC BY-SA 3.0 or GFDL.`},
+        'Many systems need to commit to a large object and later prove a small fact about it. A rollup may publish a commitment to blob data. A verifier may want one vector position or one polynomial evaluation without downloading the full object.',
+        'KZG is a polynomial commitment scheme. The prover commits once to a degree-bounded polynomial and later opens the commitment at chosen points. The verifier checks a compact proof against the commitment, point, and claimed value.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious commitment is a Merkle tree over data chunks. Hash the leaves, hash parents upward, publish the root, and prove one chunk by sending its sibling hashes. This is simple, transparent, and widely useful.`,
-        `The wall is proof shape. A Merkle opening grows with tree depth, and many openings send many hashes unless the paths overlap. A Merkle tree also proves membership in a hash tree. It does not natively prove algebraic claims such as "this value is the evaluation of the committed polynomial at point z."`,
+        'The obvious commitment is a Merkle tree. Hash data chunks as leaves, hash upward to a root, and prove one chunk with sibling hashes along the path. Merkle proofs are transparent, practical, and easy to audit.',
+        'Merkle trees prove membership in a hash tree. They do not naturally prove algebraic claims such as this value is f(z) for the committed polynomial. Their proof size also grows with tree depth, while KZG can keep a single opening proof to one group element under its setup assumptions.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        `KZG turns data into a polynomial and commits to the polynomial at a hidden evaluation point tau. The committer does not know tau. The structured reference string contains group elements derived from powers of tau, which let the committer build a group commitment equivalent to "the polynomial evaluated at tau" without learning tau itself.`,
-        `An opening proves a divisibility fact. If y really equals phi(z), then phi(x) - y has z as a root, so phi(x) - y is divisible by x - z. The proof is a commitment to the quotient q(x) = (phi(x) - y) / (x - z). Pairings let the verifier check that relation in the exponent.`,
+        'The wall is verifier bandwidth and algebraic structure. A proof system may need many polynomial evaluations, and sending long hash paths or raw coefficients becomes expensive. The verifier wants a small check that still binds the prover to one polynomial.',
+        'The second wall is trust. KZG needs a structured reference string containing powers of a hidden value tau. If tau is known to an attacker, the binding property can fail. The scheme buys compact openings by paying setup and pairing complexity.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'KZG commits to f(tau) in the exponent without revealing tau. The structured reference string contains group elements for powers of tau, so a committer can combine coefficients with those powers and publish one commitment. The commitment is compact because the polynomial has been folded into one hidden evaluation.',
+        'An opening proves a quotient relation. If f(z) = y, then f(x) - y is divisible by x - z. The proof commits to q(x) = (f(x) - y) / (x - z), and a pairing equation checks the relation at the hidden point tau.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Setup creates the structured reference string for a maximum degree: powers of tau in one or more pairing groups. The secret tau is toxic waste. If an attacker learns it, they can fake relationships the verifier is supposed to treat as binding.`,
-        `Commitment takes the polynomial coefficients or evaluation-form data and combines them with the SRS powers. The result is one compact group element C. In Ethereum Deneb blob commitments, the consensus polynomial-commitment spec uses BLS12-381, 4096 field elements per blob, and 48-byte KZG commitments and proofs.`,
-        `Opening at point z publishes the claimed value y and a proof pi for the quotient. Verification checks C, z, y, and pi together with a pairing equation. The verifier does not reconstruct phi; it checks that the committed polynomial and the claimed opening satisfy the quotient relation.`,
+        'Setup fixes a maximum degree and publishes powers of tau in pairing groups. Commitment combines the polynomial with those powers to produce a group element C. Opening at z publishes y and a proof pi for the quotient polynomial.',
+        'Verification checks that C, z, y, and pi satisfy the equation corresponding to f(tau) - y = q(tau)(tau - z). The verifier does not reconstruct f. It checks a relation between group elements that would be hard to fake without knowing a valid quotient or the hidden tau.',
       ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        `In the commit-and-open view, follow the object boundary. The blob is first interpreted as field data, then as a polynomial, then as a commitment. The SRS enters only where the polynomial becomes a group element. That is the point where compactness and trusted setup both enter the story.`,
-        `The opening frame is the key state change. The claim y is not trusted because the prover says it. The quotient proof exists only if the claimed value makes phi(x) - y divisible by x - z. The pairing frame then checks commitment, point, value, and proof as one relation.`,
-        `In the batched-opening view, several claims become one interpolation polynomial and one vanishing polynomial. The batch proof is still tied to the same commitment. The final Ethereum boundary frame is a warning: a KZG commitment can bind to blob data, but it does not store that data forever or prove rollup semantics by itself.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `KZG buys compact proof size and fast verification shape. A single opening proof can be one group element, and batch openings can keep communication small even when several points are checked. That is the main reason KZG appears in blob commitments, vector commitments, and polynomial-heavy proof systems.`,
-        `The cost moves to setup, algebra, and implementation. The system needs a trusted or multiparty setup for the maximum degree, pairing-friendly curves, subgroup checks, canonical serialization, field encoding, domain separation, batch-verification rules, and prover work to compute quotients. KZG is not simpler than Merkle trees. It is smaller for the workloads that can pay the algebraic tax.`,
-      ],
-    },
-    {
+    },    {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument starts with a high-school algebra fact: a polynomial f(x) has root z exactly when x - z divides f(x). For a claimed opening y = phi(z), the polynomial phi(x) - y should have root z. Therefore it should equal q(x)(x - z) for some quotient q.`,
-        `The commitment hides the check at tau. The verifier cannot see phi(tau) or q(tau) directly, but the commitment and proof encode those values in groups. Pairings let the verifier check that "committed phi minus y" matches "committed quotient times tau minus z" without learning tau or the full polynomial.`,
-        `Binding depends on tau staying hidden and on the degree bound. If the prover could choose arbitrary higher-degree behavior outside the SRS limit, or if the prover knew tau, the compact check would no longer bind the prover to one polynomial in the intended way.`,
+        'The correctness argument is the root theorem for polynomials. A polynomial g(x) has root z exactly when x - z divides g(x). Setting g(x) = f(x) - y turns a claimed evaluation into a divisibility test.',
+        'Binding comes from the hidden evaluation point and the degree bound. A dishonest prover should not be able to create two different low-degree polynomials that both match the same commitment and pass openings, unless the setup is compromised or the cryptographic assumptions fail. Implementation checks such as subgroup validation and canonical encodings keep the algebraic statement well formed.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Take phi(x) = x^2 + 2x + 3 and open it at z = 4. The claimed value is y = 16 + 8 + 3 = 27. Then phi(x) - 27 = x^2 + 2x - 24, which factors as (x - 4)(x + 6). The quotient is q(x) = x + 6.`,
-        `The prover does not send the whole polynomial. It sends y and a commitment-like proof for q. The verifier checks the relation using C, z, y, and pi. If the prover claimed y = 26 instead, phi(x) - 26 would not be divisible by x - 4, so the quotient relation would fail.`,
+        'A single KZG commitment or proof can be 48 bytes on BLS12-381 G1 in Ethereum Deneb, and each blob has 4,096 field elements. Verification uses pairings, which are heavier than hash checks but keep communication small. Doubling the number of opened points can often be batched so communication grows more slowly than sending many separate paths.',
+        'The cost moves to prover work, setup, curve code, serialization, and input validation. KZG is not simpler than Merkle trees. Cost as behavior means it wins when compact openings matter enough to justify trusted setup and pairing machinery.',
       ],
     },
     {
-      heading: 'Batched openings',
+      heading: 'Real-world uses',
       paragraphs: [
-        `For several claimed points, the prover and verifier first define the polynomial that matches the claimed values at those points. They also define a vanishing polynomial that is zero at all opened points. Subtract the claim polynomial from the committed polynomial, divide by the vanishing polynomial, and commit to the quotient.`,
-        `The logic is the same as one opening: if every claimed value is right, the difference vanishes at every opened point and division works. If any value is wrong, the batch relation should fail. Batching changes communication and verification economics, but it does not remove the need to define the opened points and field encoding precisely.`,
-      ],
-    },
-    {
-      heading: 'Ethereum blob boundary',
-      paragraphs: [
-        `EIP-4844 introduced blob-carrying transactions whose large data payload cannot be accessed directly by EVM execution, while a commitment to the blob can be accessed. The point is cheaper temporary data space for rollups, not permanent execution-layer storage.`,
-        `Current Ethereum documentation describes blobs as temporary data, with a retention window around 4096 epochs, about 18 days. After that period, protocol nodes may prune blob data. KZG commitments still let applications verify commitments and openings, but missing data is a data-availability problem, not a polynomial-commitment problem.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `KZG wins when compact openings are worth the setup and pairing machinery. Good fits include polynomial IOPs and SNARK-related protocols, Ethereum blob commitments, vector commitments, Verkle-style authenticated state, and systems that batch many openings against the same commitment.`,
-        `It is especially attractive when verifier bandwidth is scarce and prover work is acceptable. A verifier that checks a small proof instead of a long hash path can be a real systems win.`,
+        'KZG appears in Ethereum blob commitments, polynomial proof systems, vector commitments, and designs such as Verkle-style authenticated state. It fits systems where a verifier must check small openings against a large committed algebraic object. Rollups use blob commitments so data can be committed compactly while availability is handled by the protocol.',
+        'It is also useful when many openings are checked against the same commitment. Batch openings use an interpolation polynomial for claimed values and a vanishing polynomial for opened points. The logic remains divisibility, but communication and verification can be amortized.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `KZG is the wrong tool when a transparent hash commitment is enough. Merkle trees need no trusted setup, use ordinary hash functions, and are easier to audit. If proof size is not the bottleneck, the extra algebra may not pay for itself.`,
-        `It also fails as a substitute for data availability, storage, encryption, or application correctness. A commitment can bind to data. It does not keep the data online, hide the data, explain what the data means, or prove that a rollup state transition is valid.`,
+        'KZG is the wrong tool when a transparent hash commitment is enough. Merkle trees need no trusted setup and rely on ordinary hash functions. If proof size is acceptable, the algebraic tax may not pay.',
+        'It also does not solve data availability, storage, encryption, or application validity. A commitment can bind to data, but it does not keep the data online or prove that the application interpreted it correctly. Ethereum blob data, for example, is temporary even though commitments remain useful.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        `A real implementation should define the polynomial form before any proof code is written. State whether the application stores coefficients or evaluations, which evaluation domain is used, what degree bound the SRS supports, how bytes become field elements, and how commitments, proofs, and field elements are serialized. Ambiguity here creates bugs that look like cryptography failures but are really encoding failures.`,
-        `Verification should reject malformed inputs early: wrong byte length, non-canonical field elements, points not in the expected subgroup, unsupported degree, mismatched domain, reused or biased batch challenge, and missing domain separation. Batch verification should be treated as its own protocol, not as a casual loop around single openings. Keep test vectors for valid openings, wrong values, wrong points, wrong domains, max-degree inputs, and malformed encodings.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `Setup compromise is the headline risk. If toxic waste survives, binding can fail. A second class of failures lives in implementation details: accepting non-canonical encodings, skipping subgroup checks, mixing domains, using the wrong evaluation form, or verifying a batch with a challenge the prover can bias.`,
-        `Degree mismatch is another common pitfall. The SRS supports commitments only up to a chosen degree. If the application silently commits data outside that shape, the proof system may no longer be proving the statement the application believes it is proving.`,
+        'Let f(x) = x^2 + 2x + 3 and open at z = 4. The claimed value is y = 4^2 + 2 times 4 + 3 = 27. Then f(x) - 27 = x^2 + 2x - 24 = (x - 4)(x + 6), so q(x) = x + 6.',
+        'The prover sends y = 27 and a proof that commits to q. The verifier checks the commitment relation at hidden tau. If the prover claims y = 26, then f(x) - 26 = x^2 + 2x - 23, which is not divisible by x - 4, so no valid quotient relation should pass.',
+        'For two openings at z = 4 and z = 5, the claimed values define a small interpolation polynomial that matches those two points. The difference between f and that interpolation must vanish at both points, so it is divisible by (x - 4)(x - 5). That is the same idea with a larger vanishing polynomial.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Kate, Zaverucha, and Goldberg, "Constant-Size Commitments to Polynomials and Their Applications" at https://cacr.uwaterloo.ca/techreports/2010/cacr2010-10.pdf, EIP-4844 at https://eips.ethereum.org/EIPS/eip-4844, Ethereum Deneb polynomial commitments at https://ethereum.github.io/consensus-specs/specs/deneb/polynomial-commitments/, and ethereum.org Dencun and danksharding notes at https://ethereum.org/roadmap/dencun/ and https://ethereum.org/roadmap/danksharding/.`,
-        `Study Finite Fields, Binary Exponentiation, Pairing-Based Cryptography, Shamir Secret Sharing, Merkle Tree, Sparse Merkle Tree Non-Membership, Namespaced Merkle Tree Proof Case Study, Data Availability Sampling and Erasure Coding Case Study, Verkle Trees and Stateless Clients, and ZK-SNARK Arithmetization Case Study next.`,
+        'Primary sources: Kate, Zaverucha, and Goldberg, Constant-Size Commitments to Polynomials at https://cacr.uwaterloo.ca/techreports/2010/cacr2010-10.pdf, EIP-4844 at https://eips.ethereum.org/EIPS/eip-4844, and Ethereum Deneb polynomial commitments at https://ethereum.github.io/consensus-specs/specs/deneb/polynomial-commitments/.',
+        'Study finite fields, roots and divisibility, polynomial interpolation, pairing-based cryptography, Merkle trees, vector commitments, data availability sampling, Verkle trees, and SNARK arithmetization next.',
       ],
     },
   ],

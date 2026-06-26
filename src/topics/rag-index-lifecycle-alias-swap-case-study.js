@@ -240,91 +240,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the physical index versions as build artifacts and the serving alias as the pointer the application queries. The alias is small, but it decides which whole evidence graph is live.',
+        'Read tombstones as visibility controls. A deleted document can be hidden from search before offline compaction removes its old vectors, spans, and lexical postings.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A RAG index lifecycle exists because the retrieval corpus is not static. Documents change, permissions change, chunking rules change, embedding models change, citation extractors change, and customers expect the system to keep serving while all of that happens.',
-        'Toy RAG systems usually treat the index as a batch artifact: parse files, chunk text, embed chunks, query vectors. Production systems need more. They need source document versions, stable chunk IDs, vector IDs, citation spans, metadata filters, tombstones, index snapshots, validation gates, and a serving alias that tells applications which physical index is live.',
-        'This operational layer decides whether RAG can be changed safely. Re-embedding with a new model changes vector dimensions and ranking behavior. Re-chunking changes offsets and citations. Deletes must hide stale evidence before compaction finishes. A blue/green alias lets the system rebuild safely instead of mutating the only production index in place.',
+        'A RAG index is not static. Documents change, permissions change, chunking rules change, embedding models change, citation extractors change, and users still expect answers during the rebuild.',
+        'The lifecycle layer exists to keep construction, validation, promotion, rollback, and cleanup separate. Without it, reindexing becomes a production experiment that can silently change evidence.',
         {type:'callout', text:'A safe RAG index rebuild depends on stable identities and an atomic serving alias, so construction, validation, promotion, rollback, and compaction stay separate.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to update the live index in place. When a document changes, overwrite its chunks. When a new embedding model ships, start writing new vectors. When a document is deleted, remove it from whichever collection is convenient.',
-        'That fails because retrieval has joins. Vector hits must join back to text, citation spans, source documents, ACL filters, freshness metadata, eval traces, and sometimes lexical search results. If one leg is old and another is new, the answer can cite stale or unauthorized evidence while the system looks healthy.',
-        'Another shortcut is a full rebuild with downtime. That can work for small projects, but it does not scale to large corpora or customer-facing assistants. Rebuilds take time, and new edits keep arriving while the rebuild runs. Without a delta ledger or catch-up phase, the new index is stale before it becomes live.',
+        'The obvious approach is to mutate the live index in place. When a document changes, overwrite its chunks; when a new embedding model ships, start writing new vectors.',
+        'That looks simple because each write is local. It fails because retrieval joins vector hits to text, spans, source documents, ACL filters, freshness metadata, caches, and evaluation traces.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is stable identity across changing artifacts. A RAG index is not just vectors. It is a graph of source documents, chunks, embeddings, spans, filters, versions, tombstones, and aliases. Every node needs an identity that survives rebuilds or clearly records why it changed.',
-        'A vector id should be derived from embedding model version plus chunk identity, not from array position. A span id should preserve source offsets or a traceable mapping through re-chunking. A document version should make freshness explicit. ACL metadata should join to the same evidence the model sees.',
-        'The alias is a pointer, not the safety mechanism by itself. The safety comes from building a shadow index, replaying deltas, validating gates, then moving the pointer atomically only after the new index is ready.',
+        'The wall is mixed versions. A vector from embed-v2 can point to text from old chunking, while a citation span still uses old offsets and an ACL filter reads different metadata.',
+        'Downtime rebuilds have their own wall. Large corpora take time to rebuild, and new edits keep arriving while the new index is being constructed.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Treat the index as a versioned evidence graph. Source documents, chunks, embeddings, spans, tombstones, ACL rows, and aliases all need identities and versions that explain how they connect.',
+        'The serving alias should move only after the shadow index has been built, caught up with deltas, and validated. Rollback is then another alias move instead of emergency surgery.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Ingestion emits stable records: document id, document version, chunk id, chunk hash, embedding model version, vector id, span ids, ACL metadata, and freshness state. Upserts and deletes enter a delta ledger. Deletes become tombstones so search can exclude stale chunks immediately while offline rebuilds later remove dead records from lexical, vector, and span indexes.',
-        'For a risky change, the team builds a shadow index. It backfills old documents, replays deltas that arrived during the build, validates golden queries and access-control filters, then atomically moves a read alias from v1 to v2. If the new index fails in production, rollback is another alias move while v1 is still retained.',
-        'Promotion gates should include golden-query recall, exact-policy recall, citation-span validity, ACL filtering, dedup behavior, index size, p95 latency, freshness lag, and slice-level regressions. A single aggregate retrieval score can hide severe failures in long-tail or restricted documents.',
-        'Cleanup comes after stability. Old indexes, tombstones, and legacy span maps should be retained long enough for rollback, audit, and citation traceability. Compaction is a separate lifecycle step, not something to rush during cutover.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The lifecycle view proves that identity is the backbone of retrieval operations. Source documents become chunks, spans, vectors, tombstones, and aliases with versioned IDs. Those IDs keep citations, eval traces, caches, and ACL filters attached when the index changes.',
-        'The stable-ID table proves why array position and ad hoc ids are dangerous. Re-chunking, re-embedding, and deleting documents all break naive joins unless ids carry document, chunk, model, span, and version information.',
-        'The blue/green view proves the safe-change pattern. Build v2 out of band, replay deltas, validate it against slices that matter, then move the alias. If catch-up or validation is skipped, the final arrow becomes a risky production experiment instead of a controlled release.',
-        'The tombstone plot proves that deletes need an immediate serving-layer effect even if physical compaction takes longer. Users should not see stale evidence just because offline cleanup has not finished.',
+        'Ingestion emits stable document ids, document versions, chunk ids, chunk hashes, span ids, embedding model versions, vector ids, ACL metadata, and freshness state. Writes and deletes go into a delta ledger so a shadow build can catch up.',
+        'For a risky change, the team builds index v2 out of band, replays deltas, validates golden queries and access filters, then atomically moves the read alias from v1 to v2. Old v1 stays available until rollback risk is low and audits are safe.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The lifecycle works because it separates construction from serving. The live application reads through an alias while a new physical index is built, caught up, and tested. Users keep getting answers from the old index until the new one is proven.',
-        'It also works because tombstones separate visibility from compaction. A deleted document can be hidden quickly from search while slower cleanup removes old vectors, lexical postings, cached snippets, and span records later.',
-        'Stable identity makes evaluation meaningful. If a golden query regresses, engineers can tell whether the cause was parsing, chunking, embedding, filtering, ranking, citation extraction, or prompt packing. Without that identity, every regression becomes a vague retrieval failure.',
+        'The correctness argument is version consistency. A query through one alias should join vectors, text, spans, filters, and freshness records from a compatible index snapshot.',
+        'Tombstones preserve delete correctness during slow cleanup. If a document is deleted at t=10, search can exclude it immediately even if physical vector deletion finishes at t=600.',
       ],
     },
     {
-      heading: 'Complete case',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A support assistant migrates from embed-v1 to embed-v2. The new model has a different vector dimension, so it cannot share the old vector collection. The team creates idx_v2, re-embeds canonical chunks, preserves span IDs, copies ACL metadata, and replays the delta ledger for edits and deletes that happened during the rebuild.',
-        'Before promotion, the team compares v1 and v2 on held-out support questions, checks policy freshness, verifies that sealed documents are filtered, measures p95 latency, and inspects citation span support. Only then does the read alias switch from idx_v1 to idx_v2. The old index remains for rollback until v2 has survived production traffic and compaction has cleaned tombstones.',
+        'Alias-based rebuilds require duplicate storage during construction. If v1 has 80 GB of vectors and v2 has 96 GB because the new embedding is larger, the system needs about 176 GB plus metadata during the overlap period.',
+        'The behavioral cost is extra operational machinery. Delta replay, validation gates, rollback retention, span-map migration, and tombstone compaction all add work, but they keep retrieval changes observable.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The cost is duplicate storage during rebuild, extra writes during catch-up, validation infrastructure, and careful cleanup. The payoff is avoiding silent retrieval regressions. A RAG system that cannot replay, compare, and roll back its indexes cannot safely change chunking, embedding models, filters, or citation extraction.',
-        'The hardest bugs are mixed-version bugs: some chunks embedded with one model, some with another; citations pointing to old offsets; tombstoned documents still visible through one retrieval leg; or a fusion layer comparing results from indexes with different freshness states. Stable IDs and explicit version fields are the antidote.',
-        'There is also a freshness tradeoff. Full rebuilds are cleaner but slower. Delta updates are faster but can accumulate complexity. Many systems need both: deltas for day-to-day changes and periodic rebuilds to compact, re-score, and remove accumulated drift.',
+        'The pattern fits support documentation, product catalogs, internal knowledge bases, legal policies, code search, compliance assistants, and customer-specific document stores. It is most important when citations, freshness, and access control are part of the product contract.',
+        'It also supports embedding-model migration. A team can compare v1 and v2 on the same golden queries before exposing users to changed retrieval behavior.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Where it fails',
       paragraphs: [
-        'This pattern is useful whenever RAG evidence changes under production traffic: support documentation, legal policies, product catalogs, internal knowledge bases, code search, compliance assistants, research corpora, and customer-specific document stores.',
-        'It is especially important when access control, citations, and freshness matter. If the assistant can cite sources or answer from restricted documents, the index lifecycle is part of the security and audit boundary.',
-        'Alias swaps also make model migrations safer. Teams can compare embedding models, chunking policies, and rerankers on the same golden set before exposing users to the new retrieval behavior.',
+        'An alias swap fails if the shadow index is not caught up. Moving the pointer to an index missing the last hour of edits is still a stale release.',
+        'It also fails if validation is only aggregate recall. A model migration can improve common questions while breaking exact policy IDs, access-controlled documents, multilingual slices, or citation offsets.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not treat reindexing as a background script with no product risk. It changes the evidence the model sees. Do not delete source records before citations and eval traces have migrated. Do not rely on a single aggregate recall metric; model migrations often help common queries while hurting exact-policy, multilingual, access-controlled, or long-tail slices.',
-        'An alias swap is not magic consistency. The shadow index still has to catch up with writes that happened during the build. If the source of truth is changing quickly, use a delta ledger, CDC stream, or dual-write period with reconciliation before cutover.',
-        'A third failure is forgetting rollback. If v1 is deleted immediately after promotion, every production regression becomes urgent surgery. Retain the previous index, span maps, and validation packet until the new index has survived real traffic.',
+        'A team migrates from 768-dimensional embeddings to 1536-dimensional embeddings for 10 million chunks. If each float is 4 bytes, raw vector storage moves from about 30.7 GB to about 61.4 GB before index overhead.',
+        'They build idx_v2, replay 120,000 delta events that arrived during the build, validate 500 golden queries, confirm zero restricted-document leaks, and switch alias prod_docs from idx_v1 to idx_v2. If p95 latency regresses from 80 ms to 180 ms, rollback is a pointer move back to idx_v1 while v2 is investigated.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Elastic zero-downtime mapping update guidance at https://www.elastic.co/blog/changing-mapping-with-zero-downtime, Elasticsearch aliases API at https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-update-aliases, OpenSearch index aliases at https://docs.opensearch.org/latest/im-plugin/index-alias/, Qdrant collection and embedding migration guidance at https://qdrant.tech/documentation/manage-data/collections/ and https://qdrant.tech/documentation/tutorials-operations/embedding-model-migration/, and Pinecone backup/restore guidance at https://docs.pinecone.io/guides/manage-data/backups-overview and https://docs.pinecone.io/guides/manage-data/restore-an-index. Study RAG Pipeline, Multi-Index RAG, RAG Dedup, MinHash, and Chunk Canonicalization, RAG Citation Span Index Case Study, Filtered Vector Search and Bitset Gates, Cache Invalidation & Versioning, Debezium CDC Case Study, and Lucene Segments Case Study next.',
+        'Primary sources: Elasticsearch alias update guidance, OpenSearch index aliases, Qdrant collection and embedding migration documentation, and Pinecone backup and restore documentation. These show the same production pattern in different vector and search systems.',
+        'Study RAG deduplication, citation span indexes, filtered vector search, cache invalidation, CDC streams, Lucene segments, and blue-green deployment next. Index lifecycle is retrieval operations, not only data preprocessing.',
       ],
     },
   ],

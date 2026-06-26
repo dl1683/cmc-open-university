@@ -159,82 +159,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The load-balancing problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Maglev is Google\'s software network load balancer, described in an NSDI 2016 paper. It balances packets for virtual IPs using a fleet of commodity servers rather than a fixed hardware appliance. The problem is harsh: the hot path must process packets at very high speed, preserve connection affinity, react to backend failures, and scale as traffic grows.',
-        'The case study matters because it combines simple data structures with serious production constraints. Routers use ECMP to spread packets across Maglev machines. Each Maglev machine maps a flow to a backend using a precomputed lookup table. Health checking and table updates happen off the hot path. The result is a low-level load balancer that is fast because the per-packet decision is almost trivial.',
+        'The packet-path view follows one network flow from router to Maglev machine to backend. A flow is the stable packet identity, usually the source address, destination address, ports, and protocol. Active nodes are doing work now, found nodes already made a stable decision, and compare nodes are checking table agreement or backend health.',
+        'The lookup-table view shows the contract that makes the hot path cheap. A virtual IP is the service address clients use, while a backend is one server that can handle the service. The safe inference is simple: if two Maglev machines have the same backend set and table version, the same flow hash lands on the same backend slot.',
         {type:'callout', text:'Maglev keeps the packet path fast by moving service policy into a shared deterministic table built off the hot path.'},
       ],
     },
     {
-      heading: 'The naive designs and their walls',
+      heading: 'Why this exists',
       paragraphs: [
-        'The first naive design is a single hardware appliance in front of the service. It can be fast, but it is expensive, capacity-limited, and a painful failure boundary. Scaling traffic means buying and operating specialized boxes. The second naive design is to let every frontend choose a backend independently. That spreads responsibility but creates inconsistent routing, weak health handling, and poor connection affinity.',
-        'Another tempting design is to hash directly from a flow to a backend list. That is simple until backends change. If adding or removing one backend reshuffles most flows, connection affinity is destroyed and healthy backends see sudden churn. A production load balancer needs both fast lookup and minimal disruption when the backend set changes.',
-        'Maglev solves this with a shared deterministic table. Every Maglev machine serving the same VIP builds the same table from the same backend set. A packet can arrive at any Maglev machine, and the same flow tuple maps to the same backend as long as the table is consistent.',
+        'A large service cannot put all incoming packets through one hardware box. Traffic grows, machines fail, and new backends enter or leave while existing client connections are still active. The load balancer has to preserve flow affinity, which means packets from the same connection should keep reaching the same backend.',
+        'Maglev is a software load balancer from Google that attacks this at layer 4, below HTTP routing. Routers spread packets across many Maglev machines using equal-cost multipath routing, and each Maglev machine chooses the final backend. The per-packet decision must be small enough to run millions of times per second.',
       ],
     },
     {
-      heading: 'Core Insight and Mechanism',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A client sends packets to a service virtual IP. Network routers use ECMP to choose one Maglev machine. That Maglev machine hashes the packet\'s flow tuple and indexes a lookup table. The table entry names a backend. The packet is forwarded there. The hot path is deliberately small: parse enough header data, hash, array lookup, rewrite or encapsulate, and forward.',
-        'The core insight is to make every Maglev machine interchangeable for a VIP without replicating per-flow state. Shared deterministic table construction replaces a centralized flow owner. Any machine can receive the packet, recompute the same slot, and forward to the same backend as long as its table version matches the rest of the fleet.',
-        'The lookup table is generated from backend-specific permutations. The construction tries to spread table slots evenly across backends while minimizing disruption when the set changes. If a backend disappears, slots that belonged to it are reassigned, but many other slots stay stable. This gives Maglev the fast lookup of an array and some of the churn-reduction behavior associated with consistent hashing.',
-        'The split between ECMP and Maglev is important. ECMP chooses a load-balancer machine, not the final service backend. Maglev chooses the backend. That lets the network remain simple while the load-balancer fleet owns service-specific health and routing policy.',
+        'The first reasonable approach is a single load-balancing appliance. It can keep one table of flows and make consistent decisions, so it is easy to reason about. It becomes a capacity limit and a failure boundary once the service grows beyond the appliance.',
+        'The next approach is direct hashing from a flow to a backend list on every frontend. That removes the appliance, but a backend change can reshuffle most flows if the list changes shape. A backend failure then becomes a connection churn event instead of a small routing repair.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is the conflict between stateless scale-out and connection stability. If every load-balancer machine keeps private flow state, the fleet must replicate that state or route each flow back to the same machine. If machines make independent choices, the same client connection can jump backends and break.',
+        'Backend churn makes the problem sharper. Removing 1 backend from 100 should not move 99 percent of active flows. A production system needs a lookup that is fast on every packet and stable enough that only a controlled fraction of flows move when membership changes.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Maglev turns the backend decision into a deterministic array lookup. Every Maglev machine for a virtual IP builds the same lookup table from the same backend set. A packet only needs a flow hash, a modulo operation into the table, and one array read.',
+        'The table is built off the hot path from backend-specific permutations. Each backend proposes a repeatable order of slots, and the builder fills empty slots until the table is full. The result acts like consistent hashing with a fixed-size table: lookup is constant time, and backend changes mostly affect slots that need repair.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A router first picks a Maglev machine using equal-cost multipath routing. That machine parses enough packet header fields to compute the flow key. It hashes the key, computes an index in the lookup table, reads the backend stored at that index, and forwards the packet.',
+        'Health checks and configuration updates run outside that forwarding loop. When the backend set changes, the control plane distributes the new set and each Maglev machine rebuilds the table. Packet processing stays small because the expensive policy work has already been compiled into the table.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Maglev works because it moves expensive decisions off the packet path. Health checking, backend-set updates, table construction, and configuration distribution can run outside the forwarding loop. The forwarding loop uses a precomputed table. That is a classic systems move: spend more work ahead of time so the hot path is predictable and cheap.',
-        'It also works because the table is deterministic. If every Maglev machine has the same backend set and algorithm, any machine can handle any packet for a VIP and still choose the same backend for the same flow. That avoids per-flow state replication across the load-balancer fleet.',
-        'The correctness invariant is table agreement. Connection affinity holds only while machines responsible for a VIP share the same table version or converge through a controlled transition. The forwarding step is simple, but the control plane has to keep version skew, stale health data, and partial rollouts from turning deterministic lookup into deterministic misrouting.',
-        'The architecture scales horizontally because the load balancers are commodity servers. Adding Maglev machines increases frontend packet capacity. Adding backends increases service capacity. The price is operational: the fleet must agree on config, converge after failures, and expose enough observability to detect bad health signals or table churn.',
+        'Correctness depends on table agreement. If every machine serving the same virtual IP has the same table, any packet for a given flow maps to the same backend no matter which Maglev machine receives it. That gives connection affinity without replicating per-flow state across the load-balancer fleet.',
+        'The failure-repair argument is local. When a backend disappears, slots pointing to it must be filled by surviving backends. Slots that already point to healthy backends can stay unchanged, so the system preserves most existing flow assignments while removing the failed target.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Maglev fits low-level network load balancing where packet speed, flow affinity, and fleet scale matter. It is not an HTTP router that chooses a backend based on path, headers, or request body. It sits lower in the stack, where the key decision is which backend should receive packets for this flow.',
-        'The transferable pattern is broader: stateless frontend workers, deterministic flow-to-backend mapping, commodity-server scale-out, and health-driven routing updates. CDNs, API gateways, service meshes, edge platforms, and L4 load balancers all use variations of this split between distribution, health, and deterministic mapping.',
-        'Maglev is also a useful contrast with Jump Consistent Hash and Rendezvous Hashing. Jump stores almost no table but assumes numbered buckets. Rendezvous scores candidates. Maglev pays table memory to make packet lookup extremely cheap. Different data structures win in different hot paths.',
+        'The packet-path cost is O(1): parse the flow key, hash it, index an array, and forward. Doubling the number of backends does not add a loop to each packet. The memory cost is O(M), where M is the lookup table size per virtual IP, because the table stores one backend reference per slot.',
+        'The rebuild cost is paid when membership changes, not per packet. If the table has 65,537 slots and 100 backends, rebuilding touches table slots and backend permutations once, then packet forwarding returns to one lookup. The behavioral cost is convergence: during a rollout, machines with different table versions can split traffic for the same flow.',
       ],
     },
     {
-      heading: 'Limits and Failure Modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A lookup table alone does not make a reliable load balancer. The hard production work is health detection, configuration convergence, overload behavior, observability, and rollback when a bad backend set ships. If different Maglev machines disagree about backend health, deterministic lookup can make each machine consistently wrong in a different way.',
-        'Health checks can lie. A backend may pass a shallow check while failing real traffic. A failure detector may remove too many backends and overload the survivors. A table update can create churn or imbalance. A load balancer must be judged under failure, not only by its clean hash lookup.',
-        'Another misconception is that Maglev is an application load balancer. It does not understand business routing or HTTP semantics. That is a feature for its layer: the less it does per packet, the faster and more predictable it can be.',
+        'Maglev fits layer-4 load balancing for high-volume services where packets must be forwarded quickly and connection affinity matters. It is useful at the edge of a large fleet, in cloud networking, and anywhere a service virtual IP fronts many interchangeable backends. The access pattern is repeated packet lookup, not rich request inspection.',
+        'The pattern also appears outside Maglev. Stateless frontends, deterministic mapping, health-driven membership, and off-path table construction are common in CDNs, service meshes, and gateway fleets. The same tradeoff appears whenever a hot path needs one cheap decision while a slower control plane handles policy.',
       ],
     },
     {
-      heading: 'A worked packet path',
+      heading: 'Where it fails',
       paragraphs: [
-        'A packet for a VIP reaches a router. ECMP picks one Maglev machine from the load-balancer fleet. The Maglev machine extracts the flow tuple, hashes it, and indexes the service table. Suppose slot 17 maps to backend B. Every packet in that flow that lands on any Maglev machine with the same table should map to B. If B fails, health updates rebuild the table and only the affected slots move as much as necessary.',
-        'This example shows the division of labor. Routers spread load across load balancers. Maglev machines make deterministic backend choices. Health and configuration systems maintain the table. Backends serve the actual application. The user-visible reliability depends on all four layers, not only on the lookup array.',
+        'A lookup table does not make health detection correct. A backend can pass a shallow health check while failing real traffic, or a bad detector can remove too many backends and overload the survivors. Deterministic routing will then send packets consistently to the wrong set.',
+        'Maglev is also the wrong layer for application decisions. It does not inspect HTTP paths, identities, retries, or business rules. If routing depends on request content, a higher-level proxy belongs in the path even though it costs more per request.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'A Maglev-style deployment should measure table version agreement across the fleet, backend health-state churn, packets per second per load balancer, flow distribution skew, backend imbalance, dropped packets, failover time, and the fraction of flows remapped after a backend-set change. These signals show whether the deterministic mapping is stable in practice.',
-        'The hardest bugs are often control-plane bugs, not hash bugs. A bad health check can remove healthy backends. A delayed config rollout can split the fleet across table versions. A backend overload policy can shift traffic to machines that are already near failure. The table lookup is simple because the surrounding system absorbs that complexity.',
-      ],
-    },
-    {
-      heading: 'What to remember',
-      paragraphs: [
-        'Maglev is a lesson in hot-path design. Precompute a stable mapping, keep the packet path tiny, make every frontend stateless with respect to flows, and handle health and configuration outside the forwarding loop. The data structure is not the whole system, but it makes the system possible.',
-        'The useful comparison is an L7 proxy. An application proxy can inspect routes, headers, identity, and retries, but it pays more per request. Maglev stays lower in the stack, so its power comes from doing less work with stronger packet-path discipline.',
-        'In a course sequence, teach Maglev after hash tables and consistent hashing, then compare it with circuit breakers and backpressure. The routing function is simple; the production value comes from connecting it to failure detection and overload control.',
-        'The practical test is whether the forwarding decision must be made per packet with minimal state. If yes, precomputed deterministic tables are attractive. If the decision needs request semantics, a higher-level proxy belongs in the path.',
+        'Suppose a virtual IP has 4 Maglev machines, 10 backends, and a lookup table with 101 slots. A packet has flow key client 10.0.0.8:53000 to service 10.0.1.7:443 over TCP. The Maglev machine hashes that key to 43, reads table[43], and forwards the packet to backend B6.',
+        'Now backend B6 fails and owned 11 of the 101 slots. A new table reassigns those 11 slots to surviving backends while many other slots remain unchanged. A flow mapped to slot 43 moves because its backend failed, but a flow mapped to slot 17 can keep its old backend if that slot already pointed to a healthy server.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: "Maglev: A Fast and Reliable Software Network Load Balancer" at https://research.google.com/pubs/archive/44824.pdf, with Google Cloud background at https://cloud.google.com/blog/products/gcp/google-shares-software-network-load-balancer-design-powering-gcp-networking. Study Load Balancer, Consistent Hashing, Jump Consistent Hash Case Study, Rendezvous Hashing (HRW), Hash Table, CDN Request Flow, Tail Latency & p99 Thinking, Circuit Breakers & Deadlines, and Backpressure & Flow Control next.',
+        'Primary sources are the Google paper "Maglev: A Fast and Reliable Software Network Load Balancer" at https://research.google.com/pubs/archive/44824.pdf and the Google Cloud engineering post at https://cloud.google.com/blog/products/gcp/google-shares-software-network-load-balancer-design-powering-gcp-networking. Use these sources for mechanism claims before relying on secondary summaries.',
+        'Study Hash Table for constant-time lookup, Consistent Hashing for low-churn membership changes, Rendezvous Hashing and Jump Consistent Hash for alternative mappings, Load Balancer for the broader system role, and Backpressure and Circuit Breakers for overload behavior after routing. Start with the topic that explains the data shape, then move to the production system.',
       ],
     },
   ],

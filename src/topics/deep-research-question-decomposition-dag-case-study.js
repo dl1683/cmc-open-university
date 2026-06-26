@@ -210,91 +210,78 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A deep research question decomposition DAG is the planning layer between a user request and the evidence workflow. Nodes are subquestions. Edges are dependencies. Each node stores scope, expected artifact, candidate tool, risk, cost, and stop rule. The frontier is the set of dependency-ready nodes the agent should work on next.',
-        {type:'callout', text:'A decomposition DAG turns an open research request into dependency-ordered evidence work, so synthesis waits for supported branches instead of racing to prose.'},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg', alt:'Directed acyclic graph with arrows flowing from earlier nodes to later dependent nodes.', caption:'Directed acyclic graph. Source: Wikimedia Commons, David W., public domain.'},
-        'This sits between Deep Research Agent Architecture and Claim Graph & Source Ledger. The architecture module explains the full research loop. The claim ledger stores evidence after discovery. The decomposition DAG decides what evidence should be sought in the first place.',
+        'Read the graph as a research plan. A node is a subquestion, an edge means one question depends on another, and the frontier is the set of questions ready to work on now. If q3 depends on q2, the safe inference is simple: q3 must not feed the final report until q2 has produced evidence.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Why this exists',
       paragraphs: [
-        'Inspect the DAG as a research control plane. The root is the user decision or artifact. Children are definitions, claims, numbers, source families, contradictions, calculations, and risks. Edges say which questions must be answered before another question can be trusted. The frontier is the active work queue.',
-        'This is not breadth-first web search. A high-risk contradiction can outrank three easy background nodes. A cheap calculation can outrank another source if it decides whether a claim is material. A node that unlocks several downstream questions should move earlier than a node that only makes the report feel fuller.',
+        'Deep research is hard because the prompt is usually not the real work plan. A request such as compare two inference systems hides definitions, benchmarks, cost units, source quality, contradictions, and missing files. A decomposition DAG, or directed acyclic graph, makes that hidden work explicit before synthesis begins.',
+        {type:'callout', text:'A decomposition DAG turns an open research request into dependency-ordered evidence work, so synthesis waits for supported branches instead of racing to prose.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4b/Directed_acyclic_graph.svg', alt:'Directed acyclic graph with arrows flowing from earlier nodes to later dependent nodes.', caption:'Directed acyclic graph. Source: Wikimedia Commons, David W., public domain.'},
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to search first and organize later. That is reasonable for a small question because a few sources may answer it directly. It fails on research tasks where the hard part is deciding what would count as a complete answer.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is coverage drift. The agent collects sources for the branches it happened to see first, while unasked subquestions remain invisible. A fluent final report can then hide a missing benchmark, a stale number, or a contradiction that would have changed the answer.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Treat the investigation as a dependency graph, not as a document outline. Definitions, claims, numbers, risks, and calculations are work items with prerequisites and stop rules. The graph is acyclic because a node should only depend on earlier evidence, while gap discovery creates a new node rather than rewriting history in place.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The planner starts with scope: what decision is the user trying to make, which terms need definitions, which facts are current, which claims require primary sources, and which calculations would change the answer. It then creates subquestions with dependencies. A cost calculation should depend on source discovery. A contradiction audit should depend on at least two source families. A final synthesis should depend on enough supported claims in the ledger. The DAG exists to keep the agent from substituting activity for coverage.',
-        'STORM is the main research pattern behind this shape. The Stanford project describes Synthesis of Topic Outlines through Retrieval and Multi-perspective Question Asking, with a pre-writing phase that discovers perspectives and asks grounded follow-up questions: https://storm-project.stanford.edu/research/storm/. Its arXiv paper is at https://arxiv.org/abs/2402.14207, and the implementation notes are at https://github.com/stanford-oval/storm.',
-      ],
-    },
-    {
-      heading: 'The data structure',
-      paragraphs: [
-        'The DAG record is small but powerful: node id, parent ids, prompt fragment, artifact type, tool class, priority score, evidence target, owner agent, status, and stop rule. The priority score can include risk, section coverage, expected information gain, cost, and how many downstream questions become unblocked if this node is answered.',
-        'A priority queue sits on top of the DAG frontier. It prevents the agent from doing breadth-first wandering across the web. It can read a primary source before a blog, run a cheap calculation before another search, or reopen a high-risk contradiction before polishing the report. That links directly to Source Authority Triage Priority Queue and Evidence Freshness Refresh Scheduler.',
-      ],
-    },
-    {
-      heading: 'Complete case study: AI infrastructure report',
-      paragraphs: [
-        'Suppose the user asks whether a GPU memory fabric vendor has a durable advantage. The DAG splits the request into terms, product facts, architecture claims, benchmark evidence, customer adoption, cost model, risks, and counterarguments. Product facts depend on official docs and filings. Benchmark claims depend on source triage and possibly calculations. Risk claims depend on contradictions between vendor claims, customer reports, and competing architectures.',
-        'The first frontier contains definitions and primary-source discovery. Once those complete, benchmark and cost nodes unlock. If the ledger finds a contradiction between a vendor latency claim and an independent benchmark, a new contradiction-resolution node is added. The final report is no longer a direct response to the first prompt; it is the downstream artifact of the DAG.',
-      ],
-    },
-    {
-      heading: 'Why it matters',
-      paragraphs: [
-        'The local deep-research corpus emphasizes that the value of these tools is not source count. It is synthesis depth, critical reasoning, endurance, file handling, and workflow reliability. A decomposition DAG turns those product criteria into runtime behavior: preserve context, challenge assumptions, target gaps, and reopen weak branches instead of completing a generic report.',
-        'OpenAI describes deep research as learning to plan and execute multi-step trajectories, backtrack, and react to real-time information: https://openai.com/index/introducing-deep-research/. The Deep Research system card describes browsing, file interpretation, and Python analysis as part of the capability: https://openai.com/index/deep-research-system-card/. Those abilities need a work-queue structure if the result should be repeatable.',
+        'Start by naming the decision the user needs to make, then split it into subquestions. Each node stores its expected artifact: a definition, a cited claim, a table, a calculation, a contradiction note, or a risk judgment. A priority queue chooses frontier nodes by risk, cheapness, section coverage, and how many downstream nodes they unlock.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The DAG works because it separates question management from answer writing. A model can write a fluent report before it has earned the report. The DAG makes missing prerequisites visible: definitions not pinned down, numbers without sources, claims without primary evidence, contradictions not resolved, and calculations not checked.',
-        'It also gives subagents and tools a clean contract. One node may need web search. Another needs a PDF table extraction. Another needs a calculation. Another needs a contradiction audit. The planner can assign work without losing why the work exists.',
-        'The important algorithmic move is dependency control. A good planner does not merely list subquestions; it prevents downstream prose from starting before upstream evidence exists. That is what makes the structure useful for teaching. Students can see that research quality comes from ordering, evidence state, and explicit uncertainty, not from writing more confident paragraphs.',
+        'The correctness argument is a dependency invariant. A downstream claim can enter the synthesis only after every prerequisite node has either produced its artifact or been marked as an explicit gap. Because edges encode those prerequisites, the final report can be audited from each claim back to the evidence that made it legal to write.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Track open high-risk nodes, stale nodes, unsupported claims, source-family coverage, contradiction count, calculation count, reopened nodes, and final claims without ledger support. These are research-quality metrics. They tell you whether the agent is converging on evidence or merely accumulating text.',
-        'A useful report handoff should include the DAG state, not only the prose. Future reviewers should be able to see which branches were answered, which were deferred, and which claim in the final article depends on which evidence node.',
+        'The planning cost is O(V + E) to scan V question nodes and E dependency edges, plus priority-queue work when choosing the next node. If 40 nodes and 55 edges define a report, a full readiness pass is 95 simple checks, while each frontier pop costs about log2(40), or 6 comparisons. The memory cost is the graph, node artifacts, and evidence ledger; it buys fewer duplicate searches and fewer unsupported conclusions.',
       ],
     },
     {
-      heading: 'A worked decomposition',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Suppose the user asks whether a new inference framework will reduce serving cost. A weak agent searches the framework name and summarizes the first few sources. A DAG planner splits the question into workloads, cost phases, compatibility, deployment constraints, benchmark evidence, migration cost, and failure modes. The cost node depends on phase-level inference facts. The compatibility node depends on supported models, hardware, and runtime APIs. The benchmark node depends on source authority and workload match.',
-        'As evidence arrives, the DAG changes. If official docs show strong KV-cache routing but benchmarks omit long prompts, a new evaluation-gap node appears. If user workloads are mostly short chat, the cost model changes. If migration requires new Kubernetes operators, an operational-risk node unlocks. The answer becomes a synthesis of answered branches, not a loose pile of citations.',
+        'This structure fits agentic research, technical due diligence, incident reviews, and benchmark audits. It is useful when the answer depends on multiple source families and when missing evidence should change the shape of the work. It also gives subagents a clean contract because each worker receives one node, one artifact target, and one completion rule.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The DAG can become bureaucracy if every tiny fact becomes a node. The right level is a question whose answer can change the final artifact. It can also become theater if priorities are invented after the fact or if unsupported nodes are marked done because a source was found.',
-        'The planner must preserve user intent. A beautiful internal DAG is useless if it optimizes for what is easy to research rather than what the user needs to decide. The final report should show the strongest supported answer, the material uncertainties, and the evidence gaps that still matter.',
+        'The graph fails when it becomes ceremony. If every sentence becomes a node, planning replaces research and the frontier never clears. It also fails when priorities are fake, when a source is treated as an artifact by itself, or when the graph optimizes for easy branches instead of the user decision.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Worked example',
       paragraphs: [
-        'A research decomposition DAG is the difference between a search transcript and a research plan. It organizes uncertainty before writing, chooses the next best evidence action, and keeps the final synthesis tied to supported claims.',
-        'The deep lesson is that good research agents need project-management data structures. Questions, dependencies, evidence, risk, and stop rules deserve first-class state.',
-        'In a curriculum, this belongs after graph traversal and priority queues. The student should already understand dependencies and frontier selection. This topic then shows why those old structures matter inside modern research agents: they turn "go find information" into a controlled investigation with checkable intermediate artifacts.',
+        'Suppose a user asks whether a serving framework cuts GPU cost by 30 percent. The DAG creates 12 nodes: 2 definition nodes, 3 source nodes, 2 benchmark nodes, 2 cost-model nodes, 2 risk nodes, and 1 synthesis node. If the benchmark node depends on 3 source nodes and 1 workload-definition node, it cannot close until all 4 are present.',
+        'Use concrete numbers. If the old system costs 8 GPUs at 70 percent utilization and the new system claims 6 GPUs at 75 percent utilization, the cost node computes served-work capacity before accepting the 25 percent GPU-count reduction. If a source later shows the benchmark used 1,024-token prompts while the user serves 16,000-token prompts, the graph opens a gap node instead of letting the report reuse the claim.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Do not make the DAG so large that planning replaces research. Do not let the model invent dependencies that only make the work look rigorous. Do not route every node to web search. Do not mark a node done because a source was found; mark it done only when the expected artifact exists in the ledger. Do not let the DAG hide user intent behind internal task names.',
-        'Study Deep Research Agent Architecture, Deep Research Evaluation System, Claim Graph & Source Ledger, Source Authority Triage Priority Queue, Research Contradiction Resolution Graph, Evidence Freshness Refresh Scheduler, RAG Context Packing, RAG Claim Verification Support Ledger, STORM, WebGPT at https://arxiv.org/abs/2112.09332, ReAct at https://arxiv.org/abs/2210.03629, Anthropic Building Effective Agents at https://www.anthropic.com/research/building-effective-agents, and Anthropic multi-agent research system at https://www.anthropic.com/engineering/multi-agent-research-system.',
+        'Study directed acyclic graphs, topological ordering, priority queues, and claim ledgers next. For research-agent context, read STORM at https://arxiv.org/abs/2402.14207, WebGPT at https://arxiv.org/abs/2112.09332, ReAct at https://arxiv.org/abs/2210.03629, and Anthropic Building Effective Agents at https://www.anthropic.com/research/building-effective-agents. Then compare this topic with Source Authority Triage Priority Queue and Research Contradiction Resolution Graph.',
       ],
     },
   ],

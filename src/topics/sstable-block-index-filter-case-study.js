@@ -1,4 +1,4 @@
-﻿// SSTable block layout: immutable sorted data blocks, Bloom/filter metadata,
+// SSTable block layout: immutable sorted data blocks, Bloom/filter metadata,
 // index blocks, footer handles, and the point-lookup/range-scan path.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -240,176 +240,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for SSTable Block Index & Filter. An immutable sorted-file primer: data blocks, restart points, filter blocks, index entries, metaindex, footer handles, and cache-aware lookups..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Read the animation as an SSTable lookup path. An SSTable is an immutable sorted table file, a data block is a compressed range of sorted key-value entries, and a block handle is an offset plus length that tells the reader where a block lives. Active nodes show the cheapest remaining test.',
+        'Removed nodes are the point of the design: work skipped because earlier metadata proved it unnecessary. A filter miss means the key is definitely absent from this file. A filter maybe is only permission to continue, so the data block remains the source of truth.',
         {type:"callout", text:"The SSTable read path is staged so cheap metadata can reject misses before expensive data blocks are touched."},
       ],
     },
     {
-      heading: "Why this exists",
+      heading: 'Why this exists',
       paragraphs: [
-        "An LSM tree makes writes cheap by buffering changes in memory and flushing immutable sorted files to disk. Those files are SSTables. The write path is attractive because it avoids random in-place updates, but the read path inherits a problem: a database may have many sorted files that could contain the requested key.",
-        "The SSTable block-index-filter design exists to keep that write-optimized storage layout from becoming a read disaster. A point lookup should not scan a file, and it should not read a data block from disk unless there is a plausible reason. The file format itself becomes a search structure.",
+        'An LSM tree makes writes cheap by flushing immutable sorted files instead of updating old pages in place. The read path then faces a problem: a key may have to be searched across several files and levels. Without metadata, the write win becomes a read tax.',
+        'The SSTable block-index-filter format exists to make each file self-navigating. It lets a reader skip files that cannot contain the key, jump to the only block that might contain it, and avoid disk when the block is already cached.',
       ],
     },
     {
-      heading: "The obvious approach",
+      heading: 'The obvious approach',
       paragraphs: [
-        "The naive file is a sorted list of key-value pairs written one after another. It is easy to flush and easy to merge during compaction, but a lookup has to binary search awkward byte ranges or scan until it passes the key. The file is sorted, yet it is not self-describing enough for fast block-level navigation.",
-        "A slightly better naive design writes fixed-size blocks and a separate list of block offsets. That helps, but it still wastes work. The reader may open files that cannot contain the key, read metadata that is too large to keep hot, decompress blocks that do not contain the target, or repeat disk reads for popular blocks.",
+        'The obvious file is one sorted sequence of key-value pairs. It is easy to write and merge, and binary search sounds possible because keys are ordered. The problem is that variable-length compressed records do not give direct random access to the kth key.',
+        'A second obvious approach is to scan blocks until the key range passes the target. That works for tiny files but collapses when a lookup crosses dozens of SSTables. The file is sorted, but the reader still lacks compact routing metadata.',
       ],
     },
     {
-      heading: "The core insight",
-      paragraphs: [
-        "An SSTable is useful when its metadata can answer increasingly expensive questions in order. First, can this file be skipped? Second, which block could contain the key? Third, is that block already in memory? Fourth, where inside the block should the search begin?",
-        "This staged design turns a lookup into a sequence of early exits. A Bloom-style filter can say definitely absent. An index block can narrow the search to one data block. A block cache can avoid disk. Restart points inside the block can bound local search even when keys are prefix-compressed.",
-      ],
-    },
-    {
-      heading: "File anatomy",
-      paragraphs: [
-        "A LevelDB-style table has data blocks near the front. Each data block contains sorted entries, often with prefix compression and restart points. An index block maps separator keys to block handles. A block handle records an offset and length, which lets the reader seek directly to the compressed block bytes.",
-        "Near the end of the file are metadata blocks, a metaindex block, an index block, and a footer. The footer is small and fixed enough that a reader can find it first. From the footer it discovers the index and metaindex. From the metaindex it can discover filters or other optional metadata.",
-      ],
-    },
-    {
-      heading: "How it works",
-      paragraphs: [
-        "A point lookup usually begins outside the file, where the LSM tree chooses candidate files by level and key range. For each candidate SSTable, the reader asks the filter whether the key might be present. If the filter says absent, the file is skipped without consulting the data block.",
-        "If the filter says maybe, the reader searches the index to find the block whose key range could contain the target. It then checks the block cache. On a cache hit, the block is searched in memory. On a cache miss, the reader performs an I/O, verifies and decompresses the block if needed, inserts it into cache, and searches within it.",
-      ],
-    },
-    {
-      heading: "How it works (2)",
-      paragraphs: [
-        "The point-lookup visual is proving how aggressively the reader tries to stop. A negative filter answer removes the whole file from the path. A positive filter answer is only permission to continue, not proof that the key exists. The data block remains the source of truth.",
-        "The file-layout visual is proving that the reader discovers the file from the outside inward. The footer points to metadata. Metadata points to indexes and filters. Indexes point to data blocks. Data blocks use restart points to make their own compressed contents searchable. The layout is a chain of smaller search problems.",
-      ],
-    },
-    {
-      heading: "Why it works",
-      paragraphs: [
-        "The design works because different metadata answers different cost questions. Filters are compact and probabilistic, so they are good at avoiding work. Index blocks are exact, so they are good at navigation. Data blocks are the expensive payload, so they are read only after cheaper layers fail to rule the file out.",
-        "It also works because immutability makes the metadata stable. Once an SSTable is written, its index, filters, checksums, and block offsets do not change. Readers can cache metadata safely, compaction can build new files instead of patching old ones, and checksums can validate fixed byte ranges.",
-      ],
-    },
-    {
-      heading: "Range scans and compaction context",
-      paragraphs: [
-        "Point lookups are not the only workload. Range scans often want sequential access through many adjacent keys, so the best block size and compression choice may differ from a point-read-heavy service. A design that minimizes one random lookup can be suboptimal for long ordered iteration.",
-        "Compaction also changes the read picture. It removes overwritten values and tombstones, reduces overlap between files, and builds new filters and indexes. When compaction falls behind, the table format still works, but a lookup may have to consult more candidate files before it can return the newest visible value.",
-      ],
-    },
-    {
-      heading: "Cost and behavior",
-      paragraphs: [
-        "The format spends bytes on metadata to save I/O. Filters consume memory or cache space. Indexes consume memory or extra reads. Restart points reduce the cost of searching compressed blocks but slightly reduce compression efficiency. Smaller data blocks reduce read amplification for point lookups, while larger blocks can improve compression and range-scan throughput.",
-        "RocksDB-style systems add more choices: whole-key filters or prefix filters, partitioned filters, partitioned indexes, cache pinning, compression per level, checksum type, and block size. Those knobs exist because there is no universally best SSTable. The right table shape depends on point reads, scans, value sizes, cache budget, device latency, and compaction behavior.",
-      ],
-    },
-    {
-      heading: "Debugging read amplification",
-      paragraphs: [
-        "When a lookup is slow, count both the work done and the work avoided. Useful counters include filter checks, filter negatives, filter false positives, index-cache hit rate, block-cache hit rate, data-block reads, bytes decompressed, checksum failures, and the number of SSTables consulted per request.",
-        "Those counters tell different stories. A high filter-negative rate means filters are saving I/O. A high false-positive rate means filter memory may be too small or the wrong filter mode is being used. Low block-cache hit rate may mean the working set is too large, blocks are too large, or scans are polluting the cache.",
-      ],
-    },
-    {
-      heading: "Real-world uses",
-      paragraphs: [
-        "LevelDB documents the simple baseline: data blocks, optional meta blocks, a metaindex, an index, and a footer. RocksDB extends the block-based table format with production features such as partitioned indexes and filters, richer cache interaction, and multiple format versions for compatibility and performance.",
-        "The same family of ideas appears in Pebble, Bigtable-like systems, Cassandra-style storage, and many embedded or service-backed LSM engines. The names differ, but the read-path goal is the same: reduce the number of files, blocks, and bytes touched before a key is found or ruled out.",
-      ],
-    },
-    {
-      heading: "Where it fails",
-      paragraphs: [
-        "A filter positive is not a hit. Bloom-style filters can return false positives, so the reader must still check the data block before returning a value. A filter can also be poorly sized. Too few bits per key raise the false-positive rate and turn cheap maybes into expensive unnecessary reads.",
-        "Metadata can become its own problem. Very large SSTables may have indexes and filters too large to keep hot as single blocks. Cold block cache, oversized data blocks, bad compression choices, many overlapping files, tombstones, and compaction debt can all turn a clean point-lookup path into repeated random I/O.",
-      ],
-    },
-    {
-      heading: "Study next",
-      paragraphs: [
-        "Primary sources: LevelDB table format at https://github.com/google/leveldb/blob/main/doc/table_format.md, RocksDB block-based table format at https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format, RocksDB index block format at https://github.com/facebook/rocksdb/wiki/Index-Block-Format, and RocksDB partitioned index/filter post at https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html.",
-        "Study LSM Tree first so the SSTable has context. Then study RocksDB LSM Case Study, RocksDB Write Stalls and Compaction Debt, Bloom Filter, Xor Filter, Modern Cache Eviction, Cache Invalidation, and RocksDB MANIFEST and VersionSet. Together they show how immutable files become a live database.",
-      ],
-    },
-      {
       heading: 'The wall',
       paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
+        'The wall is read amplification. One user lookup can turn into many file checks, metadata reads, decompressions, and data-block reads. A storage engine that writes quickly but reads five cold blocks for every miss will feel slow on point queries.',
+        'Metadata can also become too large. If the whole index and filter must stay in memory for every file, the engine has traded data I/O for metadata pressure. Large production tables need partitioned indexes and filters so only hot slices stay resident.',
       ],
     },
-
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Arrange the file so cheap questions come first. The footer tells the reader where metadata starts, the filter can prove absence, and the index maps separator keys to block handles. The data block then performs the exact local search.',
+        'The invariant is staged certainty. A negative filter answer is exact for absence, an index answer is exact for possible block location, and the data block answer is exact for the key-value result. Each stage either stops safely or narrows the next stage.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'On open, the reader finds the fixed footer and follows handles to the index and metaindex. The metaindex can point to a filter block. The top-level metadata is small enough to discover the rest of the file without scanning data blocks.',
+        'On lookup, the engine first chooses candidate SSTables from the LSM level metadata. For each candidate, it checks the filter. If the answer is maybe, it searches the index for the target key range, checks the block cache, reads and verifies the data block on a miss, then searches restart points and entries inside the block.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Correctness comes from immutability and sorted ranges. Once the file is written, block offsets, separator keys, filters, checksums, and restart arrays do not change. A reader can trust that the index still names the same byte ranges while compaction builds new files elsewhere.',
+        'The filter is safe because it is allowed to say maybe for absent keys but not allowed to say absent for present keys. The index is safe because separator keys cover ordered block ranges. The final data-block comparison decides the value, so false positives cannot return wrong data.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'A successful point lookup touches candidate-file metadata, one filter check, one index search, and at most one data block per candidate file. If the block cache hits, disk I/O may be zero for that file. If the cache misses, the dominant cost is the random read and decompression of the chosen block.',
+        'The format spends memory and bytes to avoid reads. More bits per key reduce filter false positives but consume cache. Smaller data blocks reduce wasted bytes for point reads but hurt compression and scan throughput. When the database doubles, compaction and level layout decide whether lookups see a few files or many.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'LevelDB, RocksDB, Pebble, Cassandra-style engines, and Bigtable-like stores use this family of immutable sorted files. The design fits write-heavy systems where background compaction can reorganize files while reads use metadata to stay selective.',
+        'The access pattern is point lookup plus ordered iteration. Filters and block indexes help point reads, while sorted data blocks make range scans sequential. A good engine tunes block size, filter type, cache policy, and compaction together rather than treating the SSTable as an isolated file.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A filter maybe can be expensive when false positives are high. Poorly sized filters turn many absent keys into unnecessary index searches and block reads. Prefix filters can also be wrong for workloads that do not query by the configured prefix shape.',
+        'It also fails under compaction debt. If too many overlapping files can contain the key, even perfect per-file metadata still runs many cheap tests. Tombstones, cold caches, oversized blocks, and stale partition metadata can make the read path much longer than the clean diagram.',
+      ],
+    },
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Assume a 256 MB SSTable with 4 KB data blocks, so it has about 65,536 data blocks. An index entry of 24 bytes per block is about 1.5 MB before compression, which is too large to read repeatedly for cold lookups. A partitioned index might keep a 16 KB top index hot and load only the partition for the target key range.',
+        'For an absent key across 12 candidate SSTables, a 1 percent false-positive filter means about 0.12 files on average continue past the filter. Most lookups read no data blocks. If the false-positive rate rises to 20 percent, the same miss continues into about 2.4 files, and the random-read cost becomes visible.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Primary sources start with the LevelDB table format at https://github.com/google/leveldb/blob/main/doc/table_format.md. Then read the RocksDB block-based table notes at https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format and the partitioned index/filter post at https://rocksdb.org/blog/2017/05/12/partitioned-index-filter.html.',
+        'Study LSM Tree for the file lifecycle and Bloom Filter or Xor Filter for membership tests. Then use Block Cache, RocksDB MANIFEST and VersionSet, and Compaction Debt to connect the file format to a live storage engine.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why SSTable Block Index & Filter moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

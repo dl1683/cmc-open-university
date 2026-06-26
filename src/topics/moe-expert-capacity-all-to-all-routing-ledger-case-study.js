@@ -471,95 +471,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Mixture-of-Experts layers exist to decouple parameter count from per-token compute. A dense feed-forward block runs the same parameters for every token. A sparse MoE block holds many expert MLPs but activates only one or a few for each token, so the model can gain capacity without paying the full dense cost on every step.',
-        'That idea only becomes a real system when routing decisions are turned into bounded buffers, communication counts, expert batches, and a combine plan. The topic is not only model architecture. It is the data structure that lets a transformer layer scatter tokens across experts and then reconstruct one output vector per original token.',
+        'The animation shows a mixture-of-experts layer, or MoE layer, where a router sends each token to a small number of expert networks instead of running every token through the same dense feed-forward block. An expert is a parameter shard specialized by training, and capacity is the number of token slots that expert may accept in one batch.',
+        'Active cells show token assignments and dispatch movement, compare marks capacity pressure or rejected overflow, and found marks tokens that return with a valid combine weight. The safe inference rule is this: a token is correct only if its identity, selected expert, slot, destination rank, and combine weight survive the all-to-all shuffle.',
         {type:'callout', text:'Production MoE is a routing ledger problem: token identity, expert choice, capacity slot, destination rank, and combine weight must survive every shuffle.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The common shallow explanation says that the router chooses an expert and the expert runs. That hides the real constraints. Top-k routing produces multiple assignments per token, capacity may reject some assignments, expert parallelism may place those experts on remote ranks, and the output must be combined in the original token order.',
-        'A probability matrix is therefore not enough. The runtime needs a route ledger: token id, expert id, route rank, router weight, capacity slot, destination rank, send offset, return offset, and overflow decision. If any of those fields are lost, the failure can look like model quality drift even when the bug is a bad gather, stale offset, or incorrect combine.',
+        'Dense transformer layers spend the same compute on every token. MoE exists because model capacity can grow by adding experts while each token activates only a few of them.',
+        'That creates a useful bargain for large language models. Parameters increase, but per-token compute grows much more slowly if routing, capacity, and communication are controlled.',
       ],
     },
     {
-      heading: 'Core mechanism',
+      heading: 'The obvious approach',
       paragraphs: [
-        'For a batch with T tokens and E experts, the router scores a T by E matrix. Top-k selection converts each token row into k assignment records. A capacity rule then gives every accepted assignment a slot inside the selected expert buffer. The selected hidden states are gathered into per-destination send buffers, exchanged with all-to-all, processed by local expert MLPs, and sent back or directly combined depending on the implementation.',
-        'The combine step restores the dense transformer contract. A top-2 MoE layer may receive two expert outputs for one token, so the runtime multiplies each output by its router weight and sums them into the original token position. Dispatch scatters by expert; combine gathers by token.',
+        'The obvious approach is to make one larger dense feed-forward layer. That improves capacity but every token pays for every parameter, so serving cost and training FLOPs rise directly with layer size.',
+        'A second obvious approach is to route tokens to experts without strict capacity accounting. That works on balanced toy batches, but real batches contain repeated patterns that can overload popular experts.',
       ],
     },
     {
-      heading: 'Capacity is a memory contract',
+      heading: 'The wall',
       paragraphs: [
-        'Capacity factor decides how many token slots each expert reserves relative to an evenly balanced load. Low capacity saves memory, padding, and static compute. High capacity reduces overflow risk. The hard case is skew: the router can prefer one expert for more assignments than the expert buffer can hold.',
-        'Once the buffer is full, the system must choose a policy. It can drop lower-ranked assignments, reroute, backpressure, increase capacity, change router bias, or reject the batch shape. That decision must be explicit because it changes training signal, inference quality, latency, and reproducibility.',
+        'The wall is uneven demand plus distributed memory. If expert 7 receives 40 percent of tokens while expert 3 receives 2 percent, the hot expert stalls the batch and may drop tokens while other GPUs wait.',
+        'Distributed MoE adds an all-to-all communication wall. Tokens begin on sequence-parallel or data-parallel ranks, must travel to the ranks owning their experts, and must return in the original order for the residual stream.',
       ],
     },
     {
-      heading: 'All-to-all dispatch',
+      heading: 'The core insight',
       paragraphs: [
-        'Expert parallelism shards experts across ranks. A single local batch can contain tokens assigned to local and remote experts at the same time. That creates a peer-specific shuffle: every source rank may send a different number of token vectors to every destination rank. This is an all-to-all shape, not an all-reduce shape.',
-        'The send-count matrix and offsets are correctness data. A bad count can deadlock a collective or make a rank read the wrong slice. A bad token id can combine a correct expert output into the wrong request. Tail latency often follows the hottest destination rank, so load balance is a communication concern as much as an ML objective.',
+        'The MoE layer is not just a neural network block; it is a routing ledger. For each token, the system records top-k expert choices, gate weights, capacity slots, dispatch ranks, return positions, and overflow decisions.',
+        'That ledger makes sparse computation deterministic enough to train. Experts can run independently only because the dispatch and combine metadata preserve the token-to-output mapping.',
       ],
     },
     {
-      heading: 'Invariants',
+      heading: 'How it works',
       paragraphs: [
-        'The first invariant is one output vector per input token, in the original order. The second is no accepted assignment without a unique expert slot. The third is that every packed byte range has a matching destination and return interpretation. The fourth is that overflow and dropped assignments are counted, not silently erased.',
-        'The proof obligation is operational. The router can choose experts, but the dispatcher must preserve identity through gather, communication, expert execution, and combine. A correct implementation can audit an output token back to the expert calls and weights that produced it.',
+        'The router computes a score for each expert and chooses the top k experts for each token. A capacity factor sets how many slots each expert has, commonly near tokens_per_batch * k / num_experts with a safety multiplier.',
+        'Tokens are packed by destination expert, exchanged across devices with all-to-all communication, processed by expert feed-forward networks, and sent back. The combine step multiplies each returned expert output by its gate weight and restores the original token order.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Why it works',
       paragraphs: [
-        'Routing costs scale with the score matrix and top-k selection. Dispatch costs scale with accepted assignments times hidden dimension, plus metadata and padding. Expert compute is sparse relative to a dense model of the same total parameter count, but communication, capacity padding, and poor load balance can eat the savings.',
-        'Capacity factor, top-k, expert placement, sequence length, microbatch size, and network topology interact. A setting that improves training throughput can hurt serving p99. A setting that improves average throughput can increase dropped-token rate or make one rank the critical path.',
+        'Correctness depends on a conservation invariant. Every non-dropped expert assignment must appear exactly once in dispatch, exactly once in expert compute, and exactly once in combine with the same token id and gate weight.',
+        'If that invariant holds, sparse execution computes the same result as a conceptual block that gathered each selected expert output directly. Dropped or padded tokens are then explicit policy choices rather than silent data corruption.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Router collapse sends too much traffic to a small expert subset. Overflow drops or reroutes assignments. Hot-rank all-to-all stalls make sparse compute wait on communication. Combine-order bugs produce semantically wrong hidden states without necessarily crashing. Serving schedulers can also fragment KV cache or starve awkward request shapes.',
-        'Treat those as release gates. Track task-quality slices, per-expert token count, probability mass, overflow, dropped assignments, all-to-all bytes, expert GEMM occupancy, memory residency, p50 and p99 latency, and trace coverage. Average tokens per second alone is not a sufficient MoE metric.',
+        'Compute cost scales with active experts, not total experts. With 8192 tokens, 64 experts, top-2 routing, and capacity factor 1.25, average demand is 256 assignments per expert and capacity is 320 slots per expert.',
+        'Communication can dominate. The layer moves token activations to expert owners and back, so doubling hidden size doubles bytes per assignment, while doubling experts can reduce per-expert compute but increase routing imbalance and network pressure.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'MoE is useful when the workload benefits from high parameter capacity but cannot afford dense activation of all parameters per token. It is strongest when the serving stack can keep experts resident, maintain balanced routing, and make all-to-all communication efficient relative to expert compute.',
-        'It also helps as a curriculum topic because it forces several concepts to meet: sparse activation, bounded queues, collective communication, load balancing, distributed tracing, and correctness-preserving gather/scatter.',
+        'MoE is used in large language models and multilingual or multitask models that need more parameter capacity without dense compute on every token. The access pattern is high-throughput batches where many tokens can be routed together.',
+        'It is also useful when specialization emerges naturally. Code tokens, math tokens, rare languages, and domain-specific phrases may benefit from different expert parameters while sharing the same attention stack.',
       ],
     },
     {
-      heading: 'Where it is the wrong tool',
+      heading: 'Where it fails',
       paragraphs: [
-        'MoE is a poor fit when network bandwidth is the bottleneck, the batch shape is too small to amortize dispatch, the deployment cannot keep experts resident, or the team lacks the observability to debug routing and overflow. Sparse parameter activation does not automatically mean low latency.',
-        'It can also be the wrong modeling choice for domains where expert specialization does not emerge or where routing instability hurts quality. A smaller dense model may be easier to deploy, tune, and reason about.',
+        'MoE fails when batches are small, networks are slow, or routing is unstable. The overhead of all-to-all dispatch can exceed the compute saved by sparse activation.',
+        'It also fails when experts collapse. If the router sends too many tokens to a few experts, capacity drops tokens or pads waste slots, and training may reinforce the imbalance unless load-balancing losses and routing limits work.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Worked example',
       paragraphs: [
-        'In the router-slots view, start with the score matrix and follow one token across top-2 selection, weight storage, and expert capacity. The capacity table is the key frame: E2 receives more assignments than its fixed slots can hold, so the system must make an overflow decision instead of pretending routing is only a soft preference.',
-        'In the dispatch-fabric view, read the graph as a sequence of identity-preserving transforms: token batch, router ledger, packed send buffers, all-to-all exchange, expert batches, and combine buffer. In the ops-gates view, connect the hot-share plot to the failure ledger. The animation is showing why MoE needs a route-aware control plane, not just expert MLPs.',
-      ],
-    },
-    {
-      heading: 'Modern systems context',
-      paragraphs: [
-        'GShard made large sparse conditional computation practical with top-2 routing and sharding. Switch Transformer showed the value of simpler top-1 routing and made capacity factor prominent. Mixtral 8x7B made open top-2 MoE behavior widely visible. DeepSeekMoE and DeepSeek-V3 highlight more recent design choices around finer expert granularity, shared experts, and load balancing control.',
-        'Those systems are not interchangeable labels. Top-1 versus top-2 changes combine semantics. Shared experts change what always runs. Fine-grained experts change dispatch cardinality. Loss-free or auxiliary-loss balancing changes the training control signal. The common operational object is still the route ledger.',
+        'Use 1024 tokens, 16 experts, top-2 routing, and capacity factor 1.25. The batch creates 2048 expert assignments, average demand is 128 assignments per expert, and each expert gets capacity floor(128 * 1.25) = 160 slots.',
+        'If expert 5 receives 190 assignments, 160 can run and 30 overflow under a hard-cap policy. The cost of that policy is visible behavior: 30 token-expert paths are lost or rerouted, so quality and load-balance metrics must record the event.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Shazeer et al. on sparsely-gated MoE at https://arxiv.org/abs/1701.06538, GShard at https://arxiv.org/abs/2006.16668, Switch Transformer at https://arxiv.org/abs/2101.03961, Mixtral of Experts at https://arxiv.org/abs/2401.04088, DeepSeekMoE at https://arxiv.org/abs/2401.06066, DeepSpeed-MoE at https://arxiv.org/abs/2201.05596, Megatron-Core MoE documentation at https://docs.nvidia.com/megatron-core/developer-guide/latest/api-guide/moe.html, and DeepSeek-V3 at https://arxiv.org/abs/2412.19437.',
-        'Study Mixture of Experts, GPU All-Reduce, Tensor Parallelism, Transformer Inference Roofline, LLM Continuous Batching, Length-Aware Batching for LLM Schedulers, KV Cache Concurrency Capacity Model, Benchmark Variance and Model Selection, Structured Pruning and N:M Sparsity, and Activation-Aware Quantization Calibration Ledger next.',
+        'Primary sources: Shazeer and coauthors on sparsely gated MoE, Switch Transformer, GShard, GLaM, and modern distributed MoE implementation notes. Read system papers for all-to-all behavior because the bottleneck is often communication rather than math.',
+        'Study next: distributed collectives, all-to-all communication, transformer feed-forward layers, load-balancing losses, GPU memory bandwidth, tensor parallelism, and inference batching.',
       ],
     },
   ],

@@ -219,98 +219,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a resolver choosing between freshness and availability. A positive RRset is a set of DNS records for one owner name and type, TTL means time to live, and stale means the original TTL has expired. Active state is the refresh attempt, visited state is cached data whose original validity is known, and found state is the answer returned under policy.',
+        'The safe inference is conditional: an expired positive answer may be served only when it was once valid, it is still inside a maximum-stale window, and refresh has failed or timed out under resolver policy. Stale is not fresh. It is a bounded fallback.',
+        {type: 'callout', text: 'Serve-stale keeps availability by treating expired positive answers as deadline-limited fallbacks, not as fresh truth.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'DNS TTLs are freshness contracts, but real authoritative paths fail. Nameservers time out, networks partition, DDoS attacks hit authority, and service-discovery control planes have outages. If a resolver discards an expired positive RRset at the exact moment authority is unreachable, users can lose a working service even though the last known answer is probably still useful.',
-        'Serve-stale exists to choose bounded old data over immediate failure during a refresh outage. It is a resolver resilience policy, not a claim that TTLs stopped mattering.',
-        {type: 'callout', text: 'Serve-stale keeps availability by treating expired positive answers as deadline-limited fallbacks, not as fresh truth.'},
+        'DNS TTLs let zone owners bound how long resolvers reuse positive answers. Real authoritative paths still fail. Nameservers time out, networks partition, and control planes can be unavailable while the last known address still works.',
+        'Serve-stale exists for that outage window. Instead of returning immediate failure after TTL expiry, a resolver can return the last valid answer with a small TTL while it keeps trying to refresh. The goal is graceful degradation, not ignoring DNS changes.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The strict cache approach is to delete or ignore a positive RRset as soon as its TTL expires. If refresh succeeds, the resolver returns fresh data. If refresh fails, the resolver returns failure. That is simple and respects freshness.',
-        'The other naive approach is to keep old data forever. That improves availability during outages, but it can route users to retired addresses, hide migrations, and ignore security-sensitive changes. The useful design must preserve a hard boundary around stale use.',
+        'The strict approach is to discard or ignore a cached positive RRset when TTL reaches zero. If authority responds, the resolver returns fresh data. If authority fails, the resolver returns failure.',
+        'A careless availability shortcut is to keep expired data forever. That can hide migrations, route users to drained servers, and ignore security-sensitive changes. The useful design keeps stale service behind explicit timers and failure evidence.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'A serve-stale cache keeps two states for a positive RRset: fresh until the original TTL ends, then stale-eligible until a maximum-stale deadline. Refresh still happens. The stale answer is used only when fresh authority cannot be reached within the resolver policy.',
-        'The key invariant is that every stale path has a deadline. A response timer caps how long the client waits, retry backoff protects authority, and maximum-stale prevents an old answer from becoming permanent truth.',
+        'Strict expiry creates an avoidable outage for warm caches. A resolver may have answered api.example.com successfully for five minutes, then fail users only because authority is unreachable at the refresh moment. The last known good answer may be safer than a blank failure during a short outage.',
+        'Unbounded stale data creates the opposite failure. If an address moved from 203.0.113.10 to 203.0.113.20, a resolver that serves the old value for hours can keep traffic on the wrong endpoint. Availability and correctness need separate timers.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        "In the authority-outage view, watch the resolver choose between waiting, refreshing, failing, and serving the last known good answer. The stale answer is not fresh truth; it is a bounded fallback when the authoritative path cannot answer inside the response budget.",
-        "In the timer-policy view, read each timer as a different safety boundary. TTL controls freshness. The client response timer controls how long the resolver waits before answering. Retry timers protect authority from hammering. Maximum-stale prevents old data from becoming permanent truth.",
-        "The important state is eligibility. An expired RRset is useful only if it was once valid, still sits inside the stale window, has acceptable validation state, and the resolver has evidence that refresh currently failed.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A resolver cached `api.example.com A 203.0.113.10` with a TTL of 300 seconds. Five minutes later the TTL expires. At the next query, the resolver asks the authoritative nameservers for a fresh answer, but all attempts time out. With serve-stale enabled, it can return the expired address with a very small TTL while it keeps retrying authority in the background.',
-        'That answer is better than failure only if the old address is likely still valid. If the service is in the middle of a migration, or if the record controls an ACME challenge or authorization boundary, stale data may be worse than an error. Serve-stale is therefore a policy decision, not a universal DNS shortcut.',
+        'Serve-stale adds a second lifetime after TTL expiry. The RRset is fresh until its TTL ends, then stale-eligible until a maximum-stale deadline. The resolver may use it only when refresh cannot produce a fresh answer within the response budget.',
+        'The invariant is that stale answers remain bounded and visible. The resolver keeps retrying authority, returns a small TTL on stale answers, and records metrics. If authority recovers, fresh data replaces the stale entry.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A normal resolver cache stores owner name, type, class, RRset, TTL, insertion time, authority metadata, and validation state. Serve-stale adds retention after TTL expiry, maximum-stale deadline, retry schedule, response timer, and eligibility flags for answer classes.',
-        'On query, the resolver uses fresh data if TTL remains. If the RRset is expired, it tries to refresh. If refresh times out or fails inside the response budget, the resolver can return the expired RRset with a small TTL, schedule jittered retries, and record stale-answer metrics. When authority recovers, the new RRset replaces the stale one.',
+        'The cache stores owner name, type, class, RRset data, original TTL, insertion time, validation state, and stale eligibility. When a query arrives, the resolver first checks whether the RRset is still fresh. If it is fresh, the normal cache path answers.',
+        'If the RRset is expired, the resolver starts or joins a refresh attempt. If refresh succeeds inside the policy deadline, the fresh result wins. If refresh times out or fails, and the entry is still inside maximum-stale, the resolver returns the old RRset with a short TTL and schedules more refresh attempts.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Serve-stale is useful because the old RRset was a valid positive answer when cached. During a temporary authority failure, the resolver has evidence that the answer recently worked and no fresh contradictory data is available.',
-        'It stays defensible only under bounds. The resolver must keep validation state, stop at maximum-stale, retry authority, and expose metrics. Without those bounds, serve-stale would silently convert a cache into an unbounded source of old data.',
+        'The correctness argument depends on prior validity and bounded reuse. The resolver has evidence that the RRset was authentic or at least valid under its normal resolution policy when stored. During a temporary authority failure, it can prefer that recent fact over a failure response.',
+        'The argument stops at the stale deadline. Past that point, the old answer is too old to treat as a resilience fallback. DNSSEC validation state, local policy, and record class can also make stale service invalid even before the maximum window ends.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The availability gain appears when authority fails after clients have already warmed the cache. A cold cache cannot serve stale data because it has no last known good RRset. A warm cache can keep answering while refresh attempts continue.',
-        'The cost is correctness risk. The old address may point at a drained server, a retired load balancer, or an endpoint that should no longer receive traffic. Memory also grows because expired RRsets remain retained until their stale deadlines or eviction policy removes them.',
-        'There is also an observability cost. Without metrics, stale serving can make a nameserver outage look like a healthy resolver. Track stale answers, refresh failures, maximum-stale drops, and per-zone retry pressure so resilience does not become blindness.',
+        'Serve-stale changes cost only for warm cache entries. A cold cache still has nothing to return. For warm entries, authority query load may rise during outages because the resolver keeps retrying, while client-visible failures drop because many queries receive the stale value.',
+        'The behavioral cost is delayed convergence. If TTL is 300 seconds and maximum-stale is 3,600 seconds, a resolver may return old data for up to an hour during authority failure. Memory also grows because expired RRsets remain retained until stale deadlines or eviction remove them.',
       ],
     },
     {
-      heading: 'Policy design',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A good serve-stale policy distinguishes record classes. Positive address records for ordinary services are often reasonable candidates. Security-sensitive TXT records, fast-changing service-discovery names, validation failures, and negative answers need stricter treatment. The policy should be explicit rather than inherited from one global switch.',
-        'Bound the fallback. Set a maximum stale lifetime, return a small TTL on stale answers, keep retrying authority with backoff, and make stale-answer events visible to operators. The design goal is graceful degradation during a temporary authority outage, not a second DNS truth source.',
-      ],
-    },
-    {
-      heading: 'Operational playbook',
-      paragraphs: [
-        'When stale answers appear, operators should ask whether authority is unreachable, validation is failing, or the resolver is overloaded. Those are different incidents. A resolver serving stale data because every authoritative query times out needs network or authority repair. A resolver serving stale data after DNSSEC validation failure may need a stricter fail-closed policy.',
-        'The playbook should also name exit conditions. Once fresh authority succeeds, stale answers should disappear. If stale counts stay high, the resolver may be retrying too slowly, authority may still be unhealthy, or clients may be asking for names whose refresh path is broken.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Serve-stale wins during short authoritative outages, resolver-to-authority network failures, DDoS events against nameservers, and service-discovery control-plane incidents. It is strongest for positive address answers whose old value is likely better than failure.',
-        'It pairs naturally with alerting. Stale-answer counts, refresh-failure rates, retry pressure, and maximum-stale exhaustion show whether DNS is absorbing a transient problem or hiding a real outage.',
+        'Serve-stale is useful for ordinary service address records where temporary authority failure is worse than using a recent address. Public resolvers and enterprise resolvers can absorb short nameserver outages without making every dependent application fail. The access pattern is many clients asking for names that were recently valid.',
+        'It also helps during DDoS or network partition events against authoritative DNS. Operators can keep user traffic flowing while alerts show refresh failures and stale-answer counts. The feature is strongest when stale metrics are treated as an incident signal rather than hidden success.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Serve-stale fails on cold misses, long outages beyond the maximum-stale budget, and records where old data is dangerous. Negative answers, DNSSEC validation failures, ACME TXT challenges, authorization records, and active migrations need stricter policy.',
-        'It is also different from DNS Negative Cache & NXDOMAIN. Negative caching asks whether authoritative absence can be reused. Serve-stale asks whether old positive data is better than a refresh failure. Mixing those policies can hide newly created names or security changes.',
-        'It also fails when application owners assume TTL is an instant cutover lever. A stale-capable resolver can continue returning an old positive answer after TTL expiry during an outage. Critical migrations should account for stale policy, staged drains, and monitoring that distinguishes fresh from stale responses.',
+        'Serve-stale fails on cold misses because there is no last known answer. It is dangerous for records that are meant to change quickly, such as authorization TXT records, active cutover records, and some service-discovery names. Old data can be worse than failure when it sends traffic to the wrong authority or endpoint.',
+        'It also fails if operators treat stale serving as health. A resolver can appear successful while all authoritative refreshes fail. Good deployments separate fresh answers, stale answers, refresh failures, validation failures, and maximum-stale drops in monitoring.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A resolver caches api.example.com A 203.0.113.10 at 10:00:00 with TTL 300. At 10:05:00 the TTL expires, and a client asks again. The resolver queries authority, waits 200 milliseconds under policy, and all nameservers time out.',
+        'If maximum-stale is 3,600 seconds, the old answer is still eligible at 10:05:00. The resolver returns 203.0.113.10 with TTL 30 and keeps refreshing in the background. At 11:05:01 the same entry is beyond the stale window, so failure should be returned unless fresh authority has recovered.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RFC 8767 Serving Stale Data to Improve DNS Resiliency at https://www.rfc-editor.org/rfc/rfc8767, RFC 2308 DNS Negative Caching at https://www.rfc-editor.org/rfc/rfc2308, RFC 9520 Negative Caching of DNS Resolution Failures at https://www.rfc-editor.org/rfc/rfc9520, and Unbound serve-stale documentation at https://unbound.docs.nlnetlabs.nl/en/latest/topics/core/serve-stale.html. Cloudflare describes operational use of stale DNS cache entries during Consul-backed DNS problems at https://blog.cloudflare.com/the-benefits-of-serving-stale-dns-entries-when-using-consul/.',
-        'Study next: How DNS Works for recursive lookup, DNS Negative Cache & NXDOMAIN for absence caching, Cache Invalidation & Versioning for TTL trade-offs, LRU Cache for local eviction, CDN Stale-While-Revalidate Shield for the HTTP-side stale pattern, Circuit Breakers and Tail Latency & p99 Thinking for the resilience framing.',
+        'Primary sources include RFC 8767 at https://www.rfc-editor.org/rfc/rfc8767, RFC 2308 at https://www.rfc-editor.org/rfc/rfc2308, and the Unbound serve-stale documentation at https://unbound.docs.nlnetlabs.nl/en/latest/topics/core/serve-stale.html. Study DNS negative caching to contrast absence reuse, cache invalidation for TTL behavior, and tail-latency thinking for response-budget design.',
       ],
     },
   ],

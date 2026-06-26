@@ -349,75 +349,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why it exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The memory-plan view shows a training step as a budget problem. An activation is an intermediate tensor saved during the forward pass so the backward pass can compute gradients. Active nodes show which tensors are saved, which operations are replayed, and which budget gate decides whether the plan fits.',
+        'The cut-policy view focuses on graph boundaries. A cut is a saved boundary tensor that lets the backward pass reconstruct the interior by rerunning part of the forward graph. The distributed view adds rank ownership, offload choices, and communication buffers that can erase savings if ignored.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/SRAM_Cell_%286_Transistors%29.svg/400px-SRAM_Cell_%286_Transistors%29.svg.png', alt:'SRAM cell schematic showing the six-transistor structure that underlies fast on-chip memory', caption:'An SRAM cell — the foundation of on-chip cache and register files. GPU HBM is built from DRAM, which is cheaper per bit but slower. Activation rematerialization trades recompute time for memory space because HBM capacity is the binding constraint in large training jobs. Source: Wikimedia Commons, Inductiveload, Public domain'},
         {type:'callout', text:'The core trade is memory for compute. Instead of saving every intermediate tensor during the forward pass, save a smaller set of boundary tensors and recompute the interior during backward. A budget planner makes this trade precise: it decides which tensors to keep, which to replay, and how much extra time the job can afford.'},
-        'Activation rematerialization exists because modern training jobs can run out of memory on activations before they run out of memory on parameters. During the forward pass, the framework normally saves intermediate tensors so the backward pass can compute gradients. Those saved tensors are often large: sequence length, hidden width, attention heads, microbatch size, and temporary kernel workspaces all multiply into a live set that can exceed GPU memory.',
-        'The basic trade is simple. Instead of saving every intermediate tensor, save a smaller set of boundary tensors and recompute some interior operations during backward. Memory falls because fewer activations stay live. Compute rises because part of the forward work is performed again. A budget planner is the production form of that trade: it decides which tensors to keep, which operations to replay, how much extra time the job can afford, and what evidence must pass before the run is trusted.',
+        'Large training jobs often run out of high-bandwidth GPU memory before they run out of arithmetic. Parameters, gradients, optimizer state, activations, temporary workspaces, and communication buffers all share the same device. Activations can dominate when sequence length, image size, or microbatch grows.',
+        'Rematerialization exists to trade extra compute for lower peak memory. Instead of storing every intermediate tensor until backward, the system stores selected boundaries and recomputes the missing interior when needed. A budget planner makes that trade measurable rather than flipping checkpointing on everywhere.',
       ],
     },
     {
-      heading: 'Why the obvious switch fails',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to turn on checkpointing everywhere or checkpoint every fixed number of layers. That can make a job fit, but it treats all operations as if they had the same cost and the same correctness constraints. Replaying a cheap GELU or layer norm is usually fine. Replaying a large attention block, a dense matmul, or an unfused kernel group can make throughput collapse. A policy that saves memory by doubling the most expensive work is not a good policy.',
-        'A second obvious approach is to copy a checkpoint pattern from a different model. That is unreliable because the right cut depends on the actual model graph, sequence length, compiler behavior, tensor parallel degree, pipeline stage boundaries, random operations, and memory budget. The policy that works for a 4k-context model may be poor for a 32k-context model. The policy that works before a kernel or compiler change may be wrong after fusion changes the operation graph.',
-        'The third mistake is to treat activation memory in isolation. ZeRO, FSDP, tensor parallelism, optimizer state sharding, gradient accumulation, temporary buffers, CUDA graphs, and kernel workspaces all share the same device memory. A planner that claims success because saved activations fell from 36 GB to 14 GB can still fail if reserved memory, communication buffers, or temporary workspaces push the step over the real cap.',
+        'The obvious switch is checkpoint every fixed number of layers. That can make a model fit, and it is easy to explain: save fewer activations, then replay the skipped layers during backward. It is a reasonable first lever when a run fails with out-of-memory.',
+        'Another obvious move is to copy a checkpoint pattern from a similar model. That works when model shape, sequence length, fusion behavior, parallelism, and microbatch are close. It breaks once any of those variables change enough to move the memory bottleneck.',
       ],
     },
     {
-      heading: 'Core mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'The classical result behind this topic is Training Deep Nets with Sublinear Memory Cost, which showed that deep networks can trade extra forward computation for much lower activation memory: https://arxiv.org/abs/1604.06174. In a production transformer training stack, that result becomes a constrained planning problem over a graph. The nodes are operations. The edges are tensors. Each tensor has a byte size and lifetime. Each operation has an estimated replay cost and may belong to a compiler fusion group.',
-        'The planner first builds or consumes a profile of the training step. It records activation sizes, operation costs, kernel choices, randomness requirements, distributed ownership, and memory that checkpointing cannot reduce. Then it chooses a cut set. A cut set is the boundary of saved tensors that lets backward reconstruct the needed values by replaying the forward graph inside each segment. The output is not merely a boolean flag; it is a table of saved boundaries, recomputed regions, RNG handling, expected bytes saved, expected replay time, rank ownership, and launch gates.',
-        'Compiler-backed approaches can express the same idea as graph partitioning. PyTorch material on activation checkpointing describes ordinary checkpointing, selective activation checkpointing, torch.compile min-cut planning, and memory budget APIs. A min-cut view assigns costs to saving tensors and recomputing operations, then finds a boundary that meets the memory goal while avoiding excessive replay. The graph formulation matters because it can see operation-level choices that a layer-level manual rule misses.',
+        'All operations are not equal. Replaying a GELU or layer norm may be cheap, while replaying attention or a large matrix multiply can erase throughput. A blanket policy can save memory by doubling the most expensive work.',
+        'Memory buckets also interact. ZeRO, fully sharded data parallelism, tensor parallelism, pipeline stages, CUDA graph capture, kernel workspaces, and allocator fragmentation all affect peak memory. A plan that cuts activations from 36 GB to 14 GB can still fail if temporary buffers and reserved memory push the step over the cap.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Activation rematerialization is a graph planning problem. Nodes are operations, edges are tensors, and each tensor has size and lifetime. Each operation has replay cost, randomness constraints, fusion boundaries, and rank ownership.',
+        'The planner chooses a cut set that satisfies a memory budget while keeping replay cost acceptable. The output is not a boolean flag; it is a policy table with saved tensors, recomputed regions, expected bytes saved, expected replay time, random-number handling, distributed placement, and launch gates.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The system first profiles a representative training step. It records parameter memory, optimizer memory, gradient memory, activation sizes, temporary workspaces, communication buffers, and peak reserved allocator memory. It also records operation timing and which operations are fused by the compiler.',
+        'The planner then searches for cut boundaries. It prefers dropping large activations behind cheap replay, avoids replaying expensive attention or matmul regions when possible, and preserves random-state behavior for dropout or stochastic depth. In distributed runs, it checks whether a saved boundary is rank-local, partitioned, offloaded, or requires a gather.',
+        'Execution follows the policy during forward and backward. Forward saves only boundary tensors. Backward reconstructs interior activations just in time, computes gradients, and releases replayed tensors quickly. The evidence gate compares memory, speed, loss, gradient samples, and random-number parity against a trusted baseline.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Rematerialization works because backward does not require every forward intermediate to be stored at the same time. It only requires the correct values when each gradient computation needs them. If the saved boundary tensors are sufficient to rerun the forward slice, then the system can reconstruct the missing interior activations just in time. This changes the peak live set: many tensors that would have lived across the whole forward pass are discarded and recreated later.',
-        'The trade is favorable when the dropped tensors are large and the replayed computation is cheap relative to the training step. Pointwise operations, small normalization operations, and short fused interiors are common candidates. Large matmuls and attention operations are often expensive enough that saving their outputs is better. Random operations such as dropout need special handling because replay must generate the same mask or preserve the exact mask. Without that contract, the gradients can silently change.',
-        'The memory-plan view in this module shows the pipeline: model graph, activation profile, operation-cost profile, memory cap, planner, save set, replay set, training step, and evidence gate. The cut-policy view zooms into operation-level choices. The distributed view adds placement: checkpointed activations may be rank-local, partitioned across tensor-parallel ranks, offloaded to CPU, packed into contiguous buffers, or aligned to pipeline boundaries.',
+        'Backward does not need every forward intermediate stored for the whole step. It needs the correct value when a gradient formula consumes it. If the saved boundary tensors are sufficient to rerun the missing slice, the system can recreate the value at the right time.',
+        'The correctness invariant is replay equivalence. Recomputed activations must match the values backward would have consumed from storage, including random masks, mixed-precision casts, and stateful modules. If that invariant holds, gradients match the no-rematerialization run within numeric tolerance while peak live memory falls.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The memory saving is the bytes not kept live across the forward-to-backward gap. The compute cost is the replayed forward work. If checkpointing saves 20 GB but adds 8 percent step time, it may be a good trade; if it saves 4 GB and adds 35 percent, it is usually the wrong lever.',
+        'Cost behaves through tail steps, not only averages. Long sequences and large microbatches request more activation memory and often trigger larger replay regions. Offloading to CPU can reduce device peak but add transfer stalls; partitioned checkpointing can save per-rank memory but add synchronization.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'This pattern matters in transformer training, diffusion models with large feature maps, graph neural networks with large neighborhoods, and long-context fine-tuning. It lets teams keep a target sequence length, image resolution, or global batch size without moving to a larger accelerator class.',
+        'It also composes with other memory levers. Sharding reduces parameter, optimizer, and gradient replication. Tensor and pipeline parallelism distribute work. Rematerialization reduces the stored forward live set. A good planner keeps these buckets separate so the team knows which lever paid for the run.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The most serious failure is silent gradient drift. Dropout masks, stochastic depth, random augmentation, stateful layers, and mixed-precision differences can make replay differ from the original forward pass. Loss parity and sampled gradient parity are required launch checks.',
+        'It also fails when the planner saves the wrong memory bucket. Checkpointing cannot reduce optimizer state, parameter memory, or some temporary workspaces. If those dominate peak memory, rematerialization adds compute without solving the real problem.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose a 24-layer transformer trains at sequence length 16k on 80 GB GPUs. The base run fails near the start of backward. The memory ledger shows 8 GB of parameters, 24 GB of optimizer state, 8 GB of gradients, 36 GB of activations, and about 10 GB of temporary buffers. Replication and optimizer state are already handled by sharding, so the remaining pressure is mostly activation memory plus temporaries.',
-        'A global checkpoint switch makes the run fit at 52 GB peak, but tokens per second drop too far because the policy replays expensive attention and matmul work. A selective planner tries a better policy. It saves the outputs of large attention and matmul regions, recomputes cheap pointwise and normalization work, saves or regenerates dropout masks deterministically, and places cuts at transformer block boundaries so the plan is easy to inspect. Peak memory lands near the 60 GB cap while throughput stays close to the eager baseline.',
-        'The first policy still has a p95 step-time spike on long sequences. The planner then uses partitioned activation checkpointing across tensor-parallel ranks. Each rank stores only its owned activation slice where the framework can safely reconstruct the full value during backward. A final gate compares a short no-checkpoint baseline with the checkpointed run: peak allocation, reserved memory, step time, loss parity, gradient parity on sampled tensors, RNG parity, and segment coverage must all pass.',
-      ],
-    },
-    {
-      heading: 'Where it matters',
-      paragraphs: [
-        'This pattern matters most in large transformer training, long-context models, diffusion models with large feature maps, graph neural networks with large sampled neighborhoods, and any model where activation memory grows faster than parameter memory. It is especially important when the business goal is not merely to fit the model but to keep a target global batch size, sequence length, or image resolution without buying a larger accelerator class.',
-        'It also matters in distributed training because checkpointing composes with other memory levers. ZeRO and FSDP reduce replicated optimizer, gradient, and parameter state. Tensor parallelism spreads wide operations. Pipeline parallelism spreads depth. Activation checkpointing reduces the stored forward live set. Batch-size tuning reduces many buckets at once but changes optimization behavior. A good memory plan keeps these levers separate so the team knows which one paid for the successful run.',
-        'DeepSpeed-style activation checkpointing exposes distributed choices such as partitioned activations, CPU checkpointing, contiguous buffers, and model-parallel random-state management: https://deepspeed.readthedocs.io/en/latest/activation-checkpointing.html. These choices save memory in different places. Partitioning reduces per-rank storage. CPU offload trades GPU memory for PCIe or NVLink transfer. Contiguous buffers reduce fragmentation. Random-state tracking protects replay correctness.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The most serious failure is silent correctness drift. Dropout masks, stochastic depth, random augmentations inside the graph, mixed precision casts, and stateful modules can all make replay produce different values unless the framework preserves the right state. Loss parity and gradient checks on a short run are not optional when a new policy is introduced.',
-        'The next failure is a bad compute trade. If the planner saves little memory but replays large attention or matmul regions, the run may fit while becoming uneconomic. Another failure is distributed movement. A cut that looks cheap on one GPU can require cross-rank gathers during backward. Offload can save device memory but introduce transfer stalls. Contiguous checkpoint buffers can help fragmentation, but mis-sized buffers waste memory or force fallback allocation.',
-        'Measurement can also mislead. Peak allocated memory, peak reserved memory, temporary workspace size, CUDA graph capture behavior, and allocator fragmentation are not the same metric. A launch that passes on one sequence length, one microbatch, or one kernel version can fail after an apparently unrelated change. Treat the policy as part of the model runtime contract, not as a one-time tuning trick.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Start with a memory ledger. Separate parameters, optimizer state, gradients, activations, temporary buffers, communication buffers, and reserved allocator memory. Then profile the operation graph. Record tensor sizes, operation costs, fusion groups, random operations, and rank ownership. Only after that choose a policy. This prevents the common error of using checkpointing to solve a memory bucket that checkpointing cannot reduce.',
-        'Emit the policy as auditable data: segment id, saved boundary tensors, recomputed operations, estimated bytes saved, measured bytes saved, replay milliseconds, RNG mode, distributed placement, and fallback action. Store the policy with the training configuration. Revalidate it when sequence length, model architecture, compiler mode, kernel library, parallelism degree, or microbatch size changes.',
-        'Gate the launch with both performance and correctness checks. The minimal gate should include peak allocated memory, peak reserved memory, p50 and p95 step time, tokens per second, loss parity against a small no-checkpoint run, gradient parity on sampled tensors, RNG replay parity, and segment coverage. If any item fails, the policy should explain whether to save more tensors, replay less, move a cut boundary, change distributed placement, or use a different memory lever.',
+        'A 24-layer transformer trains at sequence length 16,000 on 80 GB GPUs. The memory ledger shows 8 GB parameters, 24 GB optimizer state, 8 GB gradients, 36 GB activations, and 10 GB temporary buffers, for a peak near 86 GB. The run fails at the start of backward.',
+        'A blanket checkpoint policy lowers peak to 52 GB but reduces throughput from 1,000 tokens per second to 610 because it replays attention and large matmuls. A selective plan saves attention and matmul outputs, replays pointwise and normalization regions, and preserves dropout RNG state. Peak becomes 60 GB and throughput becomes 910 tokens per second.',
+        'The launch gate compares 100 steps against a no-checkpoint baseline on a smaller microbatch. Loss differs by less than 0.1 percent, sampled gradients stay within 1e-3 relative error, peak reserved memory stays below 66 GB, and p95 step time adds 9 percent. Those numbers justify the policy; the label checkpointing does not.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources for this topic are Training Deep Nets with Sublinear Memory Cost at https://arxiv.org/abs/1604.06174, PyTorch activation checkpointing techniques at https://pytorch.org/blog/activation-checkpointing-techniques/, the PyTorch min-cut recomputation discussion at https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467, and DeepSpeed activation checkpointing at https://deepspeed.readthedocs.io/en/latest/activation-checkpointing.html.',
-        'Study next: Activation Checkpointing for the basic mechanism, ZeRO Optimizer and Fully Sharded Data Parallel for non-activation memory, Tensor Parallelism and Pipeline Parallelism for distributed placement, FlashAttention for attention memory behavior, Batch Size Scaling for optimization effects, Transformer Block for the local graph shape, GPU All-Reduce for communication costs, and Gradient Flow for the correctness signal that checkpointing must preserve.',
+        'Study Training Deep Nets with Sublinear Memory Cost for the original rematerialization result. Study PyTorch activation checkpointing and min-cut recomputation discussions for graph-based planning. Study DeepSpeed activation checkpointing for partitioned activations, CPU checkpointing, contiguous buffers, and model-parallel random-state handling.',
+        'Study next: Activation Checkpointing for the base mechanism, ZeRO Optimizer and Fully Sharded Data Parallel for non-activation memory, Tensor Parallelism and Pipeline Parallelism for placement, FlashAttention for attention memory, and Gradient Flow for the correctness signal rematerialization must preserve.',
       ],
     },
   ],

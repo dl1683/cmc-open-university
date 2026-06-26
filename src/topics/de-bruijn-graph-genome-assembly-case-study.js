@@ -178,100 +178,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Genome assembly starts with fragments. A sequencer does not hand the assembler a chromosome with coordinates and annotations. It hands over many reads: short or long strings of bases sampled from unknown positions, with coverage variation, errors, adapters, repeats, and sometimes mixed biological sources. The assembler has to infer longer sequence from local evidence.`,
-        `A de Bruijn graph exists because the direct evidence is highly redundant. If a genome region is covered many times, thousands of reads may contain the same short substrings. Comparing all reads to all other reads repeats that evidence again and again. The graph changes the unit of work from whole reads to k-mers, which are length-k substrings. Identical k-mers are merged, their counts become coverage evidence, and their overlaps form a directed graph.`,
-        `This representation is especially important for high-throughput short-read assembly. Short reads provide enormous coverage but limited long-range context. A de Bruijn graph compresses shared local context while preserving branch points where the data is ambiguous. It does not magically solve repeats or errors. It gives the assembler a structure where those problems become explicit nodes, edges, coverage counts, tips, bubbles, and unresolved branches.`,
+        'Read the animation as a compression of sequencing reads into local overlap structure. A read is a string of DNA bases produced by a sequencer, and a k-mer is a substring of length k. Active nodes are k-mers being counted or connected, found paths are supported contig candidates, and compare branches are places where errors, repeats, or variants compete.',
+        'The safe inference rule is local. Consecutive k-mers from one read overlap by k - 1 bases, so they form a directed adjacency. A non-branching high-coverage path can be compacted, but a branch is evidence that local data no longer gives one safe answer.',
         {type:'callout', text:'A de Bruijn assembler compresses redundant reads into k-mer topology so ambiguity, errors, repeats, and coverage become graph features instead of hidden read-pair chaos.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9d/DeBruijn-as-line-digraph.svg', alt:'Binary de Bruijn graphs shown as successive line digraph constructions.', caption:'De Bruijn graphs as line digraphs. Source: Wikimedia Commons, David Eppstein, public domain.'},
       ],
     },
     {
-      heading: 'Why the obvious approach fails',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is overlap-layout-consensus. Compare reads to other reads, find suffix-prefix overlaps, arrange the reads into a layout, and compute a consensus sequence. That is a natural model because reads are the raw observations. It is also powerful when reads are long enough that overlaps carry distinctive context.`,
-        `For large short-read datasets, the pairwise version runs into scale. If there are millions or billions of reads, the number of possible read pairs is enormous. Indexes and filters help, but the assembler still spends effort deciding which whole-read overlaps matter. Sequencing errors create near-overlaps that look plausible enough to inspect. Repeats create true overlaps between reads from different genomic locations.`,
-        `The deeper problem is duplicated local evidence. If ten thousand reads contain the same internal k-mer, an overlap graph may represent that fact many times through many read-to-read edges. The assembler needs to merge identical local evidence early. A de Bruijn graph does that by counting k-mers and connecting them by exact k-1 overlap, turning repeated observations into coverage instead of repeated pairwise records.`,
+        'Genome assembly starts with fragments, not chromosomes. A sequencer returns many short or long reads sampled from unknown positions, with errors, uneven coverage, adapters, repeats, and sometimes mixed biological sources. The assembler has to infer longer sequence from local evidence.',
+        'A de Bruijn graph exists because short-read data is highly redundant. Thousands of reads may contain the same local substring. The graph merges identical k-mers, counts their support, and records their k - 1 overlaps as directed edges.',
       ],
     },
     {
-      heading: 'Core data model',
+      heading: 'The obvious approach',
       paragraphs: [
-        `A k-mer is a substring of length k. For the read ATGACT and k=3, the k-mers are ATG, TGA, GAC, and ACT. Consecutive k-mers overlap by k-1 bases: ATG and TGA share TG, TGA and GAC share GA, and so on. The de Bruijn graph stores those local adjacency facts.`,
-        `There are two common but equivalent views. In one view, k-mers are nodes and directed edges connect k-mers that overlap by k-1 bases. In another view, (k-1)-mers are nodes and observed k-mers are edges. Both encode the same idea: sequence reconstruction becomes graph traversal over local overlaps. This file uses the k-mer-node view for the visual case study because it makes coverage and error branches easy to see.`,
-        `Coverage is not an afterthought. Each node or edge can carry how many times it was observed. High coverage suggests a true genomic path, while a single observation may be a sequencing error, contamination, or a real low-frequency sequence. The graph therefore stores both topology and statistical support. Assembly decisions depend on both.`,
+        'The obvious approach is overlap-layout-consensus. Compare reads to reads, find suffix-prefix overlaps, lay out the reads, and compute a consensus sequence. This works well when reads are long enough that overlaps carry distinctive context.',
+        'For short reads at high coverage, pairwise overlap becomes expensive. If there are 10 million reads, the naive pair count is about 50 trillion pairs. Filters reduce that number, but the assembler still spends effort rediscovering the same local evidence many times.',
       ],
     },
     {
-      heading: 'Core mechanism',
+      heading: 'The wall',
       paragraphs: [
-        `The assembler first chooses k and counts k-mers from the read set. Very low-count k-mers may be discarded or marked as suspicious before graph construction, depending on the pipeline and expected coverage. The remaining k-mers become graph nodes or edges, and observed k-1 overlaps define adjacency. This step compresses the reads into distinct local contexts plus counts.`,
-        `Next, the graph is simplified. A non-branching path can be compacted because each internal node has one predecessor and one successor. That path becomes a contig candidate. Branching regions require caution. A short dead-end branch is called a tip and often comes from a sequencing error near the end of a read. Parallel paths that diverge and rejoin are bubbles, which can come from errors, heterozygosity, small variants, or repeated sequence. Repeats can collapse different genomic locations into the same graph path, producing branches that cannot be resolved locally.`,
-        `Finally, the assembler walks safe paths and emits contigs, scaffolds, and often graph evidence. Safe means the path is supported enough and unambiguous enough under the assembler rules. A modern pipeline should preserve coverage and graph structure where possible because a single FASTA contig file can hide the uncertainty that the graph exposed.`,
+        'The wall is duplicated local evidence. If 10,000 reads contain the same internal 31-mer, a read-overlap graph can represent that fact through many read-to-read edges. The assembler should merge identical local evidence early and keep the count as coverage.',
+        'The second wall is ambiguity. Sequencing errors create rare branches, repeats create true branches shared by different genome locations, and heterozygosity creates alternate paths. Whole-read overlaps hide these cases inside many pairwise decisions, while a graph exposes them as topology.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Change the unit of assembly from reads to k-mers. A k-mer-node graph stores each distinct k-mer once and connects it to k-mers that overlap by k - 1 bases. Coverage turns repeated observations into weights rather than duplicate structures.',
+        'There is an equivalent edge view where (k - 1)-mers are nodes and k-mers are edges. Both encode the same local constraint. The important idea is that sequence reconstruction becomes graph traversal over compressed local overlaps.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The assembler chooses k and counts k-mers from the reads. Very low-count k-mers may be removed or marked suspicious because random errors often appear only once. The remaining k-mers become nodes or edges, and observed k - 1 overlaps create directed adjacency.',
+        'The graph is then simplified. A non-branching path, where internal nodes have one predecessor and one successor, can be compacted into a contig candidate. A short dead-end branch is a tip, and parallel paths that diverge and rejoin are bubbles.',
+        'Finally, the assembler emits safe contigs and preserves uncertainty where the graph is ambiguous. Pair reads, long reads, coverage, base quality, and expected ploidy can help resolve branches. A modern pipeline should retain graph evidence because a single FASTA output can hide unresolved choices.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The deterministic part is the overlap rule. Consecutive k-mers from a read overlap by exactly k-1 bases, so they create a directed local path. If a genomic region is covered many times and sequenced accurately, its k-mers and adjacencies appear repeatedly. The graph therefore turns repeated local observations into reinforced nodes and edges.`,
-        `The statistical part is error separation. Random sequencing errors tend to create rare k-mers because the exact same wrong base at the exact same position is unlikely to be repeated many times. Those rare k-mers often appear as low-coverage tips or small bubbles. Coverage lets the assembler prefer the strongly supported path without doing all pairwise read comparisons.`,
-        `The compression part is what gives the structure its power. A million reads covering the same simple region can collapse into one path with high coverage annotations. That path can be traversed once to produce a contig segment. The assembler spends attention where the graph branches, because branch points are where repeats, variants, errors, or insufficient context make the answer nontrivial.`,
+        'The deterministic part is the overlap rule. Adjacent k-mers from a true read overlap by exactly k - 1 bases, so each read contributes a path through the graph. If a genomic region is covered many times and sequenced accurately, the same nodes and edges receive repeated support.',
+        'The statistical part is error separation. A random wrong base usually creates several rare k-mers, because the exact same error at the exact same position is unlikely to recur. Those rare k-mers tend to form low-coverage tips or bubbles that can be removed when the coverage model supports that decision.',
       ],
     },
     {
-      heading: 'Worked intuition',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Take the small sequence ATGACTT and set k=3. Reads that cover this region produce the path ATG -> TGA -> GAC -> ACT -> CTT. If several reads cover the same region, the nodes and edges on that path accumulate coverage. The assembler does not need a separate path for every read; it can keep one graph path with counts.`,
-        `Now add one erroneous read, TGATTT. It shares TGA with the main path, then branches through GAT and continues into a short unsupported tail. In the graph, that looks like a low-coverage branch leaving a high-coverage node. If no other evidence supports the branch, a tip-trimming rule can remove it and leave the main contig path intact.`,
-        `The same example also shows why assembly is not just mechanical deletion. A low-coverage branch might be a sequencing error, but it might also be a real rare allele, a contaminant, an unevenly covered region, or the edge of an unresolved repeat. The assembler uses coverage, branch length, base quality, read-pair evidence, long reads, and expected ploidy to decide how aggressive cleanup should be.`,
+        'The main memory cost is the distinct k-mer table. Reads are input streams, but the graph stores unique k-mers, counts, and adjacency. Errors, high heterozygosity, contamination, and metagenomic diversity increase the number of distinct k-mers and can inflate memory sharply.',
+        'Runtime is shaped by k-mer counting, graph construction, cleanup passes, and traversal. Counting touches nearly every base because each read contributes overlapping k-mers. Cleanup may require repeated passes because trimming one tip can expose another simplification.',
+        'The value of k is the central tuning knob. Smaller k connects low-coverage regions but collapses more repeats. Larger k separates repeats better when coverage supports it, but one sequencing error corrupts more distinct k-mers and can fragment the graph.',
       ],
     },
     {
-      heading: 'Correctness and reliability',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Correctness is local before it is global. If a read truly contains two adjacent k-mers, the graph can represent that adjacency. But a whole genome is not determined by local adjacency alone. Repeats can create the same local path in multiple genomic locations. If the repeat is longer than the available context, the graph cannot know which copy a read belongs to without extra evidence.`,
-        `Reliability therefore depends on the match between k, read length, coverage, error profile, and genome structure. A smaller k increases connectivity and can rescue low-coverage regions, but it also merges more repeats. A larger k separates repeats better when coverage supports it, but it creates more distinct k-mers, fragments low-coverage regions, and makes errors more damaging because one wrong base corrupts multiple k-mers.`,
-        `The honest output may be a graph, not a single clean string. If two paths are genuinely ambiguous, forcing one contig can create a misassembly. Reporting a branch, coverage depth, quality warnings, or graph format such as GFA can be more truthful than pretending the assembler resolved information that the data did not contain.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `The main memory cost is the k-mer table. Reads are long input streams, but the graph is built from distinct k-mers and their counts. A dataset with many errors, high heterozygosity, contamination, or very high diversity can create many distinct k-mers and inflate memory use. Efficient assemblers use compact encodings, minimizers, Bloom filters, disk-backed counting, partitioning, or succinct graph structures to keep this stage manageable.`,
-        `Runtime is shaped by k-mer counting, graph construction, simplification passes, and traversal. Counting touches nearly every base because each read contributes overlapping k-mers. Cleanup can require repeated graph passes because removing one tip or collapsing one bubble can expose another simplification. Traversal is usually cheaper once the graph has been simplified, but branch resolution can still require extra evidence.`,
-        `The choice of k is the central tuning knob. A single k may not work equally well across the genome, which is why some assemblers use multiple k values or staged strategies. The practical question is not which k is mathematically elegant. It is which k preserves true adjacency, separates repeats enough, tolerates the coverage distribution, and does not explode memory.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `De Bruijn graphs win when local redundancy is high. Short-read sequencing produces many overlapping fragments from the same genomic regions. Counting k-mers and merging identical local evidence scales better than explicitly reasoning about every read pair. That is why the model became central to short-read assembly systems such as Velvet and many later assemblers.`,
-        `They also win as an explanatory structure. A high-coverage straight path says the data strongly supports one local sequence. A low-coverage tip suggests an error or weakly supported branch. A bubble suggests a small variant, sequencing error, or repeat structure. A tangled region warns that the available reads do not provide enough context. The graph preserves uncertainty that a linear output would hide.`,
-        `The same idea appears outside genome assembly. Any domain with many overlapping substrings or local transitions can use a de Bruijn-like representation to merge repeated context. The genome case is the canonical teaching example because the alphabet is small, the overlaps are exact or nearly exact, and the tension between compression and ambiguity is easy to see.`,
+        'De Bruijn graphs are central to short-read genome assembly because the data has high local redundancy. Assemblers such as Velvet helped establish the model for high-throughput short reads. The access pattern is count many overlapping substrings, merge identical evidence, then spend attention at branches.',
+        'The representation also teaches uncertainty. A high-coverage straight path says the local sequence is well supported. A low-coverage tip suggests an error or weak branch, while a bubble suggests a small variant, sequencing error, or repeat structure.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `The most important failure is repeat collapse. If two locations share the same k-mer path and the reads do not extend far enough to anchor each copy uniquely, local graph structure cannot separate them. The graph may collapse multiple genomic copies into one path with high coverage and multiple branches at the ends. Walking through that region incorrectly can produce a misjoin.`,
-        `A second failure is misleading coverage. Coverage is statistical evidence, not truth. PCR bias, GC bias, copy-number variation, contamination, mixed samples, metagenomic diversity, and uneven sequencing can make real sequence look weak or erroneous sequence look strong. Cleanup rules that work on one dataset can be too aggressive on another.`,
-        `A third failure is overconfident output. A de Bruijn graph gives a powerful representation, but it does not guarantee a chromosome-scale assembly. Long repeats, structural variation, low coverage, and heterozygosity may require paired-end information, mate pairs, long reads, optical maps, Hi-C, a reference, or manual review. The right implementation exposes these limits through graph evidence and quality metrics.`,
+        'The major failure is repeat collapse. If two genome locations share the same k-mer path and reads do not extend far enough to anchor each copy, the local graph cannot separate them. The assembler may collapse multiple copies into one path with high coverage and branchy ends.',
+        'Coverage can also mislead. PCR bias, GC bias, copy-number variation, contamination, mixed samples, and uneven sequencing can make true sequence look weak or erroneous sequence look strong. Cleanup settings that work on a clean haploid sample can damage a metagenomic or heterozygous sample.',
       ],
     },
     {
-      heading: 'Operational and implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        `Start with data profiling. Estimate read length, quality distribution, coverage, duplication, adapter contamination, and expected genome size. Those measurements inform k, abundance thresholds, and cleanup aggressiveness. A pipeline that chooses defaults without looking at the data may overfit to a clean textbook dataset and fail on real sequencing output.`,
-        `Keep intermediate evidence. K-mer histograms reveal error peaks and coverage peaks. Graph statistics reveal branching, tips, bubbles, and component structure. Assembly metrics such as N50 are useful but incomplete; a high N50 can hide misassemblies. Pair contig metrics with read-back alignment, coverage plots, variant checks, and graph review.`,
-        `Implement the graph with memory pressure in mind. Store encoded bases compactly, canonicalize reverse complements when appropriate, avoid storing redundant strings on every edge, and use streaming or partitioned counting for large datasets. Separate algorithmic decisions from biological assumptions: haploid, diploid, metagenomic, and transcriptomic assemblies need different interpretations of bubbles and coverage.`,
+        'Take the true sequence ATGACTT with k = 3. Its k-mers are ATG, TGA, GAC, ACT, and CTT. The graph path is ATG -> TGA -> GAC -> ACT -> CTT, and five reads covering the region raise the coverage on those nodes and edges to about 5.',
+        'Add one erroneous read TGATTT. It shares TGA, then creates GAT, ATT, and TTT as a low-coverage side branch. If the main path has coverage 5 and the error path has coverage 1, a tip-trimming rule can remove the unsupported tail.',
+        'Now change the case to a real repeat. If another genome location also contains TGA followed by GAC, that shared path may have high coverage rather than low coverage. The assembler cannot delete it as an error; it needs longer context or must report ambiguity.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Velvet at https://pmc.ncbi.nlm.nih.gov/articles/PMC2336801/ and the Galaxy de Bruijn graph assembly tutorial at https://training.galaxyproject.org/topics/assembly/tutorials/debruijn-graph-assembly/tutorial.html. Read them with three questions in mind: how k-mers are counted, how graph simplification distinguishes errors from real variation, and how the assembler reports unresolved ambiguity.`,
-        `Study Hash Table for k-mer counting, Graph BFS for traversal, Compressed Sparse Row Graph for large graph storage, Bloom Filter for approximate membership, Genome k-mer Minimizer Index for read seeding, BWA FM-index Read Alignment for reference mapping, Pangenome Variation Graph for variation-aware graph representations, and Union-Find if you want another view of connected components and graph simplification.`,
+        'Read Velvet at https://pmc.ncbi.nlm.nih.gov/articles/PMC2336801/ and the Galaxy de Bruijn graph assembly tutorial at https://training.galaxyproject.org/topics/assembly/tutorials/debruijn-graph-assembly/tutorial.html. Then study hash tables for k-mer counting, graph traversal, compressed sparse row graphs, Bloom filters, minimizer indexes, FM-index read alignment, pangenome variation graphs, and union-find for connected components.',
       ],
     },
   ],

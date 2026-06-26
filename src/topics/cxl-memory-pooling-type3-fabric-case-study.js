@@ -220,76 +220,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `CXL memory pooling exists because memory capacity is usually bought in the wrong shape. A server can run out of DRAM while the next rack has idle memory trapped behind another CPU socket. A fleet owner can buy enough local DRAM for every peak, but then most of that memory sits dark when the workload mix changes.`,
-        `The useful promise is not magic remote RAM. The promise is a managed warm tier: byte-addressable memory that can be assigned, resized, and monitored through a fabric instead of being soldered permanently to one host. That turns memory from a fixed per-server bill into a capacity pool with ownership, placement, health, and policy metadata.`,
+        'Read the animation as a shift from local attachment to fabric allocation. A host is a server that runs programs, a Type-3 CXL device is a memory device, and a fabric manager is the control plane that assigns memory slices. Active paths show which host can reach which slice at that moment.',
+        'The safe inference rule is ownership before use. A byte is usable only when the fabric manager, address mapping, path health, and operating system view agree that one host owns that slice. Extra capacity without that ledger is not safe memory.',
         {type:'callout', text:'CXL pooling turns memory capacity into a managed fabric resource, but placement, ownership, and health metadata decide whether the extra bytes are useful.'},
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The first answer is to keep adding local DRAM to every server. That is simple, predictable, and fast. It works while the application footprint is stable and the expensive memory is used most of the time.`,
-        `The wall appears in mixed fleets. One service needs a large heap during a burst, another needs a big in-memory index only at load time, and a third needs warm CPU-side state near accelerators but not on the accelerator itself. Local DRAM cannot move across hosts, so utilization falls even when total installed memory looks generous.`,
-        `A second shortcut is to treat all extra capacity as storage. SSDs and network stores are excellent for cold data, but many workloads want load/store access, page granularity, and memory semantics. Rewriting every warm-state access as an object-store or block-device access changes the application, the latency profile, and the failure model.`,
+        'CXL means Compute Express Link, a protocol family for connecting CPUs, memory devices, and accelerators over a PCIe-based physical link. CXL memory pooling exists because fleet memory is often bought in the wrong shape. One server can run out of DRAM while another server has idle memory that cannot move.',
+        'Buying every server for peak memory is simple but wasteful. A search index, in-memory database, virtual-machine host, or AI serving node may need a large warm working set only during part of its life. Pooling tries to turn some memory capacity into a managed fabric resource instead of a fixed per-server purchase.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to add more local DRAM to every machine. Local DRAM is fast, predictable, and controlled by the server\'s own memory controller. It is the right answer when the application uses most of that capacity most of the time.',
+        'Another approach is to spill to SSDs, network storage, or object stores. Those systems are excellent for cold data. They are a poor fit when software expects byte-addressable load/store memory and page-granular movement rather than block or object access.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is stranded capacity. A fleet may have 100 TB of free DRAM in aggregate while a single host cannot allocate the 2 TB it needs for a burst. Local memory is attached to sockets, not to demand.',
+        'The second wall is latency tiers. Remote memory is not local memory, and storage is not memory. A useful system must place hot pages in local DRAM, warm pages in CXL memory, and cold data in storage, while exposing enough metadata for software to know which tier it is using.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to separate memory capacity from permanent host attachment while keeping enough hardware semantics that software can still use ordinary memory paths. CXL rides a PCIe physical base but defines protocol roles for device control, coherent caching, and memory access. The memory-pooling story is mainly about CXL.mem and Type-3 devices.`,
-        `A Type-3 device exposes memory rather than compute. A host can receive a slice of that memory, map it as a tier, and access it with load/store transactions. The invariant is explicit ownership: a slice belongs to a host or partition under fabric-manager control. Pooling is allocation of capacity, not a claim that every byte has local-DRAM latency.`,
+        'Separate capacity from permanent host attachment while keeping memory semantics. CXL.mem lets a host read and write memory exposed by a device, and Type-3 devices are built around memory expansion rather than compute. The fabric manager turns physical devices into assignable logical slices.',
+        'The invariant is explicit ownership. A slice belongs to one host or one configured partition under fabric control. Pooling is not a claim that every byte has local-DRAM latency; it is a claim that capacity can be assigned, measured, isolated, and moved under policy.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `The protocol stack has different jobs. CXL.io covers discovery, configuration, register access, interrupts, and PCIe-like management. CXL.cache lets a device cache host memory coherently. CXL.mem lets a host read and write device-attached memory. A real platform may use more than one role, but Type-3 pooling is easiest to understand as memory capacity made visible through CXL.mem.`,
-        `A simple expansion topology attaches one host to one Type-3 memory device. A pooled topology adds a switch and a fabric manager. The switch provides fanout. The fabric manager owns configuration: which host can see which logical device, how capacity is partitioned, which paths are valid, and which health or QoS constraints apply.`,
-        `The operating system then needs a placement policy. It may expose CXL memory as a NUMA node or a distinct memory tier. Hot latency-sensitive pages stay in local DRAM. Warm pages that need capacity but tolerate extra latency can move to CXL memory. Cold data belongs in SSD or object storage. The hard part is not allocating bytes once; it is keeping the right bytes in the right tier as the workload changes.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The Type-3 pool view shows the mental shift from device attachment to fabric allocation. The memory modules are not just larger DIMMs. They sit behind a CXL path, and the host reaches them through root ports, switching, and assigned slices. That path becomes part of the cost model.`,
-        `The fabric-manager view shows why a control plane is unavoidable. A pool without a ledger is just shared hardware with no accountability. The ledger records host ownership, slice ranges, NUMA distance, QoS, health, and movement rules. Those fields are the difference between a useful memory tier and an operational mystery.`,
+        'The CXL protocol family splits jobs. CXL.io handles discovery and device management, CXL.cache handles coherent caching between host and device roles, and CXL.mem handles host access to device memory. Type-3 pooling mainly uses the memory-access role.',
+        'A simple expansion setup attaches one host to one Type-3 device. A pooled setup adds a switch and a fabric manager. The switch provides paths, while the manager records which host sees which logical device, how large the slice is, which address ranges map to it, and what health or quality-of-service rules apply.',
+        'The operating system then treats the assigned memory as a NUMA node or memory tier. NUMA means non-uniform memory access, where some memory is farther away and slower than other memory. Page placement policy decides which pages stay local and which move to the CXL tier.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The design works when the allocation boundary is clear. A host can safely treat its assigned slice as memory because the fabric configuration, address mapping, and device state agree about ownership. The OS can make tiering decisions because the extra capacity appears in a form it can page, migrate, measure, and isolate.`,
-        `The correctness argument is operational rather than mathematical. Every usable byte must have one current owner, one reachable path, one health state, and one placement meaning. If those records drift, the system can place hot pages on a slow path, expose memory to the wrong host, or keep using a failing device. The fabric manager exists to keep that metadata coherent enough for the hosts to trust their view.`,
+        'The design works when all control-plane records describe the same reality. A host can safely load from a CXL slice because the device, switch, address map, and operating system agree about ownership and reachability. If any record drifts, the host can place data on the wrong tier or keep using a failing path.',
+        'The correctness argument is operational. Every usable slice needs one owner, one current mapping, one health state, and one placement meaning. The fabric manager exists to keep those facts coherent enough that ordinary memory software can trust the exposed tier.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `CXL memory is still not local DRAM. A load can cross a root complex, switch, and memory device instead of staying on the local memory controller. That adds latency, changes bandwidth sharing, and makes topology visible. When the input footprint doubles, the application may keep running instead of paging to storage, but its hot path can still slow down if placement is careless.`,
-        `The pool also introduces fragmentation and contention. A large free total does not guarantee that one host can receive the exact slice shape it wants. Several hosts can contend for switch bandwidth or for a memory device behind the same fabric path. QoS metadata helps only if the platform measures pressure and enforces the policy.`,
-        `Reliability becomes a fabric problem. Local DIMM faults are already serious, but pooled memory adds device hot-plug, link errors, path changes, firmware control, partitioning bugs, and security boundaries between hosts. A serious design needs RAS telemetry, isolation, auditing, and a conservative answer for what happens when a device disappears while pages still refer to it.`,
+        'CXL memory pays extra latency and shared-path cost. A local DRAM load may stay on the CPU memory controller, while a CXL load can cross a root complex, switch, and memory device. If a service moves hot pointer-chasing pages to the CXL tier, capacity improves and latency can get worse.',
+        'Cost behaves like a tiering problem. If a host needs 768 GB but has 512 GB local DRAM, adding 256 GB of pooled memory may avoid paging to SSD. If the hot 100 GB remains local and the warm 256 GB moves to CXL, the service can improve; if the hot 100 GB migrates by mistake, the service slows down.',
+        'The pool adds fragmentation, contention, and reliability work. A free total of 10 TB does not guarantee the right slice size, path, or bandwidth for one host. Link errors, device faults, firmware bugs, and partition mistakes become fleet incidents rather than local DIMM incidents.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `CXL pooling fits capacity-bound services whose working sets are larger than local DRAM but not uniformly latency-critical. In-memory databases, analytics engines, virtual-machine fleets, feature stores, graph indexes, search systems, and cache-heavy services can use it as a warm tier when access patterns have locality.`,
-        `It is also relevant in AI infrastructure, but not as a replacement for accelerator memory. HBM remains the hot compute-adjacent tier. CXL memory is more plausible for CPU-side model-serving metadata, request state, feature caches, vector index partitions, replay buffers, checkpoint staging, and overflow tiers when the application can separate hot tensors from warm support state.`,
+        'CXL pooling fits capacity-bound services with warm working sets. In-memory databases, analytics engines, virtual-machine fleets, search indexes, graph stores, caches, and feature stores can use it when access patterns have enough locality to keep the hottest pages local. The access pattern is not random hot access to all bytes.',
+        'It is also relevant in AI infrastructure, but not as a replacement for accelerator high-bandwidth memory. CXL memory is more plausible for CPU-side request state, metadata, vector index partitions, checkpoint staging, feature caches, and overflow tiers. Hot tensors still belong near the compute engine.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `It fails when the workload treats every pointer chase as latency critical. If a tight loop needs local-DRAM behavior, moving those pages to CXL memory can erase the capacity win. It also fails when an organization buys pooling but does not build placement policy, monitoring, and rollback paths. More memory without tier awareness is just a larger place to put the wrong pages.`,
-        `Pooling is not the same as arbitrary shared memory. Assigning distinct slices to hosts is cleaner than letting multiple hosts mutate the same bytes with unclear consistency and security rules. If the design really needs cross-host shared state, study distributed consistency, leases, logging, and message passing before assuming a memory fabric removes those problems.`,
+        'It fails when the workload treats every access as hot. A graph traversal or lock-heavy data structure that pointer-chases through remote pages can lose more to latency than it gains from capacity. More memory is not helpful if the placement policy moves the wrong pages.',
+        'It also fails when teams confuse pooling with arbitrary shared memory. Assigning slices is cleaner than letting multiple hosts mutate the same bytes with unclear consistency and security rules. Cross-host shared state still needs distributed consistency, leases, logs, or message passing.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study NUMA placement, Linux page migration, buddy allocator free lists, slab allocators, memory-mapped files, RDMA, peer memory, HBM, KV cache tiered offload, and heterogeneous workload routing. For CXL itself, read the CXL Consortium materials at https://computeexpresslink.org/ and the memory-pooling overview at https://computeexpresslink.org/wp-content/uploads/2023/12/CXL-2.0-Memory-Pooling.pdf, then compare Type-3 pooling with storage disaggregation and ordinary networked caches.`,
+        'Assume a server has 512 GB of local DRAM and a workload needs 700 GB during a morning build of an in-memory index. Without pooling, the team buys 768 GB or 1 TB in every similar server, even if most run at 300 GB for the rest of the day. With a pool, the fabric manager assigns a 256 GB CXL slice for the burst.',
+        'The placement policy keeps the hottest 400 GB in local DRAM and moves 220 GB of warm index pages to CXL memory. The remaining 80 GB is free headroom for the operating system and application churn. If the CXL path is 2 times slower than local DRAM for those warm pages but avoids SSD paging that is 100 times slower, the behavior can still improve.',
+        'Now double the warm index from 220 GB to 440 GB. The service still fits only if the pool has a larger contiguous slice and the switch path has enough bandwidth. The cost is no longer just bytes; it is bytes plus topology, contention, and policy accuracy.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Read the CXL Consortium materials at https://computeexpresslink.org/ and the CXL 2.0 memory pooling overview at https://computeexpresslink.org/wp-content/uploads/2023/12/CXL-2.0-Memory-Pooling.pdf. Then study NUMA placement, Linux page migration, buddy allocation, slab allocation, RDMA, memory-mapped files, HBM, KV-cache tiering, and heterogeneous workload routing.',
       ],
     },
   ],

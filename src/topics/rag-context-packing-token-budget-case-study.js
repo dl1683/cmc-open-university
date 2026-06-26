@@ -251,11 +251,17 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read each candidate chunk as evidence with a value and a token cost. The packer is not asking which chunk ranked first; it is asking which set of evidence best fits the prompt budget.',
+        'The placement view matters because long-context models do not use every position equally. A chunk can be selected and still be wasted if the controlling sentence is buried where the model underuses it.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'RAG context packing exists because retrieval does not answer the final prompt-design question. Retrieval can return a pool of plausible chunks. The model still receives a fixed budget of tokens, and that budget has to carry evidence, instructions, source handles, user context, and sometimes tool results.',
-        'Dumping raw top-k chunks into the prompt wastes tokens on duplicates, stale context, boilerplate, and passages that are relevant to the general topic but not to the exact question. Worse, it can bury the one decisive span in the middle of a long context where the model underuses it.',
-        'The context packer is the post-retrieval layer that decides which evidence enters the prompt, how much of each chunk survives, where the evidence is placed, and which citation handles remain attached. It turns a retrieval pool into a compact, ordered, auditable evidence packet.',
+        'RAG retrieval returns candidate evidence, but the model receives a fixed context window. That window must hold instructions, the user request, selected evidence, citation handles, tool results, and sometimes prior conversation.',
+        'Context packing exists because raw top-k retrieval wastes tokens on duplicates, stale pages, boilerplate, and passages that are related but not answer-bearing. The packer turns a retrieval pool into a compact evidence packet.',
         {type:'callout', text:'Context packing is retrieval budgeting: every included token must earn its place by adding useful, nonredundant, auditable evidence to the prompt.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/fd/Knapsack.svg', alt:'Knapsack problem illustration with boxes of different weights and values.', caption:'Knapsack problem illustration. Context packing has the same budget shape: choose the highest-value evidence that fits within a fixed token limit. Source: Wikimedia Commons, Dake, CC BY-SA 2.5.'},
       ],
@@ -263,66 +269,71 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is top-k stuffing: retrieve the highest-ranked chunks and paste them into the prompt until the token limit is reached. That is simple and sometimes good enough for small corpora, but it treats rank as the only signal that matters.',
-        'Top-k stuffing fails when high-ranked chunks are redundant, too long, stale, permission-restricted, or missing the citation spans needed for an auditable answer. It also fails when the relevant fact is inside a table row, footnote, exception clause, or short sentence surrounded by boilerplate.',
-        'A second shortcut is aggressive summarization. That can save tokens, but it can also detach a claim from its source, remove the exception that makes the answer correct, or destroy the coordinates needed for citation. Packing is not just compression; it is evidence selection under constraints.',
+        'The obvious approach is top-k stuffing. Retrieve the highest-ranked chunks and paste them into the prompt until the token limit is reached.',
+        'That works when the answer is in one short chunk and the corpus is clean. It breaks when high-ranked chunks are redundant, long, stale, permission-restricted, or missing the specific exception the answer needs.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is useful evidence per budgeted token. Each candidate has utility, token cost, redundancy, source role, freshness, permission state, and citation spans. The packer should maximize supported answer value while preserving the audit trail.',
-        'This makes context packing a small ranking and optimization problem. A high-ranked duplicate can be worse than a lower-ranked chunk that adds a missing exception. A short FAQ can be valuable if it explains the policy plainly. A long legal page may deserve only one cited sentence if most of it is irrelevant.',
-        'Ordering is part of the data structure. Evidence near the beginning or end of the prompt may have more influence than evidence buried in the middle. The packer therefore chooses not only what to include, but where to place it.',
+        'The wall is that relevance is not the same as prompt value. A 900-token policy page can rank highly while only one 40-token exception sentence matters.',
+        'A larger context window does not remove the problem. More tokens can increase latency, cost, distraction, and position sensitivity, so the packer still has to choose and place evidence deliberately.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Context packing is constrained selection. Each candidate has utility, token cost, redundancy, source role, freshness, permission state, and citation spans.',
+        'The best packet is not always the top-ranked packet. A lower-ranked chunk with the missing exception can be more valuable than a duplicate of the top result.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A simple packer starts with reranked candidates, removes blocked or stale chunks, collapses duplicates, estimates utility per chunk, and selects evidence under a token budget. More careful systems add MMR-style diversity, source-role quotas, knapsack-style optimization, sentence extraction, table row slicing, and citation-span preservation.',
-        'Selection can use several approximations. Top-rank is cheap. Utility-per-token density favors compact chunks. Knapsack-style selection optimizes value under the budget but needs scores. MMR adds a redundancy penalty so the prompt covers more distinct evidence. Quotas can force inclusion of policy, exception, date, and citation-bearing sources.',
-        'Compression has to be typed. Boilerplate can often be dropped. Relevant sentences can be extracted with span IDs. Tables need headers and row context. Direct quotes should remain verbatim with citation handles. Low-risk background can be summarized, but answer-bearing claims need stable source coordinates.',
-        'After selection and compression, placement matters. Critical rules can go early, the user question can stay near the evidence, and citation handles or concise source reminders can appear near the end. Lower-risk background can sit in the middle.',
+        'A simple packer starts with reranked candidates, removes blocked or stale chunks, deduplicates near copies, scores utility per token, and selects evidence under a budget. More careful systems add diversity penalties, source-role quotas, sentence extraction, table row slicing, and citation-span preservation.',
+        'Compression must be typed. Boilerplate can be dropped, table rows need headers, direct quotes should preserve coordinates, and answer-bearing claims need citation handles that survive trimming.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why it works',
       paragraphs: [
-        'The selection view proves that retrieval results are candidates, not the prompt. The table rows are passages with utility, cost, redundancy, freshness, role, and citation value. The selected set should maximize supported answer value per token, not preserve top-k order blindly.',
-        'The compression view proves why different content types need different treatment. Trimming boilerplate is usually safe. Slicing a table without headers is not. Summarizing low-risk background can help, but citation-bearing claims need stable coordinates so the answer can still be audited.',
-        'The position-bias plot proves that a larger context window does not remove the packing problem. If the model underuses middle evidence, then prompt order becomes part of retrieval quality. A packer needs placement tests, not just recall-at-k.',
+        'The correctness argument is evidence coverage under budget. If every necessary claim has at least one preserved source span in the packet, and unsupported or stale spans are excluded, the generator has the material needed to answer without inventing support.',
+        'Packing cannot create evidence that retrieval missed. Its guarantee is narrower: given a candidate pool, it spends the context window on distinct, current, allowed, citation-preserving evidence.',
       ],
     },
     {
-      heading: 'Complete case',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Suppose a support assistant must answer, "Can I cancel after a renewal invoice?" Retrieval returns the current refund policy, a stale duplicate, a fee exception table, a renewal date rule, a general billing FAQ, and a long legal page. Raw top-k stuffing wastes tokens on the duplicate and may bury the fee exception.',
-        'A better packer keeps the current policy span, the fee table row with headers, the renewal date rule, and a plain FAQ explanation. It drops boilerplate and the stale duplicate, compresses the legal page into a warning sentence with a citation span, places the key rule early, and keeps citation handles next to the claims.',
-        'The final answer has fewer tokens and stronger source coverage. The model sees less repetition, more answer-bearing evidence, and cleaner citations. The user gets a better answer because the prompt was designed as an evidence packet instead of a heap of chunks.',
+        'Packing adds token counting, redundancy checks, metadata filters, sentence scoring, citation validation, and sometimes a compression model. If generation costs 800 ms and packing costs 60 ms, that overhead may be worth it when it prevents a wrong or uncited answer.',
+        'The dominant cost changes with corpus shape. A clean FAQ may need only top-k plus light dedup, while a policy corpus with tables, stale copies, and access controls may need heavier validation before any chunk enters the prompt.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Packing adds computation after retrieval: pairwise redundancy checks, token counting, sentence scoring, table slicing, citation validation, and sometimes a compression model. That cost is usually smaller than generation cost, but it can still affect p95 latency. A production packer needs fallbacks when compression is slow or citation validation fails.',
-        'The hard part is avoiding silent damage. Compression can remove the exception that makes the answer correct. Ordering can bury the only relevant span. A summary can detach from its source. A budget heuristic can prefer short but weak chunks over longer decisive evidence.',
-        'Evaluation has to test the packer itself: claim support, citation validity after compression, position robustness, token count, p95 latency, and failure behavior when the decisive source is long, tabular, duplicated, or near the bottom of the retrieval list.',
-        'A good evaluation set should include adversarial packing cases: two nearly identical chunks where only one is current, a table where the row is useless without headers, a long policy with one controlling exception, and a question whose answer requires two sources to be placed together.',
+        'Context packing fits customer support, policy assistants, legal research, code search, medical knowledge bases, and any RAG workflow where the prompt budget is smaller than the useful retrieval pool. It is most valuable when evidence has exceptions, dates, permissions, or citations that must stay attached.',
+        'It also helps evaluation. Teams can test claim support, citation validity after compression, token count, position robustness, p95 latency, and failure behavior when the decisive source is long or tabular.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Do not assume a larger context window removes the need for packing. More tokens can add distraction, latency, and position sensitivity. Do not treat top-k retrieval order as prompt order. Do not compress citation-bearing evidence without preserving coordinates. Do not optimize for token count alone; missing one legal exception can be worse than spending another 200 tokens.',
-        'Context packing is also not a replacement for retrieval. If the candidate pool never contains the support, no packer can recover it. Packing belongs after multi-index retrieval, reciprocal rank fusion, filtered retrieval, deduplication, and reranking.',
-        'Another failure is confusing answer quality with pleasant prose. A RAG answer can read well while citing the wrong span or omitting the controlling exception. Packing should be judged by supported claims, not by whether the model sounds confident.',
+        'Packing fails when it optimizes the wrong objective. Minimizing tokens can remove the exception that makes the answer correct, and maximizing rank can fill the prompt with repeated versions of the same fact.',
+        'It also fails when compression breaks provenance. A summary detached from its source span may read well, but it is no longer auditable evidence for a citation-sensitive answer.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Lost in the Middle at https://arxiv.org/abs/2307.03172 and https://aclanthology.org/2024.tacl-1.9/, LLMLingua at https://arxiv.org/html/2310.05736v2 and https://aclanthology.org/2023.emnlp-main.825/, LongLLMLingua at https://arxiv.org/abs/2310.06839 and Microsoft Research overview at https://www.microsoft.com/en-us/research/project/llmlingua/longllmlingua/.',
-        'Study Maximal Marginal Relevance, Multi-Index RAG, RAG Citation Span Index Case Study, RAG Claim Verification Support Ledger, RAG Dedup, MinHash, and Chunk Canonicalization, Lost in the Middle: Long-Context Failure Modes, Sliding-Window Attention Context Policy, Chain of Draft Reasoning Token Budget Case Study, On-Device LLM Inference Cost Crossover, Cross-Encoder Reranker, and RAG Evaluation next.',
+        'A renewal-cancellation query has a 1200-token prompt budget for evidence. Retrieval returns a 700-token current policy worth 70 points, a 650-token stale duplicate worth 50, a 180-token fee table row worth 35, a 120-token renewal date rule worth 30, and a 250-token FAQ worth 25.',
+        'Top-k stuffing may spend 1350 tokens on the current policy and stale duplicate, then drop the fee row. A packer keeps 350 extracted tokens from the current policy, the 180-token fee row with headers, the 120-token date rule, and the 250-token FAQ for 900 tokens with better answer coverage.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Lost in the Middle for position sensitivity, LLMLingua and LongLLMLingua for prompt compression, and maximal marginal relevance for diversity-aware selection. These are the core ideas behind budgeted evidence construction.',
+        'Study multi-index RAG, RAG deduplication, citation span indexes, cross-encoder reranking, chain-of-draft token budgets, and RAG evaluation next. Packing sits between retrieval and generation, so both sides affect it.',
       ],
     },
   ],

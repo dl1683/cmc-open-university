@@ -371,89 +371,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why it exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Prompt caching exists because LLM applications repeat large prefixes. A coding agent may send the same system rules, tool schemas, repository summaries, and file context across many turns. A support bot may send the same policy manual before each new customer question. Recomputing that stable prefix wastes latency and money.`,
-        `A cache-key canonicalization ledger exists because reuse is only safe when the repeated prefix is exactly the same computation. It is not enough for two prompts to mean roughly the same thing. The model, tokenizer, tool contract, tenant boundary, media inputs, adapter, and prompt bytes all decide whether cached state can be reused.`,
-        {type:'callout', text:`Prompt caching is safe only when the cache key proves exact computation identity across layout, tokens, model, tenant, tools, media, and version clocks.`},
+        'Read the key pipeline from left to right. A prompt is the text, tool schema, media, and context sent to a model; a cache key is the identity used to decide whether prior computation can be reused. Active nodes show fields entering the key, and found nodes show evidence that a hit or miss can be explained later.',
+        'The breakpoint view shows where the stable prefix ends. A prefix is the leading token sequence that repeats across requests. A safe hit means the reused prefix was computed under the same model, tokenizer, tenant boundary, tools, media, and version clocks.',
+        {type:'callout', text:'Prompt caching is safe only when the cache key proves exact computation identity across layout, tokens, model, tenant, tools, media, and version clocks.'},
       ],
     },
     {
-      heading: 'The naive hash fails',
+      heading: 'Why this exists',
       paragraphs: [
-        `The tempting implementation is to serialize the prompt string, trim whitespace, hash it, and call the result a cache key. That fails because the raw string is not the full identity of the computation. The same text under a different tokenizer, model revision, LoRA adapter, system policy, or multimodal attachment can produce different internal state.`,
-        `The opposite failure is to include every noisy field. Request ids, timestamps, random retrieval order, unstable JSON object order, and trace metadata can move near the front of the prompt and shorten the shared prefix. A cache that is too strict misses constantly. A cache that is too loose can leak data or reuse wrong state. The ledger is the discipline between those two failures.`,
+        'Large language model applications often resend the same long prefix. A coding agent may repeat system rules, tool schemas, repository summaries, and prior files across many turns. Recomputing that prefix wastes prefill time, raises cost, and delays the first generated token.',
+        'Prompt caching exists to reuse that repeated computation. A canonicalization ledger exists because reuse is only correct when the computation identity is exact. Similar meaning is not enough; the model state must be the same computation under the same contract.',
       ],
     },
     {
-      heading: 'The core identity rule',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The invariant is computation identity, not semantic similarity. A cache hit must prove that the prefix would create the same model state under the same contract. If two prompts differ only in irrelevant layout noise, canonicalization should make them share. If they differ in anything that changes model behavior or authorization, the key must split.`,
-        `This is why vLLM-style prefix caching is described as block identity rather than fuzzy prompt matching. A block key binds the parent hash, exact token block, and extra hashes such as adapter identity, multimodal inputs, and cache salts. The product ledger should preserve the same idea even when the provider exposes a higher-level prompt-cache API.`,
+        'The obvious implementation hashes the prompt string. If two requests have the same bytes, return the same cache key. That works for a toy text-only demo where model, tokenizer, tools, tenant, and policy never change.',
+        'A slightly smarter version trims whitespace or sorts JSON before hashing. That can raise hit rate, but it still treats visible text as the whole computation. It misses hidden inputs such as tokenizer version, adapter identity, multimodal hashes, and authorization boundary.',
       ],
     },
     {
-      heading: 'Canonical layout',
+      heading: 'The wall',
       paragraphs: [
-        `Canonicalization starts before hashing. Put stable content first: tool schemas in deterministic order, system instructions with a version, policy text with a digest, and retrieved document bundles with stable document ids. Put dynamic content later: the newest user message, fresh tool outputs, timestamps that the model truly needs, and request-local trace metadata.`,
-        `This ordering matters because most prompt and prefix caches reuse leading tokens. A volatile value near the front can make a long shared prompt look new. A volatile value at the tail lets the stable prefix remain reusable while the model still processes the fresh suffix.`,
+        'A loose key can reuse wrong state. If two tenants send the same policy prompt but have different private documents, a missing tenant salt can leak context. If the tokenizer or model revision changes, the same text can map to different internal tokens or behavior.',
+        'A strict key can miss constantly. Request IDs, timestamps, unstable retrieval order, and random JSON property order can make a stable prompt look new. The wall is that the cache key must split on behavior-changing fields while ignoring noise that should not change the computation.',
       ],
     },
     {
-      heading: 'Ledger fields',
+      heading: 'The core insight',
       paragraphs: [
-        `A useful ledger row includes prompt_template_id, canonical_layout_version, system_digest, tool_schema_digest, corpus_digest, tokenizer_id, model_revision, adapter_id, multimodal_hashes, tenant_salt_id, cache_breakpoint, TTL policy, block hashes, cached token counts, cache read and write counts, route id, invalidation versions, and miss or deny reasons.`,
-        `Those fields are not decorative metadata. Each one answers a correctness question. Which prompt contract was used? Which tokenizer produced the token ids? Which model and adapter consumed them? Which tenant boundary allowed reuse? Which version clocks should force a miss after a policy or corpus update? Which cache layer actually hit? Without those fields, a hit-rate chart cannot explain correctness, cost, or safety.`,
-        `Different systems expose different cache controls. Some reuse repeated prefixes automatically. Some let applications mark cache breakpoints or create named cached contexts. Some operate below the API as KV block caches inside an inference server. The application should not let those differences fragment its own observability. The ledger normalizes provider prompt caching, local prefix caching, KV offload, and route hints into one product-level view.`,
-        `Primary references for the shapes shown here include vLLM automatic prefix caching, OpenAI prompt caching, Anthropic prompt caching, Gemini context caching, and Amazon Bedrock prompt caching. Their controls differ, but the design question is the same: what exact prefix was reused, why was reuse legal, and what did it save?`,
+        'The invariant is exact computation identity. The key should include every field that changes model state or permission to reuse, and it should exclude fields that only add trace noise. Canonicalization is the process that turns the request into a stable, ordered representation before hashing.',
+        'The ledger is the audit record for that decision. It stores the canonical layout version, model revision, tokenizer ID, tool schema digest, corpus digest, media hashes, tenant salt, breakpoints, TTL policy, block hashes, and miss or deny reasons. The goal is not just a hit; it is an explainable hit.',
       ],
     },
     {
-      heading: 'Breakpoints and TTLs',
+      heading: 'How it works',
       paragraphs: [
-        `A breakpoint marks the end of a stable prefix. In a conversation, it often belongs after tool schemas, system policy, long context, and older history, but before the newest user turn. That placement lets the cache reuse expensive prefix work while still forcing the model to process the new request and generate a fresh answer.`,
-        `TTL is an economic and safety choice. Longer-lived cached prefixes improve hit chance for slow conversations and repeated workflows, but they make invalidation discipline more important. A safe ledger binds version clocks into the key so old policy, old tools, or old corpus state naturally miss instead of relying on a race-prone purge.`,
+        'The application first builds a stable prompt layout. System policy, tool schemas, and retrieved documents are ordered deterministically and versioned. Dynamic user input and request-local metadata are placed after the reusable prefix when they do not belong in the shared computation.',
+        'The canonical prompt is tokenized. Token blocks are hashed with parent-block identity and extra identity fields such as model, tokenizer, adapter, media, tenant salt, and version clocks. The router then asks the cache for the deepest matching prefix and writes a ledger row explaining the result.',
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'Why it works',
       paragraphs: [
-        `The key-pipeline view proves that hashing is downstream of layout. A request becomes a canonical prompt layout, then tokens, then block hashes plus extra identity fields, then a cache key, then route and audit records. If any upstream contract is unstable or missing, the final digest is either noisy or unsafe.`,
-        `The breakpoint and safety views prove the two-sided nature of the problem. Stable-first layout raises the hit-rate ceiling. Safety fields lower the risk ceiling. The goal is not the highest possible hit rate. The goal is lawful reuse of exact computation with enough evidence to explain each hit, miss, write, deny, and route decision.`,
+        'Correctness follows from collision-resistant identity plus conservative misses. If any behavior-changing field differs, the key differs and the system recomputes. If a field is unknown or not audited, the safe behavior is a miss because missing identity evidence cannot justify reuse.',
+        'Stable-first layout improves hits without weakening correctness. Moving volatile request metadata after the breakpoint preserves the reusable prefix. Binding policy, tools, corpus, media, and tenant into the key prevents reuse across contexts that only look similar in visible text.',
       ],
     },
     {
-      heading: 'Observability',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `A cache ledger should emit spans and metrics for cache reads, writes, hit source, cached token count, uncached token count, TTFT, latency percentiles, estimated savings, denial reason, miss reason, and route id. A sudden hit-rate drop should be traceable to a specific field: tool schema reordering, corpus digest churn, tokenizer change, layout version change, TTL expiry, or tenant salt rotation.`,
-        `Observability also prevents unsafe optimization. A team that only watches hit rate may normalize away fields that should be part of the key. That can look efficient while reusing state across models, tenants, tools, or media. Correct dashboards include correctness gates and denial counts, not just savings.`,
+        'Canonicalization adds engineering cost. Every service that creates prompts must agree on ordering, escaping, digesting, and version clocks. Golden fixtures are needed so two languages do not produce different keys for the same logical request.',
+        'The payoff depends on prefix length and reuse. If a 12000-token stable prefix is reused 100 times and each request adds 500 fresh tokens, caching can remove most repeated prefill work. If every request changes near the first token, key machinery adds overhead without much reuse.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Prompt caching adds its own costs. Canonicalization code must be deterministic across languages and services. Golden prompt fixtures must be maintained. Hashing large multimodal inputs and document bundles takes work. Cache writes can have different economics from cache reads. Long TTLs increase the value of versioning and audit logs. Routing toward warm replicas can improve latency but may fight load balancing.`,
-        `The tradeoff is usually worth it when stable prefixes are large and reused often. It is less useful for short prompts, one-off requests, highly personalized volatile context, or workflows where the first token changes near the front every time. The ledger makes that visible by tying hit rates to token counts and cost per accepted task.`,
+        'This pattern fits coding agents, retrieval-heavy chat, legal review, support bots, compliance assistants, and tool-rich agent loops. These systems often spend more tokens restating policy, tools, and context than asking the next question.',
+        'It also fits multi-layer serving. The same canonical identity can guide provider prompt caching, local KV-prefix caching, offload lookup, and routing toward warm replicas. A ledger lets product teams explain savings, denials, and correctness boundaries in one place.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Where it fails',
       paragraphs: [
-        `It wins in coding agents, document review, customer support, compliance assistants, retrieval-heavy chat, long policy prompts, and tool-rich agent loops. In those systems, the stable prefix may contain thousands of tokens before the user asks the next small question. Reusing that prefix can reduce time to first token, provider cost, and local prefill pressure.`,
-        `It also wins in multi-layer serving systems. The same canonical identity can guide provider prompt caching, local KV prefix caching, offload store lookup, and SLO-aware routing. A router that knows which replica likely holds the right prefix can avoid cold-prefill work without guessing from raw request text.`,
+        'It fails when teams optimize hit rate alone. Removing tenant salt, model revision, tool schema digest, or media hashes can make dashboards look better while reusing unsafe state. A cache system that cannot explain why a hit was legal is not production safe.',
+        'It also fails for short prompts, one-off tasks, highly volatile prefixes, and workflows where retrieval order changes every turn. In those cases, the right fix may be better prompt layout, stable retrieval packaging, or no cache at all.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        `The dangerous failures are not mysterious. Missing tenant salts can leak state. Missing model or adapter ids can reuse wrong KV. Missing multimodal hashes can attach the wrong image or file. Missing version clocks can reuse stale policy. Unstable ordering can cause miss storms. Over-normalization can merge prompts that should stay separate.`,
-        `The correct behavior for uncertain identity is a miss. Do not repair correctness failures by widening keys after the fact and hoping no bad hit happened. Ship cache changes behind canaries, keep a kill switch, diff key fields in review, and store enough audit data to answer why a request hit or missed.`,
+        'A document-review agent sends 8000 stable tokens of system policy, 3000 tokens of tool schemas, 2000 tokens of retrieved contract context, and 400 fresh user tokens. Without caching, every turn prefills 13400 tokens. With a breakpoint after the 13000 stable tokens, only the fresh 400 tokens need full new prefill after a hit.',
+        'Now suppose the tool schema digest changes from A17 to B02 because one tool gained a new argument. The visible prompt may look almost the same, but the key must split because the model received a different tool contract. The ledger row should say miss_reason="tool_schema_digest_changed", not merely report a lower hit rate.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Tokenization (BPE), Hash Table, Cache Invalidation & Versioning, HTTP Vary Cache-Key Normalization, No-Vary-Search Query Key, Prefix Caching & RadixAttention, KV Cache, KV Cache Tiered Offload Store, SLO-Aware LLM Request Router, GenAI Trace Token Cost Ledger, LLM Response Cache Safety Ledger, and LLM Unit Economics Ledger Case Study. Primary source links: https://docs.vllm.ai/en/stable/design/prefix_caching/, https://developers.openai.com/api/docs/guides/prompt-caching, https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching, https://ai.google.dev/gemini-api/docs/caching, and https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html.`,
+        'Primary sources: vLLM automatic prefix caching documentation, OpenAI prompt caching documentation, Anthropic prompt caching documentation, Gemini context caching documentation, and Amazon Bedrock prompt caching documentation. Treat provider-specific cache controls as current product surfaces and verify them before building production assumptions.',
+        'Study tokenization, hash tables, cache invalidation, HTTP Vary cache keys, KV cache, prefix caching with RadixAttention, SLO-aware LLM routing, and token-cost ledgers next. The core transferable idea is identity before reuse.',
       ],
     },
   ],

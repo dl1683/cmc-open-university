@@ -208,95 +208,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the ledger view as one browser-agent run becoming evidence. Active nodes are records being written now: task, setup, action, screenshot, evaluator result, latency, and cost. Found nodes are records that can now be checked later without trusting memory or a dashboard total.',
+        'The safe inference is narrow. If a score points to the same task version, environment, trace, evaluator, and replay bundle, a reviewer can explain why that score exists. If any link is missing, the pass rate is only a summary, not an engineering fact.',
+        {type:'callout', text:`A browser-agent score only becomes engineering evidence when the task, run path, evaluator, latency, cost, and replay artifacts are bound into one inspectable ledger.`},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `Browser agents turn a vague instruction into browser observations, model decisions, clicks, typing, waits, file operations, and final checks. A single pass rate hides almost all of that work. The agent may fail because it misunderstood the task, clicked the wrong target, clicked before the page was ready, hit a changed website, used the wrong account state, timed out, or was judged by an evaluator that did not match the human intent.`,
-        `A trace ledger exists to make each score inspectable. It binds the task, starting state, environment setup, action trajectory, screenshots, model calls, browser events, evaluator output, latency, cost, failure labels, and replay artifacts into one evidence package. The goal is not more logging for its own sake. The goal is to make a benchmark result useful for engineering decisions.`,
-        {type:'callout', text:`A browser-agent score only becomes engineering evidence when the task, run path, evaluator, latency, cost, and replay artifacts are bound into one inspectable ledger.`},
+        'A browser agent is software that turns a human instruction into observations, model calls, clicks, typing, waits, and final checks inside a browser. A benchmark score says whether the task passed, but it does not explain which part of the run made the result happen. That missing explanation is the problem a trace ledger solves.',
+        'A trace ledger is an append-only record that binds the task, starting state, browser events, model decisions, evaluator output, latency, cost, and replay artifacts. It exists because browser tasks fail for many different reasons: bad planning, wrong target grounding, stale site state, slow loading, policy blocks, or evaluator mismatch. One binary score cannot separate those causes.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious benchmark stores a prompt, lets an agent run, and records pass or fail. That is attractive because it produces a clean leaderboard row and a simple regression number. For pure text tasks with deterministic answers, this can be enough.`,
-        `Browser agents are different. They operate inside mutable interfaces. The path matters. A passing run that needed twenty retries, ignored warnings, opened the wrong tab twice, and eventually got lucky is not equivalent to a passing run that completed the task in four clear actions. A final state alone cannot tell those stories apart.`,
+        'The obvious benchmark stores a prompt, runs the agent, and writes pass or fail. That is reasonable because it gives a clean regression number and a simple leaderboard row. For a deterministic text answer, that may be enough evidence.',
+        'Browser agents are path-dependent. A run that passes after nine retries, two wrong tabs, and a lucky final click is not the same as a run that passes in four clear actions. The final page state hides the route that produced it.',
       ],
     },
     {
-      heading: 'Where the obvious approach fails',
+      heading: 'The wall',
       paragraphs: [
-        `The first wall is attribution. A binary score cannot tell whether the model planned poorly, the target grounding failed, the browser automation was flaky, the website changed, the task fixture was stale, the policy layer blocked a needed action, or the evaluator was wrong.`,
-        `The second wall is drift. Live websites change product catalogs, cookie banners, login flows, anti-bot prompts, search ranking, and page structure. Offline datasets are more reproducible, but they can overstate live performance because the agent never faces the current site. A useful ledger separates model regression from benchmark drift instead of mixing them into one failure bucket.`,
+        'The wall is attribution. When a task fails, the team needs to know whether to fix the model prompt, locator strategy, wait policy, task fixture, website snapshot, evaluator, or product permission rule. A pass/fail table sends all of those cases into the same bucket.',
+        'The second wall is drift. Live websites change search ranking, cookie banners, checkout flows, anti-bot prompts, and product inventory. Without a ledger, a lower score can look like model regression when the task environment changed instead.',
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The core insight',
       paragraphs: [
-        `The invariant is simple: every score must be explainable from the stored evidence. A pass or fail should point back to the exact task version, environment setup, run trajectory, model decisions, evaluator version, and replay bundle that produced it. If a reviewer cannot reconstruct why the score happened, the score is weak evidence.`,
-        `This invariant also protects comparisons. Two agents should not be compared unless the ledger can show that they faced the same task definitions, compatible environment states, compatible stop rules, and comparable evaluator logic. Otherwise a leaderboard can reward a looser setup instead of a better agent.`,
+        'The score must be derived from a replayable evidence chain. The invariant is that every pass or fail points to the exact task version, setup, action sequence, browser state, evaluator version, failure label, latency fields, and artifact bundle. A reviewer should be able to reconstruct the judgment from stored evidence.',
+        'That invariant makes comparisons fairer. Two agents should not be compared unless the ledger shows that they faced compatible tasks, stop rules, credentials, browser profiles, evaluator logic, and approval rules. Otherwise the benchmark can reward a looser setup rather than a better agent.',
       ],
     },
     {
-      heading: 'Ledger schema',
+      heading: 'How it works',
       paragraphs: [
-        `A good row begins before the agent acts. Store the task text, task id, task version, allowed sites or apps, setup script, account and credential policy, seeded files or carts, browser profile state, permissions, timeout policy, maximum steps, risky-action rules, success criteria, and evaluator version.`,
-        `During the run, append observations, screenshots, accessibility snapshots when available, DOM excerpts when useful, model prompts, model outputs, tool calls, action records, locator evidence, wait reasons, network or console errors, policy gates, human approvals, and trace spans. After the run, store final score, evaluator evidence, failure category, wall time, step count, token spend, and replay pointers.`,
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        `Before a run, the evaluator creates or restores the environment and records what was frozen and what remained live. It then starts the browser or desktop session, gives the agent the task, and records the loop of observe, plan, ground target, act, wait, and decide whether to continue.`,
-        `After the run, the scorer checks the final state and attaches the evidence used for that judgment. For deterministic tasks, this may be a script that checks a file, cart, setting, form state, ticket, or database row. For open-ended tasks, it may be a judge model plus rubric, but the judge prompt, model version, inputs, and disagreement checks must be stored too.`,
+        'Before the run, the harness records the task id, task text, task version, allowed sites, setup script, browser profile, account policy, timeout, maximum steps, evaluator version, and success rule. During the run, it appends observations, screenshots, accessibility snapshots, DOM excerpts when useful, model prompts, model outputs, tool calls, action records, waits, errors, and approvals.',
+        'After the run, the scorer attaches the final state, evaluator evidence, pass/fail result, failure category, wall time, model-call count, token count, estimated spend, and replay pointers. The ledger row should be compact, but the artifacts it references can be large and content-addressed. Reports stay small while the evidence remains inspectable.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The ledger works because it turns a browser-agent run into a sequence of bounded claims. The task claim says what was requested. The setup claim says what state the agent faced. The trajectory claim says what the agent actually did. The evaluator claim says why the final state counts as success or failure. Replay ties those claims to visible evidence.`,
-        `This structure makes failures actionable. A wrong search query points to planning. A click on the right text but wrong DOM node points to target grounding. A timeout after a spinner points to readiness detection. A pass rejected by the scorer points to evaluator mismatch. Each label suggests a different fix.`,
+        'The correctness argument is provenance. A task claim says what was requested, a setup claim says what state the agent faced, a trajectory claim says what the agent did, and an evaluator claim says why the final state counts. If those claims are linked and immutable, the score is auditable.',
+        'The structure also makes failures actionable. A wrong query points to planning. A click on the right label but wrong DOM node points to grounding. A timeout after a spinner points to readiness detection. A rejected valid final state points to evaluator mismatch.',
       ],
     },
     {
-      heading: 'Latency and cost',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `Latency is part of browser-agent quality. A run that succeeds after thirty model calls, five retries, and several long sleeps may be worse for product use than a run that fails quickly and cleanly. Store model time, browser wait time, screenshot processing time, evaluator time, retry count, approval wait, and total wall time separately.`,
-        `The ledger has its own cost. Screenshots, videos, accessibility snapshots, DOM captures, model payloads, and browser trace archives grow quickly. Production systems may sample some fields, but benchmark runs should preserve enough evidence to replay every failure and audit every surprising pass. Compression and retention policy matter, but missing evidence is more expensive than storage when a regression cannot be explained.`,
+        'The main cost is storage and review time. Suppose one run stores 20 screenshots at 250 KB each, 20 DOM or accessibility snapshots at 100 KB each, a 400 KB model log, and a 600 KB trace archive. That is about 8 MB per run, so 5,000 nightly runs produce about 40 GB before compression and retention rules.',
+        'Cost changes behavior. If the ledger is too thin, teams cannot debug regressions. If it records everything forever, storage and privacy review become the bottleneck. A practical system keeps full artifacts for failures and sampled passes, then keeps compact metrics and hashes longer.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Use stable ids for task version, run id, agent build, model version, evaluator version, environment image, and replay bundle. Store raw artifacts in content-addressed storage when possible, then keep compact references in the ledger row. That lets reports stay small while preserving the full evidence chain.`,
-        `Use a failure taxonomy that is specific enough to guide work but not so large that reviewers cannot apply it. Useful first-level labels include task ambiguity, planning error, target grounding error, actionability wait error, site drift, fixture error, policy block, timeout, evaluator mismatch, and infrastructure failure.`,
-      ],
-    },
-    {
-      heading: 'Where it is useful',
-      paragraphs: [
-        `Agent teams use trace ledgers for nightly regression suites across checkout, search, support, forms, account management, office documents, and internal tools. The same record supports debugging, model comparison, prompt changes, locator changes, wait-policy tuning, evaluator audits, and release gates.`,
-        `Vendor evaluation also needs this structure. One model can show higher success while using more retries, more human approvals, more wall time, and more cost per task. A production decision depends on the full row: success, latency, cost, risk, evidence quality, and failure shape.`,
-      ],
-    },
-    {
-      heading: 'Worked examples',
-      paragraphs: [
-        `A shopping task says: find the cheapest blue carry-on and add it to the cart. The ledger should show the query, filters, product page screenshots, selected item, price evidence, add-to-cart action, final cart state, evaluator rule, and any site changes detected during the run. If the product grid changed since task creation, the failure should be labeled as drift, not automatically as model reasoning failure.`,
-        `A desktop task may require editing a spreadsheet and saving a file. The ledger should include setup configuration, file paths, screenshots, action records, final artifact, and execution-based evaluator output. Without that evidence, a pass cannot be reproduced and a failure cannot be assigned to the model, the desktop state, or the evaluator.`,
+        'Agent teams use trace ledgers for checkout, search, support forms, office documents, admin tools, and internal dashboards. The access pattern is repeated runs over tasks where the route matters as much as the final state. The same record supports debugging, model comparison, evaluator audits, and release gates.',
+        'Vendor evaluation needs the same shape. One agent may have a higher pass rate but need twice the wall time, three times the model calls, or more human approvals. A production choice depends on success, latency, spend, risk, and evidence quality together.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `Trace ledgers fail when they become a pile of artifacts without a schema. A screenshot archive is not enough. The rows need stable ids, versions, timestamps, action ordering, evaluator links, and failure labels that can be queried across runs.`,
-        `They also fail when aggregate reports hide exclusions and drift. Do not compare scores without checking task versions, site state, credential rules, evaluator type, stop rules, and human-review policy. A stricter benchmark can look worse while producing cleaner evidence.`,
+        'A ledger fails when it becomes an artifact dump without a schema. Screenshots alone do not prove task version, evaluator version, action order, wait reasons, or failure category. The row needs stable ids and queryable fields, not just files in a folder.',
+        'It also fails when privacy and retention are ignored. Browser traces can contain personal data, credentials, customer records, or internal pages. The system needs redaction, access control, and deletion policy before it becomes a default benchmark substrate.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Primary references include Mind2Web for offline web tasks, WebVoyager for real-world website tasks, OSWorld for computer tasks with setup and execution-based evaluation, Online-Mind2Web for live web drift, OSWorld-Human for efficiency analysis, and Playwright Trace Viewer for replayable browser traces.`,
-        `Next, study Computer-Use Agent Runtime Loop Case Study for the runtime loop, Browser Actionability Auto-Wait Case Study for flaky clicks, Accessibility Tree Action Target Case Study for target grounding, Verified Agent Trajectory Store for tamper-resistant records, Distributed Tracing for spans, and Benchmark Variance Model Selection for comparing noisy measurements.`,
+        'Consider 100 shopping tasks. Agent A passes 72, averages 18 steps, uses 14 model calls per task, and costs $0.42 per task. Agent B passes 69, averages 7 steps, uses 5 model calls, and costs $0.16 per task. The leaderboard says A wins, but the ledger says B may be the better production choice if the three extra passes are mostly low-value retries.',
+        'Now inspect one failed task: find the cheapest blue carry-on under $150 and add it to the cart. The ledger shows the task version, product-grid screenshot, query, filter clicks, selected item, final cart state, and evaluator rule. If the cheapest product changed after task creation, the failure label is site drift, not model reasoning.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources and nearby systems: Playwright Trace Viewer at https://playwright.dev/docs/trace-viewer, Mind2Web at https://arxiv.org/abs/2306.06070, WebVoyager at https://arxiv.org/abs/2401.13919, and OSWorld at https://arxiv.org/abs/2404.07972.',
+        'Study next by role: Browser Actionability Auto-Wait for flaky clicks, Accessibility Tree Action Target for grounding, Distributed Tracing for spans, Event Sourcing for append-only evidence, and Benchmark Variance Model Selection for comparing noisy scores.',
       ],
     },
   ],

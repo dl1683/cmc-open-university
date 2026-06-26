@@ -332,124 +332,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Dense transformers spend roughly the same block compute on every token position. That is simple and powerful, but it is wasteful when a sequence contains punctuation, repeated context, easy glue words, and a few hard tokens that carry the real burden of reasoning or prediction.`,
-        `Mixture-of-Depths exists to ask a sharper question at each transformer block: which token positions need this layer right now? A learned router scores positions, the top k positions run the block, and the rest route around it through the residual path.`,
-        `The goal is adaptive compute without an uncontrolled dynamic graph. The token identities can change by layer, but the capacity k is fixed ahead of time. That gives the model freedom to allocate depth while giving the system a predictable compute budget.`,
-        {type:'callout', text:`MoD keeps layer compute predictable by fixing capacity while letting the router decide which token positions spend that capacity.`},
+        'The token-budget view shows a transformer block with a fixed capacity. Capacity is the number of token positions allowed to run the block at that layer. Active nodes are selected tokens, found nodes have been scattered back into sequence order, and compare nodes show tokens that route around the block through the residual path.',
+        'The route-around view shows gather, compute, and scatter. Gather collects selected hidden states into a compact tensor, compute runs the block on those states, and scatter writes results back to the original positions. The safe inference is that skipped tokens are not deleted; they carry their previous representation forward and may be selected by a later layer.',
+        {type:'callout', text:'MoD keeps layer compute predictable by fixing capacity while letting the router decide which token positions spend that capacity.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/34/Transformer%2C_full_architecture.png', alt:'Diagram of a standard transformer encoder-decoder architecture with attention and feed-forward blocks.', caption:'Standard transformer architecture. Image by dvgodoy, CC BY 4.0, Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is the dense transformer. Every token runs every attention and MLP block. This is easy to batch, easy to reason about, and well matched to accelerator kernels. It also means low-value positions get the same layer budget as high-value positions.`,
-        `A second approach is early exit. A token or request stops after enough layers. That can save compute, but it makes depth feel like a one-way stopping decision. Once a token exits, it usually does not return to later layers.`,
-        `MoD hits the wall from a different angle. It lets a token skip one block and be selected again later. The model can build sparse depth paths through the network instead of assigning every position the same full depth or one permanent exit point.`,
+        'Dense transformers spend roughly the same block compute on every token position. That is simple and efficient for batching, but it can waste work when a sequence contains easy punctuation, repeated boilerplate, and a few hard tokens that carry the next-token decision. Mixture-of-Depths asks which positions need this layer now.',
+        'The goal is adaptive depth with a predictable systems budget. The router can change which token positions receive a block, but the block processes a fixed number of positions. That gives the model dynamic assignment without letting runtime work grow unpredictably for each input.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The core insight is to separate compute budget from compute assignment. The budget is static: each MoD block can process k token positions. The assignment is dynamic: the router chooses which positions get that block for this input and this layer.`,
-        `The invariant is that the sequence shape survives the route. A bypassed token is not deleted, shortened, or removed from the model state. It carries its residual hidden representation forward. Selected tokens are updated by the block, then scattered back into their original positions.`,
-        `That invariant makes the architecture trainable and composable. Later blocks still see a full sequence. Attention masks, position ids, cache layout, and downstream layers can keep a stable view of token positions.`,
+        'The obvious approach is the dense transformer. Every token runs every attention and feed-forward block, so tensor shapes are stable and kernels are mature. It is easy to train and easy to reason about because all positions climb the same layer stack.',
+        'Another approach is early exit, where a token or request stops after enough layers. That can save compute, but it makes depth a one-way decision. A token that exits early usually cannot skip one block, return later, and spend compute where it matters.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        `The token-budget view starts with a dense block and then shows the MoD change. Every token receives a router score, but only the top k scores enter the block. The capacity line stays flat while the chosen token identities change.`,
-        `The route-around graph shows the implementation shape: gather, run, scatter. Selected hidden states are gathered into a compact buffer. The block runs attention and MLP on that selected set according to the mask policy. The updated states scatter back, while bypassed states continue through the residual path.`,
-        `The layer table shows the difference from early exit. A token can skip layer 4, run layer 8, and skip layer 12. Depth becomes a per-token path through the stack rather than a single shared ladder that every token climbs in lockstep.`,
+        'The dense wall is uniform spending. If a 2,048-token sequence runs 32 layers, each layer touches all 2,048 positions even if many positions are easy for that layer. The model has no built-in way to spend depth unevenly across positions.',
+        'The dynamic-compute wall is hardware irregularity. If each input chooses arbitrary amounts of work, batching, kernel fusion, and latency predictability suffer. A useful design must adapt token identity while keeping total layer work stable enough for accelerators and serving systems.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The core insight',
       paragraphs: [
-        `The main runtime structures are a router score vector per block, a top-k index list, a gather buffer of selected hidden states, an attention mask, a scatter map back to full sequence order, and route statistics for observability. These are plain data structures, but a mistake in them changes model behavior.`,
-        `The top-k list is the control plane. It says which token rows are allowed to spend this block. The gather buffer is the temporary compact tensor that makes the selected work efficient. The scatter map is the contract that restores the full sequence without swapping positions or losing bypassed states.`,
-        `The attention mask deserves special care. If selected tokens can attend to the wrong positions, or if decoding uses route decisions that depend on future tokens, the model may look good offline and fail online. Routing is not just a speed trick; it changes the computation graph.`,
+        'Mixture-of-Depths separates compute budget from compute assignment. The budget is fixed: each MoD block processes k token positions. The assignment is learned: a router scores all positions and selects the top k for this layer and input.',
+        'The sequence-shape invariant makes the design composable. Selected tokens are updated and returned to their original positions. Bypassed tokens keep their residual representation, so later layers still see a full sequence with stable positions, masks, and downstream layout.',
       ],
     },
     {
-      heading: 'Case study: Mixture-of-Depths',
+      heading: 'How it works',
       paragraphs: [
-        `Raposo et al. describe MoD as dynamic token-level compute under a static total budget. A block has a fixed capacity. The router chooses the top scoring positions, those positions participate in attention and MLP, and the rest route around the block.`,
-        `The paper reports that MoD models can match baseline performance under comparable training budgets while using fewer forward-pass FLOPs, and it discusses faster sampling after additional routing work for inference. The exact win depends on model size, capacity, kernels, and serving shape, so the systems claim should be measured rather than assumed.`,
-        `The subtle point is hardware sympathy. Many adaptive-computation methods create variable work that accelerators dislike. MoD keeps a predictable per-block capacity while letting the model learn which positions deserve that capacity.`,
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        `At a block, the router reads the current hidden states and produces one score per token position. The implementation selects the top k scores. Selected positions are gathered into a smaller tensor, the block computation runs on that selected tensor, and the results scatter back to the full sequence.`,
-        `The residual path carries bypassed tokens forward. That means the model does not create holes in the sequence. A bypassed token still has a representation at the next layer, and it may be selected later.`,
-        `Training has to make routing learnable. Top-k selection is discrete, so implementations use routing losses, straight-through choices, auxiliary objectives, or design choices that keep gradients useful. The paper details one approach; the general lesson is that the router must learn importance without collapsing to trivial patterns.`,
+        'At each MoD block, the router reads the current hidden state for every token position and emits one score per position. The implementation selects the top k scores, gathers those hidden states, runs the block computation, and scatters updated states back. Tokens outside the top k route around through the residual path.',
+        'Training must make routing learnable even though top-k selection is discrete. Implementations use routing losses, straight-through estimators, auxiliary objectives, or related tricks so the router learns which positions deserve compute. Serving must use a causal route policy for autoregressive generation because future tokens are not available during live decoding.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `MoD works when useful computation is unevenly distributed across token positions and layers. Some tokens need more depth because they bind entities, carry numbers, close brackets, disambiguate references, or determine the next token. Other positions can preserve state for one layer without much loss.`,
-        `The residual path makes skipping safe enough to attempt. A bypassed token is not replaced with zero and not removed from context. It keeps its hidden state and remains available to later computation.`,
-        `The fixed capacity makes the systems story plausible. If each block processes exactly k positions, the runtime can allocate predictable buffers and schedule known shapes. The graph is adaptive in identity, not in total amount of work.`,
+        'The behavioral correctness argument is that every layer preserves sequence length and position identity. A bypassed token is not zeroed, dropped, or shifted; it remains available to attention and later routing decisions. That makes sparse depth paths compatible with the rest of the transformer stack.',
+        'The systems argument is fixed capacity. If each block always processes k positions, the runtime can allocate fixed gather buffers and plan work per layer. The graph is adaptive in which tokens receive compute, not in the amount of block compute promised to the scheduler.',
       ],
     },
     {
-      heading: 'Correctness and serving constraints',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `MoD does not have correctness in the database sense. It has a behavioral contract: the serving route must match the route policy the model was trained or adapted to use. If training chooses tokens with information that live decoding cannot see, the offline result is not a valid serving result.`,
-        `Autoregressive generation is the hard case. During live sampling, future tokens do not exist. A route decision for the current step must use available prefix information. The MoD paper discusses predictive routing for efficient decoder-only inference so the online decision avoids future leakage.`,
-        `Serving also has to preserve causal masks, position mapping, KV-cache semantics, and batch consistency. A scatter bug, mask bug, or route-cache mismatch can silently change which tokens communicate. That is a model bug, not only an optimization bug.`,
+        'If sequence length is n and block capacity is k, the expensive block work targets k positions instead of n. With n = 1,024 and k = 256, that layer spends block compute on 25 percent of positions. Doubling n to 2,048 while keeping k = 256 keeps block capacity flat, although router scoring still reads all positions.',
+        'The new costs are router evaluation, top-k selection, gather, scatter, mask handling, route telemetry, and harder serving. FLOPs can fall while wall-clock latency barely improves if gather and scatter break efficient kernels. Capacity is therefore a quality-speed knob, not a free reduction.',
       ],
     },
     {
-      heading: 'Relation to adaptive compute',
+      heading: 'Real-world uses',
       paragraphs: [
-        `MoD belongs to a longer adaptive-computation family. Adaptive Computation Time lets recurrent networks learn how many internal steps to take. Universal Transformers bring recurrence in depth to transformer positions and add dynamic per-position halting. AdaTape changes the number of input tape tokens. Early-exit methods stop or verify generation at shallower layers.`,
-        `Mixture of Experts is adjacent but not the same. MoE usually asks which expert processes this token. MoD asks whether this token receives this block. One routes across expert capacity; the other routes across depth capacity.`,
-        `The shared motivation is that large models waste compute unevenly. The hard engineering problem is to expose adaptivity in a form that hardware can run efficiently and operators can inspect.`,
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `The potential savings come from skipping block computation for some positions. The new costs are router evaluation, top-k selection, gather and scatter movement, mask construction, route telemetry, and extra serving complexity.`,
-        `FLOPs are not the whole story. If gather and scatter break fusion, fragment batches, or force inefficient kernels, the wall-clock win can shrink. If top-k tie churn changes shapes or memory access patterns, p99 latency can get worse even while average FLOPs fall.`,
-        `Capacity is a quality knob. Low k saves compute but can starve important positions. High k behaves more like a dense transformer. The useful setting is a measured quality-speed knee, not the smallest capacity that still runs.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `MoD is strongest when token importance is uneven and the skipped block compute is much larger than routing overhead. Long contexts, mixed-format documents, code, math, retrieval-augmented prompts, and serving regimes with strict budgets are natural candidates.`,
-        `It also has a clear research value: it turns token-level importance into an explicit route that can be logged and studied. If the router consistently spends compute on entities, numbers, rare syntax, or task-critical spans, it gives researchers a handle on where depth is being used.`,
-        `The fixed-budget design is the practical advantage over more free-form dynamic compute. Systems teams can plan for a known amount of work per block, then measure whether dynamic token identity actually improves quality per unit time.`,
+        'Mixture-of-Depths is useful when token importance is uneven and block computation is much larger than routing overhead. Long prompts, code, math, retrieval-augmented inputs, and mixed-format documents are natural test cases. The access pattern is a full sequence where only some positions need a given layer.',
+        'It is also useful as a research probe. Route logs can show which tokens receive depth by layer, token type, and task. If the router spends compute on numbers, entities, brackets, rare syntax, or retrieved facts, the route becomes an interpretable budget trace.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `MoD fails when routing overhead eats the savings, when the router starves rare but important tokens, when selected-token attention loses information that dense attention would have used, or when serving cannot reproduce the training route causally.`,
-        `It can also fail at the tail. A model may look faster on average while a serving system suffers from route instability, gather/scatter overhead, inefficient cache behavior, or batch fragmentation. Static capacity reduces shape chaos, but it does not remove all irregularity.`,
-        `Quality regressions may be subtle. A skipped punctuation token might not matter in one task and might matter a lot in code, math, tables, or legal text. The evaluation set has to include the token types the router is tempted to under-serve.`,
+        'MoD fails when routing overhead eats the saved block compute. It also fails when the router starves rare task-bearing tokens, such as punctuation in code, table delimiters, or legal terms. Average language-model quality can hide those regressions unless the evaluation slices are specific.',
+        'Autoregressive serving is a sharp failure surface. If training uses route decisions that depend on future tokens, live decoding cannot reproduce them. Mask bugs, scatter bugs, route-cache mismatch, and batch fragmentation can silently change model behavior while the code still runs.',
       ],
     },
     {
-      heading: 'Operational guidance',
+      heading: 'Worked example',
       paragraphs: [
-        `Do not confuse static budget with easy deployment. The runtime still needs fast top-k, stable gather/scatter, mask tests, route telemetry, kernel profiling, and canary slices that reveal skipped important tokens. The router can collapse onto easy patterns or produce noisy tie churn.`,
-        `Measure accepted quality, wall-clock latency, p50 and p99, tokens per second, copy overhead, batch effects, KV-cache interaction, and route stability. Compare against dense transformers, Mixture of Experts, early exit, speculative decoding, KV-cache optimization, and better batching under the same quality target.`,
-        `Log route distributions by layer, token class, prompt length, and task family. Look for starvation of rare tokens, future-leak differences between offline and online routing, and layers where the router behaves like a constant mask. If the route is invisible, the failure will be invisible too.`,
+        'A 12-layer model processes a 1,024-token prompt. A dense block updates all 1,024 positions in every layer, so the stack performs 12,288 token-block updates. If 6 layers are MoD layers with k = 256 and 6 remain dense, the total is 6 times 1,024 plus 6 times 256, or 7,680 token-block updates before routing overhead.',
+        'That is a 37.5 percent reduction in token-block updates, but not necessarily a 37.5 percent latency reduction. The router still scores 1,024 positions in each MoD layer, top-k must select 256, and gather/scatter move tensors. The design wins only if the skipped block work is larger than those added costs at the target batch and hardware shape.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources include Mixture-of-Depths at https://arxiv.org/abs/2404.02258 and the arXiv HTML version at https://arxiv.org/html/2404.02258v1. Background adaptive-computation sources include Adaptive Computation Time, Universal Transformers, and AdaTape.`,
-        `Study Adaptive Computation Time Halting, AdaTape Adaptive Token Bank, Perceiver IO Latent Array Bottleneck, Mixture of Experts, Early-Exit Transformer Layer Skipping, Transformer Inference Roofline, KV Cache, Attention Mechanism, Multi-Head Attention, Load Balancer, Gradient Flow, LLM Continuous Batching, and Heterogeneous AI Compute Workload Router next.`,
+        'Primary sources are "Mixture-of-Depths: Dynamically allocating compute in transformer-based language models" at https://arxiv.org/abs/2404.02258 and the arXiv HTML version at https://arxiv.org/html/2404.02258v1. Background sources include Adaptive Computation Time, Universal Transformers, AdaTape, and Mixture of Experts papers.',
+        'Study Attention Mechanism, Multi-Head Attention, KV Cache, Mixture of Experts, Early-Exit Transformer Layer Skipping, Adaptive Computation Time Halting, Transformer Inference Roofline, LLM Continuous Batching, and Heterogeneous AI Compute Workload Router next. Start with the topic that explains the data shape, then move to the production system.',
       ],
     },
   ],

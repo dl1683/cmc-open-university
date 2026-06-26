@@ -1,4 +1,4 @@
-// Apache Iceberg: table snapshots, manifest lists, manifests, delete files,
+﻿// Apache Iceberg: table snapshots, manifest lists, manifests, delete files,
 // partition evolution, and optimistic metadata commits.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -213,86 +213,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Apache Iceberg is an open table format for large analytical datasets. It does not merely define a file layout. It defines table metadata: schemas with field IDs, snapshots, manifest lists, manifests, data files, delete files, partition specs, and catalog commits.',
-        'The case-study lesson is that a data lake table needs a control plane. Parquet files store bytes efficiently, but a table also needs atomic commits, snapshot isolation, time travel, schema evolution, partition evolution, and efficient planning over many files.',
+        'The snapshot planning view is a metadata graph. The catalog node is the table name service. The metadata JSON node is the current root. A snapshot is a version of the table. A manifest list points to manifests, and manifests point to data and delete files with statistics. Active nodes are the path used to plan the current read.',
+        'The schema and partition view shows that Iceberg stores meaning in metadata, not in folder names alone. Field IDs identify columns across renames. Partition specs identify how each file was laid out when it was written. Found nodes mark metadata that lets a reader choose files without listing the whole warehouse.',
         {type:'callout', text:'Iceberg makes the table a versioned metadata root, so snapshots and manifests define the data set instead of directory listing.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Apache_Iceberg_Logo.svg', alt:'Apache Iceberg project logo', caption:'Apache Iceberg logo by Sophinie Kim for The Apache Software Foundation, via Wikimedia Commons, Apache License 2.0.'},
       ],
     },
     {
-      heading: 'The obvious approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious data-lake table is a directory full of Parquet files. A writer drops new files into partition folders, and a query engine lists the directory to discover what to read. That works until the table is large, many writers run at once, partitions evolve, deletes arrive, or readers need a consistent view while writes are happening.',
-        'Directory listing is not a transaction protocol. A reader can see half a commit. A writer can overwrite another writer. A schema rename can be confused with a different column. A partition layout change can strand old data under old folders. Iceberg replaces ad hoc file discovery with explicit metadata roots and atomic catalog commits.',
+        'Object storage is good at holding immutable files and bad at being a database table by itself. A directory of Parquet files does not say which files form one transaction, which schema produced each file, which deletes apply, or which snapshot a reader should use. Analytical systems need those answers before they can scan safely.',
+        'Iceberg exists to make table state explicit over files. It adds metadata roots, snapshots, manifest lists, manifests, partition specs, schema IDs, delete files, and atomic catalog commits. The result is a table format that can support multiple engines without turning object storage into a shared mutable database.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core insight is that the table is the metadata root, not the storage directory. The catalog points to one current metadata file. That metadata file names snapshots. A snapshot names a manifest list. The manifest list names manifests. Manifests name data and delete files with metrics. A consistent table view is therefore a graph of files reachable from one chosen snapshot.',
-        'This indirection buys planning and correctness. Readers can time-travel by choosing an older snapshot. Writers can commit by atomically swapping the catalog pointer. Planners can skip manifests and files using metrics before opening data files. Schema and partition evolution become metadata changes instead of unsafe folder conventions.',
+        'The obvious lake table is a directory layout such as s3://warehouse/orders/date=2026-06-25/*.parquet. Writers add files to partition folders, and readers list folders to discover work. This is easy to understand and works for small append-only data sets.',
+        'The approach is not foolish. Folder partitioning gives humans a visible layout and lets readers skip some files. The problem is that listing is discovery, not a transaction, and folder names cannot encode every schema, delete, partition-evolution, and snapshot rule a table needs.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Directory listing hits a consistency wall. A reader can list a partition while a writer has uploaded half the files for a commit. Another writer can publish conflicting files. A failed job can leave orphan files that look real. The directory does not distinguish committed data from abandoned bytes.',
+        'It also hits a planning wall. A table with 200,000 files cannot afford to open every footer for every query. If the query asks for one customer and one day, the engine needs metadata that can prove most files are irrelevant before it reads object-store data.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The table is the metadata root, not the storage directory. A catalog points to one current metadata JSON file. That file lists snapshots. Each snapshot points to a manifest list. Each manifest lists data or delete files with partition values, row counts, and column statistics.',
+        'This indirection turns file discovery into graph traversal. A reader picks one snapshot and follows only the metadata reachable from that snapshot. A writer creates new files and metadata, then atomically swaps the catalog pointer. Old snapshots remain readable until retention removes them.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A catalog points to the current table metadata file. That metadata file records snapshots. Each snapshot points to a manifest list. The manifest list records manifest files and summary statistics. Each manifest lists data or delete files with partition values and metrics such as row counts and column bounds.',
-        'Readers choose a snapshot, use manifest-list and manifest metadata to prune planning work, and scan the selected files. Writers create new metadata and commit by atomically updating the catalog pointer. If another writer wins first, the stale writer refreshes and retries.',
-        'Delete files are part of the same metadata story. A position delete names rows by file and position. An equality delete names rows by values. Readers must combine selected data files with applicable delete files to produce the snapshot view. That lets Iceberg support row-level changes without rewriting every affected data file immediately.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The snapshot-planning view is proving that metadata is an index. The query engine should not list every object and inspect every footer when manifest lists and manifests can prove that entire groups of files cannot match the predicate. Each layer narrows the planning problem before bytes are scanned.',
-        'The schema-partition-evolution view is proving that stable IDs matter. A column rename should preserve meaning. A partition transform should be allowed to change for new data without rewriting old data. The planner carries the old and new specs and interprets each file under the metadata that created it.',
-        'The commit-conflict view is the write-side lesson. Two writers can prepare new files and metadata, but only one catalog pointer becomes current. The loser must refresh, check whether its write still conflicts, and retry safely. That optimistic pattern is what lets object storage behave like a table surface without pretending object storage has database transactions.',
+        'Planning starts at the catalog pointer and metadata JSON. The reader chooses the current snapshot or a requested older snapshot. It reads that snapshot\'s manifest list, prunes manifests using partition summaries, then prunes individual files using metrics such as lower bounds, upper bounds, null counts, and row counts.',
+        'Writes are optimistic. A writer creates data files, manifests, a manifest list, and a new metadata JSON file. It asks the catalog to publish the new root only if the old root is still current. If another writer won first, the stale writer reloads, checks for conflicts, and retries on the newer root.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Iceberg works because immutable metadata files make table states explicit. A new commit writes new metadata and then atomically publishes one pointer. Readers that started on the old pointer keep seeing the old snapshot. Readers that start later see the new snapshot. This is snapshot isolation at data-lake scale.',
-        'It also works because file-level statistics are promoted into planning metadata. Partition values, column bounds, null counts, row counts, and delete-file references let engines skip work. The format does not make slow storage fast by itself; it prevents engines from doing unnecessary discovery and scanning.',
+        'Snapshot isolation comes from immutable metadata plus one atomic root pointer. A reader that starts from root 101 keeps the table described by root 101. A later reader may see root 102 after a commit. Because metadata files are immutable, the old reader is not disturbed by the new publication.',
+        'Planning correctness comes from reachability. The files in a snapshot are exactly the data and delete files reachable through that snapshot\'s manifest list. If a manifest summary proves no file inside can satisfy a predicate, skipping it cannot remove a valid answer. If a file metric proves a value is outside the query range, skipping that file is safe for the same reason.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Iceberg moves complexity from ad hoc directory listings into explicit metadata. That is a good trade, but metadata still needs maintenance. Manifest rewrite, snapshot expiration, orphan-file cleanup, compaction, delete-file planning, and catalog reliability all become operational concerns.',
-        'The design also depends on engine correctness. Multiple compute engines can share a table only if they honor the same schema IDs, snapshot semantics, delete-file rules, and optimistic commit protocol.',
-        'Planning cost can move from data files to metadata files. A table with too many small files or too many tiny manifests can spend too much time in planning before it scans useful data. That is why Iceberg operations include compaction, manifest rewriting, snapshot expiration, and metadata cleanup.',
+        'Iceberg replaces object-store listing cost with metadata read cost. A query over 200,000 files may read one metadata file, one manifest list, and a few hundred manifests instead of listing and opening every file. When data doubles, scan cost grows with selected files, but planning stays efficient only if manifests are compact and statistics are maintained.',
+        'The tax is maintenance. Small files, tiny manifests, long snapshot history, and many delete files all make planning slower. A healthy table runs compaction, manifest rewrite, snapshot expiration, orphan cleanup, and delete-file rewrite jobs. The format gives the machinery; the platform still has to operate it.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Iceberg is used for lakehouse analytics, streaming ingestion, CDC tables, ML training datasets, regulatory snapshots, cross-engine data sharing, and time-travel debugging. It is especially valuable when tables contain many files and multiple writers or query engines touch the same dataset.',
-        'A complete case study is hourly event ingestion. Each job writes Parquet files, creates manifests with file metrics, and commits a new snapshot. A dashboard query for one country and one hour prunes manifests and files before scanning. A later schema rename is safe because readers use field IDs.',
-        'For ML datasets, the snapshot ID is also an experiment artifact. Training on "the events table" is vague; training on snapshot 102 is reproducible. If the table later receives corrections or deletes, the old experiment can still be explained as long as retention keeps the snapshot and files available.',
+        'Iceberg fits lakehouse analytics where many engines share large tables on object storage. Spark can write, Flink can stream, Trino can query, and Python jobs can inspect metadata while all agree on snapshots and schema IDs. Time travel also makes training data and audit snapshots reproducible.',
+        'It is especially useful for evolving tables. A column rename keeps the same field ID, so old files and new files still mean the same logical column. A partition spec can change from day to hour for new data while old files keep their old spec and the planner interprets each file under the correct metadata.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
-        'Iceberg is not a database engine by itself. It is a table format and metadata protocol used by engines such as Spark, Flink, Trino, and others. Another misconception is that partition evolution removes data layout work. It makes evolution safe, but compaction, clustering, and manifest hygiene still decide performance.',
-        'Another mistake is ignoring delete files and small files. Row-level deletes can accumulate and make reads expensive until compaction rewrites data. Streaming ingestion can create many small files and manifests. Snapshot history can grow until expiration and orphan cleanup are scheduled. The format gives you safe metadata; it does not remove table maintenance.',
+        'Iceberg is not a query engine or a magic speed layer. A badly clustered table with millions of small files can be slow even though the metadata is correct. A table with unmaintained delete files can spend more time planning and filtering than the team expects.',
+        'It also depends on engine and catalog correctness. Engines must honor field IDs, sequence numbers, delete rules, and commit conflicts. Catalogs must publish roots atomically. If a tool treats the warehouse directory as the source of truth and bypasses Iceberg metadata, it can corrupt the table.',
       ],
     },
     {
-      heading: 'Operational maintenance',
+      heading: 'Worked example',
       paragraphs: [
-        'A healthy Iceberg table has maintenance jobs. Compact small data files so scans do not open thousands of tiny objects. Rewrite manifests so planning metadata stays efficient. Expire old snapshots only after retention requirements are satisfied. Remove orphan files carefully so failed writes and abandoned files do not become permanent storage leaks.',
-        'The table should also be observed like a service. Track snapshot count, manifest count, average data-file size, delete-file count, planning time, scan time, commit conflicts, and catalog latency. Those metrics explain why two tables with the same logical rows can have very different query performance.',
+        'A table has 1,000,000,000 events in 20,000 Parquet files. A query asks for country = US and event_time between noon and 1 PM on June 25. Directory listing would discover many files before the engine can reject them. Iceberg reads the current metadata root, then uses manifest summaries to keep only the day and country ranges that can match.',
+        'Suppose the manifest list has 400 manifests and only 12 overlap the predicate. Each of those manifests lists 500 files, so the planner examines 6,000 file entries instead of 20,000. File-level bounds reduce that to 180 files. If each file is 256 MB, the scan reads about 46 GB rather than 5 TB, and correctness is preserved because every skipped file had metadata proving it could not match.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Official sources: Iceberg specification at https://iceberg.apache.org/spec/ and Iceberg terms at https://iceberg.apache.org/terms/. Study Delta Lake Case Study, Parquet Columnar Format Case Study, Write-Ahead Log, MVCC Internals & VACUUM, Feature Store, and Persistent Segment Tree next.',
-        'A good study exercise is to trace one query from catalog pointer to snapshot, manifest list, manifest, data file, and delete file. That path explains why Iceberg is a metadata format first and a file scanner second.',
+        'Read the Apache Iceberg table specification for snapshots, manifest lists, manifests, schemas, partition specs, delete files, and sequence numbers. Read Iceberg reliability and maintenance docs for snapshot expiration, orphan cleanup, and compaction. The REST catalog specification explains how the current metadata root is published safely.',
+        'Study Parquet Columnar Format before diving into scan performance. Study MVCC for snapshot isolation, B-Trees for planning indexes, and Optimistic Concurrency Control for commits. Then compare Delta Lake and Apache Hudi to see how different table formats encode similar lakehouse guarantees.',
       ],
     },
   ],

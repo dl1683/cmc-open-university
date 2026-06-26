@@ -338,46 +338,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for xLSTM Matrix Memory Case Study. xLSTM revisits recurrent language models with exponential gates, scalar-memory sLSTM blocks, matrix-memory mLSTM blocks, and residual stacks..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-        {type: "callout", text: "xLSTM is a modern recurrence story: sharper gates and matrix memory try to trade exact token cache growth for bounded learned state."},
+        'Read the animation as a memory update for a recurrent neural network. A recurrent network processes tokens one after another while carrying a hidden state forward. Active marks show the current token and gate calculation, compare marks show paths that could be written or forgotten, and found marks show state that survives to the next token.',
+        'The safe inference is local: a gate value near 1 lets information pass, and a gate value near 0 suppresses it. Matrix memory means the state is not only one scalar per channel; it can store a small learned table that later queries can read. The animation is about bounded state, not proof that recurrence always beats attention.',
+        {type: 'callout', text: 'xLSTM is a modern recurrence story: sharper gates and matrix memory try to trade exact token cache growth for bounded learned state.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'xLSTM exists because the Transformer solved many sequence modeling problems but introduced an expensive memory shape: the KV cache grows with context length. For long-context inference, every generated token carries the burden of prior token keys and values. That is powerful because attention can look back directly, but it is costly in memory, bandwidth, batching, and serving complexity.',
-        'Classic LSTMs had the opposite attraction. They carried a bounded recurrent state through time, so decode memory did not grow with the sequence. But old LSTMs were hard to scale into modern language-model training recipes, had limited memory capacity, and lost the systems race to attention. xLSTM asks whether the LSTM idea can be rebuilt with modern gates, memory structure, residual stacks, normalization, and hardware-aware execution.',
-        'The topic is therefore not nostalgia. It is a live architecture question: can a recurrent model keep enough useful history in a bounded state while training and serving competitively against attention, state-space models, RWKV, RetNet, and test-time-training memory designs?',
+        'Transformers use attention, which compares tokens to earlier tokens through key and value vectors. During decoding, those keys and values are stored in a KV cache. The cache is useful because the model can look back exactly, but it grows with sequence length.',
+        'Classic LSTMs had the opposite shape. An LSTM, or long short-term memory network, keeps a fixed-size cell state that is updated at each step. xLSTM asks whether modern gates, normalization, residual stacks, and matrix memory can make that fixed-state idea competitive again.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'Process sequences (text, time series, speech). Feed-forward networks have a fixed input size and no memory of previous inputs. The sentence "the cat sat on the ___" -- a feed-forward net sees each word independently and cannot use context. The RNN (Rumelhart et al. 1986) introduced the hidden state: h_t = f(W_h * h_{t-1} + W_x * x_t + b). The hidden state carries information forward through time.',
-        'Problem: backpropagation through time (BPTT) multiplies gradients at each step. For long sequences, gradients either vanish (toward 0, losing long-range dependencies) or explode (toward infinity, unstable training). After 20-30 steps, the signal is essentially gone.',
-        'The LSTM (Hochreiter & Schmidhuber 1997) adds a cell state c_t that flows through time with minimal transformation. Three gates control information flow: the forget gate (what to erase from the cell), the input gate (what new information to add), and the output gate (what to expose as hidden state). Each gate is a sigmoid layer outputting values between 0 and 1. The cell state pathway uses only element-wise multiply and add, so gradients flow through almost unchanged. This solves vanishing gradients for sequences of 100+ steps.',
-        'The GRU (Cho et al. 2014) is a simplified LSTM with 2 gates instead of 3 -- similar performance, fewer parameters. Both were largely superseded by Transformers for most NLP tasks, but remain used for time series and streaming applications. xLSTM asks whether the LSTM idea can be rebuilt with modern gates, richer memory structure, residual stacks, normalization, and hardware-aware execution to compete with attention at language-model scale.',
+        'The obvious way to handle long text is to keep using attention and allocate more cache. For a model with many layers, every generated token stores key and value vectors per layer. This preserves direct access to old tokens, so the approach is not naive.',
+        'Another obvious way is to return to an old LSTM. The old design has bounded decode memory, but it compresses history into a narrow state and becomes hard to scale. It also lacks the training and hardware recipe that made modern language models work.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is the memory shape. If a Transformer stores 32 KB of KV cache per token for one request, then 10,000 tokens need about 320 MB for that request. One hundred such requests need about 32 GB before counting model weights, activations, and allocator waste.',
+        'The old recurrent wall is different. Fixed-size state does not grow with tokens, but it may forget details that a later token needs. A bounded memory architecture only helps if the update rule learns what to preserve and what to erase.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is that gated recurrence is still a useful data structure if the gates and memory are upgraded. LSTMs were valuable because they separated writing, forgetting, and reading. xLSTM keeps that lesson but changes the gate dynamics and the memory form.',
-        'Exponential gates give sharper write and forget decisions than ordinary sigmoid-style gates, while normalization and stabilization keep scale under control. The memory variants then address capacity. sLSTM keeps scalar-style memory with improved mixing. mLSTM carries a matrix memory that can be written and queried in a key-value-like way.',
-        'The important trade is exact token memory versus compressed recurrent memory. Attention stores token-level evidence and can retrieve it directly. xLSTM stores learned state and must preserve the right information through gates. That can be cheaper at decode time, but it is only useful if the compressed state is good enough for the task.',
+        'The core insight is that recurrence is a data-structure tradeoff. Attention stores exact per-token evidence and pays memory proportional to context length. xLSTM stores compressed learned state and pays a fixed state size per layer.',
+        'xLSTM changes the old LSTM in two main ways. Exponential gates make write and forget decisions sharper, while stabilization keeps those gates numerically controlled. Matrix memory gives the model a richer state than a single scalar cell, so a query can retrieve from a learned memory matrix.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'An xLSTM block starts from the old LSTM update idea: combine old memory, a write candidate, an input gate, a forget gate, and an output path. xLSTM changes the gates to exponential forms and adds normalization so stronger gates do not explode the recurrence. The result is a sharper but controlled memory update.',
-        'In mLSTM, the state is no longer just a scalar cell per channel. Tokens produce query, key, and value-like projections. The key and value create an outer-product-style write into a matrix memory. A query then reads from that matrix. This gives the recurrent state more addressable structure than a plain vector while avoiding storage of every token KV pair.',
-        'A practical xLSTM language model is not one isolated cell. It is a residual stack with projections, normalization, feed-forward components, careful initialization, and kernels. That matters because architecture papers succeed or fail as systems. A recurrent block that looks good mathematically still needs training throughput, decode throughput, batching behavior, and hardware fit.',
+        'At token t, the block computes candidate content and gate values from the token and previous state. The forget gate controls how much old state remains. The input gate controls how much new content is written, and the output path controls what hidden representation leaves the block.',
+        'In mLSTM, the model writes an outer-product-like update into a matrix memory. A key chooses where the value should influence memory, and a later query reads from that memory. The state is still bounded by the model dimension rather than by the number of tokens already processed.',
       ],
-    }
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is an invariant about state shape. After every token, the block carries one valid recurrent state with the same dimensions as before. The next token needs only that state and its own embedding, so decode memory does not grow with token count.',
+        'The modeling argument is weaker than the shape invariant and must be measured. If the gates preserve task-relevant information, the bounded state behaves like useful memory. If the gates erase a detail that attention would have retained, the model cannot recover it later unless the detail is reintroduced in the input.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'For decoding, attention cache memory grows with tokens, while recurrent state memory stays fixed for a given batch and model. If an attention system stores 320 MB for a 10,000-token request, doubling to 20,000 tokens doubles that cache to about 640 MB. A fixed recurrent state does not double when the context doubles.',
+        'The tradeoff is computation and quality. Matrix memory adds projections and state updates, and parallel training needs special kernels to avoid losing throughput. The dominant practical cost is not only FLOPs; it is whether hardware can batch and pipeline the recurrence efficiently.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'The natural use is long-sequence modeling where bounded serving memory matters. Examples include time series, logs, streaming audio, device-side models, and language tasks where exact retrieval of every old token is less important than stable running context. The fit is strongest when memory cost limits batch size.',
+        'xLSTM is also useful as a comparison point for state-space models, RWKV, RetNet, and attention variants. All of these ask the same systems question: how much history can be represented without storing every token in full. The right choice depends on the access pattern of the task.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails on tasks that require exact recall of many arbitrary earlier tokens. A bounded state can encode a lot, but it is still a compression. If the answer depends on a random string from 12,000 tokens ago, attention or retrieval may be a better structure.',
+        'It can also fail as a system if recurrence underuses the GPU. Transformers train well because attention and feed-forward blocks map cleanly to large matrix operations. A recurrent design needs kernels and batching strategy good enough that saved cache memory is not lost as lower throughput.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Assume a 24-layer attention model stores 8 KB of KV cache per token per request. A 4,000-token conversation needs about 32 MB, because 4,000 * 8 KB = 32,000 KB. At 1,000 concurrent requests, the cache alone is about 32 GB.',
+        'Now compare a recurrent model that stores 2 MB of state per request. The same 1,000 requests need about 2 GB of recurrent state, and moving from 4,000 to 8,000 tokens does not double that state. The price is that the 2 MB state must summarize what the model needs; it cannot keep every token-level key and value exactly.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Start with Beck et al., xLSTM: Extended Long Short-Term Memory, at https://arxiv.org/abs/2405.04517. Use the original LSTM paper by Hochreiter and Schmidhuber for the old cell-state idea, then compare the xLSTM changes against Transformer attention and KV cache behavior.',
+        'Study RNN LSTM for the prerequisite, Selective State Space Mamba for a sibling bounded-state design, RetNet Retention State for another recurrent memory tradeoff, and Transformer Inference Roofline for the serving-cost side of the comparison.',
+      ],
+    },
   ],
 };
-

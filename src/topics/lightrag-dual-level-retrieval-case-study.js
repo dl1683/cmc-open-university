@@ -214,93 +214,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as the state machine for LightRAG dual-level retrieval. Active items are the current decision point, found items are committed results, and removed items are paths ruled out by the invariant. The first safe inference is to name what state changed and why that move is legal.',
+        {type: 'callout', text: 'LightRAG makes graph facts and vector chunks peer indexes, then forces both layers back to source provenance before evidence reaches the model.'},
+        'This topic is a case study, so the visual is not decoration. It shows which records, counters, queues, maps, or gates must agree before the system can return a trustworthy result.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'LightRAG exists because flat chunk-vector RAG is often too weak for relationship questions. A corpus is not only a pile of similar paragraphs. It contains people, products, clauses, drugs, bugs, events, claims, and links between them. A nearest-neighbor chunk search may find relevant words while missing the relation that makes those chunks belong together.',
-        'The problem is not that vector search is useless. It is useful and should stay in the system. The problem is that one representation has to answer too many questions: exact wording, entity lookup, relationship discovery, global themes, and source grounding. LightRAG adds a graph layer so retrieval can ask for local entity context, wider relationship context, flat chunks, or a mixed evidence set.',
-        {type: 'callout', text: 'LightRAG makes graph facts and vector chunks peer indexes, then forces both layers back to source provenance before evidence reaches the model.'},
+        'LightRAG dual-level retrieval exists because a simple implementation works on a small example but fails when scale, latency, privacy, or correctness constraints arrive. The system needs a data structure that keeps the useful fast path without hiding the boundary conditions.',
+        'The practical problem is not only speed. Cost, auditability, rollback, freshness, and slice-level behavior all affect whether the design is usable in production.',
       ],
     },
     {
-      heading: 'Obvious approach and wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is standard RAG: split documents into chunks, embed each chunk, retrieve the nearest vectors, and pass those chunks to the model. That baseline is simple, cheap to explain, and strong for many direct questions. It is also easy to debug because every retrieved item is a source passage.',
-        'The wall appears when the answer is distributed. A question may refer to an entity by alias, ask for a cross-document pattern, or depend on a relationship that no single chunk states cleanly. The retriever can return five good snippets while still failing to show how the snippets connect. More chunks can make the prompt longer without making the relation clearer.',
+        'The obvious approach is to keep one global rule, one score, one cache, one dashboard, or one list. That is easy to build and easy to explain. It often works until traffic shape or correctness requirements become more specific.',
+        'The next obvious approach is to add capacity or widen the search. That may improve the average case, but it usually fails to encode the rule that decides which work is allowed, fresh, fair, or safe.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that graph records and vector records should be peers. The graph records capture extracted entities and relationships. The vector records preserve semantic lookup over chunks, entities, and relationships. A query can begin in one layer, expand through the other, and merge the results into a grounded context pack.',
-        'The invariant is provenance. Every entity, relationship, embedding, and graph edge must trace back to source chunks. The graph layer is derived evidence, not truth by itself. If that trace is missing, graph retrieval can turn an extraction mistake into a confident answer.',
+        'The wall is the missing boundary. A system can look correct globally while a narrow slice is wrong, stale, unfair, or too expensive. Once the boundary is missing, more throughput can make the failure faster.',
+        'The concrete failure is usually visible as mixed state: one version reads another version cache, one user receives another user answer, one queue loses priority, or one metric hides a failing slice. The design needs an invariant that prevents that mixture.',
       ],
     },
     {
-      heading: 'Indexing mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        'Indexing starts with documents and keeps exact chunks available. The system then extracts entities and relationships from those chunks. Entities become graph nodes. Relationships become graph edges. Chunks, entities, and relationships can all receive vector representations so they can be ranked by semantic similarity as well as reached by graph traversal.',
-        'The storage layout usually separates concerns. Key-value storage keeps chunks and extracted artifacts. Vector storage indexes embeddings. Graph storage keeps nodes and edges. Document-status storage records ingest progress, failures, and freshness. That separation matters because retrieval, provenance, graph expansion, and incremental update state have different access patterns.',
-        'Incremental update is part of the mechanism, not a side feature. A changing corpus needs to know which chunks are new, which extracted records changed, which vectors are stale, which graph edges should be retired, and which document version a query is allowed to cite.',
+        'The core insight is to make the boundary a first-class data structure in LightRAG dual-level retrieval. Keys, clocks, queues, ledgers, folds, or gates are not metadata; they are the mechanism that preserves correctness.',
+        'The invariant should be checkable from stored state. If an operator cannot reconstruct why a result was allowed, denied, filled, scored, or rolled back, the system is relying on memory instead of design.',
       ],
     },
     {
-      heading: 'Query mechanism',
+      heading: 'How it works',
       paragraphs: [
-        'Query time begins by choosing a retrieval mode. Local mode is for questions anchored on specific entities. Global mode is for broader questions about themes or relationships across the corpus. Naive mode keeps direct chunk-vector search. Hybrid or mixed modes combine graph context with raw text chunks.',
-        'The merge step is where the design becomes a system. Graph retrieval can surface a relationship path, but raw chunks still carry exact wording and citations. Vector search can find a semantically close passage, but graph expansion can reveal the neighboring entity that the passage implies. The answer path has to deduplicate, rank, trim, and cite context from both layers.',
+        'The mechanism starts by normalizing the input into records with stable identities. It then routes those records through the smallest structure that can answer the current decision: a map lookup, ordered queue, version gate, slice table, or witness search.',
+        'Each step writes enough state for the next step to be local. Local means a cancel finds one order id, a cache gate checks one record, a rollout query joins one packet id, or a checker advances one legal candidate. That locality is what turns a broad problem into an executable workflow.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'LightRAG works when the graph supplies a better search surface than chunks alone. Entity extraction can join scattered mentions under one node. Relationship extraction can expose a link that was spread across several passages. Vector retrieval still catches semantic matches when extraction is incomplete or when the query is really about wording.',
-        'The correctness argument is a grounding argument. The system is not proving that the extracted graph is correct. It is making retrieval safer by keeping derived records tied to source chunks, then using the original text as answer evidence. A graph edge can suggest where to look; the cited source has to support the final claim.',
-        'Mixed retrieval also reduces single-index blind spots. If vector search misses the right paragraph, graph expansion may reach it through an entity. If graph extraction misses a relationship, chunk search can still retrieve exact text. The system is stronger when failure in one layer does not silently decide the whole answer.',
+        'The correctness argument is preservation. Before a step, the invariant names which records may interact. The step reads only allowed state, writes the result, and leaves the invariant true for the next step.',
+        'This is stronger than a dashboard claim. A dashboard can show an average after the fact; the invariant prevents an illegal result from being served in the first place. When the invariant fails, the system should produce a denial, rollback, miss, or counterexample instead of a quiet answer.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost starts at indexing. Entity extraction, relationship extraction, alias resolution, graph writes, vector writes, freshness tracking, and provenance storage all add work before the first query improves. The system is slower to build than flat RAG and has more ways to drift out of sync.',
-        'Query latency can rise too. Graph expansion may pull too much context. Mixed retrieval needs deduplication and reranking. Authorization filters must apply before expansion and again before answer assembly, because a hidden document should not leak through an entity neighborhood.',
-        'Evaluation is also harder. Local entity recall, global relationship recall, citation precision, answer faithfulness, freshness, and latency can move in different directions. A single average answer score can hide the fact that one retrieval mode improved while another got worse.',
+        'The main cost is extra state. Maps, ledgers, clocks, slice tags, fold maps, queues, and audit rows consume memory and engineering time. The payoff is that expensive work becomes targeted instead of global.',
+        'Cost behaves with the number of records, versions, slices, or live candidates. Doubling traffic does not only double compute; it can double cache pressure, queue length, audit rows, or search width. The dominant operation is the one on the hot path for the real workload.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'LightRAG-style retrieval wins in corpora where relationships matter: legal contracts, policy manuals, biomedical papers, security reports, research archives, enterprise wikis, and product documentation. It helps when users ask both local factual questions and broad pattern questions over the same material.',
-        'A contract assistant is a concrete case study. What is the termination notice period in one agreement is a local question. Which vendors have termination rights tied to data-processing violations is a relationship question. A graph-plus-vector design can index clauses as chunks, vendors and obligations as entities, rights and dependencies as relationships, and cited text as final evidence.',
+        'LightRAG dual-level retrieval fits systems where correctness is operational, not just mathematical. Fraud models, retrieval systems, matching engines, model-serving stacks, evaluation gates, and rollout systems all need stored evidence for why one result was chosen.',
+        'The access pattern determines fit. Repeated decisions benefit from maps and caches, ordered fairness needs queues and sequence numbers, release safety needs ledgers, and concurrent correctness needs histories that can be searched.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The biggest failure mode is treating extracted graph records as facts. They are model-produced index artifacts and can be wrong. They need source links, confidence, versioning, and audit trails. A graph without provenance is a hallucination amplifier.',
-        'A second limit is corpus shape. Exact identifiers, code symbols, short facts, and direct quotes may prefer lexical search or ordinary chunk retrieval. A small stable corpus may not justify graph extraction at all. A noisy corpus with weak entity resolution can create duplicate nodes and misleading edges.',
-        'A third failure mode is hidden staleness. If updated documents do not retire old chunks, vectors, and graph edges together, retrieval can mix incompatible versions. That is worse than a simple miss because the answer can look well supported while citing stale context.',
+        'It fails when the boundary is chosen for convenience instead of the product promise. Random folds fail for time-forward prediction, global canaries fail for slice-specific regressions, and similarity search fails when authorization is the real question.',
+        'It also fails when evidence is not versioned. A stale record can be more dangerous than a miss because it looks supported. The design needs no-store, deny, rollback, or human-review paths for cases outside the invariant.',
       ],
     },
     {
-      heading: 'Practical guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'Start with a strong flat RAG baseline and add graph retrieval only for questions that the baseline cannot answer well. Write separate eval sets for entity-local questions, relationship questions, direct quote questions, and freshness-sensitive questions. Do not let a graph demo replace mode-specific measurement.',
-        'Keep the source chain visible in the data model. Store document id, chunk id, extraction prompt or parser version, extracted record id, edge id, embedding version, and ingest status. When a cited answer is wrong, operators need to find whether the failure came from extraction, retrieval, merging, ranking, or generation.',
-        'Treat permissions as part of retrieval. Filter candidate chunks, entities, and relationships by the caller before graph expansion can cross into protected material. Post-filtering only the final chunks is too late if the graph path already revealed a hidden fact.',
+        'Suppose a policy corpus has 10000 chunks, 1800 entities, and 5200 edges. A user asks which vendor obligations changed after the new data-retention policy. Flat vector search returns five retention chunks but misses two vendor addenda with different wording.',
+        'Mixed retrieval finds the policy node, expands one hop to obligations and vendors, retrieves 35 graph-linked chunks, merges them with 20 vector chunks, and reranks to 8 cited passages. Cost rises from one vector search to vector plus graph expansion, but recall improves because the addenda are reached by relation.',
+        'The answer is allowed only if each changed obligation points back to a chunk id. If an edge says Vendor B has a 30-day deletion duty but no source chunk supports it, that edge is excluded or flagged.',
       ],
     },
     {
-      heading: 'What the visual shows',
+      heading: 'Sources and study next',
       paragraphs: [
-        'The indexing view shows the artifact pipeline. Documents split into chunks. Extraction creates entity and relationship records. Those records and chunks become searchable through both graph and vector stores. The document-status record is the guard against querying partial or stale artifacts.',
-        'The query-mode view shows why mode choice matters. Local graph retrieval helps entity questions. Global graph retrieval helps relationship questions. Naive chunk retrieval preserves exact source wording. Mixed retrieval is often the practical route because useful answers need both structure and text evidence.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: LightRAG paper at https://arxiv.org/abs/2410.05779, arXiv HTML at https://arxiv.org/html/2410.05779v1, official repository at https://github.com/HKUDS/LightRAG, project page at https://lightrag.github.io/, ACL PDF at https://aclanthology.org/2025.findings-emnlp.568.pdf, and OpenReview PDF at https://openreview.net/pdf?id=bbVH40jy7f.',
-        'Study RAG Pipeline for the flat baseline, Query Expansion with HyDE and RAG-Fusion for retrieval repair, GraphRAG Community Summary Case Study and RAPTOR Hierarchical Retrieval Case Study for neighboring graph and hierarchy designs, Embeddings and Similarity plus HNSW for vector search, Reciprocal Rank Fusion and Cross-Encoder Reranker for merging, RAG Evaluation for measurement, and Zanzibar Authorization Case Study for permission-aware retrieval.',
+        'Primary sources: LightRAG paper at https://arxiv.org/abs/2410.05779, official repository at https://github.com/HKUDS/LightRAG, project page at https://lightrag.github.io/, and ACL PDF at https://aclanthology.org/2025.findings-emnlp.568.pdf. Study RAG Pipeline, GraphRAG Community Summary Case Study, RAPTOR Hierarchical Retrieval Case Study, HNSW, Reciprocal Rank Fusion, and RAG Evaluation next.',
       ],
     },
   ],

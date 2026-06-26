@@ -241,85 +241,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the label spine as the authority for one training example: entity id, prediction time, and label. A feature row is legal only if it belongs to the same entity and was available no later than that prediction time.',
+        'In the as-of join view, the highlighted feature is not the globally latest value. It is the newest value inside the legal past, and the audit fields explain why that value was selected.',
+        {type:'callout', text:'Point-in-time joins make model evaluation honest by indexing feature history against the exact information boundary serving would have faced.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Training rows are easy to build incorrectly. If a label row from 10:05 joins to a feature value computed at 10:50, the model has seen the future. Offline metrics improve, production behavior gets worse, and the team may never notice until launch.',
-        'A point-in-time feature join index exists to prevent that time travel. For each prediction example, it finds the newest feature value for the same entity that was available at or before the prediction timestamp, then records proof fields so the join can be audited later.',
-        'This is one of the places where data engineering and model evaluation become the same problem. A model can only be fairly evaluated if its training and validation rows contain information the serving system would actually have had at prediction time.',
-        {type:'callout', text:'Point-in-time joins make model evaluation honest by indexing feature history against the exact information boundary serving would have faced.'},
+        'A machine-learning feature is an input value used by a model, such as account age or chargeback count. Point-in-time joins exist because training data is valid only when each feature value could have been known when the model would have predicted.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The wrong shortcut is a latest-value join. It is simple, fast, and often disastrous because "latest" is relative to training-table construction time, not prediction time. It teaches early examples facts that only became true later.',
-        'Another shortcut is to trust event_time alone. Availability time can differ from event time. A late-arriving event may describe the past but still be unavailable when the model would have predicted.',
-        'A third shortcut is to keep only an online key-value store. Online stores are usually built for latest lookup at serving time. They are not enough to reconstruct historical training examples unless lookup logs or full feature history are retained.',
+        'The obvious approach is a latest-value join by entity id. It is simple because every customer, merchant, or item has one current feature row, but current means current at dataset construction time.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'Feature history is indexed by entity key and feature timestamp. For each training example, the joiner probes the matching entity history, filters rows with feature_time <= prediction_time, orders by feature_time descending, and takes the first row. If no valid row exists, it emits a default with a reason code.',
-        'The invariant is the inequality: feature_time <= prediction_time, refined by the availability semantics of the pipeline. A mature system also keeps feature timestamp, source partition, transformation version, data delay, feature view id, and default reason beside the value.',
-        'The index is not only an accelerator. It is the enforcement mechanism for an information boundary. The model should learn from the past as the serving system would have seen it, not from a cleaned-up future snapshot.',
+        'The wall is time travel. A row predicted at 10:05 can accidentally receive a feature computed at 10:50, and the model learns from evidence that did not exist at serving time.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Index feature history by entity and time, then answer each lookup as an as-of query. As-of means newest row whose availability timestamp is less than or equal to the prediction timestamp.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The process starts with a label spine: entity id, prediction timestamp, label timestamp, and label value. The spine defines the row count and the time fence for every feature lookup.',
-        'Each feature view stores history by entity and time. The physical implementation may be a sorted SQL table, partitioned lake files, a database range index, or a feature-store engine. The logical operation is the same: find the latest valid feature row at or before the prediction time.',
-        'The joiner should emit both feature values and audit metadata: feature timestamp, freshness age, feature view version, source id, source partition, transformation version, and default reason. Those fields let teams prove the row was legal and debug training-serving skew.',
-        'Late-arriving data complicates the rule. A timestamp can describe when something happened, but availability time describes when the system knew it. For strict leakage control, the as-of fence may need to use availability time or a conservative watermark rather than raw event time.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The as-of join view starts from the label spine. That spine is the authority for entity key and prediction time. The feature history is then searched under a timestamp fence, not simply joined by key.',
-        'The leakage audit view shows the operational output. The join should emit training rows plus evidence: selected feature timestamp, source, freshness, version, and whether a default was used. Without those fields, the team cannot prove the experiment was run against the past.',
-        'The as-of lookup table proves the failure of latest joins. The latest value may be valid for later predictions but illegal for earlier rows. The correct value is the newest row that satisfies the time fence.',
-        'The implementation table proves why online and offline stores differ. Offline training needs history and audit. Online serving usually needs latest values with low latency. A feature platform has to make those two views consistent without pretending they are the same object.',
+        'The join starts from a label spine that fixes the row set and the time fence. For every feature view, the engine searches matching entity history, chooses the last legal row, and emits audit metadata beside the value.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Point-in-time joins work because most leakage is a boundary violation, not a modeling mystery. If the joiner can prove every feature value existed at prediction time, then one large class of inflated offline metrics disappears.',
-        'They also work because sorted history makes the operation mechanical. Group by entity, order by time, use a range lookup, and choose the latest legal row. The complexity is in scale and semantics, not in the core rule.',
-        'Audit fields make the result trustworthy. When a metric changes, engineers can inspect whether it came from fresher features, stale defaults, late data, feature definition drift, or a real model improvement.',
+        'The correctness argument is the inequality availability_time <= prediction_time. Sorting by time then makes the selected row maximal among legal rows, so no later future value can enter the example.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'As-of joins are temporal nearest-neighbor lookups over large histories, so partitioning, sorting, clustering, and range indexes matter. Lakehouse implementations must control small files and skew; streaming implementations must handle late data; online stores usually keep only latest values and cannot replace offline history by themselves.',
-        'There is a storage tradeoff. Keeping full history costs more than keeping latest state, but without history the team cannot reproduce training rows or investigate leakage. Retention policy should follow model audit needs, not only storage cost.',
-        'There is also a freshness tradeoff. Tight freshness requirements produce more missing or defaulted values when pipelines lag. Loose freshness requirements avoid nulls but may let stale features weaken production performance. The feature contract should say which tradeoff is intended.',
+        'The main cost is a temporal nearest-neighbor lookup for every training row and feature view. With 10 million examples and 40 feature views, the system has 400 million logical lookups unless batching, partitioning, or clustering removes repeated work.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Point-in-time joins matter in fraud, ranking, recommendations, ads, credit risk, ETA, and any system where labels or features mature over time. Leakage-Safe Target Encoding uses the same as-of rule for category aggregate maps. Delayed Feedback Attribution applies a sibling rule to labels: do not finalize outcomes before the attribution window makes them knowable.',
-        'The fraud chargeback case is the clean example. A model predicts at 10:05. A chargeback arrives at 10:50. Latest-value join leaks the chargeback into the 10:05 row; point-in-time join returns the earlier value and records why.',
-        'It also wins in feature stores because it gives offline and online teams a shared contract. Offline training uses historical as-of reconstruction. Online serving uses current values. Both are generated from feature definitions that can be versioned and audited.',
+        'Point-in-time joins are used in fraud, recommendations, ranking, credit risk, delivery ETA, ads, and churn modeling. Feature stores use the pattern to keep offline training and online serving under one versioned contract.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'As-of joins are temporal nearest-neighbor lookups over large histories, so partitioning, sorting, clustering, and range indexes matter. Lakehouse implementations must control small files and skew; streaming implementations must handle late data; online stores usually keep only latest values and cannot replace offline history by themselves.',
-        'Defaults are not harmless. A default can encode cold start, missing source, freshness breach, or pipeline failure. Keep default reason codes and evaluate their rates by slice.',
-        'Another failure is using the wrong clock. Event time, processing time, ingestion time, availability time, label time, and prediction time answer different questions. Leakage hides in those differences.',
-        'A final failure is not auditing after the join. A point-in-time join without proof fields can still be wrong, and the team may have no way to prove it later.',
+        'It fails when the wrong clock is used. Event time, ingestion time, processing time, availability time, label time, and prediction time answer different questions, and leakage hides in those gaps.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary and official sources: Feast point-in-time joins at https://docs.feast.dev/getting-started/concepts/point-in-time-joins, Feast feature retrieval at https://docs.feast.dev/getting-started/concepts/feature-retrieval, Databricks point-in-time feature joins at https://docs.databricks.com/aws/en/machine-learning/feature-store/time-series, Uber Michelangelo at https://www.uber.com/us/en/blog/michelangelo-machine-learning-platform/, and Uber Palette at https://www.uber.com/us/en/blog/palette-meta-store-journey/. Study Feature Store, Leakage-Safe Target Encoding Case Study, Delayed Feedback Attribution Window Case Study, Data Leakage, Streaming Watermarks, Cross-Validation, and MLOps next.',
+        'A fraud model predicts at 10:05 for merchant M7. The history has chargeback_count = 2 available at 09:40 and chargeback_count = 3 available at 10:50, so the legal join returns 2 with freshness age 25 minutes.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary and official sources: Feast point-in-time joins at https://docs.feast.dev/getting-started/concepts/point-in-time-joins, Feast feature retrieval at https://docs.feast.dev/getting-started/concepts/feature-retrieval, Databricks point-in-time feature joins at https://docs.databricks.com/aws/en/machine-learning/feature-store/time-series, Uber Michelangelo at https://www.uber.com/us/en/blog/michelangelo-machine-learning-platform/, and Uber Palette at https://www.uber.com/us/en/blog/palette-meta-store-journey/. Study Feature Store, Data Leakage, Streaming Watermarks, Delayed Feedback Attribution Window, Leakage-Safe Target Encoding, and Cross-Validation next.',
       ],
     },
   ],

@@ -1,4 +1,4 @@
-﻿// Fetch Metadata: use Sec-Fetch-* request headers as a server-side request
+// Fetch Metadata: use Sec-Fetch-* request headers as a server-side request
 // classification layer for CSRF, XS-leaks, resource abuse, and route policy.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -171,174 +171,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Fetch Metadata Request Gate. How Sec-Fetch-Site, Mode, Dest, User, route classes, allowlists, CSRF defense, logging, and browser request context produce a server-side gate..",
+        'Read the animation as a server-side decision table. Active marks the header, route class, or policy cell currently being checked. Visited means a request shape has already been classified; found means the gate has enough evidence to allow, deny, or report before business logic runs.',
+        'Fetch Metadata request headers are browser-supplied fields such as Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest, and Sec-Fetch-User. The safe inference rule is route-specific: a cross-site no-cors image request can be normal for an image asset and impossible for a money-transfer API.',
         {type:"callout", text:"Fetch Metadata works when browser-supplied request context is joined to server-owned route intent before business logic runs."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `Browsers send many requests automatically. An image tag, script tag, form post, iframe, navigation, fetch call, or stylesheet load can all reach a server. Cookies may be attached because the user is logged in. The server receives a method, path, cookies, and headers, but without extra context it may not know what kind of browser action produced the request.`,
-        `Fetch Metadata exists to give the server that missing shape. Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest, and Sec-Fetch-User let a server classify browser requests before route handlers parse bodies, touch session state, or run expensive application code.`,
+        'A browser can send requests because of images, scripts, forms, navigations, iframes, fetch calls, and stylesheets. Cookies can ride along with those requests because the user is logged in. The server sees method, path, cookies, and headers, but it may not know what browser action caused the request.',
+        'Fetch Metadata exists so the server can inspect request shape before route handlers parse bodies or touch state. Sec-Fetch-Site tells how the initiator relates to the target site, Sec-Fetch-Mode tells the fetch mode, and Sec-Fetch-Dest tells the destination such as image, script, document, or empty.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The normal defenses are still necessary: authentication, authorization, CSRF tokens, SameSite cookies, Origin checks, CORS, and route-level validation. Those checks decide who the user is, what they may do, and whether a state-changing request is legitimate.`,
-        `The problem is timing and scope. CORS mainly controls what a cross-origin page can read, not whether every cross-site request can be sent. CSRF tokens protect explicit state changes, but they do not tell the edge that a bank transfer endpoint is being requested as an image. Route handlers can reject bad requests, but by then the request has already reached application code.`,
+        'The obvious approach is to rely on authentication, authorization, CSRF tokens, SameSite cookies, Origin checks, CORS, and per-route validation. Those defenses remain necessary because they decide identity, permission, and state-change legitimacy. They do not always reject impossible browser shapes early.',
+        'CORS controls whether a cross-origin page can read a response through browser APIs. It does not mean every cross-site request is blocked from being sent. A bank transfer endpoint should not be reachable as an image load even before the CSRF token is examined.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The wall',
       paragraphs: [
-        `A banking write endpoint should never be loaded as a cross-site image. A JSON API should not be reached through a script tag. A login page may allow a top-level navigation. An OAuth callback may allow a redirect shape. A webhook may be a legitimate non-browser request with no Fetch Metadata headers at all.`,
-        `If every handler rediscovers those facts independently, policy becomes scattered and inconsistent. The edge or middleware cannot reject obvious abuse early because it does not have a route-class map. The exact wall is missing request shape plus missing route intent.`,
+        'The wall is missing route intent at the edge. A CDN or middleware layer can see headers quickly, but it cannot know whether /login, /api/wire, /static/logo.png, and /oauth/callback should accept the same browser shapes unless the server declares route classes. Without that map, policy scatters across handlers.',
+        'Scattered policy creates inconsistent behavior. One handler may reject a cross-site image-shaped POST, another may parse the body first, and a third may forget the distinction. The request has already consumed application work before the system proves that the shape was impossible.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `Treat Fetch Metadata as a route-aware request classifier. The browser supplies context columns. The server owns a route-class matrix. The gate compares the observed shape with the declared normal shape for that route and returns allow, deny, report-only, or compatibility fallback.`,
-        `The data structure is a policy table. Rows are route classes: static asset, document navigation, read API, write API, login, OAuth callback, webhook, internal service. Columns are predicates over site, mode, destination, user activation, method, content type, and allowlists. The table is useful because it makes the normal shape of each route explicit.`,
+        'Treat Fetch Metadata as a route-aware request classifier. The browser contributes context columns; the server contributes route intent. The gate compares them and returns allow, deny, report-only, or compatibility fallback.',
+        'The data structure is a policy matrix. Rows are route classes such as static asset, document navigation, read API, write API, login, OAuth callback, webhook, and internal service. Columns are predicates over site, mode, destination, user activation, method, content type, and allowlists.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `The request-headers view shows what the browser contributes. Sec-Fetch-Site says how the request initiator relates to the target site. Sec-Fetch-Mode says the fetch mode, such as navigate, cors, no-cors, or same-origin. Sec-Fetch-Dest says the destination, such as document, image, script, style, or empty. Sec-Fetch-User can mark a user-activated top-level navigation.`,
-        `The resource-gate view shows what the server contributes. The server maps a path to a route class, applies the class policy, keeps CSRF and authorization checks for allowed shapes, and logs decisions. The main lesson is that browser context and server intent have to meet before business logic runs.`,
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        `A middleware layer runs before route handlers. It reads the Sec-Fetch headers, method, URL, and any deployment-specific allowlist. It maps the URL to a route class. Then it checks whether the observed site, mode, destination, and user-activation shape is allowed for that class.`,
-        `For a write API, the policy might allow same-origin or same-site CORS/fetch-shaped requests and deny cross-site no-cors image, script, iframe, and style loads. For static assets, the policy might allow no-cors image and style loads. For login, it might allow top-level document navigations. For webhooks, it might bypass browser-shape checks and use signature verification instead.`,
-        `The gate should usually have report-only mode. In report-only mode it logs what would have been denied: route class, header values, decision, user agent family, client type, and sample request ID. After false positives are understood, enforcement can begin on high-confidence classes such as authenticated write APIs.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Consider POST /wire in a banking app. A legitimate browser flow is a same-origin or same-site request from the bank's UI, with a CSRF token, Origin check, authenticated session, and business authorization. A cross-site image load to that same path has the wrong shape before the application even reads the body.`,
-        `The Fetch Metadata gate maps /wire to write API. It sees Sec-Fetch-Site: cross-site, Sec-Fetch-Mode: no-cors, and Sec-Fetch-Dest: image. The route class says that shape is impossible for a legitimate money movement action. The gate denies the request and logs the sample. It does not need to parse a transfer form to know the browser context is wrong.`,
-        `Now consider /login. A top-level navigation from outside the site may be normal. The policy for login can allow navigate plus document, then let the login route handle the rest. The point is not default paranoia against all cross-site traffic. The point is route-specific normality.`,
+        'Middleware runs before route handlers. It reads Sec-Fetch-Site, Sec-Fetch-Mode, Sec-Fetch-Dest, Sec-Fetch-User, method, URL, and any deployment-specific allowlist. It maps the URL to a route class and checks whether the observed shape is allowed for that class.',
+        'For a write API, the policy might allow same-origin fetch-shaped requests and deny cross-site no-cors image, script, iframe, and style loads. For a login route, a top-level navigation from another site may be normal. For webhooks, missing browser headers may be expected, so signature verification should own that route.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The safety invariant is narrow: deny only shapes that the route has declared impossible or unsafe. A cross-site image request to a write endpoint is rejected because no legitimate browser flow for that route should have destination image and mode no-cors.`,
-        `The correctness comes from combining browser-provided context with server-owned route intent. The browser can describe how the request was initiated. The server knows what each route is for. Neither side alone has the full policy.`,
-        `Allowed shapes still continue to normal security checks. Fetch Metadata is defense in depth. Authentication, authorization, CSRF tokens, SameSite cookies, Origin checks, webhook signatures, and business rules remain the authority for whether the action may happen.`,
+        'The correctness invariant is narrow: deny only shapes that the route has declared impossible or unsafe. A cross-site image request to a write endpoint is rejected because no legitimate browser flow for that endpoint should have destination image and mode no-cors. An image request to a public image route can still pass.',
+        'The browser knows how the request was initiated, and the server knows what the route is for. Neither side has the full policy alone. Allowed requests still continue to CSRF, authorization, business validation, and server-side permission checks.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The runtime cost is small: a few header reads, one route-class lookup, and a policy decision. The operational cost is larger. Missing headers, old browsers, native clients, API clients, test clients, redirects, cached paths, health checks, and webhook integrations all need compatibility rules.`,
-        `The policy table also has maintenance cost. Routes move. New endpoints appear. Product teams add OAuth callbacks, embedded widgets, export URLs, and third-party integrations. If route ownership is weak, the matrix drifts and either blocks real traffic or allows shapes that should have been denied.`,
-        `The rollout cost is why strong deployments start with logging. Report-only mode finds false positives, unclassified routes, clients that do not send modern browser headers, and policies that are too broad. Enforcement should begin with high-confidence classes, then expand when the deny logs become predictable.`,
+        'The runtime cost is small: a few header reads, one route-class lookup, and one matrix decision. The behavioral cost is maintenance. New routes, old browsers, native clients, OAuth redirects, monitoring systems, and webhooks need explicit policy rather than accidental denial.',
+        'Rollout cost is why report-only mode matters. If 1,000,000 requests per day hit a site and 0.2 percent lack expected headers, that is 2,000 requests to inspect before enforcement. Logging route class, header values, decision, user agent family, and sample id makes false positives visible before users are blocked.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Fetch Metadata wins at boundaries that already know route classes: reverse proxies, CDNs, API gateways, edge middleware, and application middleware. It is especially useful for sensitive browser-facing endpoints where cross-site subresource loads are never legitimate.`,
-        `It helps reduce CSRF exposure because obviously wrong cross-site shapes can be rejected before route handlers run. It also helps with cross-site leak reduction. If an endpoint would do expensive or revealing work for an impossible request shape, the gate can reject early before the application creates timing, size, or status-code evidence.`,
-        `It is also useful as documentation. A good policy table says what traffic each route class expects. That helps security review, incident response, and onboarding because the normal browser shape is written down instead of implied by scattered handler code.`,
+        'Fetch Metadata fits reverse proxies, CDNs, API gateways, edge middleware, and application middleware. It is strongest for browser-facing endpoints where a route has a clear normal shape. Sensitive write APIs, private JSON endpoints, and leak-prone routes are good candidates.',
+        'It also documents boundary intent. A policy table tells security reviewers which routes expect navigations, which expect subresources, and which expect API fetches. That is easier to audit than route handlers that each invent their own header logic.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Where it fails',
       paragraphs: [
-        `Fetch Metadata is the wrong tool for deciding identity, permission, or user intent by itself. Same-origin requests can be malicious after XSS. Same-site requests can still be unsafe. A browser request with the right shape may still lack a valid CSRF token or business permission.`,
-        `It also does not cover every client. Non-browser clients may omit the headers for legitimate reasons. Old browsers, native apps, command-line clients, monitoring systems, and webhooks may not fit a browser-shaped policy. Those routes need explicit handling, not accidental denial.`,
-        `The gate fails when route classes are vague. If every endpoint is treated as generic web traffic, the matrix cannot distinguish a static image, an OAuth callback, a JSON write, and a webhook. The value comes from precise route ownership and conservative enforcement.`,
+        'Fetch Metadata is not an identity system. Same-origin requests can still be malicious after XSS, and same-site requests can still carry unsafe intent. A request with the right shape still needs CSRF checks, authorization, and business rules.',
+        'It also does not cover every legitimate client. Command-line tools, native apps, monitoring systems, and webhook providers may omit these browser headers. Routes that serve those clients need explicit compatibility rules and should not inherit browser-only policy by accident.',
       ],
     },
     {
-      heading: 'Where it fails (3)',
+      heading: 'Worked example',
       paragraphs: [
-        `One misconception is that Fetch Metadata replaces CSRF tokens. It does not. It can reject impossible cross-site shapes early, but allowed browser writes should still use CSRF defenses and authorization checks.`,
-        `Another misconception is that missing headers mean attack. Missing headers often mean compatibility traffic. A good policy distinguishes routes that require browser context from routes that are intentionally called by non-browser clients.`,
-        `A third misconception is that CORS already solves this. CORS decides whether another origin may read a response through browser APIs. It does not stop all cross-site requests from being sent, and it does not express that a write API should never be loaded as an image.`,
+        'Consider POST /wire in a banking app. The route class is write API, and the policy allows same-origin fetch-shaped requests with CSRF checks. An attacker embeds an image pointing at /wire from another site, so the browser sends Sec-Fetch-Site: cross-site, Sec-Fetch-Mode: no-cors, and Sec-Fetch-Dest: image.',
+        'The gate does one route lookup and sees that image plus no-cors is impossible for money movement. It returns deny before the transfer handler reads the body. The same site can still allow GET /login with mode navigate and destination document because that route has a different normal shape.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: W3C Fetch Metadata at https://www.w3.org/TR/fetch-metadata/, MDN Sec-Fetch-Site at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Site, MDN Sec-Fetch-Mode at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Mode, MDN Sec-Fetch-Dest at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest, and web.dev Fetch Metadata deployment guidance at https://web.dev/articles/fetch-metadata.`,
-        `Study next: SameSite Cookies & CSRF for write protection, CORS Preflight Cache for read-permission boundaries, Origin and Referer Validation for browser provenance checks, Storage Access API Third-Party Cookie Gate for browser storage policy, Trusted Types DOM XSS Sink Guard for same-origin script compromise, and Cross-Origin Isolation for broader browser isolation.`,
+        'Primary sources: W3C Fetch Metadata at https://www.w3.org/TR/fetch-metadata/, MDN Sec-Fetch-Site at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Site, MDN Sec-Fetch-Mode at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Mode, MDN Sec-Fetch-Dest at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest, and web.dev deployment guidance at https://web.dev/articles/fetch-metadata.',
+        'Study next by boundary. For state-changing browser requests, read SameSite Cookies and CSRF. For response-reading permissions, read CORS Preflight Cache. For provenance checks, read Origin and Referer Validation. For same-origin script compromise, read Trusted Types DOM XSS Sink Guard.',
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Fetch Metadata Request Gate moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

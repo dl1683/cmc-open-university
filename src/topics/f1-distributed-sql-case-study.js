@@ -205,96 +205,55 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'AdWords needed strong correctness for business data, but also needed the productivity of SQL, secondary indexes, schema evolution, and ad-hoc querying. Manual sharding can scale storage, but it pushes transaction boundaries, joins, consistency, and resharding pain into application code.',
-        'F1 is Google\'s distributed SQL database built on Spanner for AdWords. It shows that a distributed database is not just a storage substrate. The user-facing contract includes relational schema, SQL, distributed transactions, change publishing, application latency patterns, and operational migration away from hand-managed shards.',
+    { heading: 'How to read the animation', paragraphs: [
+      'The animation shows F1 placing SQL semantics above Spanner. SQL is the relational query language; Spanner is Google\'s distributed storage and transaction layer. Active nodes show query or transaction stages, found nodes are committed data or indexes, and compare nodes are coordination points that add latency.',
+      'The safe inference rule is locality. If related rows are stored near each other and the query can use indexes, F1 can keep the transaction small. If a query crosses many partitions, the same SQL statement becomes distributed coordination work.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Google AdWords needed strong correctness for business records while growing beyond manual shards. Ads, accounts, campaigns, budgets, and billing state are not acceptable places for eventual conflict repair. At the same time, engineers needed SQL, indexes, schema evolution, and ad hoc analysis.',
+      'F1 exists because raw scalable storage was not enough. Spanner could provide external consistency and replication, but application teams still needed a relational database contract. F1 put a SQL layer and schema model on top of Spanner while exposing the cost of distributed joins and transactions.',
         {type:'callout', text:'F1 makes distributed SQL usable by placing relational semantics above Spanner while forcing locality and coordination costs back into schema and workflow design.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is to keep using a traditional relational database and shard it manually. That preserves SQL locally, but global invariants become hard. Cross-shard transactions, secondary indexes, backup, migration, and analytics all turn into bespoke infrastructure.',
-        'Another obvious approach is to move to a scalable key-value store and give up rich SQL. That can improve availability and scale, but it makes application teams rebuild joins, indexes, constraints, and query tooling. F1 asks for a harder target: distributed scale without giving up the relational model.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The wall is commit latency. Spanner gives synchronous replication and globally consistent transactions, but that means writes can cross machines, zones, and Paxos groups. A naive relational schema can accidentally make every user action pay a distributed transaction cost.',
-        'The second wall is developer expectation. SQL users expect joins, secondary indexes, transactions, schema evolution, and query plans. Distributed systems users expect partitions, replication, time, and failure. F1 has to make those worlds meet without pretending the distributed cost disappeared.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Put SQL and application semantics above a strongly consistent distributed substrate, but make locality visible in the schema. F1 uses Spanner for replication and transactions, then adds a SQL layer, distributed query execution, secondary indexes, hierarchical schema, and change streams.',
-        'The hierarchical schema is the key teaching idea. Related business entities can be stored so common operations touch nearby data. The schema is not only logical documentation; it is a latency-management structure.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The SQL-over-Spanner view shows the layering: application SQL enters F1, F1 plans distributed work, and Spanner supplies strongly consistent storage and replication. Each layer owns a different part of the contract.',
-        'The hierarchical-schema view shows why schema design is not neutral. Co-locating related entities can reduce cross-group work, while careless schema and query design can turn one logical operation into expensive fanout.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Spanner provides the distributed storage foundation: synchronous replication, transactions, and globally meaningful timestamps. F1 adds a database layer that understands schemas, SQL, indexes, query execution, and application-facing data modeling.',
-        'Reads and queries can fan out across partitions. Writes may commit through distributed transaction machinery. Secondary indexes and change publishing make the system useful to applications and downstream pipelines, but they also add maintenance and consistency work.',
-        'Application patterns matter. F1 used hierarchical schemas, asynchronous workflows, and change streams so common user-facing paths avoided unnecessary distributed work while still preserving strong correctness where it mattered.',
-        'The query layer has to respect the storage layer. A distributed join is not just a relational algebra operator; it is a plan that may ship data, wait on remote partitions, and coordinate with transaction timestamps. The planner needs statistics, locality awareness, and execution strategies that prevent ordinary SQL from becoming accidental cluster-wide work.',
-        'Schema evolution is also part of the system. A distributed SQL database for a live product cannot stop the world every time a column, index, or constraint changes. F1 had to make schema changes operationally safe enough for application teams while preserving a clear contract for readers, writers, and downstream consumers.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'An advertising account owns campaigns, ad groups, ads, bids, and budget rules. A flat schema that scatters those records across independent groups can make a normal campaign edit touch many distributed partitions. A hierarchical schema can keep related entities closer so common transactions pay less coordination cost.',
-        'A reporting query is different. It may scan large amounts of data and join across entities. F1 can expose SQL for that, but the query planner and users still need to respect distributed execution. Rich SQL does not make fanout free.',
-        'A budget update shows the difference. The product wants the user to see a correct budget and avoid overspending. That path needs strong transactional behavior. A dashboard that aggregates yesterday\'s ad performance may tolerate a different pipeline shape, using change publishing and downstream processing. F1 is educational because it separates these needs instead of pretending every access pattern is the same.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'F1 works because it does not hide Spanner; it builds on it. Strong consistency, replication, and transaction ordering come from the substrate. SQL, schema, indexes, and query planning come from F1. Application design bridges the two.',
-        'The system also works because it treats migration and ecosystem as first-class concerns. AdWords could move from sharded MySQL-style systems toward a distributed SQL platform without asking every developer to hand-code distributed transaction logic.',
-        'The migration lesson matters. A database architecture is not adopted by proving that one benchmark is elegant. It is adopted when application teams can move real workflows, keep correctness, preserve enough SQL productivity, understand the latency model, and debug failures. F1 made the distributed substrate usable by giving developers a familiar interface while still forcing the most important locality choices into schema and workflow design.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Strong consistency at global scale costs latency. F1 mitigates that cost with schema locality and application patterns, but developers still need to understand transaction boundaries, asynchronous flows, and expensive distributed queries.',
-        'The tradeoff is worthwhile when correctness and developer productivity matter enough to pay the distributed cost. It is less attractive for pure analytics, append-only logs, or workloads where eventual consistency and denormalized storage are simpler and cheaper.',
-        'The behavior is easiest to understand as a budget. Every cross-partition transaction, index maintenance step, remote scan, schema change, and change-stream consumer spends part of the latency or operational budget. F1 gives teams a powerful abstraction, but the bill still arrives through commit latency, query planning complexity, and operational coordination.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'F1 wins for business-critical OLTP data that needs SQL, transactions, indexes, and scale. It is a strong case study for globally consistent applications, distributed SQL systems, change-data-capture pipelines, and migration away from manual sharding.',
-        'It also teaches an important curriculum point: the hard part of distributed SQL is not only consensus or storage. It is the whole product contract between application developers, query planners, schema design, replication, and downstream data consumers.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'F1 does not make global commit latency disappear. It designs around it. A careless schema, a fanout-heavy transaction, or an unbounded distributed query can still be slow and expensive.',
-        'It also is not a warehouse replacement. Analytical systems such as Snowflake optimize for different access patterns, storage layout, and workload isolation. F1 is best understood as distributed SQL for operational business data, not as one database to replace every data system.',
-        'It can fail educationally when learners reduce it to "SQL on Spanner." That phrase is true but too thin. The real lesson is how storage guarantees, query planning, schema locality, application workflow, indexing, and change publishing fit together. If you miss those joints, you miss why the system was hard.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Google Research paper PDF at https://research.google.com/pubs/archive/41344.pdf and Google Research page at https://research.google/pubs/f1-a-distributed-sql-database-that-scales/. Study Spanner Case Study, Bigtable Case Study, Two-Phase Commit (2PC), FoundationDB Case Study, Google Dataflow Model Case Study, and Snowflake Warehouse Case Study next.',
-      ],
-    },
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is manual sharding. Split customers by account id, keep each account on one MySQL shard, and route application requests to the right shard. This works while most transactions stay inside one shard and resharding is rare.',
+      'Another approach is NoSQL storage with application-side joins. That scales writes and simple key lookups, but it moves constraints, joins, and migration logic into application code. The database stops enforcing many facts the business actually depends on.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is that business data does not respect shard boundaries forever. Advertiser hierarchies change, reports join across entities, and secondary indexes need to answer questions not keyed by the original shard id. Resharding becomes a product risk instead of a background operation.',
+      'Manual sharding also destroys a clean correctness boundary. If a budget update and an ad-serving rule update land on different shards, the application has to coordinate them. Every hand-built coordinator becomes another place for partial failure to leak into money-moving state.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Use Spanner for distributed transactions and replication, then make SQL locality an explicit schema design problem. F1 supports hierarchical schemas so child rows can be colocated with parent rows. That lets common account-scoped operations run near the data they touch.',
+      'The invariant is that SQL semantics remain real even when storage is distributed. Transactions commit through Spanner, indexes are maintained consistently, and queries see a database state rather than a pile of shard-specific guesses. The trade is that bad schemas make coordination visible as latency.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'F1 stores relational data in Spanner tables and uses Spanner transactions for atomic updates. A query planner chooses scans, index lookups, joins, and distributed execution steps. The execution layer pushes work close to storage when it can and coordinates across partitions when it must.',
+      'Hierarchical schema is the main data-layout tool. If Campaign rows are descendants of Advertiser rows, records commonly read together can share locality. Secondary indexes provide alternate access paths, but each index adds write cost because it must stay consistent with the base table.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'Correctness comes from delegating commit order to Spanner. If a transaction updates a base row and its index entries, the commit either becomes visible as one database change or not at all. F1 can expose SQL because the storage layer gives it a real transaction boundary.',
+      'The schema rules make performance predictable. When parent and child records are colocated, a join over that hierarchy can behave like a local lookup. When the same query crosses many groups, F1 still returns correct SQL results, but it pays with remote reads and coordination.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Cost behaves with touched partitions, not just row count. Updating 10 rows inside one locality group may be a small transaction. Updating 10 rows spread across 10 groups needs more locks, messages, and commit coordination.',
+      'Indexes trade read speed for write cost. If a table has 4 secondary indexes and one update changes indexed columns, the transaction may write the base row plus 4 index entries. At 2,000 updates per second, that can turn into 10,000 logical writes per second before replication cost.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'F1 fits business-critical systems that need SQL and global scale at the same time. Ad platforms, billing systems, inventory ledgers, and configuration databases all need strong constraints and query flexibility. The access pattern is many account-scoped operations with some cross-account analysis.',
+      'The case study also shaped later distributed SQL systems. Cloud Spanner, CockroachDB, YugabyteDB, and TiDB all expose SQL over replicated distributed storage. Each system makes different choices, but all face the same tension between relational convenience and distributed coordination.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'Distributed SQL fails when users expect single-node latency for cross-partition work. A join that touches 500 partitions can be correct and still too slow for an interactive path. The right fix may be schema redesign, precomputed views, or moving the query out of the serving path.',
+      'It also fails when schema designers ignore locality. If every useful access path needs a global secondary index and every transaction updates several indexes, the write path becomes coordination-heavy. F1 makes those costs explicit; it does not make them disappear.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Suppose an advertiser has 1 account row, 200 campaign rows, and 20,000 ad rows. A budget update touches the account row, 3 campaign rows, and one secondary index entry. If those rows are in one locality group, the transaction mostly pays local storage work plus one distributed commit.',
+      'Now suppose a reporting query joins 1,000 advertisers by region and reads 50 rows per advertiser. That is 50,000 rows, but the bigger issue is that it crosses 1,000 locality groups. The planner can parallelize scans, yet the query now pays network fanout and result assembly.',
+      'The behavior explains the design rule. Put data that changes together and reads together under the same hierarchy when possible. Use global indexes for real alternate lookups, but count each index as a write-time bill, not as free search.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: the Google Research paper "F1: A Distributed SQL Database That Scales" and the Spanner paper. Study F1 schema hierarchy, index maintenance, transaction behavior, and the AdWords migration constraints.',
+      'Study next: Spanner TrueTime, two-phase commit, query planning, secondary indexes, distributed joins, and manual sharding. The central lesson is that distributed SQL gives a relational contract, while schema locality decides whether that contract is cheap.',
+    ] },
   ],
 };

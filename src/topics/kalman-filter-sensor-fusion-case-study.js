@@ -331,111 +331,43 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A moving system is never observed directly. A vehicle, drone, robot arm, satellite, or phone has noisy measurements and an imperfect motion model. The system needs one best estimate now, not a pile of contradictory sensor readings.',
-        'A Kalman filter is a recursive estimator. It carries a state vector `x` and an uncertainty covariance `P`, predicts them forward with a model, then corrects them when a measurement arrives.',
-        {type:'callout', text:'Kalman filtering works because the estimate carries uncertainty, so each sensor residual is weighted by what the system already believes it does not know.'},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/a0/Kalman_filter_model_2.svg', alt:'Diagram of a Kalman filter model showing hidden state, observations, transition noise, and measurement noise across time steps.', caption:'Kalman filter state model, by Headlessplatter on Wikimedia Commons, public domain.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'A reasonable first attempt is to average sensors. If GPS says position 13 and the model says 14, split the difference. That works only when every source measures the same thing with the same noise at the same time.',
-        'Another tempting approach is to trust the model between measurements and snap to each sensor update. That produces jumps, chases glitches, and throws away information about which variables are coupled.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The wall is uncertainty shape. Position error and velocity error are not independent in a moving system. If position was overestimated, velocity may also need to shift. A point estimate cannot represent that coupling.',
-        'The second wall is time. Sensors arrive at different rates, with different delays, and with different failure modes. A GPS spike, wheel slip, camera false detection, or timestamp skew can poison many future states because every posterior becomes the next prior.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Carry uncertainty as part of the state. The estimate is not just `x`; it is `x` plus covariance `P`. Prediction moves the mean and usually grows uncertainty. Measurement update compares the sensor to the prediction and shrinks uncertainty in the directions the sensor actually observes.',
-        'The residual is the surprise: `y = z - Hx`. The innovation covariance `S = HPH^T + R` says how large that surprise should have been. The Kalman gain decides how much of the surprise should move the state.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The prediction step applies the motion model. In the linear form, `x_prior = F x` and `P_prior = F P F^T + Q`. `Q` is process noise: the model admits that acceleration, friction, commands, or the environment may not match the simple equation.',
-        'The measurement step compares a sensor reading `z` with what the current state would predict through `H`. It computes residual `y`, innovation covariance `S`, gain `K = P H^T S^-1`, then updates the state with `x_posterior = x_prior + K y`.',
-        'The covariance update is as important as the mean update. A trusted measurement reduces uncertainty in the observed direction. If covariance couples position and velocity, a position sensor can also shift velocity because the filter believes those errors move together.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the predict-update view, watch the loop. The posterior from one frame becomes the prior in the next. That is the recursive contract; a bad update does not stay local.',
-        'The state matrix shows the hidden estimate and the uncertainty around it. Position and velocity are the values. `P pos`, `P vel`, and `P cross` explain how confident the filter is and how errors are coupled.',
-        'The sawtooth plot shows the rhythm of the filter. Prediction grows uncertainty because time passes. Measurement shrinks it because a sensor adds information. In the fusion view, each sensor enters with its own timing, measurement model, and noise claim.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'In the linear-Gaussian case, a Gaussian belief is fully described by its mean and covariance. A linear motion model maps a Gaussian to another Gaussian. A linear Gaussian measurement update combines the prior and the likelihood into a new Gaussian.',
-        'That is why the filter does not need the full history. The current `x` and `P` are a sufficient summary of past accepted measurements under the model assumptions. Each step preserves the same representation: mean plus covariance.',
-        'In real systems, the guarantee becomes an engineering claim. The filter is trustworthy only when the model, noise matrices, timestamps, and outlier gates are honest enough for the operating regime.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'The animation starts with position 12.0 m and velocity 2.0 m/s. A constant-velocity prediction moves the position near 14.0 m. Uncertainty grows because the model does not know the exact acceleration or disturbance during the step.',
-        'A GPS measurement arrives at 13.0 m, so the residual is -1.0 m. If position uncertainty is high and GPS noise is moderate, the gain gives the measurement strong influence. The position moves toward GPS, and velocity shifts a little because the covariance says position and velocity errors are linked.',
-        'The important lesson is not the exact numeric gain. The lesson is responsibility. The model says where the state should go. The measurement says how the world disagrees. The covariance decides whether that disagreement is normal noise, useful evidence, or an outlier.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'For a state dimension `d`, storing covariance costs O(d^2). Matrix products and inversions dominate the update; the innovation inversion is on the measurement dimension. Small tracking filters are fast, but high-dimensional filters need structure, sparsity, or approximations.',
-        'Tuning changes behavior. If `Q` is too small, the filter overtrusts the motion model and lags real changes. If `R` is too small, it overtrusts the sensor and chases noise. If `R` is too large, it ignores useful measurements.',
-        'The covariance matrix is a claim about uncertainty, not a bag of knobs. The gain, residual gate, dashboards, and failure alarms all depend on that claim being roughly true.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Kalman filtering wins when the state is compact, changes smoothly, and uncertainty is close enough to Gaussian: navigation, robotics, radar tracking, sensor fusion, control systems, IMU/GPS fusion, and financial latent-state estimates.',
-        'It is especially useful for asynchronous sensors. IMU can predict at high rate, GPS can anchor global position at low rate, wheel speed can constrain velocity, and vision can correct drift when landmarks are visible.',
-      ],
-    },
-    {
-      heading: 'Where it is the wrong tool',
-      paragraphs: [
-        'A basic Kalman filter is the wrong tool when the system is strongly nonlinear, uncertainty is multimodal, the state has hard discrete alternatives, or the noise model is badly wrong. One Gaussian cannot represent "the object is probably in one of two different corridors."',
-        'Extended and unscented Kalman filters help when the system is nonlinear but still roughly single-hypothesis. Particle filters, factor graphs, or smoothing methods are better when multiple hypotheses or delayed global consistency matter.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'Most Kalman failures are modeling failures. Bad `Q` makes the filter either stiff or jittery. Bad `R` makes it chase noise or ignore data. Bad `H` means the sensor update is correcting the wrong state variables. Bad timestamps fuse facts from different times.',
-        'Outliers need explicit gates. A residual can be scored against its expected covariance with a Mahalanobis distance. A measurement that is too surprising should be rejected, logged, or routed to a recovery mode instead of silently yanking the state.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A vehicle receives IMU, GPS, wheel-speed, and camera landmark events. IMU is frequent and smooth but drifts. GPS is slow and noisy but globally anchored. Wheel speed is useful until tires slip. Vision is rich but fragile.',
-        'The estimator predicts on every time advance, then updates whenever a sensor event arrives with a timestamp, measurement model, and noise covariance. Each accepted measurement changes both `x` and `P`; each rejected measurement should leave evidence in logs.',
-        'A production fusion system needs replayable raw sensor logs, synchronized clocks, versioned noise matrices, residual dashboards, outlier counters, and fallback modes. Without replay, engineers cannot tell whether a track jump came from the model, a sensor, a timestamp, or a gate.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Kalman, A New Approach to Linear Filtering and Prediction Problems, linked from UNC at https://www.cs.unc.edu/~welch/kalman/kalmanPaper.html; Welch and Bishop, An Introduction to the Kalman Filter at https://www.cs.unc.edu/~welch/media/pdf/kalman_intro.pdf; Bardsley, A Matrix Theoretic Derivation of the Kalman Filter at https://www.matrix-inst.org.au/wp_Matrix2016/wp-content/uploads/2018/05/Bardsley.pdf; and Khan, Matrix Inversion Lemma and Information Filter at https://emtiyaz.github.io/Writings/MILandIF.pdf.',
-        'Study Eigenvalues and Eigenvectors for covariance geometry, Sherman-Morrison Rank-One Update for inverse-update intuition, Particle Filter Resampling Localization for multimodal belief, PCA for covariance structure, Calibration Curves for honest uncertainty, and Markov Chains for state evolution.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read predict-update as one recursive estimate. The state vector x stores the current estimate, and covariance P stores uncertainty and coupling between errors. Active nodes show prediction, residual, gain, and update; the posterior from one step becomes the prior for the next.',
+      {type:'callout', text:'Kalman filtering works because the estimate carries uncertainty, so each sensor residual is weighted by what the system already believes it does not know.'},
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/a0/Kalman_filter_model_2.svg', alt:'Diagram of a Kalman filter model showing hidden state, observations, transition noise, and measurement noise across time steps.', caption:'Kalman filter state model, by Headlessplatter on Wikimedia Commons, public domain.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'A moving system is never observed directly. A vehicle, drone, robot, satellite, or phone has noisy measurements and an imperfect motion model. A Kalman filter exists to keep one current estimate plus uncertainty rather than a pile of conflicting sensor readings.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is averaging sensors or snapping to the newest reading. That works only when every source measures the same variable at the same time with the same reliability. Real fusion has different rates, delays, noise, and state variables.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is uncertainty shape. Position error and velocity error can be coupled, so a position measurement may also say something about velocity. A point estimate cannot express confidence, coupling, or whether a surprise is normal noise or an outlier.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Carry uncertainty as part of the state. Prediction moves the mean forward and usually grows uncertainty. Measurement computes residual y = z - Hx, scales it by expected uncertainty, and moves the state by the Kalman gain.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'Prediction uses x_prior = F x and P_prior = F P F^T + Q. F is the motion model and Q is process noise. Update computes S = H P H^T + R, K = P H^T S^-1, then x_posterior = x_prior + K y and a new covariance.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'In the linear-Gaussian case, mean and covariance fully describe the belief. Linear prediction maps one Gaussian belief to another, and a Gaussian measurement update combines prior and likelihood into a new Gaussian. That gives the sufficient-summary invariant: current x and P contain the past information needed for the next step.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'For state dimension d, covariance storage costs O(d^2). Matrix products and the innovation inverse dominate update cost, with inversion driven by measurement dimension. If Q is too small the filter lags real motion; if R is too small it chases noise; cost shows up as behavior, not only CPU.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Kalman filtering wins in tracking and navigation with compact state and roughly single-peaked uncertainty: radar, IMU/GPS fusion, robot localization, control systems, satellites, and phone sensors. It is especially useful when IMU arrives fast, GPS arrives slowly, and vision appears only when landmarks are visible.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'A basic Kalman filter fails under strong nonlinearity, multimodal belief, bad timestamps, or dishonest noise matrices. One Gaussian cannot represent that a robot may be in one of two corridors. Production systems need outlier gates, residual dashboards, replayable logs, and fallback modes.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Start with position 12.0 m and velocity 2.0 m/s for a 1 second step, so prediction gives 14.0 m. Suppose predicted position variance is 4.0 and GPS noise variance is 1.0; GPS reads 13.0 m, so residual is -1.0 m. Gain is 4.0 / 5.0 = 0.8, so the updated position is 14.0 + 0.8 * -1.0 = 13.2 m.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Kalman paper at https://www.cs.unc.edu/~welch/kalman/kalmanPaper.html, Welch and Bishop at https://www.cs.unc.edu/~welch/media/pdf/kalman_intro.pdf, Maybeck at https://apps.dtic.mil/sti/citations/ADA021457, and Probabilistic Robotics at https://www.probabilistic-robotics.org/. Study covariance, matrix multiplication, eigenvectors, Sherman-Morrison Woodbury, particle filters, EKF, UKF, factor graphs, and time synchronization next.',
+    ] },
   ],
 };

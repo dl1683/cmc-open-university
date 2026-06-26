@@ -224,221 +224,76 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views, selected by the control above the canvas.',
-        {
-          type: 'bullets',
-          items: [
-            'Step batching view: a directed graph from API ingress through shape classification, step bucketing, cache lookup, GPU batch, confidence gate, optional fallback, and token streaming. Active (highlighted) nodes are the current scheduling stage. Compare nodes show cache or alternative paths. Found nodes are confirmed outputs.',
-            'Confidence gate view: a matrix where each row is a token position and columns show the top prediction, its confidence score, and the commit/hold/fallback action. Active cells are committed tokens. Compare cells are held positions waiting for another denoise pass.',
-          ],
-        },
-        'In both views, the ready-queue matrix groups requests by denoise step, mask count, block size, and route assignment. Rows sharing a route color can batch together on the GPU.',
-        {
-          type: 'note',
-          text: 'The animation uses small integer step counts and short token sequences for readability. Production diffusion servers handle hundreds of concurrent requests with 8-64 denoise steps, variable block sizes, and per-route confidence policies. The scheduling structure is the same -- the fields and thresholds scale.',
-        },
+        'Read the scheduler graph as a request lifecycle. Shape classification assigns a route, step buckets group compatible denoising work, the GPU advances a batch, and the confidence gate decides what can stream. The safe inference is that two requests batch well only when their denoise state is compatible, not merely because they arrived close together.',
         {type: 'callout', text: 'A diffusion LLM scheduler batches by denoise-state compatibility, not by the autoregressive prefill/decode shape.'},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Autoregressive LLM serving has one shape: prefill the prompt, then decode one token at a time. Every piece of infrastructure -- continuous batching, KV cache, speculative decoding, SLO routing -- is organized around that sequential decode loop.',
-        'Diffusion LLMs break the shape. Instead of predicting the next token, a diffusion model starts with a masked buffer and iteratively denoises it, potentially committing multiple tokens per pass. That changes what a "batch" means, what can be cached, and when output is safe to stream.',
-        {
-          type: 'quote',
-          text: 'Fast-dLLM proposes a training-free approach to accelerate diffusion language models by identifying tokens with high confidence scores for skipping unnecessary denoising steps.',
-          attribution: 'Wu et al., "Fast-dLLM: Training-free Acceleration of Diffusion LLM" (2025)',
-        },
-        'The scheduler is the missing piece between a research decoder and a production service. It decides which requests can share a GPU batch, which hidden state is safe to reuse, which tokens are confident enough to commit, and when the system should fall back to a slower but safer route.',
-        'Without a shape-aware scheduler, diffusion decoding is a model-side promise. The service must make that promise survive mixed traffic, noisy confidence estimates, memory pressure, and user-facing latency targets.',
+        'Autoregressive LLM serving has a familiar shape: prefill the prompt, then decode one token at a time. Diffusion LLMs use a different shape: they start with masked positions and iteratively denoise them, sometimes committing several tokens in one pass. Serving infrastructure must schedule denoising steps, mask counts, confidence gates, and fallback routes.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The reasonable first attempt is to reuse an autoregressive serving stack: vLLM-style continuous batching, paged KV cache, arrival-order queues, and a prefill/decode split. Teams reach for this because the infrastructure is mature, well-tested, and already deployed.',
-        {
-          type: 'diagram',
-          text: 'Autoregressive server:\n  Queue -> Prefill -> Decode (1 token/step) -> Stream\n  Cache key: left-to-right prefix\n  Batch key: arrival order + sequence length\n\nDiffusion server (naive reuse):\n  Queue -> Denoise pass -> ??? -> Stream\n  Cache key: ??? (prefix is not stable)\n  Batch key: ??? (step count varies per request)',
-          label: 'AR infrastructure assumes a shape diffusion serving does not have',
-        },
-        'This reuse works for ingress, load balancing, and health checks. It breaks at the scheduling layer because the batch key, cache key, and streaming trigger are all wrong for bidirectional denoising.',
+        'The obvious approach is to reuse an autoregressive serving stack. Continuous batching, paged KV cache, request queues, and prefill/decode metrics are already mature. This reuse works for ingress and load balancing, but it does not define the right batch key for diffusion decoding.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Naive batching fails because two requests with the same output length can be in completely different denoise phases. One has forty masked positions left, another has five, and a third is waiting on a high-confidence commit. Batching them wastes GPU cycles: the fast request pads while the slow one blocks.',
-        {
-          type: 'table',
-          headers: ['Problem', 'AR assumption', 'Diffusion reality'],
-          rows: [
-            ['Batch grouping', 'Group by sequence length', 'Must group by denoise step, mask count, and block size'],
-            ['Cache validity', 'Left-to-right prefix is stable', 'Bidirectional denoising changes which positions are visible; cache versions drift'],
-            ['Streaming trigger', 'Each decoded token streams immediately', 'Tokens must pass a confidence gate before commit'],
-            ['Fallback', 'Retry or timeout', 'Multiple fallback routes: fewer parallel tokens, teacher sampler, AR model, rejection'],
-            ['SLO metric', 'Time to last token', 'Accepted-answer latency (tokens that pass the gate, not tokens generated)'],
-          ],
-        },
-        'The exact wall is p99 under heterogeneous traffic. A benchmark with uniform prompts shows high throughput. A production mix -- code completion, JSON, chat, long prompts, remask loops, and fallbacks -- loses the speedup unless the scheduler preserves compatible work shapes.',
-        'There is also a product wall. Users do not experience denoise steps per second. They experience first-useful-token time, accepted-answer latency, formatting errors, retry storms, and whether a completion is stable enough to stream progressively.',
+        'The wall is heterogeneous denoise state. Two requests with the same output length may have different step numbers, mask counts, block sizes, and confidence thresholds. If the scheduler batches them anyway, fast requests pad behind slow ones and low-confidence tokens create retries or fallback storms.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The scheduling key is not arrival time or sequence length. It is a composite of denoise state fields that determine GPU batch compatibility.',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'request = {\n  prompt, token_buffer, mask_bitset, block_id,\n  denoise_step, remaining_mask_count,\n  route_id, deadline, confidence_threshold,\n  cache_version, fallback_budget, quality_guard\n}',
-        },
-        'Two requests batch cleanly when they share enough of these fields that one GPU pass advances both without forcing bad commits or wasting work on padding. The invariant is shape compatibility: a batch is healthy when its members share denoise state.',
-        {
-          type: 'diagram',
-          text: 'Ready queues (keyed by shape):\n  [step=6, blk=4, mask~18] -> req1, req2       -> Batch A\n  [step=2, blk=8, mask~41] -> req3              -> Batch B\n  [step=6, blk=4, mask~5 ] -> req4              -> Finish lane\n\nCache ledger (keyed by version):\n  ctx:prompt_ids   state:block+mask   kv:hidden_state   pages:gpu_mem\n  Each entry valid only under its recorded block state + mask pattern',
-          label: 'Shape-keyed queues and version-keyed cache replace arrival-order batching',
-        },
-        'The monitoring ledger must track accepted output, not just generated tokens: committed tokens per pass, held tokens, remasks, cache hits, fallback triggers, p50/p95/p99 accepted latency, quality checks, and GPU occupancy. Without these fields, the system can optimize a demo metric while hurting user-visible results.',
+        'The batch key is denoise-state compatibility. A shaped request records denoise step, remaining mask count, block size, route id, confidence threshold, cache version, deadline, and fallback budget. A batch is healthy when one GPU pass can advance all members without forcing bad commits or wasting most lanes.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The scheduler has four stages: shape, batch, execute, and gate.',
-        {
-          type: 'table',
-          headers: ['Stage', 'Input', 'Decision', 'Output'],
-          rows: [
-            ['Shape', 'Raw request', 'Classify task, assign route, set confidence threshold', 'Shaped request with route policy'],
-            ['Batch', 'Shaped requests in ready queues', 'Group by denoise step, block size, mask bucket, cache compatibility', 'GPU batch of compatible work'],
-            ['Execute', 'GPU batch', 'Run one denoise pass on all requests in the batch', 'Updated token buffers + per-position confidence scores'],
-            ['Gate', 'Per-position scores', 'Commit, hold, remask, or fallback per position per request', 'Committed tokens to stream; held tokens back to queue; fallbacks to safer route'],
-          ],
-        },
-        'Shaping happens once at ingress. The router classifies the task -- code completion gets a wide parallel lane (4 tokens/pass), schema-constrained JSON gets a stricter 2-token lane, open chat gets a conservative lane, and risky requests start in fallback or conservative mode.',
-        'After the GPU pass, the confidence gate decides position by position. A token above the route threshold commits and streams. A token below threshold holds for another denoise pass. A request that repeatedly fails the gate burns its fallback budget and moves to a safer route.',
-        {
-          type: 'note',
-          text: 'Fallback is part of the design, not an exception handler. The fallback route can be a lower-parallelism diffusion pass, a teacher sampler, an autoregressive model, a schema repair step, or rejection. The scheduler should never let a request sit in a fast lane consuming GPU without producing accepted output.',
-        },
-        'Cache management adds a fifth concern. A cached hidden state is valid only under the block state, mask pattern, model version, and route policy it was recorded under. If any of those fields drift, the cache entry is approximate at best and must be invalidated or marked for re-verification.',
+        'The scheduler first classifies the request and assigns a route policy. It then places the request into a ready queue keyed by step, block size, mask bucket, and cache compatibility. After each GPU pass, the confidence gate commits high-confidence tokens, holds uncertain tokens for another pass, or moves the request to a slower fallback route.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness rests on three properties.',
-        {
-          type: 'bullets',
-          items: [
-            'Gate invariant: the fast lane proposes tokens, but only the confidence policy commits them. Speed never bypasses quality.',
-            'Cache versioning: a cached hidden state is usable only when the block state, mask pattern, model version, and route policy match. Drift invalidates the entry.',
-            'Accepted-output backpressure: SLO health is measured after the gate, not at the queue. A queue can look empty while users wait because too few tokens are accepted.',
-          ],
-        },
-        'The gate invariant is the load-bearing property. Without it, the system commits low-confidence tokens, which causes downstream errors, retry storms, and worse p99 than the autoregressive baseline it was supposed to beat.',
-        'SLO safety comes from separating queue health from accepted-output health. A diffusion route that raises raw tokens per second but increases fallback rate, remask loops, or p99 accepted latency is not a production win. The monitoring ledger must distinguish attempted work from accepted work.',
+        'The correctness argument is a gate invariant. The fast lane may propose several tokens, but only the confidence policy commits them to the user-visible stream. Cache correctness also needs versioning: a hidden state is reusable only when the block state, mask pattern, model version, and route policy still match.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Diffusion serving trades serial next-token latency for parallel denoising. The win depends on four factors: tokens safely committed per pass, request shape overlap in the queue, cache reuse rate, and fallback frequency.',
-        {
-          type: 'table',
-          headers: ['Knob', 'Turn up', 'Turn down'],
-          rows: [
-            ['Step buckets', 'Better batch compatibility, less padding waste', 'More queue fragmentation, slower batch fill'],
-            ['Confidence threshold', 'Higher quality, fewer retries', 'Lower throughput, more holds and remasks'],
-            ['Block size', 'More tokens per pass, higher GPU utilization', 'More memory per request, harder cache reuse'],
-            ['Fallback budget', 'More chances to recover on the fast path', 'More GPU spent on requests that eventually fall back anyway'],
-          ],
-        },
-        'Memory moves in unfamiliar ways. A diffusion server stores prompt state, block state, approximate hidden state, and mask-version metadata -- not just a left-to-right prefix cache. Eviction policy must account for correctness of reuse, not just recency.',
-        {
-          type: 'note',
-          text: 'The practical comparison is not average tokens per second. Compare diffusion vs. AR serving on accepted-answer latency, p99, cost per accepted output, quality score, fallback rate, memory pressure, cache hit rate, and operational complexity.',
-        },
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Trace two code-completion requests through the scheduler.',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'Step 1 -- Ingress and shaping\n  req A: code completion, 128 tokens, route=fast-4, threshold=0.80\n  req B: code completion, 96 tokens,  route=fast-4, threshold=0.80\n  Both classified as predictable code; assigned to 4-token parallel lane.\n\nStep 2 -- Bucketing\n  req A: step=6, blk=4, mask_count=18\n  req B: step=6, blk=4, mask_count=17\n  Same step, same block size, similar mask count -> Batch A.\n\nStep 3 -- GPU denoise pass\n  Batch A runs one denoise pass on both requests.\n  req A positions [3,7,11,14]: confidences [0.91, 0.74, 0.96, 0.82]\n  req B positions [2,5,9,12]:  confidences [0.88, 0.63, 0.93, 0.71]\n\nStep 4 -- Confidence gate (threshold = 0.80)\n  req A: commit pos 3 (0.91), hold pos 7 (0.74), commit pos 11 (0.96), commit pos 14 (0.82)\n         -> 3 committed, 1 held, mask_count drops 18->15\n  req B: commit pos 2 (0.88), hold pos 5 (0.63), commit pos 9 (0.93), hold pos 12 (0.71)\n         -> 2 committed, 2 held, mask_count drops 17->15\n\nStep 5 -- Re-queue\n  Both requests return to the step=6, blk=4 bucket with updated masks.\n  Cache entries versioned to current block+mask state.\n  Committed tokens stream to clients.',
-        },
-        'After four more passes, req A finishes (mask_count reaches 0) and exits. Req B hits a low-confidence region, fails the gate three times, burns its fallback budget, and the scheduler moves it to the conservative 1-token lane. The ledger records: 3 fast commits, 2 holds, 1 fallback with reason "repeated gate failure at positions 5,12."',
+        'Diffusion serving trades serial token steps for parallel denoising, but the win depends on accepted tokens per pass. If a route proposes 4 tokens and the gate accepts 3 on average, 120 output tokens take about 40 passes. If traffic skew drops acceptance to 1.5 tokens per pass, the same answer takes about 80 passes and may lose to autoregressive serving.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Diffusion serving fits workloads where multiple positions can be predicted with high confidence.',
-        {
-          type: 'table',
-          headers: ['Workload', 'Parallel lane', 'Gate policy', 'Why it fits'],
-          rows: [
-            ['Code completion', '4 tokens/pass', 'threshold 0.80', 'Syntax and variable names are highly predictable from context'],
-            ['Fill-in-the-middle', '4 tokens/pass', 'threshold 0.78', 'Surrounding code constrains the fill; high confidence on boilerplate'],
-            ['Schema-constrained JSON', '2 tokens/pass', 'threshold 0.85 + schema validation', 'Structure is fixed; wrong braces/commas are caught immediately'],
-            ['Boilerplate transforms', '4 tokens/pass', 'threshold 0.75', 'Pattern repetition makes most tokens near-certain'],
-            ['Open-ended chat', '1 token/pass', 'threshold 0.90', 'Low predictability; conservative lane avoids quality loss'],
-          ],
-        },
-        'The route is chosen per request, not per model. The same diffusion model behaves differently across task shapes. A coding API uses the parallel lane for predictable completions and the conservative lane for ambiguous prompts, adjusting at ingress based on task classification.',
-        {
-          type: 'quote',
-          text: 'Mercury achieves 10x generation throughput compared to an autoregressive counterpart of similar quality, demonstrating diffusion models as a viable alternative for powering LLM applications.',
-          attribution: 'Inception Labs, "Mercury: Ultra-Fast Language Models Based on Diffusion" (2025)',
-        },
+        'This fits code completion, fill-in-the-middle editing, schema-constrained JSON, boilerplate transforms, and other workloads where several positions can be predicted with high confidence. It is less natural for open-ended chat, where wrong early commits are expensive. A production service should route by task shape, not by model name alone.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Average throughput hides the failure. Step skew, remask loops, memory fragmentation, route starvation, and fallback storms can degrade p99 while the dashboard shows more generated tokens.',
-            'A global confidence threshold is usually wrong. Code, JSON, chat, retrieval answers, and safety-sensitive requests have different costs for a bad commit. The threshold belongs to the route, calibrated against accepted-output quality.',
-            'AR infrastructure transfers as concepts, not drop-in machinery. KV cache, continuous batching, and speculative decoding are useful references, but diffusion serving needs mask-aware queues, block-versioned caches, and confidence-gated commit rules.',
-            'Cache staleness is silent. A stale approximate hidden state makes the server fast while quietly damaging quality. Without version-keyed cache invalidation, quality regressions appear only in downstream metrics.',
-            'Operational complexity is higher. The scheduler introduces more knobs (step buckets, block sizes, per-route thresholds, fallback budgets), more failure modes (gate storms, cache version drift, route starvation), and more monitoring requirements than an AR stack.',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'The most dangerous failure mode is "fast but wrong." A diffusion server that commits low-confidence tokens to hit throughput targets creates downstream repair work, user-visible errors, and retry storms that cost more than the speedup saved.',
-        },
+        'It fails when dashboards optimize raw generated tokens instead of accepted output. Step skew, cache-version drift, route starvation, memory fragmentation, and fallback loops can make p99 latency worse while average throughput looks better. A global confidence threshold is also wrong because code, JSON, chat, and safety-sensitive requests have different costs for a bad commit.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Take two code-completion requests in the fast-4 route with threshold 0.80. Request A is at step 6 with 18 masks left, and request B is at step 6 with 17 masks left, so the scheduler places them in the same block-4 bucket. One GPU pass proposes 4 positions for each request.',
+        'A gets confidences 0.91, 0.74, 0.96, and 0.82, so it commits 3 tokens and holds 1. B gets 0.88, 0.63, 0.93, and 0.71, so it commits 2 and holds 2. The cost metric is not 8 proposed tokens; it is 5 accepted tokens plus 3 held positions that return to the queue with updated mask state.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Source', 'What it covers'],
-          rows: [
-            ['Fast-dLLM (arxiv.org/abs/2505.22618)', 'Training-free acceleration via confidence-based step skipping; the technique that makes per-token gating practical'],
-            ['Mercury (arxiv.org/html/2506.17298v1)', 'Production diffusion LLM achieving 10x throughput over AR baselines; validates the serving model at scale'],
-            ['Block Diffusion (arxiv.org/abs/2503.09573)', 'Block-level denoising that defines the block structure this scheduler batches around'],
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: study Discrete Diffusion Language Model Primer for the generation model and KV Cache for reuse fundamentals.',
-            'Extension: study Block Diffusion LLM Denoising for block structure and Consistency Distillation Few-Step Diffusion for reducing step count.',
-            'Related systems: study LLM Continuous Batching for AR serving queues and Speculative Decoding Runtime Controller for confidence-gated acceleration in AR systems.',
-          ],
-        },
+        'Read Fast-dLLM, Mercury, Block Diffusion, and the literature on masked diffusion language models. Then study continuous batching, KV cache, speculative decoding, confidence calibration, fallback routing, and p99 latency measurement. The next practical topic is cache versioning for bidirectional denoising state.',
       ],
     },
   ],
 };
-

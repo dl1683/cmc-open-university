@@ -241,90 +241,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why it exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'AI features make product cost visible at request time. A search summary, coding agent, support copilot, or autonomous workflow can spend tokens, tool calls, retrieval, GPU time, and human review on every use. The team needs to know whether that spend creates enough value for the cohort that caused it.',
-        'An inference ROI payback cohort ledger joins feature flags, stable cohorts, runtime traces, token-cost spans, cloud cost allocation, value events, quality scores, and incident risk. LLM Unit Economics Ledger Case Study tells you what one accepted answer costs. This ledger asks whether the feature paid back for a specific user group over a specific time horizon.',
+        'Read the payback-ledger view as a join graph. A feature flag assigns users to a cohort, which means a stable measurement group. Runtime traces create cost rows, product events create value rows, quality checks create risk rows, and the payback node combines only rows that share the same cohort boundary.',
+        'In the cohort-trace view, a request span is one observed unit of work, such as a model call or tool call. Active nodes show evidence being created or joined. Found nodes show the row set that is now decision-ready. The margin plot shows why the same feature can be profitable for paid users and negative for heavy free users.',
         {type:'callout', text:'AI payback is credible only when cost, value, quality, and risk rows share the same cohort boundary.'},
       ],
     },
     {
-      heading: 'Naive baseline and wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive baseline is a dashboard with total AI spend, total requests, and an engagement chart. That is not enough. A free-heavy cohort can burn margin while a paid cohort produces strong retention. A novelty feature can spike usage before value decays. A support bot can look cheap until retries, escalations, bad answers, and human review are counted.',
-        'The wall is attribution. Cost arrives immediately, value arrives later, and quality risk can erase apparent savings. If the system cannot join runtime traces to owners, cohorts, invoice rows, and product outcomes, it cannot tell the difference between a profitable AI feature and an expensive animation of product activity.',
+        'Inference is model execution after a user request arrives. It can spend input tokens, output tokens, GPU time, cache capacity, retrieval, tools, and human review. A product team needs to know whether that spending creates value for the users who caused it.',
+        'ROI means return on investment, but here it must be measured at feature and cohort level. A cohort is a stable group, such as paid accounts exposed to a support copilot for 30 days. Payback is cumulative value minus cumulative cost over time, after quality and risk gates are counted.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Measure payback on cohorts, not anecdotes. A cohort is the unit that lets product, platform, and finance ask a fair question: for users exposed to this route or feature, what cost accumulated, what value matured, and what quality risk appeared?',
-        'The invariant is that every payback decision must reference the same cohort definition across cost, value, and risk. If the cost row is per request, the value row is per account, and the quality row is per incident with no join key, the conclusion is a story, not a ledger.',
+        'The obvious approach is a dashboard with total AI spend, total requests, average cost per request, and engagement. It is easy to build from billing exports and trace counts. It also feels objective because every number is real.',
+        'The problem is that aggregate numbers mix different businesses. A paid enterprise cohort can save expensive support labor while a free cohort burns margin on curiosity usage. The total can look healthy while one cohort is paying for another or while a risky feature is hiding behind average value.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'In the payback-ledger view, follow the feature flag into a cohort, then split into runtime cost and value evidence. The payback node is not just a number. It combines token cost, allocated infrastructure, revenue lift, time saved, support deflection, quality score, and incident risk before choosing route, price, expansion, or stop.',
-        'In the cohort-trace view, read each request span as raw evidence waiting to become a finance row. Model choice, tool work, cache hit, latency, owner tags, cloud cost exports, FOCUS schema rows, and product events must land on the same cohort before the decision node can be trusted.',
+        'The wall is attribution over time. Cost arrives immediately when the model runs. Value may arrive days later as a renewal, a resolved ticket, a retained user, or a shorter workflow. Risk may arrive as a bad answer, escalation, refund, or policy incident.',
+        'If cost rows are per request, value rows are per account, and risk rows are per incident with no shared join key, the ledger cannot answer the payback question. It can only tell a story after the fact. The missing data structure is the cohort ledger that keeps all evidence aligned.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        'The ledger starts with Feature Flag Control Plane and AB Testing so exposure is stable. GenAI Trace Token Cost Ledger Case Study records prompt tokens, output tokens, model route, cache hit, latency, tools, fallback, and errors. Cost allocation rows attach owner, product, environment, feature, commitment, and invoice period.',
-        'Value rows are separate from cost rows. They may record revenue lift, conversion, retention, support deflection, task completion, labor minutes saved, or cycle-time reduction. Quality rows record rejects, retries, human review, hallucination incidents, policy violations, and customer harm. The payback curve is cumulative value minus cumulative cost after quality gates.',
+        'Make the cohort the primary key of the decision. Every cost row, value row, quality row, and risk row must attach to the same exposure definition and time window. Route changes, pricing, expansion, and shutdown decisions should read from that shared ledger.',
+        'The invariant is boundary consistency. A feature cannot be called profitable for cohort A if the cost came from cohort A, the value came from all users, and the incidents came from only escalated tickets. Same boundary first, arithmetic second.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'How it works',
       paragraphs: [
-        'Correctness starts with cohort immutability. If users move between variants during the measurement window, the ledger must record exposure changes rather than quietly blending them. Cost windows must align with billing completeness, and value windows must wait long enough for delayed outcomes to mature.',
-        'The ledger should also prevent double counting. A support deflection should not be counted once as labor savings and again as revenue unless the business model supports both. A request that retries three times should carry all three costs. A feature that increases usage but lowers gross margin should be visible as a margin problem, not celebrated as engagement.',
+        'The system starts before launch by assigning users to a feature flag or experiment cohort. Each AI request records model, route, prompt tokens, completion tokens, cache hit, tool use, latency, fallback, owner, product, and feature id. Billing exports and cloud cost allocation rows connect those traces to invoice cost.',
+        'Value events are recorded separately. They may include ticket deflection, minutes saved, conversion lift, renewal lift, revenue, or task completion. Quality rows record rejects, retries, human review, incident severity, and customer harm. The ledger rolls these rows up by cohort and day, then computes payback only after data completeness gates pass.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Why it works',
       paragraphs: [
-        'The ledger adds instrumentation, joins, and waiting time. That overhead is justified when AI spend is material or when route decisions affect customer experience. It may be too heavy for a small prototype, but it becomes necessary once model choice, caching, pricing, and reserved capacity depend on measured value.',
-        'The main tradeoff is speed versus confidence. Early dashboards help spot runaway spend, but route, pricing, and shutdown decisions need completeness gates. Expensive cohorts can be handled through SLO-Aware LLM Request Router, On-Device LLM Inference Cost Crossover, Semantic Cache for LLMs, Prompt Cache-Key Canonicalization Ledger, and LLM Response Cache Safety Ledger.',
+        'The correctness argument is accounting discipline. If every exposure has a stable cohort id, every request trace carries that id, every cost row can be allocated to that trace or owner, and every value event uses the same cohort window, then the payback curve is a faithful summary of that cohort.',
+        'The ledger must also prevent double counting. One support ticket cannot be counted as both a full labor saving and a full revenue lift unless the business rule explicitly allows both. A request that retries four times must carry all four costs, because the user-facing result consumed all four attempts.',
       ],
     },
     {
-      heading: 'Operational checklist',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Define value events before launch. If a feature claims to save support time, the ledger must know which ticket fields prove that saving. If it claims revenue lift, the attribution window and margin treatment must be explicit. Otherwise the ledger becomes a post-hoc story generator.',
-        'Keep cost and quality gates separate. A cohort can be profitable and still unsafe, or safe and still uneconomic. The ledger should expose token spend, fallback cost, human review, incident rate, customer harm, and value events as separate rows before combining them into a route decision.',
+        'The ledger adds instrumentation, storage, delayed decisions, and review work. It may be too heavy for a prototype that spends $50 per month. It becomes necessary when a feature spends $50,000 per month, changes gross margin, or determines GPU capacity planning.',
+        'Cost behaves by cohort shape. If token price is $0.004 per 1,000 tokens and a request uses 2,000 input tokens plus 500 output tokens at the same blended rate, the model call costs about $0.010 before tools and infrastructure. At 1,000,000 monthly calls, that small unit cost becomes $10,000 before retries, review, or reserved capacity waste.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'This pattern fits support copilots, coding agents, document review, sales assistants, search summarization, data-analysis assistants, and any feature where inference cost is large enough to affect product decisions. It is strongest when the feature can define a measurable value event before launch.',
+        'It also helps platform teams choose routes. A high-payback enterprise cohort may deserve a stronger model, lower latency, and reserved capacity. A free-heavy cohort may need a smaller model, cache rules, usage caps, batching, or pricing changes.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The ledger fails when value is undefined. Engagement is not ROI unless the business has proved how engagement becomes margin, retention, or revenue. A feature can be popular and still lose money.',
+        'It also fails when measurement windows are too short, quality gates are ignored, or cohort averages hide damage. A launch-week novelty spike can look profitable before usage settles. A safe-looking average can hide one customer segment with most incidents or one heavy segment with negative margin.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose a support copilot is enabled for ten percent of paid accounts. Week one shows higher usage and higher token spend. The ledger waits for cost completeness, then joins traces to resolved tickets, escalation rate, customer satisfaction, and agent handling time. If the cohort spends $4,000 and saves $11,000 of support time with no quality regression, expansion is defensible.',
-        'Now suppose the free tier uses the same feature heavily. The margin plot can show that high-percentile free users cross below zero gross margin. The action is not necessarily to kill the feature. The system might route them to a smaller model, use retrieval summaries, add cache rules, cap usage, or move the feature behind pricing.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'This pattern wins for AI-assisted drafting, support deflection, search summarization, coding agents, document review, data analysis copilots, and any feature where inference cost is large enough to shape product strategy. It also helps justify GPU reservations when high-payback cohorts can consume the reserved pool.',
-        'It fails when the organization has no value event, no stable exposure, or no owner tags. It can also mislead when the value window is too short, the metric rewards engagement instead of outcomes, or the team ignores quality and incident risk.',
-        'It also fails when teams use averages to hide cohort damage. A profitable enterprise segment can subsidize a free-tier loss, or a small high-risk group can carry most incidents. The ledger should support cohort slices before making a global decision.',
-        'The same warning applies to time. A feature can look profitable during launch week and fail after novelty decays, or look expensive before delayed retention and renewal value mature.',
-      ],
-    },
-    {
-      heading: 'Pitfalls',
-      paragraphs: [
-        'Do not count engagement as ROI unless the product has a value model. Do not ignore quality rejects, retries, human review, or incidents. Do not declare payback before billing data is complete or before delayed value events mature.',
-        'Do not allocate all shared AI infrastructure evenly by headcount or revenue. AI workloads are skewed: one feature, customer, or agent loop can consume a disproportionate amount of tokens and reserved capacity.',
+        'A support copilot launches to 5,000 paid accounts for 30 days. The cohort makes 200,000 AI requests. The average request uses $0.012 of model cost, $0.003 of retrieval and tool cost, and $0.005 of allocated platform cost, so total cost is 200,000 * $0.020 = $4,000.',
+        'The same cohort resolves 8,000 tickets with 6 minutes less agent time per ticket. At $40 per support hour, that is 800 saved hours and $32,000 of labor value. Human review adds $3,000 and quality incidents cost an estimated $2,000. Net value is $32,000 - $4,000 - $3,000 - $2,000 = $23,000, so payback is positive. If the free cohort has the same $0.020 request cost but no labor value, the route must change or usage must be capped.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: AWS CUR at https://docs.aws.amazon.com/cur/latest/userguide/what-is-cur.html, AWS cost allocation tags at https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/cost-alloc-tags.html, FOCUS at https://focus.finops.org/focus-specification/, FOCUS 1.3 release notes at https://www.finops.org/insights/introducing-focus-1-3/, and FinOps Allocation at https://www.finops.org/framework/capabilities/allocation/.',
-        'Study LLM Unit Economics Ledger Case Study, GenAI Trace Token Cost Ledger Case Study, Feature Flag Control Plane, AB Testing, AI Capex Depreciation Utilization Ledger, GPU Cloud Capacity Reservation Orderbook Case Study, AI Circular Financing Demand Graph Case Study, Semantic Cache for LLMs, and SLO-Aware LLM Request Router next.',
+        'Primary sources: AWS Cost and Usage Reports at https://docs.aws.amazon.com/cur/latest/userguide/what-is-cur.html, AWS cost allocation tags at https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/cost-alloc-tags.html, FOCUS specification at https://focus.finops.org/focus-specification/, and FinOps allocation guidance at https://www.finops.org/framework/capabilities/allocation/.',
+        'Study LLM unit economics, distributed tracing, feature flags, A/B testing, cloud cost allocation, semantic caching, request routing, and AI capacity reservation next. The key follow-up is learning how trace ids, cohort ids, and invoice rows survive real production joins.',
       ],
     },
   ],

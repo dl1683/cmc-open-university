@@ -237,167 +237,96 @@ export function* run(input) {
   else throw new InputError('Pick a requestAnimationFrame view.');
 }
 
+
 export const article = {
   sections: [
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for requestAnimationFrame Frame Budget. How requestAnimationFrame queues one-shot callbacks before repaint, shares frame timestamps, and turns animation into a budgeted scheduling problem..",
+        'The timeline view shows requestAnimationFrame as a pre-paint callback slot, not a timer. Active means the browser is currently running tasks, microtasks, rAF callbacks, rendering, or compositing; visited means that phase has already consumed part of the frame; found means the frame can still be presented on time.',
+        'The budget view shows the remaining milliseconds before the display deadline. The safe inference is that rAF code must leave time for style, layout, paint, and composite after the callback returns.',
         {type:"callout", text:"requestAnimationFrame is not a timer; it is a pre-paint scheduling slot where visual work must fit inside the remaining frame budget."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Browser animation is a scheduling problem before it is a drawing problem. A page wants motion to line up with the display refresh, but JavaScript runs on the same main thread that handles input, style calculation, layout, paint, compositing coordination, promise callbacks, and garbage collection. Smooth output depends on when work runs, how much it does, and whether the browser still has time to render after the script exits.',
-        'requestAnimationFrame exists to give visual JavaScript a frame-aligned slot. The browser calls the callback before the next repaint, passes a timestamp tied to the frame clock, and expects the callback to do a small visual update. At 60 Hz, the full frame is about 16.7 ms. At 120 Hz, it is about 8.3 ms. JavaScript gets only part of that budget because the browser must still finish the rendering pipeline.',
+        'Browser animation is scheduling work before it is drawing work. JavaScript shares the main thread with input handling, style calculation, layout, paint coordination, promise callbacks, and garbage collection.',
+        'requestAnimationFrame exists to align visual JavaScript with the browser frame clock. The browser calls the callback before the next repaint and passes a timestamp tied to that frame.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The old browser animation loop uses setInterval or setTimeout: every 16 ms, move the object a little. That feels natural because 60 frames per second is close to one callback every 16.7 ms. The code is also easy to write, so it survives in many examples long after the failure mode appears.',
-        'The wall is that timers are not the display clock. They can fire while the browser is not ready to paint, bunch up after main-thread work, or continue computing frames that will never be shown. A fixed "move 4 pixels per callback" rule also makes motion depend on callback frequency. The same code can run too fast on high-refresh displays and too slow when the main thread is busy.',
+        'The obvious old approach is setInterval or setTimeout every 16 ms. That feels close to 60 frames per second and is easy to write.',
+        'The code usually moves an object by a fixed amount per callback. It looks fine on one machine because callback count and display refresh happen to be close enough during testing.',
       ],
     },
     {
-      heading: 'The second wrong answer',
+      heading: 'The wall',
       paragraphs: [
-        'Once developers learn about rAF, the next mistake is to put all update work there. That swaps one bug for another. requestAnimationFrame aligns work with a paint opportunity; it does not make expensive work cheap, does not split long tasks, and cannot interrupt code that is already running.',
-        'If a click handler, parser, promise chain, or previous rAF callback spends 30 ms, the frame is already late. The callback may have the correct API name and still miss the deadline. rAF is the right home for frame-critical visual writes, not a magic bucket for every computation related to a feature.',
+        'Timers are not the display clock. They can fire when the browser is not ready to paint, bunch up after long tasks, or keep computing frames that will never be shown.',
+        'Fixed per-callback movement also makes motion depend on callback frequency. The same animation can run too fast on 120 Hz displays and too slow when main-thread work delays callbacks.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A requestAnimationFrame request schedules one callback. The callback is one-shot, so an animation loop must request the next callback itself. That shape matters: each frame is an explicit decision to continue, not a hidden browser-owned interval that runs forever.',
-        'The callback timestamp is the frame clock. Code should compute progress from elapsed time rather than from the number of callbacks that happened. Multiple rAF callbacks in the same frame receive the same timestamp even though earlier callbacks may have spent time. That lets independent animations stay synchronized to the frame rather than to callback order.',
+        'requestAnimationFrame schedules one visual update for the next paint opportunity. An animation loop must request the next callback itself, so each frame is an explicit decision to continue.',
+        'The callback timestamp is the frame clock. Movement should be computed from elapsed time, not from the number of callbacks that happened.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A simplified browser turn looks like this: a task runs, microtasks drain, rAF callbacks for the upcoming rendering opportunity run, and then the browser performs the style, layout, paint, and compositing work needed for the frame. Real engines have more queues and optimizations, but the teaching boundary is enough: rAF happens before rendering, not after it.',
-        'Good frame code follows a small phase discipline. Read the old state or geometry, compute the new visual state from the timestamp, write cheap visual changes such as transform or opacity when possible, and exit. Mixing writes and reads can force layout early inside the callback, so the page pays rendering cost before the browser has reached its normal rendering phase.',
+        'A simplified browser turn runs a task, drains microtasks, runs rAF callbacks for the upcoming frame, and then performs rendering work. Real engines add more queues, but the key boundary is that rAF runs before rendering.',
+        'Good frame code reads state, computes visual changes from the timestamp, writes cheap visual properties, and exits. Mixing DOM writes and geometry reads can force layout inside the callback and spend the budget early.',
+        'Multiple rAF callbacks in the same frame receive the same timestamp. That keeps independent animations synchronized to the frame clock even if earlier callbacks consumed some time.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'rAF works because it changes the unit of reasoning from "run every N milliseconds" to "prepare the next frame when the browser is about to paint." That makes the update visible at the next rendering opportunity and lets the browser pause or throttle callbacks when frames are not being displayed, such as in many background-tab cases.',
-        'The correctness idea is budget honesty. If the callback always computes from elapsed time, a delayed frame moves the animation to the right position instead of replaying stale increments. If the callback does only visual work, the browser has a chance to finish style, layout, paint, and composite before the display deadline.',
+        'The correctness argument is time-based motion. If a ball moves at 120 pixels per second, a 16.7 ms frame advances about 2 pixels and a delayed 50 ms frame advances about 6 pixels, so position tracks time rather than callback count.',
+        'The scheduling argument is budget honesty. Visual work happens near the next paint, and the browser can pause or throttle callbacks when frames are not being displayed, such as many background-tab cases.',
       ],
     },
     {
-      heading: 'How it works (2)',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The timeline view makes the hidden deadline visible. The rAF node is not the end of the frame. It is a slot before style, layout, paint, and composite, so the callback must leave enough time for work that JavaScript does not directly perform.',
-        'The jank-recovery view shows the operational fix. Visual work stays in rAF. Work that can wait is sliced into tasks or postponed. CPU-heavy work moves to a worker when it can be separated from DOM access. The loop caps large elapsed times after a pause so it does not try to replay missed simulation steps in one frame.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The cost target shrinks as refresh rate rises. At 60 Hz, the whole frame is about 16.7 ms. At 90 Hz, it is about 11.1 ms. At 120 Hz, it is about 8.3 ms. A callback that felt safe on one laptop can become janky on a faster display because the browser has less time between refreshes.',
-        'The hidden costs are often layout and paint, not the arithmetic in the callback. Changing width, top, left, font, or DOM structure can dirty layout. Reading geometry after writes can force synchronous layout. Animating transform and opacity often fits better because engines can update composited layers without recalculating the whole layout tree, though measurement still beats rules of thumb.',
+        'The budget shrinks as refresh rate rises. A 60 Hz display has about 16.7 ms per frame, 90 Hz has about 11.1 ms, and 120 Hz has about 8.3 ms.',
+        'JavaScript gets only part of that budget because style, layout, paint, and composite still need time. A 7 ms callback may work at 60 Hz and jank at 120 Hz if rendering needs 3 ms.',
+        'The hidden cost is often layout and paint, not arithmetic. Changing transform or opacity is often cheaper than changing width or top, but measurement decides the real cost on a page.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Use rAF for work the user must see on the next frame: transform and opacity updates, canvas drawing, drag feedback, scroll-linked indicators, caret motion, scrubbers, game rendering, and final visual commits after state is ready.',
-        'A live chart is a clean systems example. Network promises update a cache. A worker or task slice aggregates data. The rAF callback samples the latest ready state, computes positions from the frame timestamp, writes the minimal visual changes, and exits. The chart stays responsive because data processing and frame commitment are different jobs.',
+        'Use rAF for work the user must see on the next frame: transforms, opacity, canvas drawing, drag feedback, scroll-linked indicators, caret motion, scrubbers, games, and final visual commits.',
+        'A live chart is a good systems pattern. Network work updates data elsewhere, aggregation can happen in tasks or a worker, and rAF samples the latest ready state to write one visual frame.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'rAF fails when the page uses it to hide a main-thread architecture problem. Huge DOM commits, synchronous parsing, layout-sensitive animation, long promise chains, and repeated write-read-write cycles can miss frames even though the final callback was scheduled through the right API.',
-        'It is also the wrong tool for background work that does not need a frame. Use ordinary tasks for yielding state work, workers for separable CPU work, promises for I/O completion, requestIdleCallback for best-effort idle tasks, and scheduler APIs when priority matters. A browser frame loop is a deadline, not a general job queue.',
+        'rAF fails when used as a hiding place for long main-thread work. Huge DOM commits, synchronous parsing, heavy layout reads, and long promise chains can miss frames even when the final callback uses the right API.',
+        'It is also the wrong tool for background work that does not need a frame. Use workers for separable CPU work, requestIdleCallback for best-effort maintenance, and task scheduling APIs for priority where supported.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: MDN Window.requestAnimationFrame at https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame, MDN DedicatedWorkerGlobalScope.requestAnimationFrame at https://developer.mozilla.org/en-US/docs/Web/API/DedicatedWorkerGlobalScope/requestAnimationFrame, and MDN Critical Rendering Path at https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path.',
-        'Study The Event Loop first, because long tasks and microtasks explain why rAF can arrive late. Then study Promise Microtask Queue, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, PerformanceObserver Long Task Attribution, How a Browser Paints a Page, Dirty Rectangle Damage Tracking, Web Workers: A Second Thread, OffscreenCanvas Worker Renderer, React Fiber Scheduler Case Study, Virtual DOM Reconciliation, and WebGPU Swapchain Frame Pacing.',
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'A square should move 600 pixels in 2 seconds, so its speed is 300 pixels per second. At 60 Hz, each 16.7 ms frame advances about 5 pixels.',
+        'If one frame is delayed to 50 ms by a long task, time-based rAF movement advances 15 pixels and stays on schedule. A callback-count loop that always moves 5 pixels is now 10 pixels behind.',
+        'At 120 Hz, the normal frame is 8.3 ms, so the same speed advances about 2.5 pixels per frame. The animation still covers 600 pixels in 2 seconds because elapsed time, not frame count, drives position.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Primary sources: MDN Window.requestAnimationFrame at https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame, MDN DedicatedWorkerGlobalScope.requestAnimationFrame at https://developer.mozilla.org/en-US/docs/Web/API/DedicatedWorkerGlobalScope/requestAnimationFrame, and MDN Critical Rendering Path at https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path. These define callback timing, timestamps, worker support, and render pipeline context.',
+        'Study The Event Loop, Promise Microtask Queue, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, PerformanceObserver Long Task Attribution, How a Browser Paints a Page, Web Workers, OffscreenCanvas, React Fiber Scheduler, Virtual DOM Reconciliation, and WebGPU Swapchain Frame Pacing.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why requestAnimationFrame Frame Budget moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

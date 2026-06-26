@@ -193,69 +193,66 @@ export const article = {
     { title: 'NVIDIA NCCL debug environment variables', url: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html' },
   ],
   sections: [
-    {
-      heading: 'Why This Exists',
-      paragraphs: [
-        'PyTorch NCCL flight recorder exists because distributed training failures are expensive and often silent. A single stuck collective can freeze hundreds or thousands of accelerators. The terminal may show only a timeout, the last Python log may be unrelated, and the visible symptom may look like a network failure even when the root cause is a data-dependent branch in the training loop.',
-        'The hard part is that collective communication is a shared contract. Every rank must enter the same operation in the same order with compatible buffers. When that contract breaks, the final state is usually just "some ranks are waiting." Flight recorder preserves the recent collective history so the incident can be debugged from rank evidence instead of guesswork.',
+    { heading: 'How to read the animation', paragraphs: [
+        'Read each rank as one process participating in the same distributed training job. Active nodes show the current collective call, trace-buffer write, timeout trigger, dump file, or analyzer comparison.',
+        'NCCL is NVIDIA Collective Communications Library, and a collective is an operation such as all-reduce where all participating ranks must enter compatible calls in the same order. The safe inference rule is that the first mismatch in per-rank collective history is the best starting point for debugging a desync.',
         {type:'callout', text:'Flight recorder turns a frozen distributed job into comparable per-rank event history, so desync becomes a structured diff instead of a guess.'},
       ],
     },
-    {
-      heading: 'The Obvious Debugging Path And The Wall',
-      paragraphs: [
-        'The obvious response is to inspect logs and ask which rank printed last. That can help for ordinary exceptions, but collective hangs often stop progress far from the real cause. A rank may have skipped a collective because a dataloader produced an empty shard, a checkpoint path ran on only one process, or an error handling branch returned early. The last log line is usually a witness, not the crime scene.',
-        'Another tempting response is to enable diagnostics after the hang appears. That is too late for the most useful evidence. Flight recorder is a circular buffer: it must be collecting while the job is still alive. If the buffer is disabled, or if it is too small and overwrites the divergence window, the sequence that explains the hang is gone.',
+    { heading: 'Why this exists', paragraphs: [
+        'Distributed training failures are expensive because one stuck collective can freeze hundreds or thousands of accelerators. The visible symptom may be only a timeout, while the cause may be a data-dependent branch, uneven dataloader shard, checkpoint path, or process-group mismatch.',
+        'PyTorch NCCL flight recorder exists to preserve recent collective history before the job dies. It gives engineers per-rank evidence instead of forcing them to infer the cause from the last Python log line.',
       ],
     },
-    {
-      heading: 'Core Insight',
-      paragraphs: [
-        'The core insight is to treat collective calls as events in per-rank logs. Each rank writes recent NCCL-related activity into an in-memory circular buffer. A timeout or explicit dump freezes those buffers into files, usually one per rank. The analyzer can then compare operation order, process group, sequence id, operation type, tensor shape, dtype, timing, and optional stack frames across ranks.',
-        'That comparison turns "the job froze" into a structured diff. If ranks 0 and 1 are waiting at all-reduce sequence 42 while rank 2 already entered all-gather sequence 43, the network is not the first suspect. The rendezvous order diverged. The useful question becomes: what source path let rank 2 make a different collective call?',
-        'This is the same idea as a black box recorder in a vehicle, but applied to a distributed protocol. The recorder does not need to store every tensor value. It needs enough metadata to reconstruct the collective schedule and compare rank histories. That keeps the artifact small enough to collect and rich enough to locate the first broken rendezvous.',
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious debugging approach is to inspect logs and ask which rank printed last. That can help for ordinary exceptions, but collective hangs often stop far away from the branch that caused the schedule to diverge.',
+        'Another obvious approach is to enable diagnostics after the hang appears. That is often too late because the useful evidence had to be recorded before the timeout froze the job.',
       ],
     },
-    {
-      heading: 'How The System Works',
-      paragraphs: [
-        'PyTorch documents flight recorder settings for enabling a trace buffer, dumping debug information on timeout, choosing a dump location or prefix, capturing optional C++ stack traces, and recording optional timing. The buffer stores a bounded number of events, so it gives recent history rather than an unbounded log. The bounded design is important: it keeps overhead controlled enough to use on long jobs where a rare hang may be the only failure worth catching.',
-        'A useful event record usually includes the rank, process group, collective sequence, operation name, input and output sizes, dtypes, state, timeout information, and timestamps. Stack capture ties the low-level collective back to code. Timing fields reveal whether ranks are slow, waiting, or missing. Analyzer heuristics then search for the first place where rank histories stop agreeing.',
-        'The analyzer step is easiest to use when dumps are collected into one directory and named consistently. Large jobs should decide that convention before launch. Otherwise the incident starts with artifact hunting: which node wrote files, which rank IDs are missing, whether the timeout handler exited before writes finished, and whether the run directory survived cleanup.',
+    { heading: 'The wall', paragraphs: [
+        'The wall is that waiting looks like slowness. If ranks 0 and 1 are waiting inside all-reduce while rank 2 skipped ahead to all-gather, the symptom can resemble a network stall even though the program order is broken.',
+        'The second wall is retention. Flight recorder is a bounded circular buffer, so a buffer that is disabled or too small may overwrite the divergence window and preserve only the timeout aftermath.',
       ],
     },
-    {
-      heading: 'What The Visual Proves',
-      paragraphs: [
-        'The trace-buffer view proves why the data structure has to be per rank. A collective bug is often asymmetric. One rank may skip a call while others wait, or one process group may be healthy while another is stuck. Separate buffers preserve those differences. The timeout node is not the root cause; it is the trigger that makes the recent history durable.',
-        'The desync view proves the shape of the main failure. R0 and R1 are still at one all-reduce while R2 has moved to all-gather. The fingerprint table shows the fields that should line up across participants: operation type, sequence number, shape, dtype, and rank membership. The wait-time plot then explains why a desync can look like a slow network from the outside: waiting ranks accumulate delay while the offending rank is elsewhere or has already failed.',
+    { heading: 'The core insight', paragraphs: [
+        'The core insight is to treat collective calls as comparable events in per-rank logs. Each event records enough metadata to align ranks: process group, sequence id, operation type, tensor shape, dtype, state, timing, and optional stack frames.',
+        'A desync becomes a structured diff. If rank 0 is at all-reduce sequence 42 and rank 2 is at all-gather sequence 43, the first question is which source path let rank 2 make a different collective call.',
       ],
     },
-    {
-      heading: 'Why The Method Works',
-      paragraphs: [
-        'Flight recorder works because collectives are ordered rendezvous points. The correct program creates comparable histories across ranks. They do not have to finish at the exact same nanosecond, but they should agree on the sequence of collective operations for a given process group. The first mismatch is therefore a strong lead. It marks the boundary between "all ranks were still following the protocol" and "at least one rank took a different path."',
-        'The method is triage, not a proof of root cause. A mismatch can be caused by a skipped branch, data starvation, an exception path, resource pressure, timeout policy, or a real network issue. The trace narrows the search to a rank, operation, process group, and time window. The engineer still has to connect that evidence to code and system state.',
+    { heading: 'How it works', paragraphs: [
+        'The job enables a trace buffer through ProcessGroupNCCL settings before launch. As NCCL-related work occurs, each rank writes recent events into an in-memory circular buffer with bounded capacity.',
+        'On timeout or explicit dump, the buffers are written to files, usually one per rank. An analyzer reads the dumps, aligns events by process group and sequence, and searches for the earliest place where histories stop agreeing.',
       ],
     },
-    {
-      heading: 'Costs And Tradeoffs',
-      paragraphs: [
-        'The main costs are overhead, retention, and operational discipline. Larger buffers keep more history but use more memory. Timing can add CUDA event overhead. Stack capture can be valuable but heavier than plain event capture. Dumping every rank can create many artifacts, especially on large jobs, so the team needs a place to store them and a habit of reading them.',
-        'The tool can also mislead if treated as the only source of truth. A short buffer may preserve only the timeout aftermath, not the divergence. A missing dump may be a configuration problem rather than proof that nothing happened. Analyzer output is a lead, not a verdict. It should be paired with application logs, dataloader health, resource metrics, NCCL debug information, and source assertions around conditional collectives.',
+    { heading: 'Why it works', paragraphs: [
+        'The correctness argument comes from the collective contract. For a given process group, correct distributed code creates the same ordered sequence of compatible collective operations on every participating rank.',
+        'Ranks do not need identical timing, but they do need compatible order, shapes, dtypes, and membership. The first incompatible event marks the boundary between protocol agreement and divergence, which narrows the search window for root cause.',
       ],
     },
-    {
-      heading: 'Where It Wins And Where It Fails',
-      paragraphs: [
-        'Flight recorder wins in long-running distributed training jobs where hangs are rare, expensive, and hard to reproduce. It is especially useful for desyncs, uneven inputs, data-dependent branches, checkpoint or validation paths that run on only some ranks, and slow collectives where per-rank timing separates waiting from doing work. It also gives incident responders a common artifact instead of a stream of partial screenshots.',
-        'It fails when it was not enabled, when the buffer is too small, when the job dies before a dump is written, or when the failure is outside the captured collective layer. It also cannot repair bad distributed program structure. The long-term fix is to make collective order explicit, assert shape and dtype before calls, handle uneven data intentionally, and keep process-group membership stable.',
+    { heading: 'Cost and complexity', paragraphs: [
+        'The costs are memory, runtime overhead, artifact volume, and launch discipline. A buffer with 100000 events per rank across 256 ranks can preserve much more history than a 1000-event buffer, but it also consumes more memory and creates more dump data.',
+        'Optional timing and stack capture improve diagnosis but add overhead. The operational cost is deciding dump paths, naming conventions, retention, and privacy rules before the rare failure happens.',
       ],
     },
-    {
-      heading: 'Sources And Study Next',
-      paragraphs: [
-        'Primary sources: PyTorch Flight Recorder tutorial at https://docs.pytorch.org/tutorials/unstable/flight_recorder_tutorial.html, PyTorch ProcessGroupNCCL environment variables at https://docs.pytorch.org/docs/stable/torch_nccl_environment_variables.html, and NVIDIA NCCL debug environment variables at https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html. Study GPU All-Reduce for the collective contract, Torch distributed process groups for membership, Distributed Tracing for cross-process event alignment, OpenTelemetry Collector for incident pipelines, Runbook Automation for response flow, and GPU Collective Topology Placement Planner for performance root cause analysis.',
+    { heading: 'Real-world uses', paragraphs: [
+        'Flight recorder is useful for long-running training jobs, multi-node fine-tuning, distributed evaluation, checkpoint or validation branches, uneven input pipelines, and process-group-heavy model parallelism. These are settings where a rare hang can waste a large accelerator allocation.',
+        'It also gives incident responders a common artifact. Instead of comparing screenshots from different nodes, they can inspect per-rank event histories and tie a mismatch back to code and runtime metrics.',
+      ],
+    },
+    { heading: 'Where it fails', paragraphs: [
+        'It fails when it was not enabled, when the buffer is too small, when the job exits before dump files are written, or when dumps from some ranks are missing. A missing rank file is a data-collection problem, not proof that the rank behaved correctly.',
+        'It also does not prove root cause by itself. A mismatch can come from uneven data, exception handling, bad conditional logic, resource pressure, real network failure, or an analyzer assumption, so the trace must be paired with logs, metrics, and source inspection.',
+      ],
+    },
+    { heading: 'Worked example', paragraphs: [
+        'Suppose 4 ranks train with one process group. For steps 1 through 41, every rank records all-reduce with the same sequence id, shape 67108864 floats, and dtype float16.',
+        'At sequence 42, ranks 0, 1, and 3 record all-reduce shape 67108864, while rank 2 records all-gather shape 16777216. If the timeout is 600 seconds, the waiting ranks may show 600 seconds of delay, but the mismatch itself is the operation type at sequence 42.',
+        'The engineer then checks the stack frame or nearby application logs for rank 2. A common cause is an if branch where rank 2 entered validation or checkpoint code while the other ranks stayed in the training all-reduce path.',
+      ],
+    },
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary sources: PyTorch Flight Recorder tutorial at https://docs.pytorch.org/tutorials/unstable/flight_recorder_tutorial.html, PyTorch ProcessGroupNCCL environment variables at https://docs.pytorch.org/docs/stable/torch_nccl_environment_variables.html, and NVIDIA NCCL debug environment variables at https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html.',
+        'Study GPU all-reduce, PyTorch distributed process groups, NCCL group ordering, distributed tracing, OpenTelemetry collectors, runbook automation, dataloader sharding, and topology-aware collective placement next. The shared idea is turning a hang into aligned event histories.',
       ],
     },
   ],

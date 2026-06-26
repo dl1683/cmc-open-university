@@ -181,105 +181,42 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `Kafka is often used for read-process-write pipelines. An application consumes records from an input topic, computes derived records, writes those records to an output topic, and advances its consumer offsets so it does not process the same input again. The hard part is that the output write and the offset commit are two different pieces of state.`,
-        `If the app writes output and crashes before committing offsets, it will process the same input again after restart and may write duplicate output. If it commits offsets first and crashes before writing output, it can lose the result. If a producer retries after a broker timeout, the same batch can be appended more than once unless Kafka can recognize the retry as a duplicate. If an old app instance keeps running after a replacement starts, both can write as if they own the same task.`,
-        `Kafka transactions exist to close those windows for pipelines whose input offsets and output records live in Kafka. The guarantee is not magic exactly-once delivery to every system in the world. It is a protocol that makes Kafka output records and Kafka consumer offsets commit together, while read_committed consumers see only committed transactional output.`,
-        {type:`callout`, text:`Exactly-once inside Kafka means output records and consumed offsets share one transaction, while external side effects still need their own idempotency boundary.`}
-      ],
-    },
-    {
-      heading: 'The reasonable first attempt',
-      paragraphs: [
-        `The first design is at-least-once processing. Consume a batch, produce derived records, then commit offsets. This is popular because it is simple and safe against data loss. If the app crashes before committing offsets, Kafka will deliver the same input again and the application can retry the work.`,
-        `The wall is duplicate effects. Retrying input is safe only when the output operation is idempotent or downstream consumers can deduplicate. Many event transformations are not naturally idempotent. A revenue aggregate can be incremented twice. A notification event can be sent twice. A repartitioned stream can contain duplicate records that downstream systems treat as independent facts.`,
-        `The second design commits offsets before processing to avoid duplicates. That trades one failure for another. A crash after the offset commit but before output publication loses the result. The system has recorded progress through the input without recording the corresponding output. The right answer must commit progress and output as one unit.`
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        `There are three failure windows to close. Producer retry can duplicate an append if the broker accepted a record but the acknowledgment was lost. Application crash can separate output publication from offset advancement. Zombie producers can continue writing after a rebalance or restart if an old process does not realize it lost ownership.`,
-        `A normal database transaction would put all affected tables under one transaction manager. Kafka has a different shape. The consumer and producer are separate clients, partitions are distributed logs, and offsets are themselves stored as Kafka-managed state. Kafka exactly-once processing works by making the producer transactional and allowing it to include output records and consumed offsets in the same transaction.`,
-        `The boundary matters. Kafka can coordinate writes to Kafka topics and offset commits for Kafka consumer groups. It cannot by itself make an external email service, payment gateway, object store, or unrelated database participate in the same atomic commit. Those systems need idempotency keys, their own transactions, or an outbox pattern.`
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        `The core insight is to treat progress as data. The application should not merely write derived records and then separately remember that it has consumed input. It should write the derived records and the consumed offsets into one Kafka transaction. Commit publishes both. Abort publishes neither.`,
-        `Idempotent production handles retry duplicates inside a producer session by using producer identity and per-partition sequence numbers. Transactions add a transaction coordinator, a transactional id, producer epochs for fencing old instances, transaction markers, and offset commits inside the transaction. These pieces turn the invisible failure windows into explicit Kafka metadata.`,
-        `Consumer isolation completes the story. A downstream consumer using read_committed does not treat every physical append as visible application data. It skips aborted transactional records and waits behind open transactions when needed. That is why the protocol separates writing records from making records visible.`
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `A transactional application initializes a producer with a transactional id. The transactional id gives Kafka a stable name for the producer across restarts. The producer begins a transaction, the consumer polls input records, and the application computes output records. The producer sends those output records to one or more output partitions while the transaction is open.`,
-        `Before committing, the application sends the consumed offsets to the transaction. In the Java producer API this is the role of sendOffsetsToTransaction. The offsets are not just an afterthought. They are the statement that input up to these positions has been reflected in the output records of this transaction. The transaction coordinator records the transaction state and drives commit or abort markers so brokers and consumers can interpret the records correctly.`,
-        `If the transaction commits, the output records become visible to read_committed consumers and the offsets advance atomically with that output. If the transaction aborts, the output records are skipped by read_committed consumers and the offsets do not advance as successful progress. On restart, the application either reprocesses uncommitted input or continues after offsets that were committed with their output.`
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The retry invariant is sequence order per producer and partition. If a send is retried after an ambiguous failure, Kafka can identify whether the broker has already accepted that sequence. A retry does not need to create a second logical record. This is the idempotent producer part of the system.`,
-        `The crash invariant is atomic visibility of output and offsets. A transaction is either committed or aborted. There is no successful state where downstream consumers see the output but the input offsets remain uncommitted, and no successful state where offsets advance while the output is absent. That is the read-process-write property most stream applications want.`,
-        `The ownership invariant is fencing. A producer epoch lets Kafka reject an older producer instance when a newer producer with the same transactional id takes over. Without fencing, a paused process could wake up after a rebalance and continue writing stale output. Exactly-once processing needs to defend against old owners, not only against crashes.`
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Consider an orders topic and a revenue-by-store output topic. The app consumes orders at offsets 100 through 149 from one input partition. It computes updated revenue records and writes them to the output topic. Then it sends offset 150 to the same transaction and commits. A read_committed dashboard consumer sees the revenue updates only after the transaction commits, and the input offset advances with those updates.`,
-        `If the app crashes before commit, the transaction is aborted or times out. The output records may exist physically in the log, but read_committed consumers skip them. The input offset did not commit as completed progress, so the restarted app consumes offsets 100 through 149 again. That retry is safe because the first attempt did not become visible as committed output.`,
-        `If the app crashes after commit, both facts are durable: output records are visible and offset 150 is committed. The restarted app begins after the committed offset and does not repeat the output. The failure window that caused either duplicates or loss in the naive designs is now represented as commit or abort metadata.`
-      ],
-    },
-    {
-      heading: 'What the animation shows',
-      paragraphs: [
-        `The transaction-flow view follows the consume-transform-produce path. Input records enter the stream app, output records go through a transactional producer, offsets join the transaction, and a read_committed consumer sees only committed output. The key visual is that offsets are part of the transaction, not a separate cleanup step.`,
-        `The failure-boundaries view names the cases the protocol must survive: producer retry, crash before commit, crash after commit, and zombie producer. The external-side-effects matrix marks the boundary. Kafka can coordinate Kafka records and Kafka offsets. A database write, email, payment, or object-store write needs a second pattern outside this guarantee.`
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `Transactions add latency because output is not fully visible until commit. Long transactions can hold back read_committed consumers behind the last stable offset. They also add coordinator work, transaction state, commit markers, abort markers, timeout handling, and operational configuration. A high abort rate can become a real throughput and observability problem.`,
-        `The application must manage transactional ids carefully. Too many ids create state overhead. Reusing ids incorrectly can fence active producers. Rebalances need careful integration so a process does not keep processing partitions it no longer owns. Kafka documentation recommends patterns such as one producer per consumer instance for direct producer-consumer transactional use because clever sharing schemes add complexity.`,
-        `The biggest conceptual tax is boundary discipline. Teams often hear "exactly once" and assume all side effects are covered. Kafka does not make a remote payment API transactional with Kafka. For external side effects, use idempotent business keys, conditional writes, transactional outbox, Kafka Connect support where applicable, or a database transaction that owns the side effect record.`
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `Kafka transactions win for Kafka-in, Kafka-out stream processing. Kafka Streams aggregations, repartitioning jobs, enrichment pipelines, deduplicated transformations, and materialized output topics all fit the model when the important output is written back to Kafka and downstream consumers use read_committed isolation.`,
-        `They also win when replay is normal. Stream processors should be able to restart, rebalance, and retry. Transactions let a replay of uncommitted input avoid duplicate committed output. The protocol turns crash recovery into a deterministic choice: either the previous transaction committed and offsets moved, or it did not and the input is processed again.`
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `Kafka transactions fail as a universal side-effect protocol. Sending an email inside the transaction does not unsend the email if the Kafka transaction aborts. Writing to an external database outside a coordinated transaction can still create duplicates or mismatches. Updating an in-memory cache does not become durable because Kafka committed.`,
-        `The mechanism is also a poor fit for very low-latency single-record paths where commit overhead dominates, for pipelines whose output system cannot deduplicate, or for teams unwilling to configure transactional ids, isolation levels, timeouts, and monitoring. At-least-once plus idempotent output may be simpler and more reliable for many workloads.`
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `A common failure mode is a downstream consumer running with read_uncommitted isolation and accidentally observing aborted transactional records. Another is transaction timeout: the app does useful work for too long, the transaction aborts, and the input is retried. A third is zombie work after rebalance, where a stale instance keeps processing without realizing it has lost partition ownership.`,
-        `Operational signals include transaction commit latency, abort rate, producer fencing errors, coordinator errors, timeout errors, and consumer lag behind the last stable offset. Those metrics tell different stories. High consumer lag may mean long open transactions rather than slow consumers. Fencing errors may mean the system is correctly rejecting stale producers or incorrectly reusing transactional ids.`
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: Apache Kafka design documentation at https://kafka.apache.org/43/design/design/, Apache Kafka producer configuration docs at https://kafka.apache.org/41/configuration/producer-configs/, and Kafka Streams core concepts at https://kafka.apache.org/43/streams/core-concepts/.`,
-        `Study Kafka Log Case Study for append-only partition mechanics, Idempotency and Exactly-Once Delivery for the general duplicate-control problem, Transactional Outbox for external database integration, Two-Phase Commit for the classic atomic-commit model, Flink Checkpointing Case Study for a different stream-processing fault-tolerance design, and Schema Registry Case Study for compatibility control on the records being transactionally published.`
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read transaction flow as a read-process-write loop. The app consumes input, writes output through a transactional producer, and sends consumed offsets into the same transaction. The failure view names retry, crash, and zombie-producer windows.',
+      {type:`callout`, text:`Exactly-once inside Kafka means output records and consumed offsets share one transaction, while external side effects still need their own idempotency boundary.`}
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Kafka stream apps often consume records, compute results, write output records, and commit offsets. Output and offsets are separate pieces of state. A crash between them creates either duplicate output or lost output.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is at-least-once processing: write output, then commit offsets. A crash before the offset commit retries the input, which avoids loss but can duplicate output. Committing offsets first avoids duplicates but can lose output after a crash.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is atomic progress. Output publication and input progress must become one decision. Producer retries and stale app instances add more failure windows, so Kafka also needs sequence numbers and fencing epochs.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Treat consumed offsets as data inside the transaction. The app writes output records and the offsets those records cover, then commits or aborts both together. Idempotent producers handle retry duplicates, and producer epochs fence old instances.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'A transactional producer starts with a transactional id. It begins a transaction, writes output records, sends consumed offsets to the transaction, and commits through the transaction coordinator. Commit markers make records visible to read_committed consumers; abort markers make them skipped.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The retry invariant is per-producer sequence order, so a retried send does not become a second logical append. The crash invariant is atomic visibility of records and offsets. The ownership invariant is fencing: a new producer epoch rejects writes from an old zombie producer.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Transactions add coordinator work, markers, timeouts, and visibility delay. If a transaction covers 100 records and commit overhead is 8 ms, the commit tax is 0.08 ms per record. If every record commits alone, the same 8 ms dominates latency.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Kafka transactions win for Kafka-in, Kafka-out stream processing: aggregations, repartitioning, enrichment, dedupe, and Kafka Streams topologies. They are strongest when downstream consumers use read_committed and the important output is written back to Kafka.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'Kafka transactions do not make external systems exactly-once. Sending email, charging a card, or writing to an unrelated database still needs idempotency keys, a transactional outbox, conditional writes, or another coordination pattern. read_uncommitted consumers can also observe records the app intended to hide.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'An app consumes order offsets 100 through 149 and writes revenue updates. It sends offset 150 into the same transaction and commits. If it crashes before commit, read_committed consumers skip the output and offset 150 is not committed; if it crashes after commit, both output and offset 150 are durable.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Kafka design docs at https://kafka.apache.org/43/design/design/, producer configs at https://kafka.apache.org/documentation/#producerconfigs, consumer isolation docs at https://kafka.apache.org/documentation/#consumerconfigs_isolation.level, and KIP-98 at https://cwiki.apache.org/confluence/display/KAFKA/KIP-98+-+Exactly+Once+Delivery+and+Transactional+Messaging. Study Kafka Log, Idempotency, Transactional Outbox, Two-Phase Commit, Flink Checkpointing, WAL, and Zombie Writer Fencing next.',
+    ] },
   ],
 };

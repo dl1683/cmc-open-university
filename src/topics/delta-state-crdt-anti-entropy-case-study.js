@@ -296,88 +296,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The delta-mutator view shows one replica changing local state and emitting a small fragment. A CRDT is a replicated data type whose merge rule makes replicas converge despite reordering and duplicate delivery. Active nodes show the local mutator, emitted delta, buffer, and gossip path; found nodes show state that has become known to a peer.',
+        'The anti-entropy view shows the repair loop. Anti-entropy means repeated exchange of missing state until replicas agree. The safe inference rule is that a delta may be joined only when it is valid CRDT state and any causal base it assumes is already present or supplied by repair.',
+        {type:'callout', text:'Delta-state CRDTs save bandwidth only because every small fragment remains joinable state protected by anti-entropy, peer frontiers, and causal guards.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `State-based CRDTs are attractive because they converge through a simple rule: merge states with a join operation that is associative, commutative, and idempotent. If two replicas keep exchanging full states, duplicates and reordering are harmless. The painful part is bandwidth. A one-key change in a large map can force the sender to ship the whole object again.`,
-        `Delta-state CRDTs exist to keep the robustness of state-based merge while sending only the state fragment caused by a recent update. The fragment is smaller than the full object, but it is still CRDT state. That detail matters because the receiver can merge it with the same join rule instead of replaying a fragile command.`,
-        {type:'callout', text:'Delta-state CRDTs save bandwidth only because every small fragment remains joinable state protected by anti-entropy, peer frontiers, and causal guards.'},
+        'State-based CRDTs are attractive because merge is simple: replicas periodically exchange state and join it. Join means the least upper bound in a semilattice, a structure where merge is associative, commutative, and idempotent. Duplicate packets, reordered packets, and retries do not change the final answer.',
+        'The cost is bandwidth. A one-key update in a large replicated map can force the sender to ship the whole map. Delta-state CRDTs exist to keep state-based convergence while sending only the small state fragment created by a recent update.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The obvious approach is full-state gossip. Every so often, each replica sends its entire counter, set, map, or document metadata to peers. This is easy to reason about. If a packet is lost, another full state later repairs it. If a packet is duplicated, merge is idempotent. If packets arrive out of order, the join still moves the receiver upward in the lattice.`,
-        `The second obvious approach is operation shipping: send "increment A" or "remove tag x" as an event. That is bandwidth-friendly, but it needs stronger delivery and causal guarantees. If an operation is lost, applied twice, or delivered before its dependencies, convergence can fail unless the system adds exactly the metadata it hoped to avoid.`,
+        'The obvious approach is full-state gossip. Every replica sends the entire counter, set, or map to every peer on a schedule. It is wasteful but robust because any later full state repairs missed earlier packets.',
+        'A second approach is operation shipping. Send commands such as increment A or remove tag x. This is compact, but it needs causal delivery, dedupe, and replay protection because applying the same operation twice or before its dependency can change the result.',
       ],
     },
     {
-      heading: 'Naive failure modes',
+      heading: 'The wall',
       paragraphs: [
-        `A random JSON diff is not automatically a delta-state CRDT. If applying the diff twice changes the answer, it is not idempotent. If applying it before another required fragment creates an impossible state, it needs a causal guard. If the sender throws it away before slow peers receive it, anti-entropy has no repair material.`,
-        `The common mistake is to keep the small message and drop the algebra. Delta-state CRDTs are useful because each message remains joinable state. When a system treats the delta as a fire-and-forget event, it inherits operation-log failure modes without admitting that it is now running an operation protocol.`,
+        'The wall is that a random diff is not a CRDT state fragment. If applying it twice changes the answer, it is not idempotent. If applying it before required base state creates an impossible set or map, it needs a causal guard.',
+        'There is also a retention wall. If a sender discards a delta before a slow peer receives it, anti-entropy has no repair material. Full-state gossip can repair by sending everything; delta gossip must track what each peer has seen or fall back to a snapshot.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        `The core insight is to make each mutator return two things: the new local state and the compact state fragment that caused the change. The replica joins that fragment locally, stores it in a delta buffer, and later sends it to peers. The receiver joins the fragment just as it would join a full state.`,
-        `This puts delta-state CRDTs between full-state CRDTs and operation-based CRDTs. They avoid sending the entire object after every edit, but they also avoid depending on one perfect delivery of each command. Duplicates and retries remain safe because the receiver is still performing a join, not executing an imperative mutation.`,
+        'Make each mutator return a joinable state fragment, not a command. The replica joins that fragment locally, stores it in a retained buffer, and later sends it to peers. The receiver uses the same join operation it would use for a full-state merge.',
+        'This keeps the algebra while reducing message size. A G-counter increment at replica A can send only A\'s component. An observed-remove set can send a new add tag or tombstone. The fragment is small, but it remains state.',
       ],
     },
     {
-      heading: 'How delta mutators work',
+      heading: 'How it works',
       paragraphs: [
-        `For a G-counter, an increment at replica A only changes A's component. The delta can contain that component rather than the whole vector. When another replica receives it, elementwise max merges the fragment. Sending the same fragment twice does not double-count, because max is idempotent.`,
-        `For an observed-remove set or map, a delta may carry a new add tag, a tombstone for a known tag, or a compact bundle of recent cell changes. The exact structure depends on the CRDT, but the rule is the same: the fragment must live in the same semilattice as the full state, and merge must mean join.`,
+        'A replica numbers or groups emitted deltas into intervals. For each peer, it records a frontier: the newest interval the peer is known to have, plus any pending gaps. The sender chooses a missing interval, sends it, waits for acknowledgment or evidence of receipt, and retries when needed.',
+        'Causal guards handle fragments that assume earlier state. If peer B receives interval d3..d4 but lacks the base from d1..d2, the safe choices are to hold d3..d4, request the gap, or send a snapshot. Garbage collection waits until old deltas are acknowledged, compacted into a snapshot, or no longer needed for any live peer.',
       ],
     },
     {
-      heading: 'How anti-entropy works',
+      heading: 'Why it works',
       paragraphs: [
-        `Anti-entropy is the repair loop. Each replica keeps a retained log or buffer of delta fragments, often with sequence numbers, intervals, causal bases, and peer acknowledgments. For each peer, the sender tracks what that peer is believed to know. Then it chooses a missing interval, sends it, waits for evidence, and retries or falls back when the peer is too far behind.`,
-        `A delta interval is a practical batching unit. Instead of sending one tiny packet per edit, the sender coalesces adjacent fragments into one joinable state fragment. Instead of sending the full object, it sends only the recent interval the peer lacks. If the interval depends on base state the peer does not have, the sender must fill the gap or send a snapshot.`,
+        'Convergence follows from the state-based CRDT laws. If every update is eventually represented in a joinable fragment that reaches every live replica, and each receiver merges by join, replicas move toward the same least upper bound. Reordering and duplicates are harmless because join is commutative and idempotent.',
+        'The extra condition is delivery through anti-entropy. Delta-state CRDTs are not correct because one packet arrives. They are correct because retained deltas, peer frontiers, causal checks, retries, and snapshots make missing state eventually available.',
       ],
     },
     {
-      heading: 'What the visual proves',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The mutator graph proves the safe path for one edit: state flows into a mutator, the mutator emits a delta, the delta is joined locally, the same delta is buffered, and later gossip sends it to another replica for the same join operation. The fragment never becomes a one-shot command that would break on duplicate delivery.`,
-        `The anti-entropy graph proves that convergence is not a single send. The retained delta log, peer frontiers, causal guard, retry path, and garbage collection step are all part of the algorithm. The bandwidth plot gives the reason for the complexity: deltas track recent change mass, while full-state sync tracks total object size.`,
+        'Bandwidth behaves with recent change mass instead of total object size. If a map has 1,000,000 keys and one key changes, full-state gossip may ship the whole map, while delta gossip ships one cell plus metadata. If 10,000 keys change between syncs, the delta interval grows with those 10,000 changes.',
+        'The cost is memory and protocol logic. The system stores delta history, peer acknowledgments, interval metadata, causal bases, and snapshots. Keeping long history helps slow peers catch up cheaply; compacting early saves memory but forces larger snapshots after outages.',
       ],
     },
     {
-      heading: 'Why it converges',
+      heading: 'Real-world uses',
       paragraphs: [
-        `The convergence argument relies on the same merge laws as state-based CRDTs. If every update is eventually represented in state fragments that reach every live replica, and every receiver merges by join, then all replicas move toward the same least upper bound. Reordering and duplication do not matter because join is commutative and idempotent.`,
-        `The extra condition is causal safety for deltas that assume prior state. Some delta intervals are self-contained; others are meaningful only if the receiver already has a base. A correct anti-entropy protocol checks that base, requests missing intervals, holds the delta until safe, or resets the peer with a snapshot. That guard is what stops small fragments from creating impossible partial states.`,
+        'Delta-state CRDTs fit replicated counters, maps, feature flags, membership sets, shopping carts, presence systems, edge configuration, and local-first metadata. They are strongest when links are unreliable but full-state messages are too large.',
+        'A configuration map is a typical example. Changing feature.checkout to enabled emits a key-level delta, joins it locally, buffers it as interval d42, and sends it to peers that lack it. A new peer gets a snapshot because it has no useful frontier.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Where it fails',
       paragraphs: [
-        `Delta-state CRDTs spend memory and implementation complexity to save bandwidth. The system must retain delta history, summarize peer knowledge, manage acknowledgments, detect gaps, compact old fragments, and decide when a snapshot is cheaper than repair. Full-state gossip is larger but much simpler.`,
-        `There is also a tuning tradeoff. Keeping long delta history helps slow peers catch up cheaply, but it consumes memory. Compacting aggressively saves memory but forces snapshots after short outages. Larger intervals reduce packet overhead but may include unnecessary changes. Smaller intervals are precise but create more metadata and retry work.`,
+        'It fails when implementations keep the small message and drop the algebra. A JSON patch that is not idempotent is an operation protocol in disguise. It needs operation-protocol guarantees, not CRDT-state guarantees.',
+        'It also fails under early garbage collection or corrupted peer frontiers. If the sender believes peer B has d40..d42 when it does not, B may never converge. Metrics must track delta backlog, snapshot fallbacks, frontier lag, and repair failures, not only bytes saved.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Worked example',
       paragraphs: [
-        `Delta-state CRDTs win in replicated maps, counters, membership sets, feature-flag stores, shopping carts, presence systems, local-first metadata, and edge configuration systems where full-state messages become expensive but the deployment still wants retry-friendly state merge. They are especially useful when peers are intermittently connected or when network links are asymmetric.`,
-        `A concrete replicated configuration map shows the pattern. A node changes feature.checkout to enabled. The map emits a key-level delta, joins it locally, stores it as d42, and records that peer B still needs d42. Peer C, which missed d40 through d42, gets an interval. A new peer gets a snapshot. Old deltas are dropped only after the relevant peers have acknowledged them or can recover from a compacted state.`,
+        'Replica A holds a G-counter state {A: 2, B: 1, C: 0}, whose value is 3. A increments once, producing delta {A: 3}. A joins the delta locally, so its state becomes {A: 3, B: 1, C: 0} and value 4.',
+        'A sends {A: 3} to B twice because the first acknowledgment is lost. B computes elementwise max with its state. The first delivery raises A\'s component to 3; the second delivery changes nothing. The same delta is compact, retry-safe, and convergent.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Sources and study next',
       paragraphs: [
-        `The most dangerous failure is early garbage collection. If the sender discards a delta before all relevant peers have received it or before a snapshot can cover it, a slow peer may never converge. A second failure is missing causal guards. Joining a fragment without its base can make a set, map, or tombstone structure disagree with its own invariants.`,
-        `Other failures are operational: unbounded delta logs, peer-frontier corruption, treating a disconnected peer as permanently acknowledged, snapshot formats that do not match delta semantics, and metrics that count bytes saved while ignoring repair backlog. Bandwidth reduction is useful only if the repair loop remains correct under loss, delay, duplicates, and restarts.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study CRDTs for the algebraic merge laws, Gossip Protocol for epidemic repair, Version Vectors & Dotted Version Vectors for causal metadata, and Read/Write Quorums for a contrasting replication strategy. Merkle Tree is useful for anti-entropy designs that compare large replicated datasets by hash before sending differences.`,
-        `Then study Local-First Sync Engine Case Study, Yjs Struct Store & Updates, Automerge Change Graph & Columnar Storage, CRDT Snapshot Compaction & Garbage Collection, Conflict-Free Replicated JSON, and Event Sourcing. Those topics show neighboring designs for collaborative documents, durable logs, snapshots, and peer repair.`,
+        'Study Almeida, Shoker, and Baquero on delta-state CRDTs, state-based CRDT semilattices, dotted version vectors, and anti-entropy protocols. The important source question is whether a message is joinable state or a command with delivery requirements.',
+        'Inside this curriculum, study CRDTs, Gossip Protocol, Version Vectors, Merkle Tree, Local-First Sync Engine Case Study, Yjs Struct Store and Updates, Automerge Change Graph, CRDT Snapshot Compaction, and Event Sourcing. These topics separate algebraic merge, causal metadata, and durable repair.',
       ],
     },
   ],

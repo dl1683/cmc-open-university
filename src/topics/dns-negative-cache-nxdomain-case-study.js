@@ -164,105 +164,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'DNS is full of repeated misses. Users mistype hostnames, bots probe random names, deploys delete records, and applications retry after failures. Without negative caching, every repeated miss can walk from the recursive resolver to root, TLD, and authoritative servers again.',
-        'Negative caching exists to make authoritative absence reusable for a bounded time. A resolver can answer repeated NXDOMAIN or NODATA queries locally, reducing user latency and protecting authoritative servers from useless traffic.',
+        'Read the animation as a resolver deciding whether absence can be reused. A recursive resolver is the DNS server that performs lookups for clients, NXDOMAIN means the owner name does not exist, and NODATA means the owner exists but lacks the requested record type. Active state is the current query or cache decision, visited state is authority that has already been checked, and found state is a cache entry whose scope is proven.',
+        'The safe inference is narrow: an authoritative NXDOMAIN for one name can answer later matching queries only until its negative TTL expires. A timeout, SERVFAIL, or validation failure is not absence. The animation should make that boundary visible before it shows the cache hit.',
         {type: 'callout', text: 'Negative caching is bounded reuse of authoritative absence, with the cache key and TTL carrying the safety guarantee.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/b/b1/Domain_name_space.svg', alt: 'Diagram of the DNS namespace tree with delegated zones and resource-record sets.', caption: 'Domain name space and zone-delegation diagram, LionKimbro and Wereldburger758, public domain, via Wikimedia Commons.'},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'DNS maps names to records by walking authority from the root toward the owning zone. Many lookups are misses: mistyped names, deleted hosts, bot probes, and missing record types. Without negative caching, each repeated miss can force another resolver walk.',
+        'Negative caching exists to make proven absence cheap for a bounded time. It protects authoritative servers from repeated useless traffic and reduces client latency. The cache entry is useful only because the absence came from the authority for the zone.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simplest resolver can avoid caching misses. If a name is absent, ask the hierarchy again next time. That is easy to reason about because a newly created name becomes visible as soon as authority serves it.',
-        'The opposite shortcut is also tempting: cache every DNS error as a miss. That reduces retry load, but it confuses lookup failure with authoritative absence. A timeout or SERVFAIL does not prove the name is gone.',
+        'The simplest resolver does not cache misses. If a name fails, it asks the DNS hierarchy again on the next query. That is fresh and easy to reason about because a newly created record becomes visible as soon as the authoritative server returns it.',
+        'A different shortcut is to cache every DNS error. That lowers retry traffic but confuses failure with nonexistence. A server timeout does not prove that a name is absent.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'No-cache misses create a retry amplifier. A typo in a popular URL, a broken service discovery name, or a bot scan can force many recursive resolvers to repeat the same pointless walk. The DNS hierarchy spends work proving the same absence over and over.',
-        'Caching all errors is worse in a different direction. It can turn a temporary authoritative outage into a false deletion. The resolver needs a data structure that remembers absence only when the right authority said the name or type was absent.',
+        'No-cache misses become a retry amplifier. If 50,000 clients repeatedly ask for typo.example.com, the resolver fleet can send the same impossible lookup toward authority again and again. The DNS tree spends work proving the same absence.',
+        'Caching every error breaks correctness. A temporary SERVFAIL during an outage could make the resolver answer false NXDOMAIN later. The resolver needs a table that stores only authoritative negative answers and only within the scope that answer proves.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'A negative cache is a scoped absence table. The key is not just a string. It includes the queried name, record type, class, and zone context. The value records whether the answer was NXDOMAIN or NODATA, the authority metadata, insertion time, expiration time, and DNSSEC proof material when the zone is signed.',
-        'The SOA-derived negative TTL is the safety valve. It lets absence suppress repeated work, but only until the zone owner says the denial should be refreshed.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        "In the NXDOMAIN-cache view, read the cache entry as an authoritative absence claim with scope. It is not just the string that missed; it is the queried name, type, class, zone authority, denial kind, proof metadata, and expiration time.",
-        "In the failure-boundary view, watch which responses are allowed to become negative cache entries. NXDOMAIN and NODATA can be cached under protocol rules. SERVFAIL, timeout, and validation trouble are not proof that the name or type does not exist.",
-        "The highlighted timer is the safety boundary. Negative caching is useful because it suppresses repeated useless lookups, but it is safe only while the authoritative denial remains within its TTL.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A client asks for `typo.example.com A`. The recursive resolver walks the hierarchy and reaches the authoritative servers for `example.com`. The authoritative answer says NXDOMAIN and includes the SOA data used to bound negative caching. The resolver can now answer repeated queries for that absent name locally until the negative TTL expires.',
-        'Now compare a different case: `www.example.com` exists, but has no AAAA record. That is NODATA, not NXDOMAIN. The resolver can cache the absence of the AAAA RRset, but it must not conclude that `www.example.com` itself is absent. That distinction is why negative cache keys need more structure than a hostname string.',
+        'A negative-cache entry is not just a hostname. Its key includes the query name, record type, class, denial kind, zone authority, and expiration time. For signed zones, it can also include DNSSEC denial proof material.',
+        'The negative TTL is the safety valve. It says how long the resolver may reuse the absence before asking authority again. Longer TTLs reduce repeated work, but they also delay recovery when a name is created after clients already saw NXDOMAIN.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'On a miss, the recursive resolver performs the normal DNS walk. Root and TLD servers usually return referrals. The authoritative server for the zone is the first server allowed to say that a name does not exist in that zone or that a name exists without the requested type.',
-        'The resolver stores the negative answer with the authority section and expiration rules from RFC 2308. Later matching queries can be answered from the negative cache. SERVFAIL, timeout, and other resolution failures can be damped separately, but they are not proof of non-existence.',
+        'On a cache miss, the recursive resolver performs the normal DNS walk. Referrals from root and top-level-domain servers lead to the authoritative server for the zone. Only that authority can say that a name does not exist in the zone or that an existing name lacks the requested type.',
+        'The resolver stores the negative response with its expiration rule, often derived from SOA information under RFC 2308. Later matching queries are answered locally until the entry expires. SERVFAIL and timeout can be damped by separate failure caching rules, but they are not NXDOMAIN or NODATA proof.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The mechanism is correct only because the cache entry is scoped to the authority that proved the absence and expires on a bounded timer. The resolver is not inventing absence; it is reusing an authoritative statement for the interval the DNS protocol permits.',
-        'NXDOMAIN and NODATA must stay separate. NXDOMAIN says the owner name does not exist. NODATA says the owner name exists but has no RRset of the requested type. Mixing those states would make the cache answer questions it was never authorized to answer.',
+        'The correctness argument is authority plus scope plus time. The resolver is not inventing absence; it is reusing a statement made by the zone authority. The entry answers only the same question or the exact related question that the protocol allows.',
+        'NXDOMAIN and NODATA must stay distinct. NXDOMAIN says the owner name is absent. NODATA says the owner name exists but the requested record type is absent. If a resolver merges those states, it can incorrectly hide valid records at the same owner name.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The benefit is fewer repeated tree walks. When the same typo is queried thousands of times, the expensive operation becomes one authoritative proof plus many local cache hits. Memory cost is the negative-cache table and any proof records needed for validation.',
-        'The tax is recovery time. A long negative TTL lowers retry load, but an accidental NXDOMAIN can keep working clients broken until recursive resolvers expire the entry. Negative TTLs are therefore both performance knobs and incident-recovery knobs.',
-        'DNSSEC can add proof size and validation work, but it also makes denial more auditable. Signed zones can provide authenticated denial material such as NSEC or NSEC3 records. Unsigned zones still rely on the resolver trusting the authority path and cache timing.',
+        'A cold miss still costs a DNS walk. A warm negative-cache hit costs a local lookup, so repeated misses collapse from many network queries to one authoritative proof plus table reads. When repeated query count doubles for the same absent name, authority load stays almost flat until the negative TTL expires.',
+        'The cost is memory for negative entries and operational delay after mistakes. A 600-second negative TTL can suppress a typo storm, but it can also keep returning NXDOMAIN for up to 10 minutes after a record is created. DNSSEC adds response bytes and validation work when absence is cryptographically proven.',
       ],
     },
     {
-      heading: 'Operational guidance',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Before creating a new name during an incident, remember that old misses may be cached. If clients already asked for the name and received NXDOMAIN, some resolvers will keep returning absence until the negative TTL expires. Lowering TTL after the fact cannot recall entries already cached elsewhere.',
-        'Monitor NXDOMAIN rate, NODATA rate, SERVFAIL rate, validation failures, and top negative names separately. Combining them into one "DNS error" graph hides the most important distinction: authoritative absence versus lookup failure.',
-      ],
-    },
-    {
-      heading: 'DNSSEC boundary',
-      paragraphs: [
-        'Signed zones add authenticated denial records, but they do not remove the need for careful cache scope. NSEC and NSEC3 can prove that a name or type is absent within a zone. The resolver still has to bind that proof to the right query, validation chain, and expiration time.',
-        'NSEC3 also shows the privacy tradeoff. It can make zone walking harder than plain NSEC, but it adds hashing and proof complexity. The educational point is that absence can be a cryptographic statement, not just a server saying "no."',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Negative caching wins for typos, bot scans, deleted names, missing record types, and broken clients that retry the same absent name. It turns repeated absence checks into local resolver work.',
-        'It also helps operators see real patterns. NXDOMAIN spikes can reveal bad deploys, bad links, abuse scans, or service-discovery clients looking for names that no longer exist.',
+        'Negative caching is useful for public recursive resolvers and enterprise resolvers because repeated absence is common. A bot scan over random subdomains can generate millions of names that never existed. Caching authoritative absence keeps those probes from becoming repeated upstream load.',
+        'It is also useful during ordinary application errors. A broken service-discovery client may retry a missing name every second. Negative caching turns that bug into local resolver work while operators inspect NXDOMAIN rate and the top absent names.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Negative caching fails when a resolver treats failure as absence. SERVFAIL, timeout, lame delegation, and validation trouble need different handling from NXDOMAIN and NODATA.',
-        'It also hurts during fast migrations when names may appear shortly after a miss. Before risky DNS changes, lowering negative TTLs can matter more than shaving retry traffic.',
-        'It is also dangerous for service-discovery systems that create names on demand after clients have already probed them. If names are expected to appear shortly after first lookup, long negative caching can make creation look broken long after authority has the right record.',
+        'Negative caching fails when the system treats lookup failure as absence. SERVFAIL, lame delegation, timeout, and DNSSEC validation trouble require different handling. Returning a cached NXDOMAIN for those conditions would be a false claim.',
+        'It also hurts workflows that create names after first use. If clients probe future names before deployment, resolvers may cache absence and keep returning it after the records exist. Shorter negative TTLs are often more important before risky DNS migrations than shorter positive TTLs.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A client asks for typo.example.com A at 12:00:00. The resolver reaches the authoritative server for example.com, receives NXDOMAIN, and stores a negative entry with TTL 300 seconds. From 12:00:01 through 12:04:59, 20,000 repeated queries can be answered from local cache.',
+        'At 12:05:00 the entry expires. If typo.example.com has now been created with A 203.0.113.9, the next lookup can fetch the new positive answer. If the negative TTL had been 1,800 seconds, the same clients could keep seeing absence for 30 minutes after the record was published.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RFC 2308 DNS Negative Caching at https://www.rfc-editor.org/rfc/rfc2308 and RFC 9520 Negative Caching of DNS Resolution Failures at https://www.rfc-editor.org/rfc/rfc9520. Study How DNS Works for the resolver walk, DNS Serve-Stale Resolver Cache for the opposite stale-positive policy, LRU Cache for local eviction pressure, Cache Invalidation & Versioning for TTL trade-offs, CDN Request Flow for edge cache parallels, Resource Hints: Preload & Preconnect for client-side latency, and Tail Latency & p99 Thinking for retry amplification.',
+        'Primary sources include RFC 2308 at https://www.rfc-editor.org/rfc/rfc2308 and RFC 9520 at https://www.rfc-editor.org/rfc/rfc9520. Study recursive DNS lookup before this topic, DNS serve-stale for the opposite positive-cache resilience policy, DNSSEC NSEC3 for authenticated absence, and cache invalidation for TTL tradeoffs.',
       ],
     },
   ],

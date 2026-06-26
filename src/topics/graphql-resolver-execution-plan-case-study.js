@@ -193,87 +193,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `GraphQL exists because many clients need a shaped view of server data, and fixed REST endpoints often force a bad choice. One endpoint may underfetch and require follow-up calls. Another may overfetch and ship fields the screen does not need. A mobile app, dashboard, or CMS page wants to ask for a nested shape and receive that shape back.`,
-        `The server still needs control. It must parse the request, validate it against a schema, execute resolver functions, enforce authorization, batch backend access, preserve response paths, and report errors in a way the client can understand. The request is a tree, but the work behind it is often a graph of databases, services, caches, indexes, policy checks, and traces.`,
-        {type:`callout`, text:`GraphQL flexibility comes from splitting response shape from execution work: the query tree defines output, while the resolver plan controls batching, policy, and errors.`},
+        'Read the query as a tree of requested response fields, then read the execution plan as the work graph that produces those fields. The tree defines shape, while resolvers, loaders, authorization checks, caches, and backend calls define behavior.',
+        'The safe inference is that a nested field is not free because it looks local in the schema. If fifty parent objects each call a child resolver separately, one clean query can turn into fifty backend lookups.',
+        {type:'callout', text:'GraphQL flexibility comes from splitting response shape from execution work: the query tree defines output, while the resolver plan controls batching, policy, and errors.'},
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive implementation treats every field resolver as an independent function that can call whatever backend it needs. The root resolver loads a list. Each child resolver loads its own children. Each nested object repeats the pattern. This is easy to write because it matches the shape of the schema.`,
-        `The wall is the N plus 1 problem. A query asks for 50 projects and each project owner. The project resolver loads 50 projects, then the owner resolver runs 50 separate user lookups. Add incidents, comments, permissions, and cost totals, and one friendly query becomes a storm of backend calls.`,
-        `The second wall is control. If the client can choose any nested shape, the client can accidentally choose expensive work. If authorization runs only at the top-level route, nested resolvers may leak fields. If errors are formatted without paths, the client cannot tell which part failed. A resolver tree without an execution plan is flexible, but it is also easy to abuse.`,
+        'GraphQL lets clients ask for a shaped response instead of choosing from fixed endpoints. A mobile screen can request exactly the nested fields it needs without overfetching a large REST payload or underfetching and making follow-up calls.',
+        'The resolver execution plan exists because server control still matters. The server must validate the request, enforce schema and authorization rules, batch backend access, preserve response paths, and return partial errors safely.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious implementation makes every field resolver a small function. The project resolver returns projects, the owner resolver loads an owner, and the comments resolver loads comments.',
+        'That feels natural because it mirrors the schema. It fails when many local-looking resolvers call databases, services, or caches independently inside one request.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is the N plus 1 problem. A query loads fifty projects, then each project.owner field performs one user lookup, so one list query becomes fifty-one backend calls before other child fields are counted.',
+        'A second wall is policy. If authorization, depth limits, pagination, and cost checks are not part of the execution plan, a valid-looking query can become expensive or leak nested data across tenant boundaries.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to separate response shape from work scheduling. The selection tree says what the response must look like. The execution plan says how to collect, authorize, batch, cache, trace, and assemble the data. Those are related, but they are not the same object.`,
-        `GraphQL execution begins before resolvers run. The server parses the document, validates fields and selection sets against the schema, applies fragments and directives, groups fields by response key, and only then executes resolvers. Invalid operations should fail before side effects begin.`,
-        `Batching turns field fanout into key sets. A DataLoader-style layer collects keys during an execution turn, deduplicates them, performs one bulk lookup, and scatters results back to waiting resolvers in the original key order. That is a queue and hash table inside the resolver system.`,
+        'Separate response shape from work scheduling. The GraphQL operation says what the JSON response should look like, while the execution plan decides how to validate, authorize, batch, cache, trace, and assemble the result.',
+        'Batching changes the unit of backend work. Instead of resolving owner one project at a time, request-scoped loaders collect owner IDs, deduplicate them, fetch them in bulk, and scatter results back to the original response paths.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A request starts as text. The parser builds an operation AST. Validation checks that requested fields exist on the relevant types, leaf fields are leaves, object fields have selection sets, fragment spreads are legal, arguments have valid shapes, and variables are used correctly. This stage rejects bad requests before resolver code performs work.`,
-        `Execution then collects fields. Aliases matter because they define response keys. Fragments and type conditions matter because they decide which selections apply to which runtime object types. Directives can include or skip fields. The executor walks the grouped field set and calls the resolver for each field that should produce a value.`,
-        `A resolver receives the parent object, field arguments, request context, and execution info. It may return a scalar, object, list, promise, or value that needs completion against the GraphQL type. Batch loaders sit beside resolvers: they collect keys, issue one lookup, and return results under the requested response paths.`,
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        `The selection-tree visual proves the contract path. Client query, parse, validation, field collection, resolver execution, backend access, and response assembly are separate stages. The response node is not arbitrary JSON. It must mirror the operation's requested shape, including aliases and nested paths.`,
-        `The resolver-batching visual proves the performance path. Direct resolver-to-store calls create backend fanout. The batch node changes the shape of the work: collect keys, deduplicate, fetch in bulk, and scatter results back. The visual also shows where cost limits, auth, cache scope, and tracing belong. They have to wrap the execution plan, not appear after the incident.`,
-      ],
-    },
-    {
-      heading: 'Batching and the N plus 1 problem',
-      paragraphs: [
-        `The N plus 1 problem is the most common GraphQL performance trap because the schema encourages local resolver code. A parent list returns N objects. A child field runs once per object. If each child resolver calls the backend separately, latency and load grow with the size of the list.`,
-        `A batcher changes the unit of backend work. Instead of calling loadUser once for each project owner, each resolver calls a request-local loader. The loader records the key and returns a pending result. At the end of the execution turn, it sends one lookup for all collected keys, maps results back by key, and resolves each waiter.`,
-        `The key order contract matters. If callers ask for IDs [7, 3, 7, 9], the batch function must return aligned values or scatter through a map. Request scope matters too. A shared process cache can leak data across users or serve stale data after a mutation, while a request-scoped loader deduplicates inside one operation and one authorization context.`,
+        'The server parses the query text into an abstract syntax tree. Validation checks field names, argument types, fragments, directives, variables, leaf selections, object selections, and schema rules before side effects begin.',
+        'Execution groups fields by response key, handles aliases and fragments, and calls resolvers with parent value, arguments, request context, and execution info. Resolvers may return scalars, objects, lists, promises, or errors.',
+        'A DataLoader-style queue records keys during an execution turn. At the batch boundary, it performs one bulk lookup, aligns results by key, and resolves the waiting field promises under their original paths.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `GraphQL execution works because the schema gives the executor a contract for every field. The server knows which fields exist, which arguments they accept, which type they return, and whether the result may be null. That type information lets validation reject impossible requests and lets execution complete returned values into the promised response shape.`,
-        `Batching works because many sibling or nearby resolver calls ask for the same kind of backend object. The executor may see a tree, but the loader sees a set of keys. Turning many local calls into one grouped lookup preserves the response contract while changing backend access from repeated random work to a bulk operation.`,
-        `Path-aware errors work because every field has a position in the response tree. A resolver failure can attach to a path such as viewer.projects.3.owner. Non-null fields change propagation: if a non-null child fails, null can bubble to the nearest nullable parent. That means nullability is part of the correctness contract, not just documentation.`,
+        'Validation works because the schema is a contract for every field. The executor knows which fields exist, which arguments are allowed, which type each resolver must complete, and whether null is permitted.',
+        'Batching is correct when the loader preserves key identity and response path. If callers request user IDs [7, 3, 7, 9], the batch may fetch unique IDs [7, 3, 9], but it must return the right user to each waiting resolver.',
+        'Path-aware errors are also part of correctness. A failure at viewer.projects.3.owner can be reported at that path, and non-null rules decide whether null bubbles to a parent or only that field is absent.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `GraphQL trades endpoint sprawl for execution complexity. The client gets shape control. The server must provide cost control. Depth limits, node limits, query complexity estimates, pagination requirements, timeouts, persisted queries, and rate limits are common guardrails because a legal query can still be expensive.`,
-        `Resolver abstraction can hide latency. One screen query may touch identity, billing, projects, incidents, search, and notifications. If each resolver looks small in isolation, the combined p95 or p99 can surprise the team. Distributed tracing and per-field metrics are necessary because the expensive part is often the composition, not one resolver.`,
-        `Caching is subtle. Request-scoped loaders reduce duplicate work safely. Cross-request caches need invalidation, tenant-aware keys, and authorization-aware policy. Schema design is another cost: once clients depend on fields, aliases, nullability, and enum values, the schema becomes a contract with deprecation and usage-tracking needs.`,
+        'GraphQL moves cost from endpoint count to execution planning. Depth limits, node limits, timeouts, persisted queries, pagination, rate limits, and query complexity estimates are needed because a legal query can still be too expensive.',
+        'The cost behavior is multiplicative when resolver fanout is uncontrolled. Fifty projects times three nested backend fields can produce 150 child lookups, while one batched plan can reduce that to three bulk calls.',
+        'Caching is subtle because authorization is part of the key. A request-scoped loader is usually safe, while a process-wide loader can leak tenant data or serve stale values after mutations.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Imagine a product analytics dashboard that asks for viewer, organizations, projects, owners, active incidents, spend totals, feature flags, and recent events. Without planning, this single operation fans out across identity, billing, incidents, event storage, search, permissions, and cache layers.`,
-        `A disciplined execution plan validates the operation, checks depth and complexity, requires pagination, creates request-scoped loaders, and carries viewer identity through context. Project IDs and owner IDs are batched. Incident lookups are grouped. Trace spans record resolver groups. If a nullable recent-events service fails, the response can include the rest of the dashboard plus a path-aware error.`,
+        'This pattern fits product dashboards, mobile APIs, CMS pages, developer platforms, analytics consoles, and admin tools where clients need shaped nested data. It is especially useful when the same backend objects appear in many UI shapes.',
+        'Resolver planning also supports observability. Per-field tracing can show whether latency comes from identity, billing, search, permissions, incidents, or a single expensive nested field.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        `The first failure mode is assuming GraphQL is automatically efficient. A legal query can walk too deeply, ask for too many nodes, or trigger expensive joins. The second is misplaced authorization. Top-level auth may confirm login, but nested fields can cross tenant, organization, or object boundaries. Authorization belongs where the data is fetched or exposed.`,
-        `The third failure mode is global loader state. A process-wide loader can mix authorization contexts or serve stale data after mutations. The fourth is schema drift. Clients build around nullable behavior, aliases, enum values, and partial errors. Changing those casually can break production clients even if the backend code still compiles.`,
+        'It fails when teams assume GraphQL is automatically efficient. The schema may be elegant while a single query walks too deeply, returns too many nodes, or triggers expensive joins behind friendly field names.',
+        'It also fails when authorization is only checked at the top level. Nested fields often cross object, organization, or tenant boundaries, so the policy must be enforced where data is fetched or exposed.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study JSON Parser Stack for parsing, Hash Table for loader maps, Queue for batching, Graph BFS for traversal, Topological Sort for dependency planning, Database Indexing for backend access paths, Cache Invalidation for loader and response caches, Distributed Tracing for resolver visibility, Rate Limiter for guardrails, and OpenAPI Contract Evolution for a contrasting API style.`,
-        `For primary references, read the GraphQL specification sections on validation and execution, the official GraphQL execution and validation guides, and the GraphQL.js guide to DataLoader and the N plus 1 problem. Then build a small resolver tree and instrument every backend call. The first time one query creates dozens of calls, the execution-plan lesson becomes concrete.`,
+        'A dashboard asks for 50 projects with each owner, last incident, and monthly spend. The naive plan does one project list call, then 50 owner calls, 50 incident calls, and 50 billing calls, for 151 backend calls.',
+        'A planned execution uses three request-scoped loaders. It fetches the 50 projects once, batches unique owner IDs into one user call, batches project IDs into one incident call, and batches project IDs into one billing call, for four backend calls.',
+        'If each backend round trip is 20 ms and the naive calls serialize by field group, the child work alone can cost about 3,000 ms. With batching, three 20 ms bulk calls can run in parallel after the project list, so the same shape can complete near tens of milliseconds plus backend processing.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary references are the GraphQL specification at https://spec.graphql.org/, GraphQL execution guidance at https://graphql.org/learn/execution/, GraphQL validation guidance at https://graphql.org/learn/validation/, and GraphQL.js DataLoader material at https://www.graphql-js.org/docs/n1-dataloader/. These define the request, validation, and execution contracts.',
+        'Study parser stacks, ASTs, queues, hash tables, batching, database indexes, cache invalidation, distributed tracing, rate limiters, and API contract evolution next. The practical exercise is to instrument one resolver tree and count backend calls before and after batching.',
       ],
     },
   ],

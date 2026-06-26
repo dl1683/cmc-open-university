@@ -202,82 +202,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `NSGA-II exists because many real optimization problems do not have one honest score. A model-routing policy may trade latency, cost, accuracy, and safety risk. A robot controller may trade speed, energy, stability, and clearance. A search index may trade recall, memory, build time, and query latency. Calling one candidate best before the policy is known hides the actual decision.`,
-        `The point of multi-objective optimization is to keep that decision visible. Instead of collapsing everything into one weighted score too early, NSGA-II evolves a population of candidates and ranks them by Pareto dominance. The result is a frontier of tradeoffs: cheaper but worse, slower but safer, more accurate but more expensive, and knee points where one metric improves sharply before another becomes costly.`,
-        {type:'callout', text:`NSGA-II preserves the tradeoff surface by ranking dominance layers first and using crowding distance only when capacity forces a choice.`},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b7/Front_pareto.svg', alt:'Pareto front diagram showing dominated points and frontier points.', caption:'Pareto front diagram by Nojhan, Wikimedia Commons, CC BY-SA 3.0.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        `The obvious approach is to choose weights, compute one scalar score, and run an ordinary optimizer. That is fine when the weights are real policy. If the business has already said one millisecond is worth exactly this many dollars and this much error, then the scalar score is not a trick; it is the objective.`,
-        `The wall appears when the weights are guessed. A small change in weights can select a different design, and the weighted sum can hide useful alternatives. A candidate that is slightly slower but far cheaper may disappear. A candidate that is a little less accurate but much safer may be thrown away before a human can inspect it.`,
-        `Another shortcut is to keep only the best candidate under each individual metric. That misses compromise points. The cheapest point may be unusable, and the most accurate point may be unaffordable. The practical answer often lies between extremes.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `The core relation is dominance. For minimization, candidate A dominates candidate B if A is no worse than B on every objective and better on at least one objective. If no other candidate dominates A, then A is non-dominated. The non-dominated candidates form the first Pareto front.`,
-        `Fronts are partial-order layers, not score bands. After the first front is removed, some candidates that were previously dominated become non-dominated among the remaining points; those form the second front. Repeating that process gives a rank for selection while preserving the fact that points within the same front are tradeoffs rather than ordered winners.`,
-        `NSGA-II adds elitism and diversity. It merges the current parents with their offspring, sorts the combined pool into fronts, fills the next generation from the best fronts first, and uses crowding distance when the last accepted front has more candidates than remaining slots.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `Fast non-dominated sorting stores two pieces of bookkeeping for each candidate. The domination count says how many candidates dominate this one. The dominated set lists candidates this one dominates. All candidates with count zero enter the first front. When a front is accepted and conceptually removed, the algorithm decrements the counts of candidates it dominated. Any count that falls to zero enters the next front.`,
-        `The evolutionary loop then uses these ranks to choose survivors. NSGA-II creates offspring by variation operators such as crossover and mutation, evaluates the objectives, merges parents and offspring into a combined pool, sorts that pool, and fills the next parent population. Merging parents with offspring is what makes the method elitist: a good parent is not discarded merely because a child was created.`,
-        `Crowding distance is the diversity mechanism inside one front. For each objective, sort the front by that objective, protect boundary points, and add normalized gaps between neighboring objective values. A point in a sparse region receives a larger distance. When rank ties, NSGA-II prefers larger crowding distance so the population covers the frontier rather than collapsing into one cluster.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `In the Pareto-front view, lower-left is better because cost and error are minimized. The first front is not a line of equal scores. It is the set of points that no other point beats outright. The dominated marker shows the negative case: if another point is no worse on both axes and better on one, the candidate belongs to a later front.`,
-        `In the crowding view, rank alone loses information. If all survivors come from one dense part of the first front, the next generation will search only that region. Crowding distance protects boundary and sparse points, so the algorithm keeps alternatives for the final decision maker.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The ranking works because dominance is a safe rejection rule. If A dominates B, then B cannot be the best choice for any policy that prefers all objectives to improve in the same direction. B may survive in a later generation only if population size allows it or if future variation makes it useful, but it should not outrank A.`,
-        `Crowding works because selection pressure alone tends to reduce diversity. Evolutionary search repeatedly copies successful patterns. Without diversity pressure, many candidates become similar, and the search stops covering parts of the tradeoff surface. Crowding distance gives sparse regions a survival advantage without inventing a fake scalar score for the objectives themselves.`,
-        `Elitism works because the combined parent-child pool prevents regression. A good existing candidate competes directly with new candidates. The next generation can improve only when offspring actually earn their place by rank and crowding, not merely because the algorithm replaced the whole population.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `The classic NSGA-II sorting cost is often described as O(MN^2), where M is the number of objectives and N is population size. Doubling population size can roughly quadruple the pairwise dominance work before objective-evaluation cost is considered. Crowding distance adds sorting inside fronts for each objective.`,
-        `In many practical problems, objective evaluation dominates sorting. If each candidate requires a simulation, hardware benchmark, model training run, or traffic replay, then a larger population is expensive even if the sorting code is fast. The algorithm stores objective vectors, ranks, dominated sets or counts, crowding distances, and population histories if the experiment needs auditability.`,
-        `More objectives also change behavior. With many objectives, dominance becomes less selective because fewer points dominate one another. The first front can become huge, and crowding distance may no longer preserve useful structure. At that point, constraints, reference directions, preference articulation, or a different many-objective method may be needed.`,
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        `NSGA-II wins when the output should be a menu of serious options. Engineering design, scheduling, robotics, controller tuning, recommender ranking, architecture search, hyperparameter tuning, compiler optimization, and approximate-nearest-neighbor tuning all often need a frontier rather than one champion.`,
-        `It is especially useful when the final choice is downstream policy. A platform team may want cheap, balanced, and high-quality model routes. A product team may want low-risk and high-growth variants. A systems team may want several latency-cost-recall points before committing to an index configuration. The algorithm does the search; the organization still owns the tradeoff.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `NSGA-II is overkill when the problem has one real objective plus hard constraints. If safety must never be violated, it should be a constraint or rejection gate, not just another objective that can be traded away. If cost is only a budget ceiling, enforce the budget and optimize the real objective inside it.`,
-        `It also fails when evaluations are noisy and the frontier is treated as truth. Measurement noise can make dominated candidates look non-dominated. Benchmark variance can create fake knee points. Constraints can be hidden behind attractive objective values. A serious run needs repeated evaluation, constraint handling, feasibility labels, and a final audit of the selected points.`,
-        `Do not report only one champion if the problem was multi-objective. That throws away the point of the method. Report the frontier, the constraints, the evaluation uncertainty, and the policy used to pick a final candidate.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Read the original NSGA-II paper at https://sci2s.ugr.es/sites/default/files/files/Teaching/OtherPostGraduateCourses/Metaheuristicas/Deb_NSGAII.pdf and a library implementation guide such as pagmo at https://esa.github.io/pagmo2/docs/cpp/algorithms/nsga2.html. Then study evolutionary search, tournament selection, constraint handling, quality diversity and MAP-Elites, hyperparameter search, Bayesian optimization, multi-armed bandits, and Pareto analysis for latency-recall-cost systems.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read each point as one candidate design with multiple objective values. A Pareto front is the set of candidates that no other candidate beats on every objective at once.', 'The active comparison tests dominance. For minimization, candidate A dominates candidate B when A is no worse on every objective and strictly better on at least one.', {type:'callout', text:`NSGA-II preserves the tradeoff surface by ranking dominance layers first and using crowding distance only when capacity forces a choice.`}, {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b7/Front_pareto.svg', alt:'Pareto front diagram showing dominated points and frontier points.', caption:'Pareto front diagram by Nojhan, Wikimedia Commons, CC BY-SA 3.0.'}] },
+    { heading: 'Why this exists', paragraphs: ['Many engineering decisions have more than one real objective. A model route may trade latency against cost, while a robot controller may trade energy against tracking error.', 'NSGA-II exists to search for a frontier of good tradeoffs. It avoids pretending that one guessed weighted score is the only policy the decision maker could want.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is to choose weights and compute one score. That is valid when the weights are real policy, such as one dollar of cost being worth exactly one fixed amount of latency.', 'The problem is guessed weights. A tiny weight change can hide candidates that are slightly slower but much cheaper or slightly less accurate but much safer.'] },
+    { heading: 'The wall', paragraphs: ['The wall is partial order. Two candidates can be incomparable because one is cheaper and the other is more accurate.', 'A single champion hides that structure. The final decision maker often needs a menu of frontier points, not an optimizer that silently discarded every compromise.'] },
+    { heading: 'The core insight', paragraphs: ['NSGA-II ranks candidates by dominance layers. The first front contains all non-dominated candidates, the second front appears after removing the first, and later fronts repeat the same rule.', 'When the next generation has limited capacity inside one front, crowding distance preserves spread. Sparse regions of the front get preference so the population does not collapse into one cluster.'] },
+    { heading: 'How it works', paragraphs: ['Fast non-dominated sorting stores a domination count for each candidate and a set of candidates it dominates. Count-zero candidates form the first front.', 'After a front is selected, the algorithm decrements counts for candidates dominated by that front. Any count that reaches zero joins the next front.', 'Crowding distance sorts each front by each objective and gives larger scores to candidates with wider gaps to neighbors. Boundary candidates are protected because they define the visible range of tradeoffs.'] },
+    { heading: 'Why it works', paragraphs: ['Dominance is a safe rejection rule for monotone objectives. If A is no worse than B on every objective and better on one, then B cannot be the better choice for any policy that prefers improvements in those objectives.', 'Crowding preserves search coverage. Without it, repeated selection would copy similar good candidates and leave parts of the frontier unexplored.'] },
+    { heading: 'Cost and complexity', paragraphs: ['Classic NSGA-II sorting costs O(MN^2), where M is objective count and N is population size. Doubling population size roughly quadruples pairwise dominance work before objective evaluation is counted.', 'In many applications, evaluation dominates sorting. If one candidate requires a 30 second simulation, a population of 200 costs about 100 minutes per generation even before retries or repeated measurements.'] },
+    { heading: 'Real-world uses', paragraphs: ['NSGA-II fits engineering design, controller tuning, architecture search, recommender tuning, compiler optimization, and latency-cost-recall search. It is useful when the desired output is a frontier that humans or policy can inspect.', 'It is also useful when constraints are known but preferences are not settled. The algorithm can present feasible options while leaving final policy outside the search loop.'] },
+    { heading: 'Where it fails', paragraphs: ['It fails when the problem has one real objective plus hard constraints. A safety requirement should be a rejection gate, not an objective that can be traded away.', 'It also fails under noisy evaluation. Measurement variance can make dominated points appear non-dominated, so serious runs need repeated evaluation and feasibility labels.'] },
+    { heading: 'Worked example', paragraphs: ['Consider four model routes with latency and cost to minimize: A = 90 ms and 6 cents, B = 110 ms and 4 cents, C = 85 ms and 8 cents, D = 130 ms and 7 cents. A dominates D because A is faster and cheaper.', 'B is cheaper than A but slower, and C is faster than A but more expensive, so A, B, and C are all on the first front. If only two can survive, crowding keeps boundary points B and C before a crowded middle point because they preserve the frontier range.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources are Deb et al., A Fast and Elitist Multiobjective Genetic Algorithm: NSGA-II, and mature library guides such as pagmo or pymoo. Read implementation notes on constraint handling before using it for safety-critical search.', 'Study evolutionary search, tournament selection, constraint handling, Pareto analysis, quality diversity, MAP-Elites, Bayesian optimization, and multi-armed bandits next. The practical skill is reporting the frontier, not only the favorite point.'] },
   ],
 };

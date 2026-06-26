@@ -212,76 +212,18 @@ export function* run(input) {
 }
 
 export const article = {
-  references: [
-    { title: 'NVIDIA NCCL overview', url: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/overview.html' },
-    { title: 'NVIDIA NCCL collective operations', url: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html' },
-    { title: 'NVIDIA NCCL environment variables', url: 'https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html' },
-  ],
   sections: [
-    {
-      heading: 'Why this selector exists',
-      paragraphs: [
-        'A collective call has a simple surface contract. The program says all-reduce this tensor, broadcast this parameter shard, or gather these slices across these ranks. NCCL has to turn that contract into device work. It must decide which ranks talk first, which links they use, how a tensor is split, which protocol moves each slice, how many channels run in parallel, and whether the chosen path is legal on the current hardware.',
-        'That decision matters because modern GPU nodes are not uniform boxes. Two ranks can be close through NVLink, farther through PCIe, or forced through a NIC and a switch. A collective can be a tiny latency-sensitive control message or a multi-gigabyte gradient bucket. The same API call can therefore require very different plans. The selector exists to make that plan depend on the communicator, topology, message size, collective type, software version, and runtime support instead of on a fixed rule copied from an older cluster.',
-        {type:'callout', text:'NCCL performance comes from selecting a complete execution plan for the current topology, message size, collective, channels, protocol, and transport path.'},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt:'Nvidia GV100 GPU die.', caption:'A GV100 GPU die, a reminder that collective plans depend on real accelerator topology and transport hardware. Source: Wikimedia Commons, Nvidia, Public domain'},
-      ],
-    },
-    {
-      heading: 'The naive approach',
-      paragraphs: [
-        'The tempting shortcut is to force the setting that won one benchmark. A team sees Ring perform well for a large all-reduce and exports NCCL_ALGO=Ring everywhere. Another team sees LL help small messages and forces a protocol globally. A third team pins a network interface after one incident. These moves are understandable during a fire, but they turn a runtime selector into a superstition.',
-        'The shortcut fails because the best plan is conditional. Ring often uses bandwidth well for large transfers, but it can pay extra latency and expose one slow rank. Tree can reduce some latency costs but may not saturate the same links. Low-latency protocols can help small payloads while losing efficiency on large ones. An environment variable can be useful as a scoped experiment, but cluster-wide forcing ignores bucket size, rank placement, NIC locality, fabric congestion, and whether newer hardware features are available.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'NCCL selection is not the question, Which algorithm is best? The better question is, Which complete execution plan is best for this collective on this topology right now? An algorithm name is only one field in the plan. The plan also includes channels, transport choices, protocol choices, kernel behavior, and fallback rules. Debugging has to recover the whole plan, not only the headline algorithm.',
-        'The selector works because collective performance is structured. Message size changes the latency-bandwidth trade. Topology changes which paths are cheap. Rank order changes whether logical neighbors are physical neighbors. Channel count changes parallelism and overhead. Protocol choice changes how data is staged and synchronized. Once these inputs are explicit, performance becomes a traceable decision instead of a vague complaint that NCCL is slow.',
-      ],
-    },
-    {
-      heading: 'How the selector works',
-      paragraphs: [
-        'The first input is the communicator. It tells NCCL which ranks participate, which process owns each GPU, and how the ranks are ordered. The second input is topology discovery. NCCL builds a view of GPUs, PCIe paths, NVLink or NVSwitch connectivity, CPU sockets, NICs, and network reachability. The third input is the collective request: operation, datatype, count, tensor address, stream, and message size after any framework bucketization.',
-        'Candidate algorithms are then evaluated against those inputs. A ring plan arranges ranks in a cycle and moves chunks around the cycle so every rank contributes and receives the final result. A tree plan uses parent-child structure to reduce or distribute data with fewer logical steps for some shapes. NVLink Switch or NVLS-style plans are only useful when the hardware and software path can support them. Network paths depend on which NICs are near which GPUs and whether the transport is available.',
-        'After the algorithm choice, NCCL still has to slice work. Channels split one logical tensor into independent streams of work so multiple paths can make progress. Protocols define how each slice is moved. Simple generally favors bandwidth on larger transfers. LL and LL128-style protocols are designed for lower latency regimes and different staging behavior. The final launch is therefore a bundle of per-channel work, protocol state, transport state, and synchronization points.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The selector view is proving that the right side is derived, not guessed. Ranks, topology, byte count, and capability gates narrow the candidate plans. If the message is small, latency costs matter more. If the message is large, sustained bandwidth and channel balance matter more. If a fast local fabric is unavailable or a transport fails capability checks, the plan must fall back even when the marketing diagram suggests a faster path exists.',
-        'The channels view is proving that one tensor can become many scheduled transfers. The bucket is logical; the channel slices are physical work. A slow channel, wrong NIC, or unsupported protocol can dominate the final time even when the chosen algorithm looks reasonable. The trace nodes are important because they separate intended configuration from observed behavior. The runtime-selected plan is the evidence that counts.',
-      ],
-    },
-    {
-      heading: 'Why the method works',
-      paragraphs: [
-        'The selector works by matching communication shape to bottleneck shape. A bandwidth-bound gradient bucket should try to keep links busy and avoid single-path saturation. A latency-bound control message should avoid unnecessary stages and kernel overhead. A topology with strong local GPU connectivity should preserve that locality. A cross-node job should avoid putting all large flows through one rail when multiple rails are available.',
-        'It also works because the decision can be measured. NCCL debug logs, framework flight recorders, per-rail counters, and warmup collectives can show which algorithm and protocol were used, how many channels launched, and which transport path carried the data. That makes selector tuning reversible. A forced option should survive comparison against the automatic plan under the same topology, same bucket sizes, and same rank map.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'Automatic selection is not free. Topology discovery, heuristic thresholds, compatibility checks, and channel construction add complexity. The heuristics can be wrong for a new workload or for a cluster with unusual oversubscription. A plan that is good for average throughput can be bad for p99. More channels can expose more parallelism, but they also add scheduling overhead and can increase contention. Smaller buckets can improve overlap with compute, but they can push more collectives into latency-sensitive regimes.',
-        'Manual forcing has its own cost. It can hide the real issue, such as wrong rank placement, a socket fallback, a broken rail, or an unexpected protocol threshold. It can also make upgrades harder because the forced setting may disable a new path that the runtime would have selected. Treat NCCL_ALGO, NCCL_PROTO, interface selection, and topology overrides as experiments with owners, rollback, and proof, not as permanent tribal knowledge.',
-      ],
-    },
-    {
-      heading: 'Real uses and failure modes',
-      paragraphs: [
-        'The most common real use is training performance triage. A job moves to a new node type, a framework changes gradient bucket sizes, or a driver update changes device order. Step time rises. A good investigation records the rank map, visible GPU order, NCCL version, topology graph, bucket sizes, selected algorithms, selected protocols, channel count, transport, and p50 and p99 collective time. That record usually finds the problem faster than changing model code.',
-        'The common failures are specific. One rank uses a slow path. A container exposes devices in an order that breaks intended locality. A network interface variable points traffic away from the nearest NIC. A collective crosses a selector threshold after batch size changes. Socket transport appears because the intended RDMA path failed. A single rail saturates while aggregate bandwidth still looks fine. A feature such as NVLS is expected but not actually available. The limit is that the selector can only optimize among legal paths it can see; it cannot fix bad placement, bad cabling, missing headroom, or fabric congestion by itself.',
-      ],
-    },
-    {
-      heading: 'What to study next',
-      paragraphs: [
-        'Study NCCL collectives, GPU all-reduce algorithms, rank placement, NVLink and NVSwitch topology, PCIe and NUMA locality, RDMA queue pairs, GPUDirect RDMA, RoCE congestion control, and framework bucketization. Then connect this topic to the GPU Collective Topology Placement Planner, RoCE PFC ECN DCQCN, Torch NCCL Flight Recorder, Tensor Parallelism, Pipeline Parallelism, and the LLM inference cost stack. The practical skill is to explain a slow collective as a concrete selected plan with evidence, not as a generic network complaint.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read the selector as a planner for collective communication. A collective is one operation, such as all-reduce, that every participating GPU rank calls together.', 'The active path shows which input is narrowing the plan: message size, topology, collective type, channel count, or protocol. A protocol is the low-level transfer style NCCL uses for each slice of data.', {type:'callout', text:'NCCL performance comes from selecting a complete execution plan for the current topology, message size, collective, channels, protocol, and transport path.'}, {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d3/Nvidia_GV100_GPU.png', alt:'Nvidia GV100 GPU die.', caption:'A GV100 GPU die, a reminder that collective plans depend on real accelerator topology and transport hardware. Source: Wikimedia Commons, Nvidia, Public domain'}] },
+    { heading: 'Why this exists', paragraphs: ['Distributed training and inference move tensors between GPUs constantly. An all-reduce, broadcast, or gather looks like one API call, but the runtime must choose links, rank order, chunks, kernels, and synchronization.', 'GPU nodes are not uniform. Two ranks may share NVLink, cross PCIe, or leave the node through a NIC, so the same tensor size can need a different plan on a different placement.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is to force the algorithm that won one benchmark. A team might set Ring everywhere after a large all-reduce looks good on one node.', 'That works only while the workload and topology match the benchmark. A small control tensor, a different bucket size, or a rank map that crosses sockets can make the forced setting worse than automatic selection.'] },
+    { heading: 'The wall', paragraphs: ['The wall is conditional performance. Ring can use bandwidth well for large messages, while tree-like plans can reduce stages for some smaller or different communication shapes.', 'Protocol choice has the same problem. A low-latency protocol can help small payloads, but a large gradient bucket may need a protocol and channel layout that keeps links saturated.'] },
+    { heading: 'The core insight', paragraphs: ['The unit of choice is not just algorithm name. NCCL chooses an execution plan that includes algorithm, protocol, channels, transports, topology gates, and fallback behavior.', 'That makes debugging evidence-based. A slow collective should be explained by the selected plan and measured path, not by a generic complaint that the network is slow.'] },
+    { heading: 'How it works', paragraphs: ['NCCL starts from a communicator, which is the group of ranks participating in the collective. It discovers GPU connectivity, PCIe paths, CPU sockets, NIC reachability, software support, and message size.', 'It then evaluates legal candidate plans. The chosen plan slices the tensor across channels, assigns each slice a protocol, and schedules transport work so ranks exchange data in the required collective pattern.'] },
+    { heading: 'Why it works', paragraphs: ['The correctness argument comes from collective semantics. For an all-reduce, every rank must contribute exactly one input and receive the same reduced result, no matter which legal ring, tree, or channel decomposition is used.', 'The selector preserves that semantic contract while optimizing the path. If every slice is covered once, reduction order is valid for the operation, and all ranks follow the same plan, the result is correct even when the performance differs.'] },
+    { heading: 'Cost and complexity', paragraphs: ['Communication time behaves like latency plus bytes divided by effective bandwidth, with extra terms for synchronization and kernel overhead. A 256 MB all-reduce over an effective 100 GB/s path has a raw data-time floor near 2.56 ms before algorithmic steps and contention.', 'More channels can improve parallelism but also add scheduling overhead and pressure on shared links. Smaller framework buckets can improve overlap with compute while pushing more calls into latency-sensitive regimes.'] },
+    { heading: 'Real-world uses', paragraphs: ['The selector matters in multi-GPU training, tensor parallel inference, pipeline parallel jobs, and cross-node checkpoint or embedding traffic. It is most visible when a model step waits on communication rather than compute.', 'It is also a production triage surface. Operators compare rank map, topology, NCCL version, bucket sizes, selected algorithm, protocol, channel count, and p99 collective time after a node image or driver change.'] },
+    { heading: 'Where it fails', paragraphs: ['The selector cannot optimize paths it cannot see or use. Bad rank placement, disabled RDMA, wrong NIC selection, fabric congestion, or missing hardware support can force a legal but slow fallback.', 'Manual overrides can fail silently as the cluster changes. A setting that fixed one incident may block a better path after an upgrade or after bucket sizes move across a threshold.'] },
+    { heading: 'Worked example', paragraphs: ['Eight GPUs run an all-reduce on a 64 MB bucket. If the selected plan gives 200 GB/s effective local bandwidth, the raw transfer term is about 0.32 ms, while a 20 us launch and synchronization cost is small.', 'The same job with 256 KB buckets behaves differently. The raw transfer term is about 1.3 us at 200 GB/s, so launch, protocol, and stage latency dominate, and a low-latency plan may beat a bandwidth-oriented one.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources are the NVIDIA NCCL overview, collective operations guide, environment variable reference, and NCCL debug documentation. Use logs to verify what the runtime selected instead of assuming the configured intent ran.', 'Study ring all-reduce, tree collectives, NVLink, NVSwitch, PCIe topology, GPUDirect RDMA, RDMA queue pairs, tensor parallelism, and framework bucketization next. The practical skill is turning a slow collective into a concrete selected plan.'] },
   ],
 };

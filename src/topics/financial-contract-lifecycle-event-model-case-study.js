@@ -252,122 +252,45 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
+    { heading: 'How to read the animation', paragraphs: [
         'The contract-state-machine view shows a directed graph where each node is a legally meaningful state: terms, parties, trade event, position state, schedule, obligations, settlement, amendment, and event log. Active (highlighted) nodes mark the current phase of the lifecycle. Found markers on the event log mean that transition has been durably recorded with audit evidence.',
         'The oracle-and-policy view shows the decision pipeline for a single proposed lifecycle event. Follow the path from event input through facts and rules into the oracle, then to decision, and finally to either append (accepted) or review (ambiguous). The audit node lights up when evidence is stored regardless of outcome.',
         'At each frame, ask: what state existed before this transition, what event triggered the move, and what evidence justifies it.',
         {type:'callout', text:'A contract lifecycle engine is useful only when every state transition carries the evidence that makes it replayable.'},
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Contracts do not execute like Python functions. They create obligations over time, depend on reference data, require consent, and sometimes need human judgment. If an AI system is going to reason over them, the domain first needs to define what a valid state transition is.',
-        'A financial contract lifecycle event model makes execution state explicit. It represents terms, parties, lifecycle events, obligations, schedules, settlement evidence, policy decisions, and audit records as one event-sourced state machine. The idea originates from the ISDA Common Domain Model (CDM), which standardized derivatives lifecycle events so that counterparties, clearinghouses, and regulators could share an unambiguous record of what happened and why.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The naive approach is to summarize the contract and ask a model what should happen next. That produces plausible prose, but it does not create replayable state, proof, or a reliable training signal.',
-        'Another naive approach is to store lifecycle events as loosely typed logs -- a JSON blob with a timestamp and a description field. Without pre-state, post-state, verifier identity, and source evidence, the log cannot answer "why did this obligation exist on that date?" It is hard to audit and hard to learn from.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The wall is ambiguity plus accountability. A coupon payment depends on product terms, calendars, rates, party consent, and external evidence. An amendment depends on authority and legal events. A closeout depends on netting rules and default definitions. A model answer without those facts is not execution -- it is a guess that looks like execution.',
-        'The system also has to preserve review as a first-class state. Ambiguous events are not failures to hide. They are transitions that should route to a person with the evidence needed to decide. A system that forces every event into accept/reject loses the most important category: "we need a human to look at this, and here is why."',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Make every lifecycle event a typed state transition with mandatory evidence. A proposed event consumes current state, applies rules and reference data, produces new state, and stores the verifier decision with source references. The invariant is: no state change without a recorded justification.',
-        'This is the contract-domain equivalent of an execution trace. It says what state existed, what event happened, which rules accepted it, and what source evidence supports the new obligation state. Replay the log forward from any checkpoint and you reconstruct the full contract position.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Execution creates a trade from terms and parties. Confirmation validates party agreement. Scheduled events (coupon dates, resets, maturities) create cash or asset obligations. Amendments change terms under consent. Settlement closes obligations against delivery evidence. Defaults and closeouts create net claims. Every transition stores input, pre-state, post-state, oracle decision, and source references.',
-        'The oracle is layered into five tiers. Schema checks catch malformed events (wrong fields, bad types). State checks catch impossible ordering (settling an obligation that does not exist). Policy checks evaluate business rules against reference data (rate within tolerance, party authorized). Source checks verify that evidence documents exist and match. Human review handles cases where the rules are insufficient -- ambiguous contract language, disputed fixings, or missing consent.',
-        "In the contract-state-machine view, each node is a legally or operationally meaningful state. A transition is valid only when the event, current state, terms, party authority, and reference data all support the move. In the oracle-and-policy view, follow the evidence chain: every decision must trace back to a source document, market fixing, party instruction, or settlement record.",
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The correctness argument rests on two properties. First, monotonic append: the event log only grows. No transition edits a previous event; amendments and corrections are new events that reference their predecessors. This makes the log safe to replicate and audit. Second, evidence closure: every transition carries enough context to re-derive the decision. If the terms, schedule, market fixings, party roles, and policy rules are explicit, the system can reconstruct why an obligation exists or why it closed.',
-        'Together these properties mean the event log is replayable. Given the initial contract terms and the sequence of lifecycle events, any auditor or model can reproduce the current obligation state. The log becomes a verifiable training object -- a model can learn process semantics from verified trajectories instead of ungrounded contract summaries.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Consider a 5-year USD interest rate swap. Party A pays fixed 3.5%; Party B pays 3-month SOFR + 25bp. Notional: $10M. Quarterly payment dates.',
-        'Step 1 -- Execution: the trade event creates the contract with terms, party roles, and schedule. The log records: event=EXECUTE, pre-state=NONE, post-state=ACTIVE, evidence=signed term sheet.',
-        'Step 2 -- Confirmation: both parties confirm. Event=CONFIRM, pre-state=ACTIVE, post-state=CONFIRMED, evidence=matching confirmations from A and B.',
-        'Step 3 -- First coupon (fixed leg): the schedule generates a payment obligation. The engine reads notional ($10M), rate (3.5%), day-count (30/360), and payment date. Fixed amount = $10M * 3.5% * (90/360) = $87,500. Event=COUPON, obligation=A owes $87,500, evidence=contract terms + calendar.',
-        'Step 4 -- First coupon (floating leg): the engine reads the SOFR fixing for the reset date. Suppose SOFR = 4.1%. Floating amount = $10M * (4.1% + 0.25%) * (90/360) = $108,750. Event=COUPON, obligation=B owes $108,750, evidence=SOFR fixing from reference source + contract terms.',
-        'Step 5 -- Net settlement: obligations net to $21,250 from B to A. Event=SETTLE, evidence=netting agreement + wire confirmation. Both obligations close.',
-        'If the SOFR fixing is missing on the reset date, the floating coupon event cannot compute an amount. The correct transition is not to guess a rate -- it is to create a PENDING_FIXING state that routes to review once the rate publishes. The lifecycle engine waits for evidence rather than fabricating it.',
-      ],
-    },
-    {
-      heading: 'Data model shape',
-      paragraphs: [
-        'A useful event record needs more than type and description. Required fields: event id, contract id, party ids, event time, effective time, actor, authority source, pre-state hash, post-state hash, rule version, evidence references, verifier result, reviewer status, and any generated obligations.',
-        'Pre-state and post-state hashes make hidden mutation visible -- if someone edits the database directly, the hash chain breaks. Rule version matters because old events must remain explainable after policy changes: "this was accepted under policy v2.3, which allowed a 5bp tolerance; current policy v3.1 would reject it." Evidence references connect each transition to contract terms, market data, settlement records, or human approval.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'The cost is modeling discipline, not computation. Each lifecycle event requires fetching current state, reference data, and policy rules, then running the oracle pipeline -- O(L) per event where L is the number of oracle layers (typically 5). Storage grows linearly with the number of lifecycle events per contract, typically hundreds over a multi-year instrument.',
-        'The real cost is change control. Contract templates, policy rules, and market conventions evolve. If old events are replayed under new rules without versioning, the trace stops being trustworthy. Maintaining rule versions, reference data snapshots, and evidence archives is an operational workload that scales with the number of active contracts times the rate of rule changes.',
-        'For a portfolio of 10,000 active contracts with quarterly events, the system processes roughly 40,000 lifecycle events per quarter. Each event needs 5 oracle checks, evidence lookup, and append. This is computationally trivial but operationally demanding: the hard part is keeping reference data fresh, policy versions consistent, and evidence archives accessible.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'Derivatives lifecycle management at clearinghouses (LCH, CME, ICE) uses exactly this pattern: every trade, novation, compression, margin call, and settlement is a typed event with evidence. The ISDA CDM standardizes the event vocabulary so counterparties can reconcile without ambiguity.',
-        'Loan servicing platforms track disbursement, repayment, rate reset, covenant breach, and restructuring as lifecycle events. Insurance claims processing follows the same arc: filing, investigation, assessment, approval/denial, payment, and appeal are state transitions with evidence requirements.',
-        'The pattern is especially useful for AI evaluation because it creates objective verifier targets. A model producing lifecycle events can be scored against the oracle: valid, invalid, needs review, missing evidence, or policy conflict. That is a much sharper training signal than "does this contract summary sound right."',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'It fails when natural-language contract text is treated as already executable. Most contracts contain ambiguous clauses, cross-references, and jurisdictional variations that resist mechanical parsing. The lifecycle model works only for the subset of terms that have been formalized into typed fields.',
-        'It fails when teams confuse schema compliance with truth. A perfectly shaped event record can still use the wrong rate, wrong party, wrong calendar, or wrong amendment version. Structure without authoritative evidence is a neat ledger of unsupported claims.',
-        'It also over-engineers simple contracts. A month-to-month subscription with fixed pricing does not need a five-layer oracle pipeline. The lifecycle event model earns its keep on instruments with scheduled obligations, external reference data, multiple counterparties, and regulatory audit requirements. For a SaaS invoice, a simple state machine with three states (active, past-due, cancelled) is the right tool.',
-      ],
-    },
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        'Invariant check: "Every lifecycle event in the log has a pre-state hash, post-state hash, oracle verdict, and at least one evidence reference." If any event lacks these, the log is incomplete and replay cannot be trusted.',
-        'Transition check: a COUPON event for the floating leg has pre-state CONFIRMED with no outstanding obligations. The oracle reads the SOFR fixing (4.1%), computes $108,750, verifies it matches the proposed amount within tolerance. Post-state: new obligation B owes $108,750. Verdict: ACCEPTED. Evidence: SOFR fixing record + contract terms v1.0.',
-        'Edge case: an AMEND event proposes changing the spread from 25bp to 30bp. Party A has signed; Party B has not. The oracle reaches the consent check and finds one signature missing. The correct verdict is PENDING_REVIEW, not REJECTED. The event enters the log with status=PENDING and evidence=partial consent. Future coupon events continue using the old spread until the amendment completes.',
-      ],
-    },
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Trace a maturity event. The 5-year swap reaches its final payment date. Walk through: (1) the schedule generates the last coupon obligations for both legs, (2) the oracle checks rate fixings and computes amounts, (3) net settlement produces a single payment, (4) a MATURITY event closes the contract. What is the post-state? What evidence does the maturity event need? What happens if the final SOFR fixing is delayed?',
-        'Now add a default. Party B fails to deliver the net settlement amount. A DEFAULT event fires. What state does it produce? What obligations does it create (close-out netting, replacement cost claim)? What evidence does it reference (failed wire confirmation, cure period expiry)? Walk the oracle pipeline for this event and identify which layer handles each check.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: FINOS CDM specification at https://cdm.finos.org/docs/event-model/ defines the canonical event types for derivatives. ISDA CDM overview at https://www.isda.org/isda-solutions-infohub/cdm/ covers the industry governance. Open Policy Agent at https://openpolicyagent.org/docs provides the policy-as-code pattern used in the oracle layer.',
-        'Prerequisites: study Write-Ahead Log for the append-only durability pattern, and Saga Pattern for multi-step transaction coordination. Extensions: study Temporal Workflow Case Study for durable execution of long-running processes, and Double-Entry Payment Ledger Execution Trace for the settlement accounting layer. Alternatives: study Execution Trace State Diff Case Study for a lighter approach when full lifecycle formalism is unnecessary, and OPA Rego Policy Decision Graph for the policy engine in isolation.',
-      ],
-    },
+      ] },
+    { heading: 'Why this exists', paragraphs: [
+        'A financial contract is not finished when it is signed. It creates obligations over time: confirmations, rate resets, coupons, settlements, amendments, defaults, and closeouts. A lifecycle event model exists so each change has typed state, rule evidence, and a replayable audit trail.',
+      ] },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is to summarize the contract and ask what should happen next. Another is to store loose JSON events with timestamps and descriptions. Both can look useful, but neither proves why an obligation existed on a date.',
+      ] },
+    { heading: 'The wall', paragraphs: [
+        'The wall is accountability under ambiguity. A coupon may depend on rate fixings, day count, calendars, amendment history, and party authority. If any fact is missing, execution cannot safely pretend the answer is known.',
+      ] },
+    { heading: 'The core insight', paragraphs: [
+        'Make every lifecycle event a typed state transition with mandatory evidence. The invariant is: no state change without a recorded justification. Review is also a state, so ambiguity is preserved instead of hidden.',
+      ] },
+    { heading: 'How it works', paragraphs: [
+        'The engine reads current state, event type, contract terms, reference data, party authority, and evidence. Schema checks catch malformed events, state checks catch impossible ordering, policy checks apply rules, source checks verify documents, and human review handles cases rules cannot decide.',
+      ] },
+    { heading: 'Why it works', paragraphs: [
+        'Correctness comes from append-only replay and evidence closure. Old events are not edited; amendments and corrections are new events that reference prior state. Given initial terms and the event sequence, replay reconstructs the current obligation state or exposes the first unsupported transition.',
+      ] },
+    { heading: 'Cost and complexity', paragraphs: [
+        'The compute cost per event is small: fetch state, run the oracle layers, and append. If 10,000 active contracts emit 4 scheduled events per year and the oracle has 5 layers, the system performs about 200,000 layer checks per year before evidence lookup. The real cost is maintaining rule versions, reference snapshots, calendars, and evidence archives.',
+      ] },
+    { heading: 'Real-world uses', paragraphs: [
+        'Derivatives processing is the natural use: execution, confirmation, novation, compression, margin, settlement, default, and closeout are typed events. The same pattern fits loan servicing, insurance claims, payroll, regulated workflow, and AI evaluation where valid, invalid, missing-evidence, and needs-review are precise labels.',
+      ] },
+    { heading: 'Where it fails', paragraphs: [
+        'It fails when natural-language contract text is treated as already executable. Many clauses require interpretation, local law, side letters, or human judgment. It also fails when a well-shaped event uses the wrong rate, wrong party, wrong calendar, or wrong amendment version.',
+      ] },
+    { heading: 'Worked example', paragraphs: [
+        'Consider a 5-year USD swap. Party A pays fixed 3.5 percent on $10,000,000, and Party B pays 3-month SOFR plus 25 basis points. For a 90-day quarter, the fixed payment is $10,000,000 times 0.035 times 90 divided by 360, or $87,500. If SOFR is 4.1 percent, the floating payment is $10,000,000 times 0.0435 times 90 divided by 360, or $108,750. Net settlement is $21,250 from B to A, backed by the fixing source, terms, netting rule, and wire evidence.',
+      ] },
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary sources: FINOS CDM event model at https://cdm.finos.org/docs/event-model/, ISDA CDM overview at https://www.isda.org/isda-solutions-infohub/cdm/, and Open Policy Agent documentation at https://openpolicyagent.org/docs.',
+        'Study Write-Ahead Log, Saga Pattern, Temporal Workflow Case Study, Double-Entry Payment Ledger Execution Trace, Execution Trace State Diff Case Study, and OPA Rego Policy Decision Graph next.',
+      ] },
   ],
 };

@@ -216,97 +216,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the build view as ingestion-time work. Active nodes are the dimensions and star documents being materialized before any user query asks for them.',
+        'Read the query view as a planner choice. If the query matches the stored rollup, the star-document path becomes active and the raw-row path is avoided.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         {type:'callout', text:'A star-tree is a workload-shaped shortcut: it stores the rollups a dashboard keeps asking for so query time pays for matching aggregates, not raw rows.'},
-        'Apache Pinot serves low-latency analytical queries over immutable segments. A dashboard query such as "revenue by country for the last hour" may touch millions of event rows per segment even when the answer has only a few groups.',
-        'Columnar storage, dictionaries, inverted indexes, and sorted columns reduce scan work, but repeated aggregation still burns CPU if every query has to re-sum the same raw rows. A star-tree index exists for the repeated case: precompute the rollups that the workload keeps asking for, then read those rollups at query time.',
+        'Apache Pinot serves OLAP queries, which are analytical queries over many records with filters, groups, and aggregates. A dashboard can ask for revenue by country every few seconds even when the answer uses only a few groups from millions of events.',
+        'Star-tree indexing exists because repeated aggregation wastes CPU when each query recomputes the same partial sums. The index pre-aggregates selected dimension combinations inside a segment so common group-by shapes read fewer documents.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The reasonable first answer is to let Pinot scan only the columns it needs and use normal segment indexes to filter rows. That is often enough. It keeps ingestion simple and avoids guessing future query shapes.',
-        'The wall appears when the same aggregation shape dominates traffic. If every dashboard refresh groups by country and device, a raw scan repeats the same partial sums again and again. Building a full cube for every dimension combination would avoid scans, but it can explode in storage. Star-tree indexing is the middle ground: materialize selected rollups inside the segment.',
+        'The obvious approach is to scan only the columns needed by the query and use ordinary Pinot indexes for filters. Columnar storage, dictionaries, sorted columns, and inverted indexes already remove a lot of work.',
+        'Another approach is to build a complete cube of every dimension combination. That answers many aggregates quickly, but storage can explode as dimensions and cardinalities multiply.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'A star node means "all values for this dimension from here down." Instead of storing only raw documents, the segment also stores documents whose dimension value is a wildcard and whose metric columns already contain aggregates.',
+        'The wall appears when one query shape dominates traffic. If 10,000 dashboard refreshes all ask for revenue by country and device, the server repeats the same summations over raw rows again and again.',
+        'A full cube is too broad, but raw scans are too repetitive. The missing structure is a partial cube shaped by measured workload, with enough rollups to help common queries and not enough to bloat every segment.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A star-tree stores wildcard rollup documents beside raw documents. A star value means all values for this dimension from this point in the tree have already been aggregated.',
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/52/OLAP_Cube.svg', alt:'OLAP cube with product, city, and time dimensions', caption:'OLAP cube showing dimensions that can be sliced and rolled up — star-tree indexing pre-aggregates selected combinations of these dimensions inside a Pinot segment. Source: Wikimedia Commons, OLAP Cube.svg, Konrad Roeder and Rehua, CC BY-SA 3.0.'},
-        'That wildcard is the useful compression. If the query does not need to distinguish device, the server can use the `country=US, device=*` document instead of adding `country=US, device=mobile` and `country=US, device=web` from raw rows.',
-        'The index is workload-shaped, not universal. The configured split dimensions, aggregation functions, max leaf records, and skipped star-node dimensions decide which rollups exist and which queries can use them.',
+        'The invariant is exact coverage, not approximation. A star document can answer a query only if it aggregates exactly the raw rows and dimensions the query asks for.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'During segment generation, Pinot builds a tree over configured dimensions. It groups records by a split dimension, recursively splits large groups, and creates star documents that aggregate over one or more dimensions. The leaf threshold controls when the builder stops splitting and stores detailed rows.',
-        'The star-tree stores aggregation results for configured function-column pairs such as count, sum, min, max, or other supported aggregations. Query-time use is possible only when the query filter, group-by columns, and aggregation functions can be answered by the materialized documents.',
-        'At query time, the server matches the query against the star-tree. Covered predicates navigate specific branches. Dimensions the query does not care about can use star branches. If the query asks for a dimension or predicate that the star-tree cannot represent, Pinot falls back to regular segment processing for that part of the work.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose a segment has rows for `(country, device, revenue)`: `(US, mobile, 12)`, `(US, web, 8)`, and `(IN, mobile, 5)`. A normal query for `country=US` and `sum(revenue)` reads the two US rows and adds 12 + 8.',
-        'A star-tree can store a pre-aggregated document `(US, *, revenue_sum=20)`. The query does not group or filter by device, so the device value is allowed to be `*`. The answer is the same sum, but the server reads one star document instead of two raw rows. On a large segment, that difference is the point.',
-        'If the query changes to `country=US AND device=mobile`, the `US,*` document is too coarse. The server must use a more specific star-tree path or raw documents. Star-tree speed comes from exact alignment between the query and the pre-aggregated shape.',
+        'During segment generation, Pinot groups rows by configured split dimensions and recursively builds a tree. At selected nodes it writes star documents whose metric columns store aggregates such as count or sum.',
+        'At query time, Pinot checks whether the filters, group-by columns, and aggregation functions match the star-tree configuration. Matching predicates navigate specific branches, while dimensions the query ignores can use star branches.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is ordinary aggregation algebra. If a query groups by country and ignores device, then summing all device-specific rows for a country is equivalent to reading a precomputed "all devices" sum for that country.',
-        'The invariant is that every star document must aggregate exactly the raw rows represented by its tree path. A `*` dimension is not an approximation. It is a promise that all values below that branch have already been combined using the configured aggregation function.',
-        'This is why aggregation choice matters. Additive and decomposable metrics fit naturally. Metrics with special merge rules need matching Pinot aggregation support. A star-tree cannot safely answer a query whose semantics were not represented during index construction.',
+        'Correctness follows from aggregation algebra. If a query groups by country and does not mention device, summing all device rows for each country is the same as reading a precomputed all-device sum for that country.',
+        'The proof depends on the stored aggregate matching the query semantics. If the query needs a dimension, predicate, or aggregation function that was not represented in the star-tree, Pinot must fall back to raw or regular indexed processing.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the build view, read the path from segment to dimensions to star document as an ingestion-time decision. The highlighted star node is not a cache entry made after a query. It is a document created when the segment is built so future queries can skip raw rows.',
-        'The raw-row matrix shows the main equivalence. Two detailed US rows become one `US *` aggregate because the current query shape does not need device-level detail. The design-knobs frame is the warning label: dimension order and thresholds decide whether the tree is useful or bloated.',
-        'In the query-pruning view, the match node is the critical state change. When the query matches the configured rollup, the star-doc path becomes active and the raw-doc path becomes avoidable. When it misses, the visualization is showing why Pinot still needs its regular indexes and scans.',
+        'A star-tree spends storage and segment-build CPU to save query CPU. When the segment is built, it creates extra documents; when the query runs, it reads fewer rows if the query shape matches.',
+        'Cost changes with cardinality. A country dimension with 200 values is manageable, but a user-id dimension with 50 million values can create a tree that stores many rollups while helping few repeated queries.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A star-tree spends storage, segment-build CPU, and operational attention to reduce query CPU. The index can increase segment size because it stores extra aggregate documents. It can also lengthen ingestion or segment generation because the rollups must be built before the segment is ready.',
-        'The cost is not only Big-O. High-cardinality dimensions can create many branches. Too small a leaf threshold can create too many nodes. Too many aggregation pairs can widen documents. Too many skipped dimensions can leave common queries uncovered.',
-        'The practical measurement is workload coverage. Track rows scanned, p95 and p99 latency, segment size, build time, memory pressure, and the fraction of real queries that use the star-tree. A star-tree that helps one benchmark and misses production traffic is just storage bloat.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Star-trees win on repeated aggregation and group-by queries over large segments, especially user-facing dashboards with stable dimensions and tight latency targets. They fit cases where the result cardinality is much smaller than the raw event count.',
-        'They also fit multi-tenant analytical systems where a small latency reduction inside each segment multiplies across many segments and servers. The broker still routes the query, and the server still executes it, but each matching segment has less row-level work to do.',
+        'Star-trees fit user-facing analytics dashboards with stable filters and group-bys. They are most useful when result cardinality is much smaller than raw event count and latency matters at p95 or p99.',
+        'They also fit multi-tenant OLAP systems where each query fans out across many segments. A small row-count reduction per segment can become a large cluster-wide CPU and latency reduction.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Star-trees are weak for highly ad hoc exploration. If users constantly change filters and group-bys across dimensions that were not selected, the index will miss and regular query processing will dominate.',
-        'They are risky for very high-cardinality dimensions unless the configuration controls tree growth. A dimension such as user id may create a large number of branches while providing little reusable aggregation.',
-        'They do not replace Pinot table design. Partitioning, routing, segment sizing, dictionary encoding, inverted indexes, range indexes, sorted indexes, and query rewrite still matter. A star-tree is one index in an OLAP indexing budget.',
+        'Star-trees fail for highly ad hoc exploration. If users keep changing dimensions, predicates, or functions outside the configured tree, the index misses and normal Pinot processing dominates.',
+        'They also fail when build cost or freshness delay matters more than query speed. If segment generation slows enough to miss ingestion targets, the dashboard win may not repay the data-arrival cost.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'The common failure is building the tree for imagined queries instead of measured traffic. Start from query logs, not from a list of dimensions that look important.',
-        'Another failure is hiding freshness or ingestion cost. If segment generation slows enough to violate a freshness target, the query win may not be worth it. Real-time systems care about both serving latency and data arrival latency.',
-        'A third failure is treating star-tree use as automatic proof of success. Compare against a no-star-tree baseline and against simpler indexes. The right answer may be a sorted column, an inverted index, a rollup table, or a different segment partitioning strategy.',
+        'Suppose a segment has 10 million rows and the top dashboard asks for sum revenue by country for mobile and web traffic. If country has 200 values and device has 2 values, raw processing may touch millions of rows to emit at most 400 groups.',
+        'A star-tree can store one rollup per country with device as star, so a country-only query reads about 200 aggregate documents instead of 10 million raw rows. If the query asks for country plus device, it can use the more specific 400 documents if that split exists; otherwise it must scan deeper or fall back.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Apache Pinot Star-Tree Index documentation at https://docs.pinot.apache.org/build-with-pinot/indexing/star-tree-index and the LinkedIn engineering writeup on Pinot star-tree indexing at https://www.linkedin.com/blog/engineering/open-source/star-tree-index-powering-fast-aggregations-on-pinot.',
-        'Study Parquet Columnar Format Case Study for column pruning, Apache Druid Segment Case Study for another OLAP segment design, Dremel Query Engine Case Study for nested analytical scans, Roaring Bitmaps for compressed filter sets, Database Indexing for index-selection tradeoffs, and DuckDB Vectorized Execution for CPU-efficient scans.',
+        'Use the Apache Pinot star-tree index documentation and the LinkedIn engineering writeup as primary sources. They define configuration knobs, query eligibility, and the segment-build model.',
+        'Study columnar storage, inverted indexes, bitmap indexes, Druid segments, and vectorized execution next. Then inspect real query logs before choosing star-tree dimensions, because workload shape is the design input.',
       ],
     },
   ],

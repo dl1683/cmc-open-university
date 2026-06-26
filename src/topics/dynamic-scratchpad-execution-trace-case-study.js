@@ -269,95 +269,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the scratchpad as the live machine state, not as a diary. Active means the next executable field is being inspected or changed, visited means an old trace fact has already been folded into the state map, and found means the verifier can derive the next legal step from the kept fields.',
+        'The safe inference rule is replay sufficiency. If the program counter, locals, stack frame, heap identity, iterator position, random seed, and input observation are enough to reproduce the next transition, then earlier events can be forgotten for that step.',
+        {type:'callout', text:'A dynamic scratchpad is not a shorter transcript; it is a replayable current-state contract that earns compression only when the next legal step can be derived from the fields it keeps.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Execution traces teach models what code does, but long programs create a context wall. A loop with thousands of steps can be simple to execute and still too long to keep as a prompt transcript. A dynamic scratchpad solves the prompt-facing part of that problem by keeping only the current state needed to continue.',
-        'Instead of asking a model to append every line-level state forever, the model updates one self-contained state map: program counter, locals, iterator counts, stack frames, heap references, and confidence. Execution Trace State Diff Case Study records what happened. A dynamic scratchpad defines the compact state a model must carry if it wants to continue simulating the program after thousands of steps.',
-        {type:'callout', text:'A dynamic scratchpad is not a shorter transcript; it is a replayable current-state contract that earns compression only when the next legal step can be derived from the fields it keeps.'},
+        'An execution trace is a record of the states a program passes through. It is useful for training and checking reasoning models because it shows concrete control flow, variable values, and outputs. The problem is that a trace can grow while the live state stays small.',
+        'A loop that runs 10,000 times may only need four current facts to continue: the program counter, the loop index, the accumulator, and the stop condition. Keeping all 10,000 trace rows in context spends tokens on history that no longer changes the next step. A dynamic scratchpad exists to keep the state that still has causal force.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is an append-only scratchpad: state after line 1, state after line 2, state after line 3, and so on. It is honest and easy to audit because the full history is present.',
-        'The wall is growth. The prompt grows with execution length even when the live state is tiny. Compact diffs reduce tokens but still require replay when the model needs the current value. A summary is shorter, but it is unsafe if it forgets an iterator count, call frame, heap alias, seed, or IO fact needed for the next step.',
+        'The obvious approach is to append every step to the prompt. After line 1, write the state; after line 2, write the state again; after line 3, keep going. This is easy to audit because every past value remains visible.',
+        'A smaller version stores only diffs, meaning only the variables that changed at each step. That reduces repeated text, but the current value still requires replaying the diff chain. A summary is shorter, but it can drop a detail that later becomes decisive.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is context growth without new decision power. If a trace uses 25 tokens per step, then 10,000 steps cost about 250,000 tokens before the model even answers the next question. Most of those tokens describe events whose effects are already captured by current variables.',
+        'The harder wall is hidden state. A value such as item = "a" is not enough when the iterator has seen three different positions that all contain "a". Without the iterator index, the scratchpad cannot know which element comes next.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Make the current state the data structure. The invariant is simple: the current-state map must contain every fact needed to take the next legal step without rereading the old trace. The model can forget old events only after their effects have been folded into this map.',
-        'Execution Tuning compares regular scratchpads, compact scratchpads, and dynamic scratchpads, and reports that dynamic scratchpads help on long executions up to roughly 14k steps. It also studies multi-step prediction, where the model jumps several steps ahead instead of emitting every intermediate state: https://arxiv.org/html/2503.05703v1.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'Inspect the scratchpad as executable state, not as a summary paragraph. Every field should answer a replay question: can an interpreter or verifier continue from this map without reading the old trace? If not, the omitted fact still belongs in state.',
-        'The useful comparison is history versus sufficiency. Full history is expensive but complete. A dynamic scratchpad is cheaper only when it preserves all facts that affect the next transition: program counter, locals, stack frames, object identity, iterator positions, randomness, and IO observations.',
+        'Make current state the data structure. A dynamic scratchpad is a schema with fields that are sufficient to continue execution. Old trace rows may be deleted only after their effects have been absorbed into those fields.',
+        'The invariant is simple: every accepted scratchpad must contain every fact that can affect the next legal transition. If a fact can change the next branch, loop update, function return, alias, random draw, or input read, it is state. If it cannot change any future step, it is history.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A regular scratchpad is append-only. A compact scratchpad stores changed variables. A dynamic scratchpad updates the current state in place. That state has to include hidden facts that full history would otherwise imply. Iterator counts are the obvious example: if a loop visits the same value twice, the current state must distinguish the first visit from the second. Stack frames, object identity, seeds, and IO state play the same role in richer programs.',
-        'Skip-step prediction turns the trace into a search problem. From state S0, the model can propose S1, S4, or S10. Each edge has a cost based on confidence, jump length, and verification expense. A priority queue can expand the best landing states first, while a verifier rejects illegal states. This is Dijkstra-style thinking applied to model-predicted execution states, with the caveat that ground-truth access must not leak into the benchmark.',
+        'At each step, the executor reads the current scratchpad, applies the next program operation, and rewrites the affected fields. The program counter advances, locals change, stack frames are pushed or popped, heap references keep object identity, and iterator records keep position. The update is not prose compression; it is state transition.',
+        'For neural skip-step execution, the model may propose a state several steps ahead. A verifier then replays from the old state to the proposed state or checks enough constraints to accept it. If the proposal fails, the system falls back to a smaller jump or to a real interpreter.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is replay from the current state. If a verifier can start at the scratchpad map and produce the same next state or output as the full trace would, then the old history has been compressed without losing executable facts. If replay fails, the scratchpad omitted state.',
-        'For skip-step search, the invariant is that every accepted landing state verifies. The model may propose a jump, but the verifier decides whether the jump is legal. The priority queue only changes the order of attempts; it does not make an unverifiable landing state correct.',
+        'Correctness comes from replay equivalence. If starting from the dynamic scratchpad produces the same next state and output as starting from the full trace, then the omitted trace rows were not needed for that step. The full history and the compact state are equivalent for continuation.',
+        'For skip-step search, verification is the safety boundary. The model can guess a future state, but only verified landing states may replace the current state. Search order can improve speed; it cannot make an unverifiable state correct.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is schema pressure. A dynamic scratchpad must name live state explicitly, so the designer has to decide what counts as state for this runtime. Too few fields make the state wrong. Too many fields push the prompt back toward full history.',
-        'Skip-step prediction adds another tradeoff. Larger jumps save tokens and tool calls, but accuracy falls as the landing state moves farther away. Negative log likelihood, confidence, replay cost, and task budget become routing signals. The practical fallback is still the real interpreter.',
-        'The design should treat compression as a budgeted bet. A one-step symbolic interpreter is slow but reliable. A ten-step neural jump is cheap only when it verifies. The runtime earns speed by choosing jump lengths that match confidence, not by pretending every trace can be summarized equally well.',
+        'A full trace costs O(t * s) prompt space for t steps and s tokens per step. A dynamic scratchpad costs O(live state), which can stay nearly constant for simple loops. If a loop doubles from 5,000 to 10,000 iterations, the full trace roughly doubles while a four-field scratchpad may not grow at all.',
+        'The tax is schema design. Too few fields make replay wrong, and too many fields push the scratchpad back toward a trace. The dominant cost in practice is verifying that compression did not lose state, especially when jumps skip many steps.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Dynamic scratchpads win on long but structured executions: loops, counters, interpreters, simple simulations, and repeated program states where the live state is small. They also turn raw trace factories into better training targets because the target is a compact state object instead of an ever-growing transcript.',
-        'The local Code World Models Breakdown makes the same architectural point from the CWM side: execution grounding works, but the valuable asset is the verified trace factory. Dynamic scratchpads make that factory more useful because they turn raw traces into compact, replayable state training targets.',
+        'Dynamic scratchpads fit program-execution tutors, code reasoning benchmarks, agent traces, and model training systems that need long rollouts without long transcripts. They are useful when the live state is much smaller than the path that produced it.',
+        'They also fit systems that retry or resume work. A browser automation agent, a build agent, or a data-cleaning script can checkpoint the facts needed to continue instead of replaying every log event. The checkpoint must still be executable state, not a pleasant summary.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when the state schema is incomplete or the verifier is too weak. Strings and indexing are brittle because many positions can hold the same character. Iterators require counts. Function calls require frames. Mutation requires object identity. IO and randomness require external state. A short scratchpad that drops the decisive field is worse than a long trace.',
+        'It fails when the schema forgets a hidden dependency. Repeated values need positions, mutable objects need identity, recursion needs frames, random behavior needs seeds or sampled values, and input output needs recorded observations. One missing field can make a short scratchpad worse than a long trace.',
+        'It also fails when the verifier is weak. A model can write a plausible state that cannot actually follow from the old one. Without replay or constraint checking, the scratchpad becomes a story about execution rather than execution state.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Track replay success rate, verifier rejection rate, average scratchpad size, omitted-field failures, skip length, rollback count, frontier expansions, and token savings per verified step. These signals tell you whether the dynamic scratchpad is compressing execution or merely hiding missing state until the verifier catches it.',
-        'The most valuable failure analysis is schema-level. If many rejections come from iterator position, add iterator counters. If aliasing breaks replay, add object ids. If IO breaks replay, name the external observation. The scratchpad should evolve from verifier evidence, not from vibes.',
+        'Consider a loop that sums even numbers from 0 through 18. A full trace records 10 iterations: i = 0, sum = 0; i = 2, sum = 2; i = 4, sum = 6; and so on until i = 20, sum = 90. At 20 tokens per row, that is about 200 tokens for a result described by three live fields.',
+        'The dynamic scratchpad after the eighth iteration can be {pc: "loop", i: 16, sum: 56, stop: 20}. The next legal step is derivable: add 16 to get 72, then set i to 18. If the scratchpad only says sum = 56, replay fails because the next addend is unknown.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A dynamic scratchpad is a current-state contract. It earns its shorter context only when the next legal step can be derived from the state it keeps. Summarization is not enough; the state must be replayable.',
-        'For course design, teach this after execution traces, stacks, and priority queues. It connects classic program-state ideas to modern agent and model-training systems: reduce context, preserve invariants, verify jumps, and fall back when compression loses information.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'Take a Collatz loop. Full history emits every value of n and steps. A dynamic scratchpad stores the current n, steps, program counter, and loop condition, then updates those fields. For a long run, the model can attempt a skip: predict the state after four loop iterations. If the landing state verifies, the system saves tokens. If it fails, the frontier falls back to smaller jumps or the symbolic interpreter.',
-        'Now take a Python iterator over repeated values. A state that only stores c = "a" is ambiguous. The dynamic scratchpad needs an iterator field such as iterator_1 = 0 or iterator_1 = 2. Without that field, the model can know the current value but not where it is in the loop. This is why dynamic state is not just summarization; it is a schema contract.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Do not call a summary dynamic if it cannot replay. Do not drop iterator counts, stack frames, alias ids, seeds, or IO facts when they affect the next state. Do not use a Dijkstra-style search result that had access to ground truth as if it were a fair production metric. Do not assume lower token count means better reasoning; a compact state that omits one decisive field is worse than a long trace.',
-        'Primary sources: Execution Tuning at https://arxiv.org/html/2503.05703v1, Meta CWM at https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/, and the local Code World Models Breakdown.txt corpus note. Study Code World Models Case Study, Execution Trace State Diff Case Study, Verified Agent Trajectory Store, Agent Interface Portability Audit, Abstract Agent Operation Graph, Dijkstra, Beam Search vs Greedy, Process Reward Models & Verifier Search, Execution-as-a-Service Verifier Economy Case Study, Interpreter Dispatch Table & Threaded Code, Write-Ahead Log, and Distributed Tracing next.',
+        'Primary source: Execution Tuning at https://arxiv.org/html/2503.05703v1. For the model-training context, also study Meta CWM at https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/.',
+        'Study Execution Trace State Diff Case Study for trace storage, Interpreter Dispatch Table for program counters, Stack Frames for calls, Priority Queue for verified jump search, and Process Reward Models and Verifier Search for proposal checking. Read them in that order if the weak point is program state before model search.',
       ],
     },
   ],

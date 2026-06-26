@@ -196,100 +196,44 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        {type:'callout', text:'CRUSH replaces per-object placement metadata with a deterministic, topology-aware function that every client can compute from the same cluster map.'},
-        'A distributed storage system has to decide where every object lives. The easy answer is a central metadata service: ask it for the placement of object X, then read or write the listed replicas. That works until the placement table becomes large, hot, or hard to keep available during failures.',
-        'CRUSH, used by Ceph, makes placement a deterministic function. Given an object id, a cluster map, weights, and placement rules, clients and storage daemons can compute the replica set locally. The system avoids storing a per-object placement table while still respecting capacity and failure-domain constraints.',
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/3e/Ceph_components.svg', alt:'Ceph component diagram showing applications, kernel, monitors, metadata daemon, object storage daemon, and disks', caption:'Ceph distributes storage across monitors, metadata services, OSDs, and disks; CRUSH is the placement function that maps objects into that storage fabric without a per-object lookup table. Source: Wikimedia Commons, V4711, CC BY-SA 4.0.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is a lookup table from object to devices. It gives explicit control, but it creates a large metadata surface and a central point that every client must trust or query. Rebalancing means rewriting or interpreting many placement records.',
-        'Another obvious approach is a simple hash ring. Hash the object, walk the ring, and choose replicas. That handles decentralization better, but it does not automatically understand racks, hosts, device weights, or rules such as keeping replicas out of the same failure domain.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The wall is topology. Three replicas on three disks are not durable if all three disks sit in the same host or rack. A placement algorithm needs to know which failures are correlated, not just how many copies exist.',
-        'Capacity changes are the second wall. Adding a disk should move some data to the new disk, but it should not reshuffle the whole cluster. Removing or down-weighting a device should move affected data without creating a recovery storm that overwhelms the surviving devices.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Represent the cluster as a weighted hierarchy: root, rows, racks, hosts, devices, or whatever topology matches the deployment. Then run deterministic pseudo-random choices through that hierarchy under placement rules. The same object id and map produce the same answer everywhere.',
-        'The important move is making placement explainable without making it centralized. The CRUSH map is shared metadata, but individual object placements are computed. That is the difference between carrying a compact placement function and carrying a giant placement table.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'In the placement-hierarchy view, follow the object id through root, rack, host, and OSD. The highlighted path is not stored per-object metadata; it is the result of deterministic pseudo-random choice under the current map.',
-        'In the rebalancing view, the map change is the event. New weights should attract some data, but not all data. The operational table is the warning: deterministic placement still depends on accurate weights, realistic topology, current maps, and recovery throttling.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The cluster map describes buckets and devices. Buckets can represent physical or logical failure domains such as rooms, racks, hosts, chassis, or device classes. Each item has a weight, usually tied to capacity. Placement rules describe what kind of bucket to choose from and how replicas should be separated.',
-        'Given an object id, CRUSH uses deterministic pseudo-random selection to walk the map. It chooses a bucket, descends through child buckets, and selects OSDs while honoring rules such as distinct hosts or racks. If a choice violates a rule or lands on an unavailable device, the algorithm retries according to the rule set.',
-        'Every participant with the same map can compute the same placement. That lets clients send operations directly to the right OSDs and lets the cluster reason about recovery when the map changes.',
-        'In Ceph, placement groups sit between raw objects and OSDs. Many objects map into a placement group, and the placement group maps through CRUSH to an acting set. That extra layer gives the system a manageable unit for peering, recovery, backfill, and health reporting instead of tracking recovery independently for every individual object.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose object `photo-17` belongs to a replicated pool with size three and a rule that replicas must land on distinct hosts across two racks if possible. The object id and pool seed drive the selection. CRUSH chooses a rack, then a host, then an OSD, and repeats while avoiding forbidden collisions.',
-        'Now a new OSD is added to one host. Its weight appears in the next map. Some object placements now select the new OSD, which triggers backfill or recovery for those objects. Objects whose computed placement did not change stay where they are. That limited movement is the practical value of deterministic placement with weights.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'CRUSH works because placement is stable under a stable map and changes predictably under a changed map. Hashing gives a pseudo-random spread. Weights bias choices toward available capacity. Hierarchical rules encode failure-domain separation. The same function produces the same placement for every client that has the same cluster map.',
-        'It also works operationally because the map is much smaller than a per-object table. A system can distribute map updates and let clients compute placement locally. That shifts the bottleneck from per-object metadata lookup to map correctness and propagation.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'CRUSH removes central placement lookups, but it moves complexity into map design, weights, topology modeling, and recovery behavior. Bad weights skew load. Bad failure-domain rules reduce durability. Large topology changes can still create heavy recovery traffic.',
-        'The algorithm is deterministic, not free. Clients need the current map, placement calculations consume CPU, and recovery must reconcile computed placement with actual data movement. During map churn, placement can be correct but the cluster can still be busy moving data to reach the new correct state.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'CRUSH wins in large replicated and erasure-coded object stores where clients should compute locations without consulting a central placement database. It fits Ceph because Ceph already exposes objects, pools, OSD maps, placement groups, and failure domains as first-class operational concepts.',
-        'The broader design lesson applies beyond Ceph. Cache sharding, service placement, replicated logs, and storage systems often benefit when placement is a deterministic function of key plus topology rather than a hand-maintained table.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'CRUSH is not just consistent hashing and should not be treated like a hash ring with nicer names. If the topology is wrong, the algorithm will faithfully enforce the wrong topology. If a rack is modeled as independent when it shares power with another rack, the placement rule may overstate durability.',
-        'It also does not remove recovery cost. When devices fail, weights change, or placement rules are edited, data still has to move. The map can say where data belongs faster than the cluster can copy the bytes there. Recovery throttles, backfill limits, and capacity headroom decide whether a correct placement plan becomes a stable operation.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'Common failures are stale maps on clients, inaccurate weights, device classes that do not match performance reality, rules that allow correlated replicas, and large map changes that trigger too much movement at once. A healthy design reviews both placement output and recovery pressure.',
-        'A second failure is using CRUSH output as an excuse to ignore observability. Operators still need to explain why an object maps to a set of OSDs, why a placement group is undersized or degraded, and why recovery is slow. Deterministic placement helps only if the map and events are inspectable.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: CRUSH paper PDF at https://ceph.com/assets/pdfs/weil-crush-sc06.pdf, ACM DOI at https://dl.acm.org/doi/10.1145/1188455.1188582, and Ceph CRUSH map documentation at https://docs.ceph.com/en/latest/rados/operations/crush-map/.',
-        'Study Consistent Hashing for the simple placement baseline, Sharding and Partitioning for key-to-owner mapping, Google File System Case Study for a central master contrast, Amazon Dynamo Case Study for decentralized replication, Reed-Solomon Erasure Coding for erasure-coded pools, Ceph Erasure-Coded Pools, and Merkle Tree for repair and verification patterns.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      {type:'callout', text:'CRUSH replaces per-object placement metadata with a deterministic, topology-aware function that every client can compute from the same cluster map.'},
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/3e/Ceph_components.svg', alt:'Ceph component diagram showing applications, kernel, monitors, metadata daemon, object storage daemon, and disks', caption:'Ceph distributes storage across monitors, metadata services, OSDs, and disks; CRUSH is the placement function that maps objects into that storage fabric without a per-object lookup table. Source: Wikimedia Commons, V4711, CC BY-SA 4.0.'},
+      'Read the graph as a deterministic function call. The input is an object id plus the current CRUSH map, and the output is a set of OSDs. OSD means object storage daemon, the Ceph process that stores object data on a device.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'A distributed object store must decide where every object lives. A central object-to-device table is easy for a small system but grows with object count and becomes a hot metadata dependency. CRUSH makes placement computable from a compact map instead.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is a lookup table: object X maps to OSDs 1, 3, and 5. A flat hash ring is another obvious approach. Both miss the full storage problem because placement must understand weights and failure domains, not only random distribution.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is correlated failure and movement. Three replicas on three disks are unsafe if all disks share one host or rack. Adding a new OSD should move its fair share of data, not reshuffle the whole cluster.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Represent the cluster as a weighted hierarchy of roots, racks, hosts, device classes, and OSDs. CRUSH walks that hierarchy with deterministic pseudo-random choices under placement rules. The same object id and map produce the same answer everywhere.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'The CRUSH map contains devices, buckets, weights, and rules. Ceph maps objects into placement groups, then maps each placement group through CRUSH to an acting set. Placement groups give recovery and health a manageable unit instead of tracking every object independently.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The function is stable under a stable map. Hashing spreads objects, weights bias choices toward capacity, and hierarchy rules separate failure domains. If all clients have the same map, they compute the same placement without asking a central service for every read.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'CRUSH removes per-object placement lookup but moves complexity into map design, weights, topology labels, and recovery behavior. When OSD count doubles, the map grows with devices and buckets, not object count. The dominant cost after change is copying data until actual placement matches computed placement.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'CRUSH is used by Ceph for replicated and erasure-coded pools across OSDs. The broader pattern fits cache sharding, service placement, stream partitioning, and replica assignment when placement can be a function of key plus topology.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'CRUSH fails when the map lies. If two racks share power but the map treats them as independent, the algorithm can overstate durability. It also does not remove recovery cost; the map can compute a new home faster than disks can copy bytes.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A pool has size 3 across 10 equal OSDs on five hosts. Object photo-17 maps to PG 42, and CRUSH chooses OSD 1, OSD 4, and OSD 8 on distinct hosts. Adding OSD 10 with weight 1.0 should eventually attract about 1/11 of balanced data, while PGs whose computed placement did not change stay put.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: CRUSH paper at https://ceph.com/assets/pdfs/weil-crush-sc06.pdf, ACM DOI at https://dl.acm.org/doi/10.1145/1188455.1188582, and Ceph CRUSH map documentation at https://docs.ceph.com/en/latest/rados/operations/crush-map/.',
+      'Study Consistent Hashing, Sharding and Partitioning, Google File System Case Study, Amazon Dynamo Case Study, Reed-Solomon Erasure Coding, Ceph Erasure-Coded Pools, and Merkle Tree repair patterns.',
+    ] },
   ],
 };

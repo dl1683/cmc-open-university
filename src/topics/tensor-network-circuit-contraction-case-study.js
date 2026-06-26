@@ -168,107 +168,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A full statevector stores one complex amplitude for every basis state. That is exact and simple, but memory doubles with each qubit. A 40-qubit vector is already far beyond a laptop. The brute-force representation treats every circuit as if it needs the full wavefunction at every step.',
-        'Many circuits have more structure than that. Gates are local. Wires connect specific qubits. Some circuits create little entanglement across certain cuts. Tensor networks try to exploit that structure by representing the circuit as a graph of tensors and shared indices rather than one flat 2^n array.',
-        'The goal is not to make quantum simulation easy in general. It is to avoid the statevector explosion when the circuit graph and the requested output allow the sums to be rearranged cheaply.',
+        'Read each gate as a tensor, which is a multidimensional array, and each wire as an index shared between tensors. Contracting an edge means multiplying connected tensors and summing over the shared index.',
+        'The safe inference rule is that the same circuit can have very different cost depending on contraction order. The graph is not just decoration; it is the data structure that decides intermediate tensor size.',
         {type:'callout', text:'Tensor-network simulation replaces qubit-count panic with a contraction-order problem over graph structure and requested outputs.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/79/Tensor_train.png', alt:'Tensor train diagram showing a high-order tensor decomposed into a chain of smaller tensors.', caption:'Tensor train technique. Image: AtellK, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'Why this exists',
       paragraphs: [
-        'Each gate is a tensor. Each wire is an index. Connecting tensors says that the shared index must be summed over. Simulation becomes a contraction-order problem: multiply and sum tensors in an order that keeps intermediate tensors small.',
-        'The cost is not just qubit count. It depends on circuit topology, entanglement, contraction path, slicing strategy, and what output you ask for.',
-        'This is why tensor networks are a systems topic as much as a quantum topic. The mathematical expression is fixed, but the runtime depends on graph layout, memory peaks, scheduling, and whether the requested result lets the simulator avoid materializing the whole state.',
+        'A statevector simulator stores one complex amplitude for every basis state of n qubits. That needs 2^n amplitudes, so adding one qubit doubles memory.',
+        'Tensor networks exist because many circuits have structure that a flat statevector ignores. Local gates, limited entanglement, geometry, and selected outputs can let the simulator rearrange sums without materializing the full state.',
       ],
     },
     {
-      heading: 'Animation notes',
+      heading: 'The obvious approach',
       paragraphs: [
-        'In the network-graph view, read gates as tensors and wires as shared indices. A connected wire means "sum over this index when the neighboring tensors are contracted." The graph is a compact way to write the same linear algebra the circuit would perform on a statevector.',
-        'In the contraction-plan view, watch the order. The same network can be cheap or impossible depending on which tensors are multiplied first. The animation is teaching a data-structure lesson: graph shape and elimination order determine intermediate memory.',
+        'The obvious simulator keeps the full statevector and applies each gate. It is exact, simple, and often fastest for small n because memory is contiguous and the algorithm is straightforward.',
+        'For 30 qubits, the state has 1,073,741,824 amplitudes. With 16 bytes per complex amplitude, that is about 16 GiB before workspace overhead.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is exponential memory. A 40-qubit full state has about 1.1 trillion amplitudes, so even before gate work the representation can exceed ordinary machine memory.',
+        'The wall is not only qubit count. Circuit depth, topology, entanglement across cuts, output type, and allowed approximation decide whether structure remains exploitable.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A quantum circuit is a tensor expression. Gates are tensors, wires are summed indices, inputs and requested outputs are fixed or open indices, and simulation is choosing how to evaluate that expression.',
+        'The invariant is algebraic equivalence. Reordering contractions changes intermediate tensors and cost, but without approximation it computes the same scalar, amplitude, state slice, or observable up to floating-point error.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Build the network from the circuit. Pick a contraction plan. Contract tensors pair by pair or in groups. When an index is internal to the contracted region, sum it out. Keep open only the indices needed for the requested result.',
-        'A shallow nearest-neighbor circuit may contract like a matrix product state with small bonds. A random all-to-all circuit can create large intermediate tensors and lose the advantage.',
-        'If the target is one amplitude, many output indices can be fixed early. If the target is an expectation value, the network may include the circuit, its conjugate, and the observable. If the target is samples, the simulator may contract conditionally as bits are sampled. The requested output changes the best contraction strategy.',
+        'The simulator converts each one-qubit gate into a rank-2 tensor and each two-qubit gate into a rank-4 tensor. Shared indices connect outputs of earlier gates to inputs of later gates along the same qubit wire.',
+        'A contraction planner chooses which tensors to combine first. Internal indices are summed away, while open indices remain for the requested amplitude, marginal, sample, or observable.',
+        'Slicing can reduce peak memory by fixing one or more high-pressure indices and running many independent smaller contractions. That trades memory for more total work and more scheduling overhead.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Tensor contraction is the same linear algebra as statevector simulation, just factored differently. Instead of materializing the whole vector after every gate, the simulator delays and rearranges sums. If the rearranged sums keep intermediates small, memory drops.',
-        'This is exact up to numerical error when no approximation is introduced. Approximate tensor-network methods add truncation, which buys speed and memory by discarding small singular values or low-weight structure.',
+        'Tensor contraction is the same linear algebra as applying gates to a statevector. The difference is that sums are delayed, grouped, and eliminated in an order chosen to keep intermediate arrays small.',
+        'The method wins when the graph has low effective treewidth, meaning cuts through the graph expose relatively few open indices. It loses when entanglement and connectivity force large intermediate tensors no matter which path is chosen.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The peak intermediate tensor size is the practical memory bill. A bad contraction path can exhaust memory even when a better path would fit. Slicing reduces peak memory by splitting an index into many independent subproblems, but it increases total work.',
-        'This is why contraction planning is part of the algorithm, not a preprocessing detail. The same circuit graph can be easy or impossible depending on the chosen path.',
-        'Treewidth is the rough graph concept behind the cost. Low-treewidth networks can be contracted with small intermediates. High-treewidth networks force large tensors no matter how clever the implementation is. Real systems also care about GPU memory, distributed scheduling, contraction reuse, and numeric precision.',
+        'The main cost is the largest intermediate tensor. If an intermediate has 30 binary indices, it has about 2^30 entries; if the planner keeps it to 20 binary indices, it has about 2^20 entries, which is 1,024 times smaller.',
+        'Path search, slicing, GPU memory, distributed communication, precision, and optional truncation all matter. A plan that minimizes floating-point operations can still be bad if it creates a memory peak or too many tiny distributed jobs.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Tensor networks work well for low-depth, low-entanglement, local, or structured circuits and for queries that need selected amplitudes or observables instead of a full statevector.',
-        'They also win when the circuit has a natural geometry: one-dimensional chains, shallow two-dimensional grids, repeated local layers, or circuits where a cut separates weakly entangled regions. In those cases the tensor graph keeps the useful locality that the statevector flattens away.',
+        'Tensor-network contraction is used to simulate structured quantum circuits, compute selected amplitudes, estimate observables, study low-entanglement systems, and benchmark quantum devices beyond small statevector limits. It is also used in condensed matter and tensor decomposition methods such as matrix product states.',
+        'It works best when the output is narrower than the full state. Asking for one amplitude or one observable can be much cheaper than asking for the entire final statevector.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Tensor networks fail to save much when the circuit creates broad entanglement across the graph. In that case the network contracts into large dense tensors, and statevector simulation may be simpler or faster.',
-        'They can also fail operationally. Path search can be expensive, memory estimates can be wrong, slicing can create too many jobs, and approximations can bias results. A tensor-network simulator needs a contraction ledger: path, peak memory estimate, slices, floating-point type, truncation policy, and validation target.',
+        'Tensor networks fail when the circuit creates broad entanglement and high graph connectivity. Random deep all-to-all circuits can force huge intermediates, making statevector simulation simpler or both methods infeasible.',
+        'They also fail operationally when the contraction ledger is missing. Without path, peak memory, slice count, precision, truncation policy, and validation target, a result is hard to reproduce or trust.',
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Worked example',
       paragraphs: [
-        'The obvious simulator stores the entire statevector and applies every gate directly. That baseline is excellent for small qubit counts because it is simple, exact, and has predictable memory layout.',
-        'The wall is exponential memory. Adding one qubit doubles the state. Tensor networks try to avoid that wall by keeping the circuit factored and contracting only the pieces needed for the requested output.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Treat contraction planning as a first-class artifact. Store the chosen path, estimated FLOPs, peak intermediate size, slicing dimensions, task count, precision, and any truncation thresholds. Without that ledger, performance and accuracy problems are hard to reproduce.',
-        'Validate on small circuits where statevector results are available, then scale. Compare amplitudes, observables, or sample statistics depending on the output mode. If approximation is used, report the truncation policy and an error diagnostic rather than only runtime.',
-      ],
-    },
-    {
-      heading: 'A worked case',
-      paragraphs: [
-        'Imagine a circuit on a line of qubits with nearest-neighbor gates. The tensor graph is also close to a line. Contracting left to right can keep the bond dimension modest if entanglement stays local. The simulator avoids materializing a full 2^n state because it only carries the boundary tensor across the cut.',
-        'Now add many long-range entangling gates. The graph becomes highly connected. Any cut crosses many wires, so the intermediate tensor needs many open indices. The tensor network has not failed mathematically; the circuit has removed the structure the method depends on.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A simulator is asked for one amplitude of a 60-qubit shallow grid circuit. A statevector would need the full 2^60 state, which is impossible on ordinary hardware. A tensor-network plan can fix input and output indices, contract local patches, and slice a few high-pressure bonds into many smaller jobs.',
-        'The same simulator may fail on a deeper all-to-all random circuit. Entanglement spreads across many cuts, the contraction path produces huge intermediates, and slicing creates too many tasks. The lesson is not that tensor networks are weak; it is that their strength depends on exploitable structure.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'Do not compare simulators only by qubit count. Depth, topology, entanglement, observable type, output count, and allowed approximation often dominate. A 50-qubit structured circuit can be easy while a 35-qubit dense circuit is hard.',
-        'Approximate contraction can hide error if the truncation ledger is missing. Path search can also overfit to an estimate that ignores hardware communication. A production simulator should report memory peaks, contraction path, slice count, precision, and validation evidence with the result.',
+        'Suppose a 50-qubit line circuit has shallow nearest-neighbor gates and the largest cut exposes 12 binary indices. A tensor contraction can carry about 2^12 = 4,096 boundary states across that cut instead of storing 2^50 full amplitudes.',
+        'Now add long-range entangling gates so the best cut exposes 32 binary indices. The intermediate has about 2^32 entries, which is about one million times larger than 2^12, so the advantage can disappear even though the qubit count did not change.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: PennyLane tensor-network simulation demo at https://pennylane.ai/demos/tutorial_How_to_simulate_quantum_circuits_with_tensor_networks and the Jet paper at https://quantum-journal.org/papers/q-2022-05-09-709/.',
-        'Study Quantum Statevector Amplitude Array for the baseline simulator, Sparse Format Selection for representation tradeoffs, Tensor Parallelism for distributed tensor work, GraphBLAS Sparse Matrix Graph Case Study for graph-linear-algebra structure, and Matrix Chain Multiplication for the simpler contraction-order analogy.',
+        'Primary sources include the PennyLane tensor-network simulation demo at https://pennylane.ai/demos/tutorial_How_to_simulate_quantum_circuits_with_tensor_networks and the Jet paper at https://quantum-journal.org/papers/q-2022-05-09-709/. Study statevector simulation, matrix chain multiplication, treewidth, tensor trains, matrix product states, slicing, and quantum circuit observables next.',
       ],
     },
   ],

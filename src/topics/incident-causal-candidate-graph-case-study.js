@@ -1,4 +1,4 @@
-﻿// Incident causal candidate graph: assemble service topology, SLO symptoms,
+// Incident causal candidate graph: assemble service topology, SLO symptoms,
 // traces, logs, deployments, and feature flags into ranked root-cause evidence.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -224,156 +224,53 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Incident Causal Candidate Graph Case Study. Model incidents as evidence graphs: symptoms, dependencies, traces, deploys, flags, blast radius, and ranked root-cause candidates with auditable uncertainty..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
-        {type:"callout", text:"An incident graph is useful when every candidate remains a hypothesis with typed evidence, counterevidence, and a reversible test."},
-        {type:"image", src:"https://upload.wikimedia.org/wikipedia/commons/5/52/Ishikawa_Fishbone_Diagram.svg", alt:"Ishikawa fishbone diagram showing causes leading to an effect", caption:"Ishikawa fishbone cause-and-effect diagram by FabianLange, via Wikimedia Commons, CC BY-SA 3.0."},
+        'Read the animation as an evidence graph for live incident response. Active nodes are the symptom, dependency, trace, deploy, flag, or mitigation currently being evaluated; visited nodes have evidence attached; found nodes are candidates strong enough to test. A safe inference is that a top-ranked cause is still a hypothesis until a reversible test or later analysis confirms it.',
+        {type:'callout', text:'An incident graph is useful when every candidate remains a hypothesis with typed evidence, counterevidence, and a reversible test.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/52/Ishikawa_Fishbone_Diagram.svg', alt:'Ishikawa fishbone diagram showing causes leading to an effect', caption:'Ishikawa fishbone cause-and-effect diagram by FabianLange, via Wikimedia Commons, CC BY-SA 3.0.'},
       ],
     },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `An incident causal candidate graph exists because modern incidents rarely arrive as one clean alert with one obvious cause. A user-visible SLI burns. Dozens of services, dashboards, traces, logs, deploys, feature flags, queues, and databases move at the same time. Responders need a way to assemble evidence quickly without pretending that early evidence is proof.`,
-        `The graph is not an oracle. It is a structured investigation object. It keeps symptoms, dependencies, changes, traces, and mitigations connected so responders can see why a candidate is ranked and what evidence would confirm or weaken it. That difference matters during an outage. A tool that says "root cause: deploy v42" too early can make the team chase the easiest story instead of the strongest evidence.`,
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        `The obvious approach is alert correlation. Group alerts that fire around the same time, page the owning team, and open dashboards for the suspected services. That is useful, especially when the alternative is a flood of unrelated pages. It still leaves responders doing most of the causal assembly in their heads. Time coincidence is not causality, and grouped symptoms do not say which action should be tried first.`,
-        `The second common approach is recent-change bias. If a deploy or flag change happened near the start of the incident, roll it back. That is often a good mitigation test, but it is not a root-cause proof. Databases can saturate because a downstream queue drained. A deploy can be correlated because it happened during normal release hours. A graph should make recent changes visible without letting them dominate every investigation by default.`,
-        `The failure is missing context under time pressure. During an incident, nobody has time to manually join the service catalog, topology graph, tracing backend, deployment history, feature-flag audit log, error-budget dashboard, log templates, queue metrics, and ownership data. Those signals also carry different meanings: trace evidence, topology evidence, temporal evidence, and change evidence should not collapse into one generic correlation score.`,
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        `The core insight is to model root cause as a ranked hypothesis with evidence, not as a label emitted by a model. The graph can connect a user-facing SLI to affected endpoints, endpoints to services, services to dependencies, traces to slow spans, log templates to error bursts, deploys to changed code, flags to exposed cohorts, and mitigations to recovery. Each connection carries type, time, source, confidence, and evidence links.`,
-        `That structure lets the ranker stay explainable. A candidate rises because it is close to the symptom in topology, appears on affected trace paths, changed before the burn started, matches the blast radius, or improves when mitigated. A candidate falls because recovery did not happen after the mitigation, the trace concentration moved elsewhere, or counterevidence shows unaffected traffic crossed the same component.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `When an incident opens, the system seeds the graph with the lead symptom: for example, checkout p99 latency and 5xx rate crossing an SLO burn threshold in one region. It expands outward through service topology, recent deployments, feature-flag changes, sampled traces, log clusters, resource saturation, queue lag, database waits, and ownership metadata. The graph store can be a graph database, document graph, or in-memory incident object. The required contract is typed edges with provenance.`,
-        `The ranker then scores candidate causes and candidate actions. Features can include graph distance from the symptom, temporal order, trace concentration, affected-region overlap, cohort exposure, deployment recency, saturation, error-template match, and recovery after mitigation. The output should be a ledger: candidate, evidence, counterevidence, confidence, suggested reversible test, and owner. That ledger is more useful than a single root-cause badge.`,
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        `The candidate-graph view proves that incidents are assembled from heterogeneous evidence. The dependency path from user SLI to checkout to database explains blast radius. The deploy and flag nodes explain plausible recent changes. The trace node ties evidence to real affected requests. None of those edges alone proves causality. Together they define a ranked search space for responders.`,
-        `The ranking view proves that scores should move as evidence arrives. A deploy can start as the top candidate because it changed before the burn and appears on slow traces. If rollback fixes p99 latency and error rate, the graph records recovery evidence and the deploy candidate strengthens. If rollback changes nothing, the deploy score should fall and database, queue, or flag candidates should rise. The graph earns trust by changing its mind.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The approach works because it starts from symptoms rather than internal guesses. Google SRE guidance emphasizes alerting on user-facing symptoms and actionable signals. A symptom-rooted graph keeps the investigation tied to user impact. Topology narrows which systems can plausibly explain the symptom. Traces add request-level paths. Logs and metrics add repeated patterns. Change data adds reversible tests.`,
-        `Mitigation evidence gives the graph a weak but useful experimental loop. Rolling back a deploy, disabling a flag, draining traffic, or scaling a dependency is not only an action; it is a test against the hypothesis. If the user-facing SLI recovers and the supporting trace or log pattern disappears, confidence should rise. If not, the candidate should be demoted. The graph is a causal candidate graph because it records tests, not because it magically observes causality.`,
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        `The main cost is integration. The graph needs service ownership, dependency topology, trace links, log templates, deployment metadata, flag audit trails, SLO burn rates, resource metrics, queue metrics, database wait signals, and incident actions. OpenTelemetry semantic conventions help by standardizing names across traces, metrics, logs, and resources, but most organizations still have gaps and local naming drift.`,
-        `The ranker must also be calibrated. Useful metrics include top-k candidate hit rate after postmortem review, false-leader rate, time to first useful candidate, evidence-link coverage, manual override rate, missing-topology discoveries, and time saved during response. A graph that is fast but confidently wrong is worse than a dashboard. A graph that shows uncertainty and missing evidence can still be useful.`,
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        `This pattern wins in microservice environments where topology is large and ownership is distributed. It helps on-call engineers narrow the search space, incident commanders explain why a mitigation is being tried, and postmortem authors preserve the evidence trail. It is especially useful when a symptom crosses several layers, such as edge errors caused by checkout timeouts caused by database pool starvation caused by a feature-flagged query path.`,
-        `It also wins for AIOps systems that need auditability. A black-box root-cause model may be hard to trust during a high-stakes outage. A candidate graph can expose the actual supporting edges and let humans override the ranking. The system can learn from closed incidents without removing the responder's judgment during live response.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `The largest failure is false certainty. A top-ranked candidate is still a candidate until mitigation, code evidence, data evidence, or postmortem analysis confirms it. Another failure is stale topology. If the service graph misses a hidden shared dependency, the ranker can split one incident into several unrelated problems or miss the actual bottleneck.`,
-        `Action bias is also dangerous. Rollbacks and flag disables are attractive because they are concrete, but they can cause collateral damage or distract from a saturated shared dependency. Sampling bias can hide rare paths. Log-template grouping can merge different errors. Security and privacy rules may limit how much trace or user data can be stored in the evidence graph. The graph should show these weaknesses instead of burying them under a score.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study AIOps Incident Response for the broader workflow, Alert Correlation Fingerprint Index for grouping symptoms, Distributed Tracing for request-path evidence, Metric Exemplars Trace Correlation for joining metrics to traces, Causal Graphs for formal causal language, Feature Flag Control Plane for change evidence, SLO Error Budget Burn Rate Alert for symptom-first paging, and Runbook Automation Approval Ledger for safe mitigation actions. Then compare this graph with ordinary dashboard triage and ask what evidence each method preserves or loses.`,
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Incident Causal Candidate Graph Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+    { heading: 'Why this exists', paragraphs: [
+      'Modern incidents rarely arrive as one clean alert with one obvious cause. A user-facing SLO can burn while services, queues, databases, deploys, feature flags, traces, and resource metrics all change at once. Responders need a way to assemble evidence quickly without pretending early correlation is proof.',
+      'An incident causal candidate graph is a structured investigation object. It connects symptoms to topology, traces, changes, owners, mitigations, and counterevidence. The point is not automatic certainty; the point is a ranked search space that humans can test under pressure.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is alert correlation. Group alerts that fire near the same time, page the owning team, and open dashboards for the suspected service. That reduces noise, but it leaves the causal chain in the responder head.',
+      'Another common approach is recent-change bias. If a deploy or flag changed near the incident start, roll it back. That is often a useful mitigation test, but it is not proof because the recent change can be unrelated or only one contributor.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is that incident evidence has different meanings. A topology edge says requests can flow through a dependency, a trace edge says affected requests did flow there, a deploy edge says code changed before the burn, and a mitigation edge says an action may have changed the symptom. Collapsing all of that into one correlation score hides the reason a candidate is ranked.',
+      'Time pressure makes the wall harder. During an outage, nobody can manually join the service catalog, trace backend, log templates, deployment history, feature flags, SLO dashboard, queue metrics, and ownership metadata. Missing joins create action bias, where teams try the most visible fix instead of the best-supported test.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'The core insight is to model root cause as a hypothesis with typed evidence. A candidate can rise because it is near the symptom in topology, appears on affected traces, changed before the burn, matches the blast radius, or improves after mitigation. It can fall because counterevidence shows unaffected traffic also crossed it, or because rollback did not improve the user-facing symptom.',
+      'The graph should keep confidence reversible. Each edge stores source, time window, evidence link, weight, and meaning. The output is a ledger of candidates, not a final root-cause label.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'When an incident opens, the system seeds the graph with the leading symptom, such as checkout p99 latency above SLO in us-east. It expands through service topology, sampled traces, logs, deployment events, flag changes, resource metrics, queue lag, database waits, and ownership metadata. The graph can live in a graph database, document store, or incident object as long as edges are typed and sourced.',
+      'The ranker scores candidates and actions. Useful features include graph distance from symptom, temporal order, affected-region overlap, trace concentration, cohort exposure, saturation, error-template match, and observed recovery after mitigation. Each score should show evidence and counterevidence so responders know why the candidate moved.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is bounded search, not guaranteed causality. Starting from a user-facing symptom keeps the investigation tied to impact. Topology limits which systems can plausibly explain the symptom, traces show actual affected request paths, and change data provides reversible tests.',
+      'Mitigation evidence creates a weak experiment. If disabling flag F reduces p99 latency and the slow trace pattern disappears, confidence in F rises. If nothing changes, the graph should demote F and preserve the failed test as counterevidence.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The main cost is integration. The graph needs service ownership, dependency topology, traces, log templates, deployment metadata, feature-flag audit trails, SLO burn rates, resource metrics, queue metrics, database wait signals, and incident actions. OpenTelemetry helps standardize signal names, but most organizations still have gaps.',
+      'Ranking must be measured against postmortems and live responder feedback. Useful metrics include top-k candidate hit rate, false-leader rate, time to first useful candidate, evidence-link coverage, manual override rate, and missing-topology discoveries. A fast graph that is confidently wrong is worse than a dashboard.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'This pattern wins in microservice environments where topology and ownership are distributed. It helps on-call engineers narrow the search space, incident commanders explain why a mitigation is being tried, and postmortem authors preserve the evidence trail. It is strongest when a symptom crosses layers, such as edge errors caused by checkout timeouts caused by database pool starvation.',
+      'It also fits AIOps systems that need auditability. A black-box root-cause model may be hard to trust during an outage. A candidate graph exposes supporting edges and lets humans override the ranking without discarding the evidence.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'It fails through false certainty. A top-ranked candidate is not a root cause until evidence confirms it. Stale topology can also hide shared dependencies, causing the graph to split one incident into several unrelated symptoms or miss the true bottleneck.',
+      'It fails when data collection is biased. Sampling can miss rare paths, log-template grouping can merge different failures, and privacy rules can limit trace detail. The graph should expose missing evidence and low confidence rather than hiding uncertainty under a clean score.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'At 14:05, checkout p99 latency jumps from 280 ms to 2,400 ms and 5xx rate rises from 0.1 percent to 4 percent in us-east. The graph seeds the symptom, expands to checkout-api, payment-service, inventory-service, Redis, and orders-db, then attaches traces showing 72 percent of slow requests waiting on orders-db connection acquisition. It also attaches a deploy to checkout-api at 13:58 and a feature flag enabled for 20 percent of us-east traffic at 14:01.',
+      'The first ranking puts the flag path at 0.62 confidence, orders-db pool saturation at 0.58, and the deploy at 0.34. Responders disable the flag for the cohort, and within 5 minutes p99 drops to 430 ms while connection-wait spans fall by 80 percent. The graph records the mitigation as evidence for the flag candidate and preserves the database pool as mechanism, so the postmortem can distinguish trigger from saturated component.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources are Google SRE incident-management guidance, Google SRE alerting on SLOs, OpenTelemetry semantic conventions, and production tracing documentation. Study AIOps incident response, alert correlation fingerprint indexes, distributed tracing, metric exemplars, causal graphs, feature-flag control planes, SLO burn-rate alerting, and runbook automation approvals. The next skill is keeping hypotheses testable under pressure.',
+    ] },
+  ],
 };
-

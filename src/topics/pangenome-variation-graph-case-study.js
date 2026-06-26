@@ -181,98 +181,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A linear reference genome is a powerful coordinate system, but it is only one path through the variation present in a population. It stores one sequence as the main text and describes other alleles as edits against that text. That is convenient for tools and reports, but it gives the reference allele a privileged position.',
-        'The privilege shows up as reference bias. A read carrying an alternate allele, insertion, deletion, or population-specific sequence can map poorly because the aligner searches a path that does not contain the true sequence. The read may receive lower mapping quality, appear as mismatches, become soft-clipped, or fail to seed in the first place.',
-        'A pangenome variation graph exists to make multiple genome paths first-class. Shared sequence is represented once, variants become branches, and known haplotypes or assemblies are stored as paths through the same graph. The mapper can then search the variation space directly instead of treating every sample as a damaged copy of one reference.',
+        'Read the graph as DNA stored in pieces. Active nodes and edges are the allele path currently being explained, found nodes are paths the graph can preserve, and compare nodes are the linear-reference alternative that would force every sample through one sequence.',
+        'A path is an ordered walk through sequence-labeled nodes that spells a genome or haplotype. The safe inference rule is that a read can align through an alternate branch only if the graph contains that branch and the index can find it.',
         {type:'callout', text:'A pangenome graph removes reference privilege by storing shared sequence once and representing real genomes as paths through variant branches.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b4/VariationGraph.png', alt:'Variation graph showing aligned DNA sequences converted into branch paths.', caption:'Variation graph illustration, by Alsa74, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'Why The Linear Baseline Fails',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious baseline is a reference FASTA plus variant records. Reads map to the reference, differences are called, and variants are stored by chromosome and coordinate. This works well when samples are close to the reference, variants are small, and downstream tools need familiar linear positions.',
-        'The baseline fails when the reference path is the wrong substrate for search. A variant file can annotate alternate alleles, but the mapper still has to find a seed and alignment against the one reference path. If important sequence is absent from that path, the read may never reach the stage where the variant annotation helps.',
-        'Large cohorts add another problem: co-occurrence. A list of variants does not automatically say which alleles appear together on real haplotypes. A pangenome graph can store named paths, so it can distinguish observed genome walks from arbitrary combinations of local branches.',
+        'A linear reference genome is one sequence chosen as the coordinate backbone. That is convenient, but it makes every other genome look like edits against that one path, even when a population carries sequence the reference does not contain.',
+        'The failure is called reference bias. If a 150-base read contains a 20-base insertion absent from the reference, a linear mapper may soft-clip those bases, lower the mapping quality, or miss the placement before variant calling begins.',
       ],
     },
     {
-      heading: 'Core Data Model',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A variation graph uses sequence-labeled nodes and directed edges. A walk through nodes spells DNA. A named path records a reference chromosome, sample haplotype, assembly contig, transcript, or other biologically meaningful sequence. The graph is not just topology; it is sequence plus paths plus metadata plus indexes.',
-        'A single-nucleotide variant becomes a bubble: the graph enters a shared context, splits into alternate branches, and rejoins. An insertion is an alternate walk that includes extra sequence. A deletion is a walk that skips a segment. More complex structural variation can become larger alternate walks, inversions, or tangles depending on the representation.',
-        'The important invariant is path preservation. If the graph claims to contain a haplotype, walking that path should spell the haplotype sequence. Graph normalization, compaction, sorting, or simplification must preserve path spellings or record how coordinates changed.',
+        'The obvious approach is a reference FASTA plus a variant file. Reads align to the reference, differences are called, and alternate alleles are reported by chromosome coordinate.',
+        'That approach is practical and widely supported. It works well when samples are close to the reference and when the variation is small enough that a linear coordinate still describes the evidence cleanly.',
       ],
     },
     {
-      heading: 'Graph Construction',
+      heading: 'The wall',
       paragraphs: [
-        'A graph can be built from a reference plus VCF variants, from multiple assemblies, from local haplotypes, or from a combination. Construction usually identifies shared sequence, splits sequence at variation boundaries, creates edges for alternate walks, and threads known genomes through the result as named paths.',
-        'Construction quality matters because graph mistakes become mapping mistakes. Duplicated sequence can inflate memory and create ambiguous seeds. Missing paths can remove true alleles. High-degree tangles can make search expensive. Weak reference-coordinate anchors can make downstream projection confusing. A graph build should therefore store inputs, normalization steps, path sources, and coordinate maps.',
-        'There is no free conversion from all variation into a perfect graph. The builder must choose granularity, phasing assumptions, sample inclusion, repeat handling, and normalization rules. Those choices determine whether the graph is a clean search structure or an impressive but hard-to-map knot.',
+        'The wall appears before variant calling. The mapper must first find seeds and alignments against a path that may not contain the true allele, so the later variant record cannot rescue reads that failed to map.',
+        'The second wall is haplotype structure. A list of local variants does not say which variants occur together on real chromosomes, so naive combination can create paths no sampled genome carried.',
       ],
     },
     {
-      heading: 'Graph Mapping',
+      heading: 'The core insight',
       paragraphs: [
-        'Read mapping against a graph is still a search problem. The mapper finds seeds, clusters plausible hits, aligns the read through graph walks, scores candidate alignments, and reports a placement. The difference is that candidate placements may cross alternate branches instead of staying on one coordinate line.',
-        'Practical mappers need specialized indexes. Minimizer indexes find short seed hits quickly. Distance indexes help decide whether hits can belong to the same read alignment. Haplotype path indexes such as GBWT-style structures constrain search toward observed or likely paths. Topology indexes answer navigation questions over nodes, edges, and paths.',
-        'After mapping, many pipelines still need linear coordinates. The result may be projected onto a reference path, reported as graph coordinates, or carried forward in graph-native form. Projection is useful for interoperability, but it can be ambiguous when a read aligns equally well to repeated or alternate paths.',
+        'Represent many genomes as paths through one graph. Shared sequence is stored once, single-nucleotide variants become bubbles, insertions become alternate walks with extra sequence, and deletions become walks that skip sequence.',
+        'The key invariant is path preservation. If the graph claims to contain a haplotype, walking its named path must spell that haplotype after graph normalization and compaction.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'How it works',
       paragraphs: [
-        'The method works because it changes the search space before scoring. If the true allele is present as a graph branch, a read can seed and align through that branch. The mapper no longer has to explain the alternate allele as a mismatch, clipping event, or local edit against a path that lacks the sequence.',
-        'Path indexes make the larger search space tractable. A graph that contains every local allele combination can explode into many possible walks. Haplotype paths add biological structure by saying which combinations were observed or chosen. The mapper can prefer walks supported by real paths instead of exploring every topologically possible route equally.',
-        'The graph also reduces duplicate representation. Shared sequence can remain shared across many genomes, while variation is stored as branching structure. That gives the system a way to represent diversity without copying a full genome for every sample.',
+        'A builder splits sequence at variation boundaries, creates nodes for shared and alternate sequence, adds edges for legal adjacency, and threads references or sample haplotypes through the result as named paths. The graph then needs indexes for seeds, topology, distances, and haplotype paths.',
+        'A read mapper finds short seeds in the graph, clusters seed hits by graph distance, aligns candidate walks, scores the alignments, and reports either graph coordinates or a projection back to a reference path. Haplotype indexes restrict search toward observed paths instead of every topological walk.',
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Why it works',
       paragraphs: [
-        'Suppose one reference path spells A-C-T, while a common alternate haplotype spells A-G-T. A linear mapper sees a read with G as a mismatch against the C position. A variation graph stores A, then a bubble with C and G branches, then T. Both A-C-T and A-G-T are valid paths.',
-        'A read containing A-G-T can seed on A, traverse the G branch, and continue to T. The score reflects a clean match to a represented allele instead of a mismatch against the reference allele. The same idea extends to an insertion: one path goes directly from left context to right context, while another path includes inserted sequence in between.',
-        'Now add phasing. If nearby bubbles are present, the graph could allow four topological combinations, but only two may be real haplotypes. A path index can tell the mapper which combinations were observed. That prevents the graph from turning local variation into biologically unsupported walks.',
+        'It works because the search space contains alleles before scoring starts. A read that truly follows A-G-T can match a graph branch labeled G instead of paying a mismatch penalty against a reference C.',
+        'The correctness argument is conservative representation. If path spellings are preserved and the mapper only reports walks supported by the graph and scoring model, then an alternate allele can be found without pretending it is damage to the reference path.',
       ],
     },
     {
-      heading: 'Where It Matters',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Pangenome graphs matter in diverse cohorts, population genetics, clinical variant detection, structural-variant analysis, metagenomics, and any workflow where the chosen reference sequence changes mapping behavior. They are especially valuable when the study population contains alleles underrepresented or absent from the old reference.',
-        'They also matter for fairness in genomic analysis. If one population is closer to the linear reference, its reads may map more easily than reads from another population. A pangenome graph cannot solve every sampling problem, but it can reduce bias caused by pretending one path is a universal substrate.',
+        'The cost is index and graph complexity. A 3-billion-base reference is already large; adding many assemblies and haplotypes can multiply nodes, paths, and metadata even when shared sequence is compressed.',
+        'When samples double, storage does not necessarily double because shared sequence is reused, but path metadata and haplotype indexes grow. Mapping also becomes harder in repeats and tangles because more candidate walks survive the seed stage.',
       ],
     },
     {
-      heading: 'Failure Modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The graph can fail biologically when it contains false paths, missing haplotypes, untrusted assemblies, or poorly phased variation. A graph is only as good as the sequences and paths it represents. Adding more samples can improve coverage, but it can also add noise and complexity.',
-        'It can fail computationally when repeats and structural variation create tangles that defeat seeding, distance estimation, or path constraints. A graph that is too tangled may reduce reference bias but increase ambiguous mapping. More alleles are not automatically better if the mapper cannot distinguish them efficiently.',
-        'It can fail operationally when downstream tools require linear coordinates and projection is lossy. A graph-native result may be biologically clearer, but a clinical or production pipeline may still need chromosome positions, VCF records, or compatibility with existing annotation systems.',
+        'Pangenome graphs fit diverse cohorts, structural-variant analysis, clinical variant detection, population genetics, metagenomics, and studies where the chosen reference changes read mapping. The access pattern is search over many plausible alleles, not lookup against one coordinate string.',
+        'They also fit fairness-sensitive genomics. If one population is closer to the old reference, graph references can reduce bias caused by using one group-specific path as the default substrate.',
       ],
     },
     {
-      heading: 'Operational Guidance',
+      heading: 'Where it fails',
       paragraphs: [
-        'Treat graph builds as reproducible artifacts. Record input references, assemblies, variant sets, sample identifiers, phasing sources, normalization commands, tool versions, graph format, path names, coordinate mappings, and index parameters. Without provenance, a mapping difference between two builds is hard to interpret.',
-        'Validate path preservation after every transformation. Sample paths should still spell the expected sequences. Reference paths should remain projectable. Coordinate liftover should be tested on known anchors. Indexes should be versioned with the graph because a minimizer index, distance index, and haplotype index are part of the effective search structure.',
-        'Choose graph scope deliberately. A small graph around a locus may be easier to validate and explain. A whole-genome pangenome can reduce bias more broadly but demands stronger indexing, storage, monitoring, and interoperability work. The right scope depends on the scientific question and pipeline constraints.',
+        'It fails when the graph is noisy, tangled, or missing real paths. False assemblies, weak phasing, high-degree repeat regions, and poor normalization can make mapping more ambiguous than the linear baseline.',
+        'It also fails operationally when downstream systems require simple linear coordinates. Projection back to a reference can be ambiguous when a read maps equally well to repeated or alternate paths.',
       ],
     },
     {
-      heading: 'Implementation Notes',
+      heading: 'Worked example',
       paragraphs: [
-        'A useful implementation separates graph topology, sequence storage, path storage, metadata, and indexes. Node identifiers should remain stable enough for debugging, but transformations may split or merge nodes. Path records should be treated as first-class data, not comments, because they carry the biological meaning that makes the graph more than a collection of bubbles.',
-        'Mapping performance depends on seed length, minimizer density, repeat handling, graph-distance clustering, haplotype constraints, and alignment scoring. The implementation should expose counters for seed hits, ambiguous clusters, candidate walks, alignment time, projection failures, and memory used by each index. These counters explain whether a region is hard because of biology or because of graph construction.',
+        'Suppose the reference path is A-C-T-C and a common haplotype is A-G-T-C. A linear mapper sees a read A-G-T-C as one mismatch at the second base, while the graph stores A, then a C/G bubble, then T-C.',
+        'Now add a 2-base insertion after T for another haplotype: A-G-T-AA-C. The graph adds an alternate walk through node AA before C, so a read containing AA can seed and align without soft clipping those two bases.',
+        'If two nearby bubbles each have two alleles, topology allows 4 local combinations. If the haplotype path index says only 2 were observed, the mapper can prefer those 2 and avoid spending equal effort on unsupported allele combinations.',
       ],
     },
     {
-      heading: 'Sources And Study Next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources to compare include the vg toolkit paper, the vg project, Giraffe graph mapping work, ODGI graph operations, and pangenome reference discussions from the genomics community. Read them around two questions: how are paths represented, and what indexes make mapping feasible?',
-        'Inside this curriculum, study Genome k-mer Minimizer Index for graph seeding, De Bruijn Graph Genome Assembly for graph construction from reads, BWA FM-index Read Alignment for the linear-reference contrast, FM-index and Burrows-Wheeler Transform for compressed search, Graph BFS and DFS for traversal basics, and Suffix Array or FM-index topics for sequence search foundations.',
+        'Study the vg toolkit paper and project at https://github.com/vgteam/vg, Giraffe graph mapping work, ODGI graph operations at https://github.com/pangenome/odgi, and current human pangenome reference publications. Read them for representation, path preservation, and the indexes that make graph mapping practical.',
+        'Next, study Genome k-mer Minimizer Index, De Bruijn Graph Genome Assembly, BWA FM-index Read Alignment, FM-index, Burrows-Wheeler Transform, Graph BFS and DFS, and Suffix Array. These topics supply the sequence search and graph traversal machinery behind pangenome tools.',
       ],
     },
   ],

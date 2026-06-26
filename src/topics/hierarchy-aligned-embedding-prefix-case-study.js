@@ -245,67 +245,93 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A hierarchy-aligned embedding prefix is an embedding design where shorter prefixes of the vector are useful on purpose. The first 64 or 128 dimensions are expected to answer coarse questions such as language, domain, topic, or broad intent. Longer prefixes keep those decisions and add finer distinctions: entity identity, product variant, legal clause, visual detail, or answer-level relevance. The full vector is still available, but the system is not forced to pay full-vector cost for every decision.',
-        'This is stronger than saying a vector can be truncated. In many ordinary embeddings, information is spread across dimensions in a way that makes the first slice arbitrary. A hierarchy-aligned prefix is a contract between training, indexing, and serving. The short prefix must be good enough for coarse retrieval or routing; the middle prefix must be good enough for candidate selection; the long prefix must be good enough for precision. If the contract holds, one embedding can support several latency and memory budgets.',
+        'Read the embedding vector as an ordered representation, not as a bag of interchangeable coordinates. A prefix means the first d dimensions, such as the first 64 out of 768, used without reading the later dimensions.',
+        'Active prefix lengths are the current search budget. A safe inference is that a shorter prefix may return a wider candidate set, while a longer prefix should refine that set without contradicting the coarse neighborhood.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'An embedding is a numeric vector that places related items near each other. Vector search becomes expensive when every lookup over millions of items must compare full-width vectors before the system even knows which candidates deserve careful ranking.',
+        'Hierarchy-aligned prefixes exist so one embedding can serve several budgets. The short prefix handles coarse routing or recall, the middle prefix narrows candidates, and the full vector buys precision where the candidate set is already small.',
         {type:'callout', text:'Prefix embeddings are useful only when dimension order is an audited contract: short prefixes preserve recall and longer prefixes buy precision.'},
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach to vector search is to store a full embedding for every item and compare full embeddings at query time. That is simple and often correct for small corpora. It also makes every stage pay the same dimensional cost. A routing decision over ten million items spends as much vector width as a final rerank over one hundred candidates. A mobile client, an edge cache, and a central retrieval service all inherit the same representation size even though they have different jobs.',
-        'The wall appears when the corpus and traffic grow. Full-vector ANN indexes consume memory, refresh slowly, and place pressure on cache locality. Coarse decisions do not need every semantic detail, but ordinary truncation often destroys quality. A system can build separate small models for routing, medium models for search, and large models for reranking, but then it has more model versions, more embedding stores, more drift, and more failure modes. Prefix alignment tries to keep one representation while giving each serving stage the right amount of detail.',
+        'The obvious approach is to store one full vector per item and compare full vectors for every stage. That is simple, and it is often the right baseline because it avoids assuming anything special about dimension order.',
+        'A second approach is to train separate small, medium, and large embedding models. That gives each stage its own cost, but it multiplies model versions, embedding stores, refresh jobs, quality checks, and drift surfaces.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is successive refinement. Early dimensions should learn features that remain useful across many downstream tasks. Later dimensions should refine, not contradict, the coarse decision. Matryoshka Representation Learning made this idea concrete by training representations so nested prefixes perform well. The case-study extension is operational: treat each prefix as a product surface with explicit semantics, indexes, logs, and evaluation gates instead of a hidden compression trick.',
-        'A good prefix hierarchy should feel monotone in the ways that matter. The 64-dimensional prefix may be less precise than the 768-dimensional vector, but it should not send tax documents to food recipes or confuse English and Japanese support pages. The 256-dimensional prefix should improve entity and intent resolution without erasing broad recall. The full vector can still change the final ordering, but it should receive a candidate set that already contains the right neighborhood.',
+        'The wall is that full-vector cost is paid even when the decision is coarse. Routing a query to a document family should not spend the same vector width as final reranking among one hundred candidate passages.',
+        'Plain truncation is not a solution. In an ordinary dense embedding, useful information may be spread across dimensions, so the first 128 coordinates can be arbitrary and can drop rare entities, minority languages, or safety-critical distinctions.',
       ],
     },
     {
-      heading: 'Mechanism and data structures',
+      heading: 'The core insight',
       paragraphs: [
-        'Training usually attaches objectives to several prefix lengths. A short prefix can receive coarse classification or contrastive losses. A medium prefix can receive intent, entity, or category supervision. The full vector can receive the hardest retrieval or ranking loss. Some implementations use the same target at several lengths; others align prefix lengths with a hand-built semantic hierarchy. Either way, the model is punished when useful information appears only in late dimensions and short prefixes fail obvious tasks.',
-        'Serving turns that representation into data structures. The system stores the full vector once, then materializes prefix-specific indexes: a 64-dimensional HNSW index for broad recall, a 128- or 256-dimensional index for narrower candidate selection, and a full-vector store for exact reranking or downstream scoring. Each stage keeps a bounded heap of candidates, along with metadata about prefix length, candidate count, score distribution, and fallback decisions. A prefix-policy table maps query classes to serving plans: cheap route, normal cascade, rare-entity wide search, or full-vector bypass.',
+        'The core insight is successive refinement. Early dimensions should learn broad signals that remain useful across many tasks, and later dimensions should add detail without erasing the early decision.',
+        'Matryoshka Representation Learning makes this trainable by attaching losses to nested prefixes. The system version treats each prefix as an interface with its own index, recall metric, latency budget, and fallback rule.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Training evaluates several prefix lengths, such as 64, 128, 256, and 768 dimensions. Each prefix is punished when it fails the retrieval or classification job assigned to that width.',
+        'Serving stores the full vector once and materializes prefix-specific indexes. A 64-dimensional index can retrieve broad candidates, a 256-dimensional index can refine them, and a full-vector store or reranker can decide final order.',
+        'A prefix policy chooses the route. Common queries may use 64 dimensions first, ambiguous or rare queries may jump to 256, and high-stakes queries may bypass the prefix cascade and use full-vector search immediately.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works when the training distribution contains stable coarse-to-fine structure. Product area usually precedes article title. Language usually precedes legal nuance. A medical corpus may separate body system before specific procedure. Image search may separate object class before instance detail. If the embedding learns that order, a short prefix can eliminate large regions of the corpus without losing many relevant items. Later dimensions then spend capacity on distinctions that matter only inside the surviving region.',
-        'The cost equation is direct. Vector comparison work grows with candidates times dimensions, and memory traffic often dominates latency. A 64-dimensional scan over a large candidate space is much cheaper than a 768-dimensional scan over the same space. The cascade spends cheap dimensions when the set is wide and expensive dimensions only after it is narrow. That is the same economic pattern as coarse quantizers, inverted indexes, and multi-stage rerankers: preserve recall cheaply, then buy precision where it can matter.',
+        'It works when the data has stable coarse-to-fine structure. Language often comes before legal nuance, product area before product variant, and object class before instance identity.',
+        'The correctness argument is recall preservation, not magic compression. If the short prefix keeps the true neighbors inside the candidate set, later dimensions can improve precision; if the true item is filtered out early, no later reranker can recover it.',
+        'The invariant is monotone usefulness by stage. Longer prefixes may change ranking, but they should not routinely turn the right broad neighborhood into the wrong one.',
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Hierarchy-aligned prefixes are useful in retrieval systems that serve multiple latency tiers from the same corpus. A RAG system can use a short prefix to route queries to product, region, or document family; a medium prefix to retrieve passages; and a full vector or cross-encoder to choose final context. A recommendation system can use shorter prefixes for candidate generation and longer prefixes for personalization. A multilingual search system can keep language and broad intent stable early, then refine local vocabulary and entity mentions later.',
-        'They also help when storage and transmission budgets differ by environment. An edge device may store only a short prefix for offline matching. A central service may keep full vectors. A client may send a prefix first and request full reranking only when uncertainty is high. The same pattern is attractive for tiered vector stores, cold archives, mobile inference, and privacy-limited flows where the system wants to reveal or transmit the minimum useful representation.',
+        'Vector comparison cost grows with candidates times dimensions. Comparing 1,000,000 items at 64 dimensions touches 64,000,000 coordinate values, while 768 dimensions touches 768,000,000 values before indexing overhead.',
+        'The behavior is a cascade. Spend cheap dimensions while the search space is wide, then spend expensive dimensions only after candidate count falls.',
+        'The cost is evaluation burden. Every prefix length needs recall by slice, index freshness, latency, memory, fallback rates, and drift monitoring, because average recall can hide long-tail damage.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Prefix embeddings fit RAG systems, semantic search, recommendations, multilingual retrieval, mobile matching, edge caches, and tiered vector stores. These systems often need broad recall quickly before they pay for precise reranking.',
+        'They are useful when storage and transmission budgets differ by environment. An edge device may keep a short prefix, while a central service keeps full vectors and uses longer prefixes only when uncertainty remains.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The common failure is pretending that any dense vector has a meaningful prefix. If the model was not trained or audited for nested usefulness, dimension order may be accidental. Truncating the first 128 coordinates can look acceptable on average while damaging rare entities, minority languages, long-tail product names, or safety-critical distinctions. The failure is severe because early retrieval false negatives are unrecoverable. A perfect full-vector reranker cannot rank a document that the short prefix never returned.',
-        'It also fails when the semantic hierarchy is wrong for the workload. Some queries need fine details immediately. A legal search for a rare clause, a medical query about an uncommon drug interaction, or an incident response query with a specific error code may not tolerate a broad coarse filter. Distribution shift can break the hierarchy as new products, tenants, languages, or content types arrive. A prefix that was well aligned last quarter can become stale after an embedding-model change or corpus migration.',
+        'It fails when the model was not trained for nested usefulness. A normal vector can look acceptable under average truncation tests while losing rare entities or low-resource languages.',
+        'It also fails when the semantic hierarchy is wrong. A legal query for a rare clause or an incident query with a specific error code may need fine detail immediately, not after a broad prefix filter.',
+        'Distribution shift is another failure. New tenants, languages, products, or embedding model versions can change which signals belong early, so prefix quality must be re-audited after corpus changes.',
       ],
     },
     {
-      heading: 'Evaluation and operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Evaluation starts with prefix recall. For each prefix length, measure recall@k against exact full-vector or human-labeled relevance sets. Do it by slice: language, tenant, document type, query intent, entity rarity, freshness, and source system. Track monotonicity: longer prefixes should usually improve quality, but short prefixes should not catastrophically reverse coarse decisions. Measure final metrics such as nDCG and answer faithfulness separately from early candidate recall so the wrong stage is not blamed.',
-        'Operational logs should record prefix length, index version, candidate depth, fallback path, latency, memory footprint, and score margin. A narrow score margin at the short prefix can trigger a wider search or a jump to a longer prefix. Canary queries should compare prefix cascades with flat full-vector search. Alerts should fire on rare-entity recall drops, sudden slice drift, index skew, or an increase in cases where later stages cannot find good evidence. The healthy signal is not just lower latency; it is lower latency while candidate preservation remains stable.',
+        'Suppose a corpus has 10,000,000 passages stored as 768-dimensional float vectors. At 4 bytes per coordinate, the raw full vectors occupy about 30.7 GB, while a 128-dimensional prefix index reads one-sixth as many coordinates for the same candidate count.',
+        'A query first searches the 128-dimensional index and returns 5,000 candidates with 99 percent recall against a full-vector control set. The system then reranks those 5,000 with 768 dimensions, reading about 15.4 MB of full-vector coordinates instead of 30.7 GB.',
+        'The correctness check is the missing 1 percent. If those misses are random, the trade may be acceptable; if they are medical terms, rare customers, or one language, the prefix policy is unsafe even though the average number looks strong.',
       ],
     },
     {
-      heading: 'What to study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Matryoshka Representation Learning first because it provides the training frame for nested representations. Then study Embeddings and Similarity to understand what vector distance is measuring, HNSW Search to understand approximate nearest-neighbor indexes, Product Quantization to understand compressed vector storage, and Cross-Encoder Rerankers to understand why early candidate preservation matters. Multi-Index RAG is the natural system-level companion because it shows how lexical, vector, metadata, and reranking stages combine.',
-        'The practical takeaway is simple: a hierarchy-aligned prefix is useful only when it is treated as a measured interface. Name the semantic job of each prefix. Build the right index for that job. Preserve recall before optimizing final rank. Keep exact or full-vector checks as a control. When those disciplines are present, prefix embeddings give one model the flexibility of several retrieval budgets without multiplying every representation in the stack.',
+        'Primary sources are the Matryoshka Representation Learning paper and later system case studies that evaluate nested embeddings in retrieval. Read them for the training objective, then test your own corpus because prefix order is a learned contract, not a universal property.',
+        'Study Embeddings and Similarity, HNSW Search, Product Quantization, Cross-Encoder Rerankers, Multi-Index RAG, and Recall-Latency Pareto Ledgers next. Those topics explain the retrieval pipeline around the prefix decision.',
       ],
     },
   ],

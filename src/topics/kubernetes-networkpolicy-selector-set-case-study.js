@@ -187,86 +187,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Pod IPs are temporary, and workloads move. A firewall rule tied to one address does not survive rescheduling, autoscaling, or namespace churn. Kubernetes needs a way to express traffic policy in terms of labels, namespaces, IP blocks, and ports.',
-        'NetworkPolicy is that selector-based allow-set. It selects protected Pods, isolates ingress or egress, adds allowed peers and ports, and relies on the CNI plugin to enforce the result.',
+        'Read each highlighted group as a set. A set is a collection of things, such as all Pods with label role=db or all namespaces with label team=payments. The selector-algebra view shows which set is protected, which peer set is allowed, and which port set is part of the allow rule.',
+        'The packet view is a membership test. First ask whether the destination Pod is isolated for the traffic direction, then ask whether one policy adds a matching peer and port. The safe inference is simple: once a Pod is isolated, a packet is allowed only if it belongs to at least one computed allow set.',
         {type:'callout', text:'NetworkPolicy is selector algebra enforced by the CNI: isolate selected Pods first, then add only the peer and port sets that match.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/63/Pod-networking.png', alt:'Diagram of Kubernetes Pods connected through a Service and Pod IP addresses.', caption:'Kubernetes pod networking and service dependency diagram by Marvin The Paranoid, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A Kubernetes Pod is a small deployable unit that can be rescheduled, replaced, and given a new IP address. A firewall rule tied to one current Pod IP breaks when replicas roll, autoscale, or move to another node. NetworkPolicy exists so traffic rules can follow labels and namespaces instead of temporary addresses.',
+        'The policy object defines allowed ingress, which is traffic entering a Pod, and egress, which is traffic leaving a Pod. Kubernetes stores the intent, and a compatible Container Network Interface plugin enforces it in the datapath. The problem is therefore not only networking; it is maintaining a correct allow set while the workload set changes.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to write firewall rules for current Pod IPs or assume namespace names imply isolation. That can work in a static VM fleet. It fails in Kubernetes because Pods are replaced, labels change membership, Services rewrite paths, and new Pods can accidentally match broad selectors.',
-        'Another common mistake is to read policies like ordered firewall rules. NetworkPolicies are not processed top to bottom with later denies. For selected Pods, allowed traffic is the union of all matching policy rules.',
+        'The obvious approach is to write rules for today\'s Pod IPs or to trust namespace names as security boundaries. That works for static machines because identity and address stay close together. In Kubernetes, identity is usually a label, and address is an implementation detail.',
+        'Another reasonable first attempt is to read NetworkPolicies like ordered firewall rules. In that model, a later deny could override an earlier allow. Kubernetes does not use that model; policies are additive, and matching policies union their allowed traffic.',
       ],
     },
     {
-      heading: 'The core mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'The data structure is set algebra. The protected set is selected by podSelector. Each ingress or egress rule contributes an allow set. Peer expressions produce sets from pod labels, namespace labels, intersections of both, or CIDR ranges. Ports intersect those peer sets. Multiple policies union together.',
-        'The official NetworkPolicy concept page explains podSelector, namespaceSelector, combined namespace and pod selectors, ipBlock, default policies, additive behavior, and plugin-dependent source or destination rewriting: https://kubernetes.io/docs/concepts/services-networking/network-policies/. The API reference defines NetworkPolicy as allowed traffic for a set of Pods: https://kubernetes.io/docs/reference/kubernetes-api/networking/network-policy-v1/.',
+        'The wall is churn. New Pods appear with labels, old Pods disappear, and a label edit can move a Pod into or out of a policy set. A hand-written address list cannot preserve the intended rule under that churn.',
+        'The second wall is YAML shape. A peer entry containing both namespaceSelector and podSelector means intersection: Pods matching the pod selector inside namespaces matching the namespace selector. Two separate peer entries mean union: one set from namespaces plus another set from Pods.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        "In the selector-algebra view, read each highlighted group as a set. `podSelector` creates the protected set. A peer expression creates an allowed source or destination set. Combining namespace and pod selectors in one peer entry means intersection; writing them as separate entries means union.",
-        "In the packet-allow-set view, follow the packet through direction, selected Pod, peer match, and port match. NetworkPolicy is not an ordered deny list. Once a Pod is isolated for a direction, traffic is allowed only if at least one matching policy contributes an allow for that direction.",
-        "The useful question after each frame is, which set got larger? Because policies are additive, a new policy can add allowed traffic but cannot subtract an older allow. That is the core difference from traditional first-match firewall thinking.",
+        'NetworkPolicy is set algebra. A podSelector chooses the protected set of Pods. Each ingress or egress rule adds peer sets and port sets, and the allowed traffic is the union of those rule results across all matching policies.',
+        'Isolation is the switch that changes default behavior. A Pod with no matching policy for a direction remains non-isolated for that direction. Once a policy selects it for ingress or egress, only matching allow-set traffic for that direction is accepted.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'How it works',
       paragraphs: [
-        'A namespace has frontend Pods labelled `role=frontend`, API Pods labelled `role=api`, and Redis Pods labelled `role=db`. A policy with `podSelector: role=db` isolates Redis ingress. A rule that allows peers with `podSelector: role=api` on port 6379 means API Pods in the same namespace can reach Redis, but frontend Pods cannot.',
-        'If the rule uses both `namespaceSelector: name=payments` and `podSelector: role=api` in the same peer entry, it means API Pods inside the payments namespace. If those selectors are written as two separate peer entries, it means all Pods in the payments namespace plus all API Pods in the current policy scope. That YAML shape difference is a real set-algebra difference, not cosmetic indentation.',
+        'A policy first selects target Pods with podSelector. The policyTypes field tells whether the rules affect ingress, egress, or both. Each rule then matches peers by Pod labels, namespace labels, IP blocks, or combinations of these, and may also restrict protocol and port.',
+        'The network plugin watches Pods, namespaces, labels, policies, and addresses. When membership changes, the plugin recomputes enforcement state in its datapath. Kubernetes defines the API behavior, but source IP preservation, service translation, and host networking details can depend on the plugin and packet path.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The model separates selection from enforcement. Kubernetes stores declarative policy objects. The CNI plugin turns the current selector results into datapath rules. When Pods appear, disappear, or change labels, the selected sets change and the plugin updates enforcement.',
-        'The invariant is deny by isolation, then allow by membership. A Pod is non-isolated until a policy selects it for ingress or egress. Once isolated, traffic must match at least one allowed peer and port expression for that direction. Isolation is direction-specific: a Pod with no matching ingress policy is non-isolated for ingress, and egress has the same shape independently. That is why a policy can surprise teams that only protect ingress but forget DNS or external egress.',
-        'For a connection to work, both sides can matter. The destination may need an ingress allow, and the source may need an egress allow. Because policies are additive, adding a new policy can only add allowed traffic for selected Pods; it cannot subtract an older allow.',
+        'The correctness argument is an invariant: for each isolated Pod and direction, the live datapath should equal the union of all currently matching policy allow sets. Adding a policy can add traffic to the union, but it cannot subtract traffic that another policy already allowed. Removing or editing a label changes set membership, so the plugin must update the datapath.',
+        'A packet is accepted only when it passes both sides that apply. If the destination has ingress isolation, the packet source and port must match a destination-side ingress allow. If the source has egress isolation, the destination and port must match a source-side egress allow.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The API object is small, but enforcement cost sits in the network plugin. The CNI must watch policies, Pods, namespaces, labels, IP blocks, and sometimes Services, then update datapath state as membership changes. Label churn can be policy churn.',
-        'Human cost is often larger than runtime cost. Review the policy graph as a ledger: which Pods are isolated, which policies add ingress, which add egress, which labels might include future Pods, and which egress exceptions are required for DNS, telemetry, backup, or package mirrors.',
+        'The API object is small, but the cost lives in recomputation and review. If 50 policies reference labels across 20 namespaces and a rollout creates 500 Pods, the plugin must keep the resulting peer sets current. Label churn becomes policy churn because a label change can alter many computed rules.',
+        'Human cost is often larger than CPU cost. A broad label such as app=api may include a future Pod that was not reviewed. Cost as behavior means every new matching Pod silently expands a policy\'s effective allow set unless labels are governed.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'NetworkPolicy fits namespace segmentation, database isolation, tenant boundaries, controlled egress, and audit-friendly service connectivity. It is strongest when workloads already have stable labels and the allowed traffic matrix is small enough to review.',
-        'It also makes default-deny practical. Start closed for selected Pods, then add narrow allowances for app ingress, DNS egress, metrics, backup, or external dependencies.',
-        'The policy is especially valuable when teams can test it as a reachability matrix. For each protected workload, list who should initiate traffic, on which port, and in which direction. Then compare that matrix with the union of policies. This turns review from "does the YAML look right?" into "does the computed allow set match the intended architecture?"',
+        'NetworkPolicy fits database isolation, tenant boundaries, namespace segmentation, and restricted egress from workloads that should not talk to the whole network. It is strongest when services already use stable labels and the intended traffic matrix is small enough to test. A database namespace can default-deny ingress, then admit only API Pods on the database port.',
+        'It also helps audits. A team can state the allowed source set, destination set, and port set, then probe positive and negative cases. That turns policy review from reading indentation into comparing a computed reachability graph with the intended architecture.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'NetworkPolicy is not application authorization, TLS identity, or a full ordered firewall language. It does not inspect every application-layer decision, and it cannot express a later deny that overrides an earlier allow.',
-        'It also depends on the CNI. If the chosen network plugin does not support NetworkPolicy, the API object has no effect. Even when it does, behavior around service NAT, source preservation, hostNetwork Pods, and ipBlock interactions can be plugin-dependent, so production policy needs datapath-aware testing.',
-        'It also fails when labels are treated casually. A broad label such as `app=api` can include future Pods that were not part of the original security review. A namespace label can grant access to every matching workload in that namespace. Policy review is therefore also label-governance review.',
+        'NetworkPolicy is not user authorization, mutual TLS identity, or a full firewall language. It does not inspect application decisions, and it has no ordered deny rule that cancels a previous allow. If application identity matters, combine it with service mesh identity, authentication, or application checks.',
+        'It also fails when the CNI plugin does not implement policy or when teams bypass the intended network path. HostNetwork Pods, node-local traffic, NAT behavior, and service translation can change what the plugin sees. Production policy needs datapath-aware tests, not only valid YAML.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'A database namespace holds Redis Pods labelled role=db. A default-deny policy isolates ingress and egress. A second policy allows Pods labelled role=frontend to connect on tcp/6379. A third policy allows egress to cluster DNS. A fourth allows backup traffic to a known external CIDR. The CNI plugin materializes this policy into its datapath. Requests from the frontend to Redis pass. Requests from a debug Pod or to a non-Redis port fail.',
-        'The review should include a YAML-shape check. One peer entry with namespaceSelector and podSelector means intersection. Two separate peer entries mean union. One indentation change can turn a narrow app allow into a broad namespace allow.',
-        'A good test suite for this policy includes positive and negative probes: frontend to Redis should pass, debug to Redis should fail, Redis to DNS should pass if egress isolation is enabled, Redis to the public internet should fail except for approved backup ranges, and newly created Pods with broad labels should not gain access accidentally in production.',
+        'Suppose one namespace has 12 frontend Pods, 4 API Pods, and 2 Redis Pods. A policy selects Redis with podSelector role=db and defines ingress from Pods with role=api on TCP port 6379. After isolation, the potential sources drop from 16 application Pods to 4 API Pods, and allowed destination ports drop to 1 port.',
+        'Now add namespaceSelector team=payments in the same peer entry as podSelector role=api. If 3 of the 4 API Pods are in payments namespaces, the source set is 3 Pods. If the selectors are written as two peer entries, the source set can become all Pods in payments namespaces plus all role=api Pods, which might be 60 Pods in a real cluster.',
+        'The policy is correct when every accepted packet belongs to the intended source set and port set, and every rejected packet falls outside at least one required set. The cost of the mistake is not theoretical: one indentation change can turn 3 allowed sources into dozens.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Cilium eBPF Datapath and eBPF LPM Trie CIDR Policy to see one enforcement strategy. Study Kubernetes Service and EndpointSlice Traffic because Service translation affects what the packet path sees. Study Sparse Set, Filtered Vector Search Bitset, Trie, and Graph BFS for the general selector, membership, and reachability shapes hiding under policy review.',
+        'Primary sources: Kubernetes Network Policies at https://kubernetes.io/docs/concepts/services-networking/network-policies/ and the networking.k8s.io NetworkPolicy API reference at https://kubernetes.io/docs/reference/kubernetes-api/networking-resources/network-policy-v1/. Study the CNI plugin you actually run because enforcement behavior lives there.',
+        'Study Labels and Selectors, Kubernetes Services and EndpointSlices, Cilium eBPF policy, eBPF LPM Trie CIDR Policy, Set operations, Graph reachability, and Firewall rule evaluation next. The useful next skill is to compute an allow set by hand before trusting the cluster.',
       ],
     },
   ],

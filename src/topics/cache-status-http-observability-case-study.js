@@ -198,99 +198,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
         {type:'callout', text:'Cache-Status turns a vague slow-or-fast response into per-cache evidence about which layer hit, missed, forwarded, stored, or collapsed work.'},
-        'HTTP caching is a chain of decisions, but developers often see only one response. A request may pass through browser cache, CDN edge, regional shield, reverse proxy, and origin. Any one of those layers can hit, miss, revalidate, collapse a stampede, store a new object, or forward for a reason that is not visible from timing alone.',
+        'Read each cache layer as a decision point between the client and the origin server. A cache hit means the layer served a stored response; a miss means it had to forward or revalidate. A safe inference is that each Cache-Status member reports the decision made by the cache that emitted it.',
+        'Read the header as evidence, not as a trace of every network event. The edge cache, shield cache, and reverse proxy may each add a member. The useful question is what each layer did with the object, not whether the response merely felt fast.',
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/67/Reverse_proxy_h2g2bob.svg', alt:'Reverse proxy diagram showing a client request passing through an intermediary before reaching a server', caption:'Reverse proxies and cache layers sit between users and origins; Cache-Status makes each intermediary report the cache decision it made. Source: Wikimedia Commons, H2g2bob, CC0.'},
-        'Cache-Status exists to put cache behavior into a structured response header. It gives the response a small evidence trail: which cache handled the object, whether it hit or forwarded, how much freshness remains, whether it was stored, and whether revalidation was collapsed.',
-        'That matters because cache failures often masquerade as unrelated system failures. A bad key rule looks like origin slowness. A missing freshness header looks like capacity trouble. A revalidation stampede looks like a random latency spike. Per-layer cache evidence keeps those stories separate.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'HTTP caching often happens in layers: browser cache, CDN edge, regional shield, reverse proxy, and origin. A response can pass through several of those layers before the developer sees one timing number. Without structured evidence, cache bugs look like origin slowness, network noise, or random latency spikes.',
+        'Cache-Status exists to make cache behavior visible in a standard response header. It can report whether a cache hit, forwarded, stored, had remaining time to live, or collapsed revalidation work. That turns cache debugging from guesswork into inspection.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to infer cache behavior from latency, age, logs, or provider-specific headers. That is often enough for a single CDN in a controlled test. A very fast response probably hit something, and a large origin spike probably means miss traffic.',
-        'The wall is ambiguity. A fast miss can look like a hit. A slow hit can look like origin work. A shield hit can hide an edge miss. A collapsed revalidation can look like random latency unless the cache says what happened. Provider-specific headers also stop composing cleanly when several caches are involved.',
+        'The obvious approach is to infer cache behavior from latency, Age, logs, or provider-specific headers. That can work when one CDN handles one route and the test traffic is controlled. A fast response often means a nearby cache had the object.',
+        'It stops working when the path has more than one cache or when timing is ambiguous. A fast miss can look like a hit, a slow hit can look like origin work, and a shield hit can hide an edge miss. Vendor headers also stop composing cleanly across providers.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is observability mismatch. Aggregate hit rate tells you that some traffic hit some cache, but it does not explain this response. Origin logs tell you what reached the origin, but they do not explain why the cache forwarded it.',
+        'Another wall is cache-key privacy. The key may include URL parameters, headers, authorization-derived variants, or tenant routing. A debug field that prints raw key details can solve an incident and leak private structure at the same time.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Cache-Status treats caching as per-layer evidence, not as one vague hit-or-miss bit. The header is a structured list. Each member can name a cache and add parameters such as `hit`, `fwd`, `ttl`, `stored`, `collapsed`, `key`, or `detail`.',
-        'That design lets an edge cache and a shield cache both describe their part of the path. The result is not a full trace, but it is enough to turn many cache mysteries into specific questions: why was this forwarded, how fresh was it, did it store, and did a stampede get collapsed?',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the multi-cache trace view, follow the request through browser, edge, shield, and origin. The important move is from guessing about the path to reading structured evidence from the caches that actually made decisions.',
-        'In the debug headers view, compare Cache-Status with adjacent signals. Vendor headers may be useful, Server-Timing can explain elapsed time, trace ids join the response to logs, and Cache-Status explains cache handling. The strongest investigation uses them together.',
+        'The core insight is that every cache decision should be reported by the component that made it. Cache-Status is a structured list where each member can name a cache and attach parameters such as hit, fwd, ttl, stored, collapsed, key, or detail.',
+        'The header is not a full distributed trace. It is a narrow contract: this cache handled the response this way. That is enough to separate a miss caused by cache-key policy from a miss caused by freshness, bypass, or revalidation.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A participating cache emits a Cache-Status member for its handling of the response. `hit` says the response came from cache. `fwd` says the cache forwarded and can include a reason such as miss, stale, bypass, or request. `ttl` reports remaining freshness. `stored` says the cache inserted the response. `collapsed` shows that concurrent revalidations were coalesced.',
-        'In practice, teams often sample the header, expose more detail in debug mode, and log it with request ids. During an incident, Cache-Status joins with CDN metrics, Server-Timing, distributed traces, and origin logs to separate cache-key mistakes from origin compute, backend errors, revalidation behavior, and network path issues.',
+        'A participating cache appends a Cache-Status member before returning the response. A hit member says the stored response was used. A forwarded member can carry a reason such as miss, stale, bypass, or request.',
+        'Operators usually sample the header or expose richer detail only in debug mode. They join it with request ids, Server-Timing, CDN metrics, origin logs, and traces. Cache-Status explains the cache decision; the other signals explain elapsed time and downstream work.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because the component that made the cache decision reports the decision while the response is still in hand. That is more reliable than reconstructing cache behavior later from latency, aggregate hit ratio, and incomplete logs.',
-        'The guarantee is observational, not behavioral. Cache-Status does not make an object cacheable, does not fix freshness policy, and does not enforce correctness. It makes the cache path inspectable enough that policy bugs become testable.',
+        'The correctness argument is observational. The cache that knows whether it hit, missed, forwarded, or stored records that fact while the response is being processed. That is more reliable than reconstructing the decision later from latency and incomplete logs.',
+        'The header does not enforce caching policy. It does not make a response cacheable, repair freshness headers, or guarantee privacy. It works because it makes a hidden decision testable against the policy the team expected.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is header size, implementation coverage, and privacy review. Cache keys can contain URLs, query parameters, account identifiers, authorization-derived dimensions, or business-sensitive routing. Public responses should avoid leaking those details through `key` or `detail` fields.',
-        'There is also a support tradeoff. Some caches emit Cache-Status, some do not, and some emit it only under debug or sampling rules. A missing header does not prove there was no cache. Treat the header as a strong signal when present, not as a complete telemetry system.',
+        'The direct cost is header bytes and implementation coverage. If two cache layers each add 80 bytes, a response pays about 160 bytes before compression and transport effects. That is usually small compared with HTML or JSON, but it is not free at high request volume.',
+        'The larger cost is governance. Teams need rules for which caches emit members, whether detail is sampled, and how key material is redacted. When traffic doubles, the log volume from captured headers can double too, so retention and sampling belong in the design.',
       ],
     },
     {
-      heading: 'Operational checklist',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Decide which fields are safe before rollout. A production policy should say which caches may emit members, whether `detail` is public, whether key material is redacted or hashed, and which request classes are sampled. Debug power should not accidentally reveal tenant identity, authorization state, or private URL structure.',
-        'Add Cache-Status to runbooks as a first-class signal. For every cache incident, compare response headers, hit ratio, origin traffic, trace ids, deploy times, and freshness policy. The header is most useful when operators know exactly which graph and log panel it should join.',
-      ],
-    },
-    {
-      heading: 'Testing the contract',
-      paragraphs: [
-        'A good test suite does not just assert that the header exists. It sends requests that should hit, miss, revalidate, bypass, and store, then checks that the reported fields match the expected cache decision. For multi-layer paths, test edge and shield behavior separately so a shield hit does not hide a broken edge key.',
-        'Also test negative cases. Authenticated responses, private objects, and tenant-specific variants should not reveal sensitive key material. A debug feature that helps engineers during an incident can become a production leak if it is enabled for the wrong audience or carries raw cache-key fragments.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Cache-Status wins during cache-policy rollouts, CDN migrations, Vary or No-Vary-Search changes, stale-while-revalidate tuning, stampede debugging, and origin-load investigations.',
-        'It is especially useful when the response crosses more than one cache layer and provider-specific headers stop composing cleanly.',
+        'Cache-Status helps during CDN migrations, cache-key rollouts, Vary header debugging, stale-while-revalidate tuning, stampede investigations, and origin-load incidents. It is strongest when a response crosses more than one cache layer.',
+        'It also helps tests. A route that should hit can be checked for a hit member, a route that should bypass can be checked for a forward reason, and a revalidation test can check whether collapsed work was reported. The header turns cache policy into an assertion surface.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails if teams expose too much. A debug header that reveals private cache-key dimensions can create a data leak. Redaction and sampling are part of the design, not cleanup work after launch.',
-        'It also fails when collected without context. A miss reason is useful only when correlated with route, cache key policy, freshness headers, deployment time, origin load, and user impact. Cache-Status tells you what a cache did, not whether the overall product behavior was acceptable.',
-        'It can mislead when teams compare unlike traffic. A route with personalized responses should not have the same hit-rate target as a fingerprinted static asset. Cache-Status improves the evidence, but the interpretation still has to respect cacheability, route shape, and product requirements.',
+        'It fails if too much detail is exposed. A cache key can reveal private query parameters, tenant identity, authorization state, or internal routing. Redaction is part of the feature, not a cleanup step after launch.',
+        'It also fails when read without context. A miss can be correct for personalized data, and a hit can be wrong for stale or private data. Cache-Status says what a cache did; the route policy says whether that behavior was acceptable.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A media site expects article pages with UTM parameters to share a cache entry. After a rollout, origin traffic doubles and p95 latency rises. Timing suggests a cache problem, but it cannot explain which layer is failing.',
-        'Sampled responses show the edge member forwarding with a miss-like reason while the shield sometimes hits. The same responses carry trace ids, and origin logs show a new `Vary: X-Trace-Id` header added by a middleware change. That header makes each request look unique to the cache. The team removes the accidental vary dimension, Cache-Status returns to edge hits with healthy `ttl` values, and origin traffic drops.',
-        'The lesson is concrete: Cache-Status did not solve the bug. It shortened the path from "the site is slower" to "the cache key changed at the edge after this deploy."',
+        'A news site expects article pages with tracking parameters to share one cache entry. After a deploy, origin traffic rises from 5,000 to 10,000 requests per minute and p95 latency rises from 120 ms to 480 ms. Timing says cache trouble, but not which layer changed.',
+        'Sampled Cache-Status shows the edge forwarding with a miss reason while the shield sometimes hits. The same responses carry trace ids, and origin logs show a new Vary: X-Trace-Id header from middleware. Removing that accidental vary dimension restores edge hits and drops origin traffic near the old level.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: RFC 9211 Cache-Status at https://www.rfc-editor.org/rfc/rfc9211, RFC 9111 HTTP Caching at https://www.rfc-editor.org/rfc/rfc9111, and RFC 8941 Structured Field Values for HTTP at https://www.rfc-editor.org/rfc/rfc8941.',
-        'Study next: HTTP Cache ETag Revalidation for validation outcomes, HTTP Vary Cache-Key Normalization and No-Vary-Search Query Key for key-shape mistakes, CDN Stale-While-Revalidate Shield for stale and collapsed behavior, Distributed Tracing and OpenTelemetry Collector Case Study for cross-service correlation, and Tail Latency & p99 Thinking for user impact.',
+        'Study HTTP ETag revalidation, HTTP Vary cache-key normalization, No-Vary-Search, CDN stale-while-revalidate, distributed tracing, OpenTelemetry collectors, and tail-latency analysis. The recurring question is which layer made the decision you are trying to debug.',
       ],
     },
   ],

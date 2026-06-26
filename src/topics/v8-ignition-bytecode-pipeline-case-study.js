@@ -135,104 +135,21 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'JavaScript engines need fast startup, low memory use, correct dynamic semantics, and high peak speed. Those goals pull against each other. A large web app contains startup glue, event handlers, library code, hot loops, and functions that run once.',
-        'Ignition exists because V8 needs a cheap correct execution tier before it knows which code deserves heavier compiler work. It runs bytecode for cold and warming code, then records runtime feedback that later tiers can use when optimization is worth the cost.',
-        {type:'callout', text:'Ignition makes bytecode both the first execution tier and the measurement surface that tells V8 when specialization is worth the risk.'},
-      ],
-    },
-    {
-      heading: 'Obvious approach and wall',
-      paragraphs: [
-        'One obvious design is to compile every function directly to optimized machine code. Hot code gets a strong path, but the engine wastes time and memory on functions that may never run again. Startup suffers because the browser or runtime compiles too much before users see work complete.',
-        'The opposite baseline is a simple interpreter with no feedback and no tiering. That starts quickly, but repeated property loads, calls, arithmetic, and array accesses stay generic forever. The wall is JavaScript dynamism: the engine needs evidence about actual shapes and values before specialization is safe enough to try.',
-      ],
-    },
-    {
-      heading: 'Core insight and invariant',
-      paragraphs: [
-        'The core insight is to make bytecode both an execution format and a measurement surface. Ignition can run correct generic bytecode now, while feedback vectors remember what happened at each interesting bytecode site. Later code can specialize from local evidence instead of global guesses.',
-        'The invariant is that feedback is observation, not language truth. A feedback slot may say that one property load has only seen one object Map so far. It may not say that all future calls must have that Map. Any optimized path that trusts the observation needs a guard and a safe fallback.',
-      ],
-    },
-    {
-      heading: 'Core pipeline',
-      paragraphs: [
-        'The pipeline is source text, parser structures, Ignition bytecode, register-style interpreter frames, feedback vectors, inline caches, and later optimizing tiers such as TurboFan. Each layer leaves behind a data structure the next layer can use.',
-        'Ignition bytecode operates over frame slots rather than a pure operand stack. While bytecode executes, feedback vectors record facts such as object Maps seen at property loads, call targets at call sites, arithmetic operand kinds, and array element kinds.',
-        'Inline caches can use that feedback quickly. If `obj.x` repeatedly sees one hidden class, the load can use a monomorphic fast path. If the function becomes hot and the feedback stays stable, optimized code can specialize the whole region more aggressively.',
-      ],
-    },
-    {
-      heading: 'Mechanism: feedback and tiering',
-      paragraphs: [
-        'Feedback vectors are indexed by bytecode sites. That local shape matters. The engine does not need a vague claim that a program usually uses objects well; it needs to know that this load site saw this shape, this call site saw this target, and this arithmetic site saw these operand kinds.',
-        'Tiering is resource allocation. Cold code stays in a compact baseline path. Warm code can get inline-cache help. Hot code with stable feedback can justify compiler time. If later execution violates an assumption, guards route execution to a generic handler or deoptimize into a lower tier.',
-        'The important state change in the visual is not just source becoming bytecode. It is source becoming bytecode plus feedback slots. The bytecode gives a correct path; the feedback tells V8 where a faster path might be safe.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Consider `area(rect) { return rect.width * rect.height; }`. The first calls run through Ignition bytecode. The property-load feedback slots may observe that `rect` usually has the same hidden class, and the arithmetic slots may observe numeric values. That evidence can make the property loads monomorphic and the multiplication path predictable.',
-        'If later calls pass many unrelated shapes, the same feedback site becomes polymorphic or megamorphic. The function still returns the correct answer, but the engine loses the clean assumption that made the fast path attractive. If optimized code already exists, failed guards can deoptimize back to a lower tier.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The correctness argument is a separation between meaning and speed. Ignition bytecode handlers implement JavaScript semantics without requiring specialization. Feedback is an observation about past executions, not a promise about future executions.',
-        'Specialized paths are guarded. Optimized code may assume a shape, value kind, or call target only if it checks that the assumption still holds. When a check fails, execution falls back to a generic handler or deoptimizes into a lower tier that can represent the full JavaScript state.',
-        'That is why optimization can be speculative without changing program meaning. The generic path owns correctness. Feedback and optimized code are allowed to be fast only while their guards remain true.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'Ignition pays parse and bytecode-generation cost, then interpreter dispatch for executed bytecodes. That is cheaper than full optimization for cold code but slower than stable optimized machine code for hot loops.',
-        'Feedback vectors cost memory and maintenance. They pay for themselves when inline caches or later compilation use the recorded facts. Code that runs once may never recover the feedback cost, but it also avoids the larger cost of optimizing everything up front.',
-        'Deoptimization has a cost too. The engine must reconstruct a valid lower-tier state and continue with correct semantics. Frequent deopts are a performance smell: the runtime keeps paying for assumptions that real executions do not respect.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Ignition wins for startup-heavy workloads, large applications with much cold code, and dynamic programs where the engine needs real observations before optimizing. It keeps the first execution path compact while still collecting the facts needed for later speed.',
-        'It also explains practical JavaScript performance advice. Stable object shapes, dense arrays, predictable element kinds, and repeated call targets produce useful feedback. Highly polymorphic sites still run, but they tend to stay on generic paths or produce weaker optimized code.',
-        'As a teaching example, Ignition connects interpreters, bytecode arrays, frames, inline caches, profiling, optimized code, and deoptimization into one loop: run correctly now, measure local behavior, specialize when evidence is stable, and retreat when reality changes.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'Ignition cannot make unstable behavior stable. Megamorphic property access, shape churn, mixed numeric representations, sparse arrays, proxies, `eval`, and cold one-off functions limit what feedback can buy. The engine remains correct, but specialization becomes less attractive.',
-        'A bytecode tier is not free. It adds interpreter dispatch, bytecode storage, feedback metadata, tiering policy, and deoptimization machinery. A tiny embedded engine or a language with simpler static guarantees might choose a smaller pipeline.',
-        'The failure mode for learners is overfitting code style to imagined internals. Use the model to understand profiles and hot paths. Do not write unreadable JavaScript to satisfy a guessed compiler pattern.',
-      ],
-    },
-    {
-      heading: 'Practical guidance',
-      paragraphs: [
-        'For everyday JavaScript, the useful advice is plain: keep hot object shapes stable, build arrays densely, avoid mixing unrelated value kinds in the same hot collection, and keep call sites predictable on paths that profiles prove are hot. These choices usually make the code clearer for humans too.',
-        'For debugging performance, look for instability rather than memorizing bytecodes. A function that receives many unrelated object shapes will produce noisy feedback. A loop that alternates numbers, strings, objects, and holes will make specialization fragile. A hot function that repeatedly deoptimizes is telling you that runtime behavior does not match the optimized assumption.',
-        'Measure before changing code. Engine internals change, but the high-level rule is stable: predictable hot data paths are easier to specialize than chaotic ones.',
-      ],
-    },
-    {
-      heading: 'What the visual shows',
-      paragraphs: [
-        'The ignition-pipeline view follows a function from source text to parser structures, bytecode, frame slots, feedback vectors, inline caches, and later machine code. The important transition is from source to a compact instruction stream that can run before full optimization is justified.',
-        'The feedback-and-tiering view shows local evidence moving into fast paths. Property loads, calls, arithmetic, and element access leave observations behind. Promotion is a guarded bet. Fallback means later execution proved the bet too narrow, so the engine returns to a more general path.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: V8 Ignition docs at https://v8.dev/docs/ignition, V8 Ignition interpreter blog at https://v8.dev/blog/ignition-interpreter, V8 TurboFan docs at https://v8.dev/docs/turbofan, V8 hidden classes docs at https://v8.dev/docs/hidden-classes, and V8 fast properties at https://v8.dev/blog/fast-properties.',
-        'Study Register Virtual Machine: Lua Case Study for frame slots, Interpreter Dispatch Table & Threaded Code for bytecode dispatch, JIT Tiering & Hotness Counters for promotion policy, Deoptimization Stack Maps & Safepoints for fallback, and V8 Hidden Classes & Inline Caches for shape feedback.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the pipeline from source to bytecode to feedback. Active nodes show the current artifact, found nodes show reusable runtime evidence, and compare nodes show optimization that should wait until the function is hot.',
+      'Ignition is the V8 bytecode interpreter. Bytecode is a compact instruction stream, a frame is its local slot storage, and feedback is recorded evidence about shapes, calls, values, and indexed access.',
+      {type:'callout', text:'Ignition makes bytecode both the first execution tier and the measurement surface that tells V8 when specialization is worth the risk.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: ['A JavaScript engine needs quick startup and high peak speed. Ignition runs cold code correctly while collecting the facts later tiers need for hot code.'] },
+    { heading: 'The obvious approach', paragraphs: ['Compiling every function to optimized machine code up front wastes startup time and memory. A simple interpreter starts quickly but leaves repeated property loads, calls, and arithmetic generic forever.'] },
+    { heading: 'The wall', paragraphs: ['The wall is dynamic behavior. JavaScript does not promise one object shape, one call target, or one numeric representation at a site.'] },
+    { heading: 'The core insight', paragraphs: ['The core insight is to make bytecode a measurement surface. Each important bytecode site can record what happened there, and later optimized code can guard those observations.'] },
+    { heading: 'How it works', paragraphs: ['V8 parses source and generates Ignition bytecode. Ignition runs the bytecode over frame slots and updates feedback vectors for property loads, calls, arithmetic, and element access.'] },
+    { heading: 'Why it works', paragraphs: ['Correctness belongs to the generic tier. Optimized code may assume a map, target, or value kind only after checking a guard, and failed guards return execution to a lower tier.'] },
+    { heading: 'Cost and complexity', paragraphs: ['Ignition trades interpreter dispatch for lower startup cost. Feedback vectors cost memory, while deoptimization costs time when real execution violates a speculative assumption.'] },
+    { heading: 'Real-world uses', paragraphs: ['This pipeline is normal in V8-based browsers and runtimes. It matters in large apps with much cold code and a smaller set of hot functions that become stable after warmup.'] },
+    { heading: 'Where it fails', paragraphs: ['Ignition cannot make unstable code stable. Proxies, shape churn, sparse arrays, eval-heavy paths, and megamorphic call sites can keep execution on generic paths.'] },
+    { heading: 'Worked example', paragraphs: ['For area(rect), the first calls run through Ignition and record that width and height came from one object map. After 1,000 similar calls, optimized code can use guarded field loads; if a later call passes a different shape, deoptimization preserves correctness.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: V8 Ignition at https://v8.dev/docs/ignition, V8 Ignition interpreter at https://v8.dev/blog/ignition-interpreter, V8 TurboFan at https://v8.dev/docs/turbofan, and V8 Hidden Classes at https://v8.dev/docs/hidden-classes. Study register virtual machines, inline caches, hotness counters, and deoptimization stack maps next.'] },
   ],
 };

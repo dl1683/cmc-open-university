@@ -183,101 +183,78 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Linux uses spare RAM as cache because a page already in memory is much faster than a page that must be read from storage. Under pressure, that same cache becomes a battlefield: file cache, anonymous memory, dirty pages, mapped files, and cgroups all compete for one memory budget.',
-        'The hard part is not evicting something. The hard part is evicting the right thing. A backup job may stream through millions of pages once. A database index may reuse a smaller set constantly. A policy that treats both as equally valuable turns one cold scan into a performance outage.',
+        'The animation follows Linux memory reclaim, which is the process of freeing memory under pressure. A working set is the data a workload will reuse soon enough that evicting it causes painful misses, and a refault is a page fault for data that was recently evicted. Active nodes show the current reclaim decision; found nodes show evidence that a page came back quickly after eviction.',
         {type: 'callout', text: 'Workingset reclaim protects data that proves reuse after eviction, not data that only looked recent during a scan.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/8/88/Lruexample.png', alt: 'Diagram of LRU cache replacement steps across a short access sequence', caption: 'LRU cache example showing eviction by recent use; Linux refault logic adds shadow evidence to resist one-pass scans. Advaitjavadekar, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'Context',
+      heading: 'Why this exists',
       paragraphs: [
-        'The page cache stores file-backed memory in units the kernel now often calls folios. Clean file-backed folios are cheap to reclaim because the backing store already has their contents. Dirty file pages need writeback first. Anonymous memory may need swap or may not be reclaimable at the moment.',
-        'Classic reclaim separates active and inactive lists, and also separates file-backed from anonymous memory. Inactive pages are the first candidates. Active pages have earned protection through evidence of reuse. Newer reclaim designs such as Multi-Gen LRU refine the accounting, but the central question remains the same: which pages are part of the working set?',
+        'Linux uses spare RAM as cache, but that cache must shrink when applications need memory. The kernel must choose between clean file pages, dirty file pages, anonymous memory, and mapped data under one budget. Workingset refault logic exists because recent access alone is weak evidence when a one-pass scan can make cold data look hot.',
       ],
     },
     {
-      heading: 'The tempting bug',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Least-recently-used is the obvious answer: keep what was touched recently and evict what was touched long ago. The bug is that a one-pass scan also looks recent while it is running. A tar, backup, analytics export, or crawler can drag cold pages through the cache and push useful pages out.',
-        'Perfect LRU would also be too expensive on a hot kernel path. The kernel needs cheap evidence, not a timestamp update and global ordering decision on every memory access.',
+        'The obvious approach is least-recently-used, usually shortened to LRU. Keep recently touched pages and evict older pages. This is reasonable because many programs reuse data soon after touching it, and old untouched data is often safe to drop.',
       ],
     },
     {
-      heading: 'Core insight and mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'Reclaim begins with candidates, usually from inactive lists. If a clean file-backed folio looks cold, the kernel can drop it and keep only enough metadata to recognize a later return. That metadata is a shadow entry.',
-        'If the same page is touched again after eviction, the miss is a refault. The shadow entry lets the kernel estimate refault distance: roughly, how much cache turnover happened between eviction and return. A short distance means the page came back before the system had enough room to hold the real working set.',
-        'That refault evidence can activate or protect the page. A page from a one-time scan should age out without a quick refault. A page from a hot index that returns immediately after eviction should be treated as evidence that reclaim cut too deep.',
+        'The wall is scan pollution. A backup, crawler, or analytics export can stream through millions of pages once and make them all look recent while it runs. If the cache follows raw recency, that scan evicts a smaller database index that is reused constantly.',
       ],
     },
     {
-      heading: 'Why shadows matter',
+      heading: 'The core insight',
       paragraphs: [
-        'Without a shadow entry, eviction erases history. A later miss would look like any other cold first access. The kernel would know that I/O happened, but not that the same page had just been evicted under pressure.',
-        'A shadow entry is cheaper than keeping the page itself. It is a compact memory of absence: the page is gone, but the system can still recognize that it was here recently and measure the distance to its return.',
+        'The core insight is to keep evidence of absence. When a clean file-backed folio is evicted, the kernel can leave a compact shadow entry that remembers enough to recognize a quick return. If the same data refaults after little cache turnover, that short distance is evidence that reclaim cut into the true working set.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'How it works',
       paragraphs: [
-        'Consider a host running a database and a nightly backup. The database repeatedly reads a file-backed index. The backup streams a large directory tree once. Both create page-cache activity, but only the index has repeated value.',
-        'As the backup runs, scan pages enter the inactive file list. Under pressure, many of them should be dropped cleanly. If they never refault quickly, the policy has no reason to protect them.',
-        'If database index pages are evicted and then fault back in almost immediately, their shadow entries produce short refault distances. That is evidence that those pages belonged to the working set and should get more protection than the backup stream.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the refault-path view, follow a single file folio. It enters cache, sits on the inactive side, is evicted under pressure, leaves a shadow entry, and later returns as a refault. The policy decision at the end is about whether that return happened soon enough to prove working-set membership.',
-        'In the pressure-policy view, compare clean file pages, dirty pages, anonymous pages, and active pages. They do not have the same reclaim cost. The matrix frames reclaim as a budget decision, not a simple cache-hit trick.',
+        'Reclaim scans candidate folios from inactive lists and drops clean file-backed folios when they look cold. Instead of forgetting them completely, it records a shadow entry with eviction-time information. On a later page-cache miss, the kernel checks whether the miss matches a shadow entry and estimates how much memory pressure occurred between eviction and return.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The method works because reuse after eviction is stronger evidence than mere recent access during a scan. A streaming workload can make pages recent, but it usually cannot make them refault quickly after they are dropped.',
-        'The policy is also cheap enough to run continuously. It uses list placement, scanned distance, shadow metadata, and refault observations instead of maintaining a perfect global LRU order.',
-        'The result is scan resistance. Cold one-pass data can pass through memory, while pages that demonstrate short-distance reuse can fight their way back into protection.',
+        'The correctness argument is not that refault logic predicts the future perfectly. It preserves a better invariant: a page earns protection from observed reuse after eviction, not from passing through memory once. One-pass scans usually do not refault quickly, while a hot index that was evicted too aggressively returns soon enough to trigger activation or protection.',
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is bookkeeping in a path that already runs under pressure. Lists, generations, shadow entries, writeback state, and reclaim scanning all consume CPU and memory. Too little accounting misses the working set. Too much accounting steals time from applications.',
-        'File and anonymous memory also compete differently. Dropping a clean file page is cheap. Reclaiming dirty file pages can require writeback. Reclaiming anonymous pages may require swap, migration, or waiting. The policy has to balance these costs rather than treating all pages as identical cache entries.',
-        'Cgroups add another layer. A workload can thrash inside its own memory limit even when the machine has free memory elsewhere. The relevant working set is often per lruvec or memory domain, not just system-wide.',
+        'The cost is extra bookkeeping on a path that already runs during memory pressure. Shadow entries use less memory than resident folios, but they still consume metadata, and reclaim scans still burn CPU. Doubling the scan workload can double pressure on inactive lists, while a true working set larger than RAM keeps refaults high no matter how good the policy is.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Look for refaults together with major faults, read I/O, reclaim CPU, and pressure stall information. A rising cache-miss graph alone is not enough; the story changes depending on whether pages return quickly, block on disk, or force kswapd to burn CPU.',
-        'Kernel counters such as workingset refault and activation counters can show churn in the page cache. Application latency tells whether that churn matters. A backup that causes refault storms in a database has crossed from harmless scan traffic into working-set damage.',
+        'This matters on database hosts, build machines, search nodes, media servers, and container platforms where useful hot data competes with large scans. It helps separate a nightly backup from a working index, or a one-time grep from repeatedly mapped libraries. The pattern is also visible in cache admission policies: do not protect data until it proves reuse.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first failure mode is simple undersizing. If the true working set is larger than RAM or a cgroup limit, the kernel can identify the pain but cannot make the data fit. Refaults stay frequent because every good choice still evicts another needed page.',
-        'The second failure mode is dirty or writeback-heavy pressure. Clean file pages are cheap to drop. Dirty pages can block on storage. A reclaim policy cannot make slow writeback free.',
-        'The third failure mode is treating cache dropping as a fix. `drop_caches` can reset a demo, but production health comes from sizing, isolation, scan scheduling, writeback control, and access-pattern changes.',
+        'Workingset refault logic cannot make too little memory behave like enough memory. If the active database index is 200 GB and the cgroup limit is 80 GB, every policy will evict useful data. It also struggles when dirty writeback is the bottleneck, because identifying a victim does not make storage flush faster.',
       ],
     },
     {
-      heading: 'Practical use',
+      heading: 'Worked example',
       paragraphs: [
-        'For production systems, start by naming the working set that must fit: a database index, model files, hot media chunks, package metadata, or a search shard. Then identify scan workloads that should not be allowed to evict it: backups, crawlers, compactions, analytics exports, or large sequential reads.',
-        'Mitigations include more memory, smaller working sets, cgroup isolation, scan throttling, scheduling scans away from peak traffic, using access hints where appropriate, and monitoring refaults alongside latency. The kernel policy helps, but it is not a substitute for workload design.',
+        'A host has 64 GB of RAM, a database index with a 20 GB hot file-backed working set, and a backup that scans 200 GB once. During the scan, inactive backup pages enter cache and then get dropped; most never refault, so they do not earn protection. If 2 GB of index pages are evicted and refault after only 4 GB of cache turnover, that short distance says the system was missing about 2 GB of room for useful data.',
+        'The operational consequence is concrete. If database p99 latency rises from 20 ms to 180 ms during the backup while workingset refault counters spike, the backup is damaging the cache budget. The fix may be more memory, a lower cgroup limit for the backup, scan scheduling, access hints, or storage isolation, not a call to drop caches.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Linux Multi-Gen LRU docs at https://docs.kernel.org/mm/multigen_lru.html, VM sysctl docs at https://docs.kernel.org/admin-guide/sysctl/vm.html, and Linux `mm/workingset.c` source at https://github.com/torvalds/linux/blob/master/mm/workingset.c.',
-        'Then study Linux Page Cache XArray, Readahead & Dirty Writeback, LRU Cache, W-TinyLFU Cache Admission, Tail Latency & p99 Thinking, PostgreSQL Buffer Pool Clock Sweep, and Cache Invalidation & Versioning. Workingset reclaim is where cache theory meets storage, scheduling, and production latency.',
+        'Study Linux mm/workingset.c, Linux Multi-Gen LRU documentation, and Linux VM sysctl documentation. Then study page cache XArray, dirty writeback, LRU cache, W-TinyLFU admission, pressure stall information, cgroup memory control, PostgreSQL buffer-pool eviction, and tail latency. The useful exercise is to correlate refault counters with major faults, read I/O, reclaim CPU, and application p99 latency.',
       ],
     },
   ],

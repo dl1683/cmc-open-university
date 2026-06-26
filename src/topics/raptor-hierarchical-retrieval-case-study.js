@@ -202,78 +202,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'RAPTOR, short for Recursive Abstractive Processing for Tree-Organized Retrieval, is a RAG architecture that builds a tree of summaries above ordinary text chunks. Instead of retrieving only short contiguous chunks, it recursively embeds, clusters, and summarizes chunks so the index contains both detailed leaves and higher-level abstractions.',
-        'The core paper states the motivation directly: flat RAG often misses holistic document context because it retrieves short chunks. RAPTOR builds a tree with different levels of summarization and retrieves from that tree at inference time: https://arxiv.org/abs/2401.18059. The official implementation is at https://github.com/parthsarthi03/raptor.',
+        'Read leaves as original text chunks and parent nodes as generated summaries over clusters of children. A parent is searchable evidence metadata, not a replacement for the source text below it.',
+        'During retrieval, broad questions may touch parent summaries first, while exact claims still need leaf chunks for proof. The useful path is often parent for map and leaves for citation.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'RAPTOR stands for Recursive Abstractive Processing for Tree-Organized Retrieval. It exists because flat RAG often retrieves short chunks without the document-level context needed for broad questions.',
+        'A question about a theme, comparison, or policy pattern may depend on evidence spread across sections. RAPTOR precomputes summaries above related chunks so retrieval can operate at several abstraction levels.',
         {type:'callout', text:'RAPTOR makes summaries searchable evidence objects, so retrieval can choose between broad parent context and leaf level proof instead of flattening every question into top-k chunks.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/f/f7/Binary_tree.svg', alt:'Binary tree diagram with parent and child nodes.', caption:'Binary tree diagram. RAPTOR uses a tree of summaries and leaf chunks so retrieval can move between abstraction levels. Source: Wikimedia Commons, Derrick Coetzee, Public domain.'},
       ],
     },
     {
-      heading: 'The obvious attempt',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious RAG design is flat chunk retrieval. Split the corpus into fixed-size chunks, embed every chunk, retrieve the top k chunks for a query, and place them in the prompt. This works well for direct lookup questions where the answer lives in one or two nearby passages.',
-        'It breaks on questions that ask for a document-level pattern, a comparison across sections, or an answer that depends on dispersed evidence. Increasing top k often adds noise before it adds structure. Making chunks larger can preserve more context but hurts precision and wastes prompt budget. RAPTOR adds an explicit abstraction layer instead of asking the generator to infer the whole document shape from scattered leaf chunks.',
+        'The obvious approach is flat chunk retrieval. Split documents into chunks, embed every chunk, retrieve top-k chunks, and paste them into the prompt.',
+        'That works for exact lookup when the answer lives in one nearby passage. It struggles when the answer requires the shape of a whole document or a comparison across distant sections.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is to index summaries as first-class retrieval objects. A parent summary is not just a folder label. It has text, an embedding, child links, and source provenance. It can be retrieved when the query wants a broader concept, then followed downward to the leaves that justify the answer.',
-        'This changes the retrieval problem from one flat nearest-neighbor search into a level-selection problem. Exact facts still want leaf text. Themes and comparisons often want parent summaries. Careful answers often need both: a summary for orientation and leaves for citation-grade proof.',
+        'The wall is abstraction mismatch. Small chunks preserve local details but lose global structure, while large chunks preserve more context but waste tokens and weaken nearest-neighbor precision.',
+        'Increasing k is not a clean fix. More chunks can add scattered evidence without the relationship that tells the model how the pieces fit together.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Index summaries as first-class retrieval objects. A parent summary has text, an embedding, child links, and provenance, so it can be retrieved when the query is broader than one leaf.',
+        'The tree changes retrieval from one flat nearest-neighbor search into a level-selection problem. Narrow facts want leaves, broad themes want parents, and careful answers often need both.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The build phase starts with a corpus split into chunks. Each chunk is embedded. Nearby chunks are clustered, often with a clustering method such as Gaussian mixture modeling or a simpler K-Means-style mental model. Each cluster is summarized by an LLM. Those summaries become parent nodes, are embedded again, clustered again, and summarized again until the tree reaches a root or target depth.',
-        'The query phase searches across the tree. A narrow question may retrieve leaf chunks. A broad question may retrieve parent summaries. A multi-step question may need both: a high-level parent for orientation and specific leaves for evidence. This turns retrieval into a tree-level selection problem rather than a flat top-k list.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The build view moves upward from chunks to summaries. Each parent is generated from a cluster of children, then embedded so it can be searched. That means summary quality, cluster quality, and source links are part of the retrieval index, not post-processing details. A bad summary becomes a bad index entry.',
-        'The retrieval view moves across levels. A broad question can start at a parent summary, then pull leaves for proof. A narrow question should not stop at a summary when exact source text is needed. The useful mental model is multi-level evidence, not "summaries replace chunks." The tree creates additional handles for retrieval; it does not remove the need for source-grounded leaves.',
+        'The build phase embeds leaf chunks, clusters nearby chunks, asks a language model to summarize each cluster, embeds those summaries, and repeats the process until the tree reaches a root or target depth. Each parent stores links to its children.',
+        'The query phase searches across levels or traverses from retrieved parents down to children. The prompt can then include a parent summary for orientation and leaf passages for exact support.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'RAPTOR works when generated summaries preserve the concepts that flat embeddings scatter across chunks. Many documents have hierarchy already: sections, subsections, arguments, examples, exceptions, and tables. A summary tree gives the retriever objects closer to those natural levels.',
-        'The approach also spends compute before the user asks a question. Instead of using the final answer model to read ten disconnected chunks and guess the theme, ingestion has already clustered related material and written an abstraction. That can improve broad queries, but only if the summaries remain faithful and traceable to children.',
+        'RAPTOR works when summaries preserve concepts that flat chunk embeddings scatter. Documents often already have hierarchy: sections, exceptions, examples, tables, and arguments.',
+        'The correctness condition is traceability. A parent can guide retrieval, but any factual answer should still be backed by child nodes and source chunks that justify the claim.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'RAPTOR moves meaningful cost to ingestion. Embedding, clustering, summarization, parent embedding, and repeated tree construction can be expensive. Updates are also harder than flat indexing because changing a leaf can invalidate parent summaries. The benefit is that query-time retrieval can access precomputed abstractions instead of asking the generator to synthesize a whole-document view from scattered fragments.',
-        'The risk is summary drift. A parent summary can omit a detail, overgeneralize, or mix unrelated cluster members. Those errors become searchable index entries. RAG Evaluation: RAGAS, ARES, and the RAG Triad is therefore not optional: evaluate leaf recall, parent usefulness, final faithfulness, and answer relevance separately.',
-        'Incremental maintenance is the practical cost most demos skip. If a policy document changes, the leaf chunk changes first, then its embedding, then any cluster membership, then parent summaries, then parent embeddings. A production index should record lineage from every parent to its children so rebuilds can be targeted and stale summaries can be detected. Otherwise the hierarchy becomes an attractive but untrustworthy snapshot.',
+        'RAPTOR moves cost to ingestion. For 10,000 leaf chunks clustered ten at a time, the first summary layer has about 1000 generated summaries, the next about 100, and the next about 10 before a root.',
+        'Updates are harder than flat indexing. Changing one leaf may invalidate its parent summary, that parent embedding, and higher summaries above it, so lineage and partial rebuilds matter.',
       ],
     },
     {
-      heading: 'Complete case study: policy manual QA',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Imagine a 400-page benefits policy manual. Flat RAG can answer "What is the copay for Plan B?" if the exact table chunk is retrieved. It struggles with "How did the plan handle exceptions across dental and vision coverage?" because the answer spans many sections. RAPTOR can retrieve a parent summary about coverage exceptions, a child summary about dental exclusions, and a leaf table for the exact copay.',
-        'A production design would combine RAPTOR with Multi-Index RAG. BM25 catches exact policy IDs. HNSW finds semantically related chunks and summaries. Maximal Marginal Relevance prevents the prompt from filling with near-duplicate parents. Cross-Encoder Reranker can rerank the final candidates. Cache Invalidation & Versioning tracks whether parent summaries were built from the current policy version.',
-        'The final answer should still cite leaves. Parent summaries can guide retrieval and explain context, but a user who needs to act on the answer needs source text. The strongest pattern is parent for map, leaf for proof: retrieve the summary that frames the issue, then include exact passages that support the claim.',
+        'RAPTOR fits long manuals, research corpora, policy libraries, legal binders, support documentation, and books where broad questions need section-level or document-level context. It is strongest when the corpus is large but reasonably stable.',
+        'It can combine with multi-index RAG. BM25 can catch exact codes, vector search can find semantic matches, and RAPTOR parents can supply map-level context.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
-        'Do not treat the generated summary tree as ground truth. It is an index built by a model. Every parent node should be traceable to children and source documents. Do not use only high-level summaries for audit questions where exact source text matters. Do not assume the tree is easy to update; if a corpus changes frequently, incremental rebuild strategy matters.',
-        'Do not confuse RAPTOR with GraphRAG or LightRAG. RAPTOR organizes chunks and summaries into a tree. GraphRAG extracts entities and relationships into a graph and summarizes graph communities. LightRAG Dual-Level Retrieval Case Study combines graph records with vector retrieval for local entity questions, global relationship questions, and incremental updates: https://arxiv.org/abs/2410.05779.',
-        'The evaluation trap is measuring only final answer quality on broad questions. Also test exact fact lookup, citation faithfulness, stale-source behavior, and adversarial cases where a parent summary sounds right but a child contradicts it. A hierarchy earns its place only if it improves broad recall without weakening auditability.',
+        'It fails when summaries drift. A parent that omits an exception, overgeneralizes a rule, or merges unrelated children becomes a misleading index entry.',
+        'It also fails on fast-changing corpora without rebuild discipline. If leaves update but parents stay stale, retrieval can surface a polished summary of old evidence.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A 400-page benefits manual becomes 2400 leaf chunks of about 300 tokens each. Clustering 12 leaves at a time creates about 200 parent summaries, then about 17 higher summaries, plus one root.',
+        'For the question how dental and vision exceptions differ, flat retrieval might return 8 isolated chunks. RAPTOR can retrieve a parent about coverage exceptions, then include 3 dental leaves and 3 vision leaves so the model sees both the map and the proof.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RAPTOR paper at https://arxiv.org/abs/2401.18059, RAPTOR HTML at https://arxiv.org/html/2401.18059v1, official RAPTOR implementation at https://github.com/parthsarthi03/raptor, Hugging Face paper card at https://huggingface.co/papers/2401.18059, LightRAG at https://arxiv.org/abs/2410.05779 and https://github.com/HKUDS/LightRAG, and Self-RAG at https://arxiv.org/abs/2310.11511. Study RAG Pipeline, Multi-Index RAG, Embeddings & Similarity, K-Means Clustering, Tree Traversals, HNSW, GraphRAG Community Summary Case Study, LightRAG Dual-Level Retrieval Case Study, and RAG Evaluation next.',
-        'When implementing it, start with a small corpus and inspect the tree manually. If the parent summaries do not help a human navigate the corpus, they will not reliably help the retriever either.',
+        'Primary sources: the RAPTOR paper, the RAPTOR implementation, and Self-RAG for related retrieval-control ideas. Compare with LightRAG and GraphRAG to see how trees differ from entity graphs.',
+        'Study embeddings, clustering, tree traversals, HNSW, multi-index RAG, GraphRAG community summaries, LightRAG dual-level retrieval, and RAG evaluation next. A summary tree is useful only if it improves broad recall without weakening citation faithfulness.',
       ],
     },
   ],

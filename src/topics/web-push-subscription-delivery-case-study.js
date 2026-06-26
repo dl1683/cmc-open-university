@@ -202,84 +202,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the first view as a subscription record being assembled. Active fields are not decoration: endpoint, keys, service-worker scope, app-server identity, preference, and health all decide whether a later send is legal and useful. Found fields are durable enough for the server to store and repair.',
+        'Read the delivery view as a bounded wakeup path. The server sends to a browser push service, the browser wakes the service worker, and the worker fetches or displays current state. The safe inference is that push starts work; it is not the authoritative business transaction.',
+        {type:'callout', text:'Web Push is a durable subscription registry plus a bounded wakeup path, not a hidden socket or permanent user identity.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A web app cannot keep an ordinary socket open after every tab is closed. Yet some events still need to reach the user or wake the app: a direct message, urgent alert, task assignment, or sync hint. Web Push gives the server an inbound wakeup path through the browser push service.',
-        'The Push API lets an application server send a message to a web application through a browser push service, even when the web app is inactive. The real system is not one call to subscribe. It is a subscription registry: endpoint URL, encryption keys, application-server identity, service-worker scope, user preference, and endpoint health.',
-        {type:'callout', text:'Web Push is a durable subscription registry plus a bounded wakeup path, not a hidden socket or permanent user identity.'},
-        'The W3C Push API says push enables sending a push message to a web application via a push service: https://www.w3.org/TR/push-api/. MDN Push API documents the service-worker additions and PushManager entry point: https://developer.mozilla.org/en-US/docs/Web/API/Push_API.',
+        'A web page cannot keep an ordinary socket open after every tab is closed. A user may still need a direct message, calendar change, alert, task assignment, or sync hint. Web Push gives the application server a way to wake the web app through browser-managed infrastructure.',
+        'The Push API is not just subscribe once and forget. A useful system stores endpoint URL, encryption keys, service-worker scope, application-server key, user preference, quiet-hour policy, and delivery health. The subscription is a route plus policy, not a permanent identity.',
       ],
     },
     {
-      heading: 'The obvious attempt',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive approach is polling: when the page is open, ask the server every few seconds for new work. Polling is simple and works without permission prompts, so it is reasonable for active pages.',
-        'It fails when the page is closed, when mobile battery matters, or when low-latency alerts matter. Polling either stops entirely or wastes network and CPU checking for nothing. Web Push changes the direction: the server sends a wakeup through the browser-managed push service.',
+        'The obvious approach is polling. When the page is open, ask the server every few seconds whether anything changed. Polling is simple, debuggable, and good enough for active pages with loose latency needs.',
+        'Another approach is a WebSocket. That works while a page is alive and the network allows it. It does not solve the closed-tab problem, and it can waste battery if used only to wait for rare inbound events.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core data structure is a subscription record. The endpoint routes the send to a browser push service. The p256dh and auth keys support encrypted payload delivery. The service-worker scope tells which worker will receive the push event. User preferences, quiet hours, key version, and health counters decide whether the server should send at all.',
-        'The invariant is that a subscription belongs to a service worker registration, not to one visible tab. A page creates or refreshes the record, the server stores it, and the browser later wakes the worker that owns the registration.',
+        'The wall is background delivery. Once every tab is closed, page JavaScript stops running. Polling stops, and an ordinary page-owned connection disappears. Mobile operating systems also protect battery by limiting uncontrolled background work.',
+        'A second wall is user trust. A technically delivered notification can still be wrong if the user did not want that topic, if quiet hours apply, or if permission was revoked. Delivery policy belongs in the subscription registry, not in a last-minute send call.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'The core insight',
       paragraphs: [
-        'The subscription-record view separates the durable record from the browser ceremony around it. Permission, service-worker registration, endpoint URL, p256dh key, auth secret, VAPID identity, user preference, quiet-hour policy, and health counters belong together because the server needs all of them to decide whether a send is possible and appropriate. The endpoint alone is only a route into a push service; it is not permanent identity and it is not consent.',
-        'The message-delivery view shows the path from application event to user-visible wakeup. The application server chooses a subscription, encrypts a small payload, sends it to the endpoint, and lets the browser push service wake the service worker. The service worker then decides whether to display a notification, update a badge, message already-open clients, or fetch current state. The lesson is that push is a bounded wakeup mechanism. It should start a fresh read of authoritative state, not smuggle an entire business transaction through a notification payload.',
-        'The two views also explain why subscription repair is part of the algorithm. A failed send is not just an HTTP error; it is a signal that endpoint state, permission state, or user preference may have changed. A reliable implementation treats delivery outcomes as input to the registry, pruning dead endpoints and refreshing records instead of retrying stale routes forever.',
+        'The core data structure is a subscription record owned by a service worker registration. The endpoint routes to a browser push service. The p256dh and auth keys support encrypted payload delivery. The service-worker scope tells the browser which worker receives the push event.',
+        'Correct use treats push as a hint to fetch fresh state. The payload should be small, private, and safe to delay or drop. The server remains the source of truth for messages, tasks, orders, and account state.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The browser asks the user for notification permission, the service worker registration exposes pushManager, and PushManager.subscribe creates a PushSubscription. The subscription includes an endpoint and keys. The page sends that subscription object to the application server.',
-        'Later, the server chooses a subscription, applies delivery policy, encrypts the payload, and posts to the endpoint. The browser push service routes the message to the device. The browser wakes the service worker with a push event, and the worker can show a notification, update a badge, message open clients, or fetch fresh state.',
-        'MDN PushManager.subscribe documents that subscribe returns a PushSubscription and creates a new push subscription if the current service worker does not already have one: https://developer.mozilla.org/en-US/docs/Web/API/PushManager/subscribe. MDN PushManager explains that PushManager is accessed from ServiceWorkerRegistration.pushManager: https://developer.mozilla.org/en-US/docs/Web/API/PushManager.',
+        'A page asks for notification permission, registers a service worker, and calls pushManager.subscribe on the service-worker registration. The browser returns a PushSubscription containing an endpoint and keys. The page sends that object to the application server, which upserts it into the subscription registry.',
+        'Later, the server selects a subscription, checks policy, encrypts a payload, and posts to the endpoint. The browser push service routes the message to the device. The browser wakes the service worker with a push event, and the worker can show a notification, update a badge, message open clients, or fetch current data.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Web Push works because the browser and push service hold the long-lived delivery channel, not the page. The application stores a route and keys. The service worker supplies the background execution point. That split lets the app be inactive while still receiving bounded wakeups.',
-        'Correctness depends on treating the push as a hint, not the source of truth. Payloads are small and can be delayed or expire. The notification or click path should fetch authoritative state from the application server before making durable changes in the UI.',
+        'The mechanism works because the long-lived delivery channel belongs to the browser and push service, not to a page tab. The web app stores a route and keys. The service worker supplies a bounded background execution point.',
+        'Correctness depends on separating signal from state. If the push says task 123 changed, the app should fetch task 123 before showing durable UI or mutating local state. That rule makes delayed, duplicated, or expired pushes less dangerous.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Consider a collaborative task app. The user opts into notifications. The app registers its service worker, subscribes with PushManager, and uploads the endpoint plus keys to the server. When a teammate assigns a task, the server looks up the user subscription, sends a push, the browser wakes the service worker, and the worker displays a notification with a task route. On click, the app opens /tasks/123 and fetches authoritative state.',
-        'If the endpoint expires, the server deletes it after failed sends. If permission is denied, the app stops prompting. If the subscription rotates, the app upserts the new endpoint. This is the inbound counterpart to Background Sync Outbox Queue: sync sends pending local work out; push wakes the app when remote work arrives.',
+        'Push costs state management. Suppose 1,000,000 users opt in and 8 percent of endpoints expire each month. The server must prune about 80,000 stale routes monthly, handle rotated subscriptions, and avoid retrying gone endpoints forever.',
+        'Push also costs trust. A user who receives 6 low-value notifications in a day may revoke permission for all future high-value alerts. Topic preferences, quiet hours, unsubscribe controls, and send-rate limits are part of the delivery algorithm because they preserve the channel.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Push costs trust. Permission prompts, notification fatigue, quiet hours, unsubscribe flows, and topic preferences are part of the system, not product polish after the fact. A push that is technically delivered but unwanted damages the permission channel.',
-        'It also costs state management. Subscriptions can rotate, expire, or be revoked. Servers must delete gone endpoints, upsert changed records, track failure counts, and avoid storing only the endpoint string. Production systems also need user id, scope, keys, app-server key version, created/updated timestamps, last success, topic preferences, and permission or unsubscribe state.',
+        'Web Push fits rare inbound signals where the page may be closed: chat messages, critical alerts, task assignments, calendar reminders, delivery updates, and sync hints. The access pattern is small server signal, service-worker wakeup, user-visible notification or foreground fetch.',
+        'It pairs well with local app shells and IndexedDB state. The notification opens a route, the service worker or foreground page fetches current data, and the UI reconciles local cache with server truth. Push should wake the app, not replace the data model.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Where it fails',
       paragraphs: [
-        'Web Push wins for small, user-relevant wakeups when the page may be closed: messages, task assignments, calendar changes, critical alerts, and sync hints. The access pattern is rare inbound signal, service-worker handling, user-visible notification or foreground fetch.',
-        'It is the wrong tool for large payloads, durable state transfer, real-time collaborative streams, background computation, or messages the user did not ask for. Active pages can use WebSocket, Server-Sent Events, polling, or ordinary fetch. Offline outgoing work belongs in Background Sync Outbox Queue.',
+        'Push is the wrong tool for large payloads, real-time collaboration streams, durable state transfer, or background computation. Active pages can use WebSocket, Server-Sent Events, polling, or ordinary fetch. Outgoing offline work belongs in Background Sync-style outbox logic.',
+        'It also fails when a subscription is treated as identity. Users can revoke permission, browsers can rotate or expire endpoints, and push services can reject stale routes. The registry must age, repair, and delete records.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Push is not a replacement for durable state, real-time collaboration, or large-message transport. Payloads should be small and privacy-aware; the app can fetch fresh data after wakeup.',
-        'The common engineering mistake is treating a subscription as permanent identity. Users can revoke permission, browsers can rotate or expire subscriptions, and push services can reject stale endpoints. The server registry must age and repair records instead of assuming one endpoint lasts forever.',
+        'A task app has 250,000 subscribed users. At 9:00, a teammate assigns task 123 to Alex. The server checks that Alex allows assignment alerts, sees no quiet-hour block, sends a 900 byte encrypted push, and records the send attempt.',
+        'The service worker wakes, displays Task assigned, and opens /tasks/123 when clicked. The app then fetches the current task before rendering. If the push service returns 410 Gone, the server deletes that endpoint and waits for the browser to create a fresh subscription during the next foreground session.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: W3C Push API at https://www.w3.org/TR/push-api/, MDN Push API at https://developer.mozilla.org/en-US/docs/Web/API/Push_API, MDN PushManager at https://developer.mozilla.org/en-US/docs/Web/API/PushManager, MDN PushManager.subscribe at https://developer.mozilla.org/en-US/docs/Web/API/PushManager/subscribe, MDN Service Worker API at https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API, and web.dev Push subscription guide at https://web.dev/articles/push-notifications-subscribing-a-user.',
-        'Study next by role: Service Workers & Offline-First for the background event model, Background Sync Outbox Queue for outbound offline writes, Browser Message Channels & Broadcast Coordination for notifying open tabs, IndexedDB Object Store Case Study for local notification state, Cache Storage Versioned Precache for the app shell that opens on click, Capability Security & Attenuation for permission design, and OAuth PKCE Token Lifecycle Case Study for authenticated fetches after wakeup.',
+        'Primary sources: W3C Push API at https://www.w3.org/TR/push-api/, MDN Push API at https://developer.mozilla.org/en-US/docs/Web/API/Push_API, MDN PushManager at https://developer.mozilla.org/en-US/docs/Web/API/PushManager, and MDN PushManager.subscribe at https://developer.mozilla.org/en-US/docs/Web/API/PushManager/subscribe.',
+        'Study next by role: Service Worker API for the background event model, Background Sync Outbox Queue for outbound offline writes, Browser Message Channels for notifying open tabs, IndexedDB Object Store for local state, and Capability Security for permission design.',
       ],
     },
   ],

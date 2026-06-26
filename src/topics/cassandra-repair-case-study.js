@@ -175,95 +175,44 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        {type:'callout', text:'Cassandra repair uses Merkle trees to make replica drift searchable, pruning equal token subranges and streaming only where digests disagree.'},
-        'Cassandra chooses availability and partition tolerance over one global synchronous copy of the data. That choice lets replicas accept work during outages, but it also means replicas can drift when a node is down, a partition delays traffic, hinted handoff expires, or reads do not touch every owner of a token range.',
-        'Repair is the deliberate anti-entropy path. It is the mechanism that says: for this token range and this replica set, prove which subranges match, find the subranges that do not, and stream the missing or stale rows until the replicas converge.',
-      ],
-    },
-    {
-      heading: 'The obvious attempt',
-      paragraphs: [
-        'The simple repair plan is to have every replica send every row to every other replica and compare values directly. That is easy to reason about for a tiny table: if two replicas list all rows, any missing or stale row is visible.',
-        'The wall is scale. A Cassandra table can hold large token ranges, and most rows may already match. Full row-by-row comparison turns a small inconsistency into a large disk, CPU, memory, and network job. It also competes with foreground reads and writes while the cluster is already recovering from trouble.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'A Merkle tree turns comparison into pruning. Each replica hashes rows into leaves for a token range and combines those hashes upward. If two subtree hashes match, the whole subrange can be skipped. If they differ, repair descends only into that subrange.',
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt:'Merkle hash tree with data blocks at leaves and combined hashes up to the root', caption:'A Merkle tree summarizes large state with nested hashes; Cassandra repair compares these summaries top down to find only the token subranges that differ. Source: Wikimedia Commons, David Gothberg and Azaghal, CC0.'},
-        'The invariant is simple: a matching hash stands for matching contents under that subtree, assuming the hash function does not collide in practice. Repair spends detailed work only where the digest proves that two replicas disagree.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The Merkle-comparison view is about pruning work. A matching root hash means the compared range can stop immediately. A mismatched root does not identify the row by itself; it tells repair where to descend next.',
-        'The repair-scheduling view is about operational safety. Building trees is only the detection phase. Streaming rows, throttling traffic, staying inside the tombstone window, and recording completion are what turn detection into restored replica convergence.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A repair coordinator selects token ranges and the replicas responsible for them. Each replica validates its local data by building a Merkle tree for the requested range. The participants compare roots first, then descend through mismatched branches until they know which leaf ranges need data transfer.',
-        'After mismatch ranges are identified, replicas stream the needed rows. The tree comparison decides what to stream; the streaming phase actually changes state. A completed repair therefore needs both comparison evidence and stream completion evidence.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Repair works because hash equality is compositional. If every row hash under a subtree is the same on two replicas, the parent hash is the same. If a parent hash differs, at least one descendant differs. That gives the algorithm a safe search rule: skip equal subtrees and refine unequal ones.',
-        'The algorithm is useful even though it is probabilistic at the hash level. Production systems treat strong digest collisions as negligible compared with ordinary hardware and operational failures, then use row streaming and normal write reconciliation rules to bring replicas back together.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'Repair consumes disk IO to scan data, CPU to hash it, memory to hold comparison state, and network to stream differences. Full repair checks all data in a range. Incremental repair reduces repeated work but adds repair metadata and workflow complexity. Read repair fixes inconsistencies discovered on read paths, but it does not replace planned anti-entropy repair.',
-        'The tree shape matters. Coarse trees can make one mismatch stream a large subrange. Very fine trees reduce extra streaming but increase comparison metadata and build cost. Parallel repair can shorten the calendar window while saturating links, disks, and compaction capacity.',
-        'Tombstones make cadence part of correctness. If a delete expires before a replica that missed the delete is repaired, old data can reappear. Repair is therefore not just housekeeping; it protects deletion semantics.',
-      ],
-    },
-    {
-      heading: 'Repair cadence',
-      paragraphs: [
-        'A cluster needs a repair schedule that is tied to garbage collection grace, replica availability, and operational load. Running repair too rarely risks expired tombstones and stale replicas. Running it too aggressively can steal disk, compaction, and network capacity from live traffic.',
-        'The useful mental model is a maintenance ledger by keyspace, table, token range, replica set, start time, finish time, streamed bytes, and failures. Without that ledger, a team can say repair was launched without being able to prove which ranges actually converged.',
-        'That evidence matters after incidents. If a customer reports stale data, the operator should be able to ask which replicas owned the token range, whether repair compared them, whether any stream failed, and whether a later compaction or tombstone expiry changed the safety picture.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Merkle-tree repair wins when replicas are mostly equal and the cluster needs a bounded way to find the few ranges that drifted. It is a good fit for background convergence, node-return catchup after the hint window, and audits that need evidence by token range.',
-        'It also teaches a broader systems pattern: summarize large state with a tree of digests, compare summaries top down, and spend expensive work only where the summaries disagree. The same idea appears in Dynamo-style anti-entropy and many storage synchronization systems.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Repair is the wrong first tool for a short missed write when hinted handoff can replay the exact mutation cheaply. It is also a poor fit for an overloaded cluster if the repair job is allowed to compete with foreground traffic without throttles and observability.',
-        'It cannot fix a broken failure model by itself. Bad clocks, corrupted data, expired tombstones, incorrect token ownership, or missing completion evidence can still leave the operator with inconsistent data or false confidence.',
-        'It also fails when treated as a single global button. Different tables have different sizes, tombstone rates, compaction pressure, and business value. A good repair plan scopes work deliberately instead of asking one cluster-wide job to be safe for every workload.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A replica is down longer than the hint window. Other replicas continue accepting writes. When the node returns, some token ranges are stale and no exact hint queue remains. A repair job scopes the affected token ranges, asks each owner to build a Merkle tree, compares hashes, and streams only the ranges that differ.',
-        'The safe operating pattern is concrete: limit the range scope, cap parallelism, watch stream completion, keep repair inside the tombstone safety window, and record which ranges finished. Without that evidence, a cluster can look healthy while some replica ranges remain unrepaired.',
-        'The deeper lesson is that repair is both an algorithm and a maintenance contract. The Merkle tree can tell you where replicas disagree, but the organization has to decide how often to run repair, what load it may consume, what evidence proves completion, and how repair status is reported during incident review.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Sources: Apache Cassandra repair documentation, https://cassandra.apache.org/doc/4.0/cassandra/operating/repair.html, Cassandra Dynamo architecture notes, https://cassandra.apache.org/doc/latest/cassandra/architecture/dynamo.html, Cassandra hinted handoff documentation, https://cassandra.apache.org/doc/4.0/cassandra/operating/hints.html, and Cassandra read repair documentation, https://cassandra.apache.org/doc/latest/cassandra/managing/operating/read_repair.html.',
-        'Study Hinted Handoff Replica Queue for the short-outage fast path, Read Repair Digest Quorum for repair during reads, LSM Tombstones & Range Deletes for delete safety, Merkle Tree for the digest structure, Dynamo Case Study for anti-entropy lineage, Gossip Protocol and SWIM Failure Detector & Membership for node liveness, Consistent Hashing for token ownership, and S3 Object Storage for another durability-oriented storage design.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      {type:'callout', text:'Cassandra repair uses Merkle trees to make replica drift searchable, pruning equal token subranges and streaming only where digests disagree.'},
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/95/Hash_Tree.svg', alt:'Merkle hash tree with data blocks at leaves and combined hashes up to the root', caption:'A Merkle tree summarizes large state with nested hashes; Cassandra repair compares these summaries top down to find only the token subranges that differ. Source: Wikimedia Commons, David Gothberg and Azaghal, CC0.'},
+      'Read a token range as a slice of the Cassandra keyspace owned by a replica set. Active nodes build or compare trees, and found nodes mark ranges that can be skipped or streamed. The safe inference rule is hash pruning: equal subtree digests let repair skip the whole subrange.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Cassandra is eventually consistent, so replicas can drift when a node is down, a partition delays traffic, hints expire, or reads do not touch every replica. Repair is the deliberate anti-entropy path. Anti-entropy means comparing replicas and fixing drift until a token range converges.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious repair is row-by-row comparison. Every replica sends every row in the range to every other replica, and mismatches are fixed directly. That is simple for a tiny table but wasteful when almost all rows already match.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is comparison cost plus tombstone safety. Repair must read enough data to prove agreement, but it should not ship every row just to find a few stale partitions. If a delete marker expires before the replica that missed it is repaired, old data can reappear.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Summarize each token range with a Merkle tree. Leaves hash smaller row ranges, and parents hash child digests. Equal parents are skipped; unequal parents tell repair where to descend next.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'A repair coordinator selects token ranges and replicas. Each replica scans local data for the range and builds a Merkle tree. Participants compare roots, descend through mismatched branches, then stream rows or partitions for leaf ranges whose digests disagree.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'Hash equality is compositional. If every descendant row range is the same, the parent digest is the same; if a parent digest differs, at least one descendant differs, assuming practical collision resistance. The tree locates where detailed reconciliation is needed, while Cassandra timestamps and tombstones decide which value wins.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Repair costs disk IO to scan data, CPU to hash, memory to compare trees, and network to stream differences. When a token range doubles, validation scan work roughly doubles even if stream bytes stay small. Parallel repair shortens the calendar window by spending more disk and network capacity at once.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Cassandra repair is used after long node outages, missed hints, topology changes, and periodic consistency maintenance. The same digest-tree pattern appears in Dynamo-style anti-entropy, file synchronization, block verification, Git object transfer, and distributed backup systems.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'Repair fails when it is treated as one safe global button. Tables differ in size, tombstone rate, compaction pressure, and business value. Running too late risks expired tombstones; running too aggressively steals IO, compaction capacity, and network from foreground traffic.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A range has replication factor 3, and replica C is down for 5 hours while A and B accept 1,000 writes. Hints replay 700 writes, so 300 mutations still require repair. Merkle comparison skips the matching left half, descends into the mismatching right half, finds three leaf ranges, and streams only those ranges to C.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Apache Cassandra repair documentation at https://cassandra.apache.org/doc/stable/cassandra/managing/operating/repair.html, hinted handoff at https://cassandra.apache.org/doc/stable/cassandra/managing/operating/hints.html, read repair at https://cassandra.apache.org/doc/stable/cassandra/managing/operating/read_repair.html, and Dynamo at https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf.',
+      'Study Merkle Tree, Consistent Hashing, Dynamo Case Study, Hinted Handoff Replica Queue, Read Repair Digest Quorum, LSM Tombstones and Range Deletes, Gossip Protocol, and SWIM Failure Detector and Membership.',
+    ] },
   ],
 };

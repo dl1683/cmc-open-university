@@ -212,107 +212,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Static timing analysis exists because a digital design can be logically correct and still fail in silicon. Signals must arrive early enough for setup, not too early for hold, with acceptable slew and load, across process, voltage, temperature, clock, and mode corners.',
-        'Exhaustive simulation cannot cover every input vector and timing path in a large chip. STA turns the design into a timing graph and checks timing constraints without simulating functional behavior. It asks whether every modeled path has enough timing margin.',
+        'Read the animation as a graph of timing evidence. A timing graph has nodes for pins or timing points and edges for delays through cells or wires. Active nodes are the points whose arrival time, required time, or slack is being propagated.',
+        'Visited nodes have stable timing values for the current pass. Found markers identify the path or endpoint that currently limits the design. The safe inference is that a negative slack endpoint proves at least one path arrives later than the clock constraint permits.',
         {type:'callout', text:'STA turns timing closure into graph propagation, where every slack number is evidence from arrival, required time, constraints, and corner state.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/6b/SPI_timing_diagram2.svg', alt:'SPI digital timing diagram showing clock and data waveforms over time.', caption:'SPI bus timing diagram. Cburnett; derivative by Jordsan, Wikimedia Commons, CC BY-SA 3.0 or GFDL.'},
       ],
     },
     {
-      heading: 'The obvious approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is to simulate a few important paths and inspect waveforms. That misses rare paths, false assumptions about clocks, and corner cases where a cell delay changes under load or process variation.',
-        'Another beginner approach is to add up one launch-to-capture path by hand. Real timing closure has millions of arcs, generated clocks, clock uncertainty, exceptions, reconvergent paths, slew propagation, and incremental design changes. The hand path becomes a graph problem.',
+        'A synchronous chip must deliver data from one storage element to the next before the receiving clock edge needs it. Simulation can test selected input vectors, but timing closure needs a structural guarantee across many paths, process corners, voltages, temperatures, and modes.',
+        'Static timing analysis exists to compute that guarantee without enumerating every logic value. It treats the circuit as a graph of delays and constraints, then propagates worst-case arrival and required times. The result is a ledger of which paths meet the clock and which paths must be fixed.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A timing graph represents pins or timing points as vertices and cell or net delay arcs as edges. Arrival times propagate forward from launch points. Required times propagate backward from capture constraints. Slack is the difference between required and arrival.',
-        'Setup and hold are different checks. Setup asks whether data arrives before the capture edge with enough margin. Hold asks whether data stays stable long enough after the launch edge. Fixing one can hurt the other, so timing closure tracks both separately.',
+        'The obvious approach is to run simulations and watch waveforms. That can show a failing case when the test vector covers it. It cannot prove that every possible path and mode meets timing because the input space is enormous.',
+        'Another obvious approach is to add all gate delays along every named path by hand. That fails because real chips have reconvergent fanout, generated clocks, setup checks, hold checks, false paths, multi-cycle paths, and corner-specific libraries. Timing needs a graph algorithm plus constraint semantics.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is path explosion. Even a modest combinational network can contain a huge number of source-to-sink paths. Enumerating each path separately wastes work because many paths share prefixes and subgraphs.',
+        'The second wall is that a single delay number is not enough. Setup analysis wants late data and early capture, while hold analysis wants early data and late capture. Corners, clock uncertainty, slew, load, and derating all change the graph values.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Use dynamic programming on a directed timing graph. Arrival time records the latest or earliest time a signal can reach a node. Required time records the deadline imposed by downstream clocks and checks. Slack is required time minus arrival time for setup, with analogous polarity for hold checks.',
+        'The graph order matters. Once all predecessors of a node have valid arrivals, the node arrival is the maximum or minimum over predecessor arrival plus edge delay. Once all successors have valid required times, the required time propagates backward. Shared subgraphs are computed once per mode and corner.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The tool reads a netlist, timing libraries, parasitics, clock definitions, and constraints. Library arcs describe how input slew and output load affect delay. Parasitics describe wire resistance and capacitance. Constraints describe clocks, generated clocks, exceptions, and uncertainty.',
-        'Forward propagation computes arrival times through data arcs. Backward propagation computes required times from endpoints. Slack reports identify the worst paths, including launch clock, data path delay, capture clock, uncertainty, and exception effects.',
-        'Incremental STA updates only affected regions after an engineering change order. Resizing a cell, inserting a buffer, or changing placement dirties timing values in related cones. Correct invalidation is central because stale timing data can make optimization chase the wrong path.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The arrival-required view proves that STA is two waves over one graph. Arrival moves forward with data. Required time moves backward from constraints. Negative slack appears where the data wave arrives later than the requirement permits.',
-        'The incremental view proves why timing tools behave like worklist algorithms. A small edit can dirty a local cone rather than the whole design, but only if the dependency keys include mode, corner, clock edge, slew, load, and exception state.',
+        'The tool builds graph vertices for pins and timing arcs from standard-cell libraries, net parasitics, clock definitions, and constraints. Forward propagation computes arrival times from clock launches, input ports, and generated-clock sources. Backward propagation computes required times from captures, output ports, and timing exceptions.',
+        'For setup, a path fails when data arrives after the allowed capture deadline. For hold, a path fails when data can arrive too early and overwrite old data before the hold window closes. Reports then rank endpoints, paths, and arcs so optimization can resize cells, move placement, buffer nets, or adjust constraints.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'STA works because synchronous timing paths can be conservatively modeled between sequential boundaries. If the graph, library models, parasitics, and constraints are accurate, propagation can prove timing margins without trying every logical input sequence.',
-        'Path reports work because they preserve provenance. An engineer can see which clock launched the data, which arcs contributed delay, which net loads mattered, which clock captured the data, and which constraint created the required time.',
+        'Correctness comes from the longest-path or shortest-path recurrence on an acyclic timing graph after sequential boundaries are cut by clock constraints. If every predecessor arrival is a conservative bound, then taking the worst predecessor plus edge delay gives a conservative bound at the current node. Induction over topological order carries that guarantee to endpoints.',
+        'The backward pass is dual. If every successor required time is a valid deadline, subtracting edge delay gives the latest safe time at the current node for that successor. Taking the tightest successor deadline preserves safety for all downstream checks.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'STA is computationally heavy because every timing value is keyed by multiple dimensions: mode, corner, transition direction, clock edge, slew, load, and path type. A signoff run may analyze many corners and produce many path reports.',
-        'The tradeoff is conservatism versus design effort. Too much pessimism wastes area and power because engineers over-fix safe paths. Too little pessimism risks silicon failure. Good constraints and accurate extraction matter as much as the graph algorithm.',
+        'A single propagation pass is roughly O(V + E) for vertices and timing arcs, but real STA multiplies that by modes, corners, clock analyses, and incremental update work. If edge count doubles, the core propagation work roughly doubles. The expensive constants are parasitic delay calculation, slew and load interpolation, and report generation.',
+        'Memory holds graph topology, per-corner arrival and required times, slews, loads, constraints, exceptions, and path backpointers. Incremental STA saves time by recomputing only the affected fanin and fanout cones after a placement or sizing change. That is why timing tools are built around dependency tracking.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'STA wins in chip implementation, FPGA closure, ECO loops, physical design signoff, and any flow where timing must be checked across many paths and corners. It gives engineers a prioritized list of violations instead of a pile of waveforms.',
-        'It is also a useful general data-structures case study. The timing engine is graph propagation, caching, invalidation, priority queues, and provenance reporting under industrial constraints.',
+        'STA is central to digital chip signoff. It is used after synthesis, placement, clock-tree synthesis, routing, engineering change orders, and final signoff because each stage changes delay. The useful output is not one score; it is a ranked map of failing checks and timing margin.',
+        'It also guides optimization. A placer can pull critical cells together, a synthesis tool can resize gates, a router can reduce detours, and a clock-tree tool can manage skew. Timing analysis is the feedback signal that tells those tools whether the physical design still obeys the clock contract.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first failure is bad constraints. A false path that is not actually false can hide a real violation. A missing generated clock can make an entire domain meaningless. A careless multicycle exception can make a report look clean while the chip is unsafe.',
-        'The second failure is model mismatch. Liberty arcs, parasitics, voltage corners, clock uncertainty, and physical placement must match reality closely enough. STA proves timing for the model it was given, not for the chip you wish you had modeled.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Keep setup, hold, slew, capacitance, and clock-domain findings separate. A setup repair that upsizes a cell can increase load or create hold risk elsewhere. Timing closure is a ledger of interacting constraints.',
-        'Treat incremental timing as a cache-invalidation problem. If a change affects delay, slew, load, clock, or exception applicability, the dirty cone must include every value that depended on the old fact.',
-        'Read a path report as evidence, not as a score. Check launch, capture, clocks, arc delays, net delays, uncertainty, exceptions, and physical context before deciding whether to resize, buffer, move, or change constraints.',
+        'STA fails when the model is wrong. Missing constraints, incorrect false paths, bad parasitics, wrong clock definitions, or unrealistic corners can produce clean reports for a broken chip. The algorithm can only prove properties of the graph and constraints it was given.',
+        'It also abstracts away functional correlation. Static analysis may report paths that cannot occur in real operation unless constraints mark them false or multi-cycle. Over-constraining wastes area and power, while under-constraining risks silicon failure.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider a setup path from FF1 through two logic gates and a long net into FF2. Arrival starts at the launch clock edge, adds clock-to-Q, cell delays, wire delay, and setup requirement at the capture flop. If arrival exceeds required time, slack is negative.',
-        'A repair might upsize the slow gate, insert a buffer on the long net, move cells closer, or adjust placement congestion. Each repair changes delay and load. The timing engine must recompute affected arrivals and required times before the next path report is trusted.',
-        'Now consider hold. The shortest path, not the longest path, may be dangerous. A setup fix that speeds the data path can create a hold violation elsewhere. This is why timing closure is a balancing process rather than a single shortest or longest path calculation.',
+        'Suppose a launch flip-flop clock edge is at 0 ns, clock-to-Q is 0.08 ns, combinational arcs are 0.22 ns, 0.31 ns, and 0.19 ns, and setup time at the capture flip-flop is 0.06 ns. Data arrival is 0.08 + 0.22 + 0.31 + 0.19 = 0.80 ns. With a 1.00 ns clock and 0.04 ns uncertainty, the required time is 1.00 - 0.06 - 0.04 = 0.90 ns.',
+        'Slack is 0.90 - 0.80 = 0.10 ns, so the setup check passes by 100 ps. If routing later adds 0.14 ns to one net, arrival becomes 0.94 ns and slack becomes -0.04 ns. The path is now 40 ps late, and the report tells optimization where the margin was lost.',
       ],
     },
     {
-      heading: 'How to choose repairs',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Use cell sizing when logic delay dominates and power or area budget allows it. Use buffering when wire delay or fanout dominates. Use placement changes when physical distance or congestion is the root cause. Use constraint changes only when the original constraint was genuinely wrong.',
-        'Do not repair from the worst slack number alone. Check path commonality, number of endpoints affected, hold risk, routing congestion, and whether the violation appears in one corner or many. A local fix can make global closure harder.',
-        'The best timing reports teach causality. They show not only that slack is negative, but where time was spent and which model assumption made the requirement tight. That is what turns STA from a red-number generator into an engineering tool.',
-      ],
-    },
-    {
-      heading: 'What to watch in production',
-      paragraphs: [
-        'A production timing flow is only as good as its constraint hygiene. Treat exceptions as source code: reviewed, justified, versioned, and tied to design intent. A stale false path can be more dangerous than a visible violation because it removes the path from attention.',
-        'Watch the difference between local improvement and closure progress. A repair that improves one endpoint but worsens many neighbors is a bad trade unless it unlocks a larger route. Useful dashboards show violation count, total negative slack, worst negative slack, affected endpoints, hold risk, and corner coverage together.',
-        'The most educational path reports are reproducible. If an engineer cannot connect a timing number back to a cell arc, net, clock, exception, and parasitic model, the report is not yet a teaching tool. It may still be correct, but it will not help the team make better fixes.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Data-Flow Worklist Analysis, Standard Cell Netlist Hypergraph, Global Routing Congestion Grid, GraphBLAS Sparse Matrix Graph Case Study, Priority Queue, and Cache Invalidation. A useful exercise is to compute arrival, required, and slack by hand on a three-gate path, then add one resized cell and mark what must be recomputed.',
+        'Primary sources start with OpenSTA documentation at https://openroad.readthedocs.io/en/latest/main/src/sta/README.html. Then inspect the OpenSTA repository at https://github.com/The-OpenROAD-Project/OpenSTA and Liberty timing-library documentation from EDA vendors.',
+        'Study Directed Acyclic Graph Longest Path for propagation and Standard Cell Placement for physical delay. Then use Clock Tree Synthesis, Elmore Delay, and Constraint Graphs to connect graph timing to clock and wire behavior.',
       ],
     },
   ],

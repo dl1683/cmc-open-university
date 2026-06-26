@@ -199,111 +199,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the graph as an evidence state machine. A claim is the statement the report might make, a source span is exact text or data from one source, and a conflict node means two spans cannot be combined without explanation.',
+        'Active nodes show the disagreement being inspected. Compare nodes show evidence that disagrees or needs scoping. A safe inference is allowed only after the conflict type, probe, and scope have been recorded.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Research systems fail when they smooth disagreement into neutral prose. Two sources conflict, and the answer says "experts disagree" without explaining whether the difference comes from date, scope, method, metric, definition, or incentive. That is not synthesis. It is abdication.',
-        'A contradiction resolution graph exists to keep disagreement explicit until it is understood. It stores claims, exact source spans, conflict types, probes, scope decisions, and final writing moves. The graph lets the report explain why sources differ instead of averaging incompatible statements.',
-        'This is a critical data structure for deep research, market reports, benchmark analysis, legal summaries, medical literature reviews, and any agent that must answer from multiple sources without laundering uncertainty into confidence.',
+        'Research systems break when they turn disagreement into smooth prose. A model may read two sources, average them into a vague sentence, and hide whether the gap came from date, scope, method, metric, definition, or incentive.',
+        'A contradiction resolution graph keeps the disagreement explicit until it is explained. It stores claims, source spans, conflict types, probes, scoped decisions, and final writing moves so a reader can see why one answer is supported.',
         {type:'callout', text:'A contradiction graph preserves disagreement as typed evidence until scope, method, metric, or freshness explains the conflict.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to choose the newest or most authoritative-looking source and discard the other. Sometimes that is correct, but it is not reasoning. Older sources may still be right for historical context. A lower-authority source may use the better metric. A vendor source may be current but biased.',
-        'Another obvious approach is false balance: present both claims side by side and refuse to decide. That can sound fair while leaving the reader with no usable answer. The better move is to explain the disagreement, scope the claim, and say what evidence would change the conclusion.',
+        'The obvious approach is to pick the newest source or the source with the strongest brand. That works when the fact is time-sensitive and the newer source is actually measuring the same thing.',
+        'The other obvious approach is false balance. It puts both claims side by side and says the issue is disputed, which sounds careful but leaves the reader without a usable conclusion.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that contradictions often are not direct contradictions. One source may discuss the 2024 model while another discusses the 2026 model. One may report p50 latency while another reports p99. One may define "open source" as weights available while another requires training data and license freedoms.',
-        'The second wall is that source spans matter. Whole-document disagreement is too vague. A resolver needs exact quoted or paraphrased spans tied to claims, dates, methods, and metrics. Without span-level evidence, the agent cannot tell whether the sources disagree or the summary introduced the conflict.',
-        'The third wall is that some conflicts require action, not reading. You may need to rerun a calculation, normalize units, compare benchmark settings, inspect release dates, or ask whether two claims use different populations.',
+        'Most contradictions are not simple yes-or-no fights. One source may report p50 latency while another reports p99 latency, or one may describe a 2024 product while another describes a 2026 release.',
+        'Whole-document comparison is too coarse for this job. The system needs span-level evidence because a contradiction between two quoted claims is much easier to classify than a vague mismatch between two pages.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Treat contradictions as first-class nodes. A conflict node links the target claim to the source spans that disagree. It stores a type, the reason for the conflict, the probe needed to resolve it, and the scoped writing action.',
-        'The graph should not immediately ask "which source wins?" It should first ask "what kind of disagreement is this?" A temporal conflict is resolved differently from a metric conflict. A scope conflict may require splitting the answer rather than choosing one source.',
-        'The output is often not a winner. It is a scoped statement: under this date, method, workload, jurisdiction, definition, or metric, this claim is best supported. Outside that scope, the uncertainty remains visible.',
+        'Make contradiction a first-class graph node. The conflict node connects the target claim to the exact spans that disagree, then stores the kind of disagreement and the work needed to resolve it.',
+        'The main question is not which source wins. The main question is what explains the difference, because a temporal conflict, a metric conflict, and an incentive conflict require different writing moves.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
-        'The conflict-graph view shows one target claim connected to two source spans and then to a typed conflict node. The important move is preserving the disagreement before synthesis. A good system does not overwrite the conflict with a polished sentence too early.',
-        'The resolution-rubric view shows the ledger row that makes the conflict auditable: type, probe, scope, action. A reviewer can see why the answer preferred one source, split by scope, reported a range, deferred, or removed the claim.',
-        'The confidence plot teaches a counterintuitive point. Ignoring contradictions can make a draft look confident early. Resolving contradictions may lower immediate certainty, but it produces a stronger final answer because scope and method are explicit.',
-      ],
-    },
-    {
-      heading: 'How the graph is built',
-      paragraphs: [
-        'Start with claims and source spans. A claim is a statement the report may make. A span is exact supporting or conflicting evidence from a source. The graph links claims to spans with support, contradict, narrow, supersede, define, or weaken edges.',
-        'When two spans conflict, create a conflict node instead of collapsing the issue into prose. Store metadata: source date, author or institution, method, metric, geography, product version, population, incentives, and confidence. Then classify the conflict.',
-        'Useful conflict types include temporal change, scope mismatch, method mismatch, metric mismatch, definition mismatch, sampling difference, and incentive bias. Each type implies a different resolution move. That type system is the educational heart of the page.',
-      ],
-    },
-    {
-      heading: 'Resolution moves',
-      paragraphs: [
-        'Prefer is appropriate when one source clearly supersedes another for a time-sensitive fact or uses a stronger method. Split is appropriate when both are true under different scopes. Range is appropriate when measurements vary but are comparable. Defer is appropriate when evidence is insufficient. Remove is appropriate when no source supports the claim.',
-        'A conflict about cost might become a range. A conflict about benchmark score might become a metric-normalized comparison. A conflict about product capability might become "as of June 2026, version X supports this; older sources describe version Y."',
-        'The resolver should record residual uncertainty. A scoped answer is not a claim of omniscience. It is a claim that the report knows exactly what its evidence supports.',
-      ],
-    },
-    {
-      heading: 'Worked example: long context versus RAG',
-      paragraphs: [
-        'A user asks whether long-context models make RAG obsolete. One vendor post says a large context window removes retrieval engineering for many document tasks. A benchmark paper shows lost-in-the-middle behavior and distractor sensitivity. A third source shows long-context models improving whole-document workflows. A practitioner report says retrieval is still needed for freshness and access control.',
-        'A shallow answer says "opinions differ." A contradiction graph says the conflict type is scope and method. Long context can reduce retrieval needs for stable whole-document tasks. RAG remains useful when sources are fresh, access-controlled, cited, filtered, or too large to include directly.',
-        'The final answer is scoped, not tribal: long context changes the retrieval design space, but it does not eliminate retrieval as an evidence-selection, governance, and freshness mechanism. That conclusion is stronger because it explains why each source sounded different.',
+        'The system extracts a candidate claim, then links it to supporting and opposing source spans. A span is a bounded piece of evidence, such as one sentence, table row, benchmark number, or legal clause.',
+        'When spans disagree, the resolver assigns a conflict type and a probe. The probe can be a date check, unit conversion, benchmark normalization, definition check, incentive review, or fresh source search.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because most disagreement has structure. Sources differ across time, scope, method, metric, definition, sample, or incentives. Naming that structure prevents the system from flattening evidence.',
-        'It also works because the graph is auditable. A reviewer can inspect which span created the conflict, which type was assigned, what probe was run, and why the writing move followed. That is much better than trusting a paragraph that sounds reasonable.',
-        'Finally, it works because it feeds research planning. If a conflict cannot be resolved, the graph can generate the next question: what data, source, benchmark, calculation, or expert definition would settle this?',
+        'The correctness argument is an invariant: no incompatible spans are merged until their conflict type and scope are recorded. If the invariant holds, the final answer cannot silently average claims that use different dates, populations, methods, or metrics.',
+        'The graph also makes review possible. A reviewer can inspect the source span, the conflict classification, the probe result, and the final writing move instead of trusting a paragraph that merely sounds balanced.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is slower synthesis. A contradiction graph forces the system to stop and classify disagreement before writing. That can feel inefficient, but it prevents a more expensive failure: publishing a clean answer that hides incompatible evidence.',
-        'The system needs good extraction. If claim spans are wrong, conflict classification will be wrong. If source metadata is missing, temporal and method conflicts become guesswork. If the resolver overuses LLM judgment without calculations or span checks, it can invent false syntheses.',
-        'The behavior should be conservative. The graph should make unsupported certainty harder, not easier. When evidence is weak, the correct output may be a deferred conclusion and a precise statement of what would resolve the issue.',
+        'The cost is slower synthesis and more stored metadata. A claim with 12 sources may create 20 span links and several conflict nodes before the report can write one sentence.',
+        'That cost changes behavior. The system becomes less likely to publish clean but unsupported certainty, and more likely to defer, split, or narrow a claim when evidence does not support a single answer.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Contradiction graphs win in market reports, benchmark comparisons, policy analysis, legal research, medical literature review, technical due diligence, and multi-source research agents. They are especially useful when source freshness and metric definitions matter.',
-        'They also win as teaching tools. They show students that "synthesis" is not a tone. It is a set of evidence operations: compare scope, normalize metrics, inspect methods, identify incentives, and write only what the evidence supports.',
+        'Market research uses this structure when company filings, analyst notes, customer reports, and vendor benchmarks disagree. Legal and policy research use the same pattern when laws, guidance, cases, and agency statements apply under different scopes.',
+        'Medical reviews, AI benchmark reports, and technical due diligence also fit. In each case the hard task is not collecting sources; it is explaining why apparently incompatible evidence can or cannot support one conclusion.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The graph fails if it becomes bureaucracy. Not every minor wording difference deserves a conflict node. The system should focus on disagreements that change the answer, recommendation, risk, or conclusion.',
-        'It also fails when conflict types are assigned mechanically without domain understanding. A metric mismatch in AI benchmarks differs from a jurisdiction mismatch in law or a population mismatch in medicine. The rubric must be adapted to the domain.',
+        'The graph fails when every wording difference becomes a conflict node. The resolver should create nodes only for disagreements that change a conclusion, risk, number, recommendation, or scope boundary.',
+        'It also fails when conflict labels are assigned without domain knowledge. A metric mismatch in model benchmarking, a jurisdiction mismatch in law, and a population mismatch in medicine require different probes.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not average incompatible claims. Classify the disagreement first.',
-        'A good answer may prefer, split, range, defer, or remove. The best move depends on why the sources differ.',
+        'Suppose one source says a model serves 120 tokens per second and another says it serves 70 tokens per second. The graph records both spans, then classifies the conflict as a metric and hardware mismatch because the first number is batch throughput on 8 GPUs and the second is single-user p95 speed on 1 GPU.',
+        'The scoped answer becomes precise: on the 8-GPU batch setup the reported throughput is 120 tokens per second, while the single-user p95 setup reports 70 tokens per second. The contradiction disappears because the graph proved that the two numbers answer different questions.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Relevant sources and adjacent methods: WebGPT at https://openai.com/index/webgpt/ and https://arxiv.org/abs/2112.09332, STORM at https://storm-project.stanford.edu/research/storm/ and https://arxiv.org/abs/2402.14207, W3C PROV-DM at https://www.w3.org/TR/prov-dm/, OpenLineage object model at https://openlineage.io/docs/spec/object-model/, ReAct at https://arxiv.org/abs/2210.03629, Anthropic multi-agent research system at https://www.anthropic.com/engineering/multi-agent-research-system, and NIST AI RMF at https://www.nist.gov/itl/ai-risk-management-framework.',
-        'Study Claim Graph & Source Ledger, Deep Research Question Decomposition DAG, Source Authority Triage Priority Queue, Evidence Freshness Refresh Scheduler, RAG Claim Verification Support Ledger, Deep Research Evaluation System, Benchmark Variance & Model Selection, and Lost in the Middle next.',
+        'Study provenance and research-agent systems next: W3C PROV-DM at https://www.w3.org/TR/prov-dm/, OpenLineage at https://openlineage.io/docs/spec/object-model/, WebGPT at https://arxiv.org/abs/2112.09332, STORM at https://arxiv.org/abs/2402.14207, and ReAct at https://arxiv.org/abs/2210.03629.',
+        'Inside this curriculum, study Claim Graph and Source Ledger, Deep Research Question Decomposition DAG, Source Authority Triage Priority Queue, Evidence Freshness Refresh Scheduler, RAG Claim Verification Support Ledger, and Benchmark Variance and Model Selection.',
       ],
     },
   ],

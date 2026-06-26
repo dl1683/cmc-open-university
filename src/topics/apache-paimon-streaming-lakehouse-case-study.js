@@ -216,180 +216,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Apache Paimon Streaming Lakehouse Case Study. Apache Paimon as a streaming lakehouse table format: LSM-style primary-key updates, snapshots, changelogs, file indexes, compaction, and batch plus streaming reads..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Read the LSM table view as a write-to-read lifecycle. Active nodes show where a change currently lives, and found nodes show the metadata that makes the change readable as part of a stable snapshot.',
+        'Read the changelog view as a semantics map. The key path identifies the row, the sequence path decides which update wins, and the batch and stream outputs are two views over the same table history.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
         {type:'callout', text:'The wall is that update-friendly and scan-friendly layouts want opposite shapes. Streaming updates want cheap appends and quick commits. Analytical scans want large organized files, column statistics, and compact layouts. Paimon resolves this by accepting changes in a write-optimized form, publishing coherent snapshots, and compacting files later — fresh writes and clean reads are separated in time rather than forced into one immediate layout.'},
-        'A lakehouse table has to look simple to users: a table has rows, columns, snapshots, and queries. The hard part is that real data rarely arrives as clean append-only batches. Operational databases emit CDC streams, users update records, delete events appear late, dimensions change, and materialized views need fresh deltas rather than yesterday morning files.',
-        'Apache Paimon addresses this mixed world. It is a table format and storage design for batch and streaming workloads, with primary-key tables, snapshots, changelog reads, file metadata, compaction, and indexing. The educational point is not that Paimon is just another file layout. It is a contract for identity, ordering, visibility, pruning, and cleanup on top of cheaper object or distributed storage.',
+        'Apache Paimon exists for tables that must accept streaming updates while still serving analytical reads. A table may receive database change events every second, but analysts still expect snapshots, filters, aggregates, and batch queries over coherent table state.',
+        'A lakehouse table format is the contract between those needs. It defines row identity, update order, snapshot visibility, file pruning, changelog reads, and compaction so streaming and batch consumers do not split into separate truths.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first naive approach is to keep two systems. A streaming database owns fresh state, while a data lake receives periodic dumps for analytics. That keeps ingestion easy, but it splits truth. Dashboards, batch jobs, and stream consumers can disagree because they are reading different physical systems with different delay, retention, and correction behavior.',
-        'The second naive approach is to rewrite large analytical files for every update. That keeps one logical table, but it fights the storage medium. Object stores and lake files are good at large immutable writes and large scans. They are poor at tiny random updates. Rewriting a huge file to change one row turns a small business event into expensive write amplification.',
+        'The first approach is to keep two systems. A streaming database or message log owns fresh state, while the lake receives periodic exports for analytics.',
+        'The second approach is to rewrite analytical files whenever a row changes. That keeps one table, but it turns small updates into large object-store writes.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that update-friendly and scan-friendly layouts want opposite shapes. Streaming updates want cheap appends, quick commits, idempotent retries, and clear ordering. Analytical scans want large organized files, column statistics, partition pruning, and compact layouts. If the table favors only writes, every query pays for scattered small files. If it favors only reads, every update becomes painful.',
-        'Changelog consumers make the problem stricter. A downstream materialized view cannot infer correctness from the current table alone. It needs to know which rows were inserted, updated, or deleted, and in what order those changes should win. Late events, duplicate events, tombstones, and schema changes all become semantic issues, not just storage issues.',
+        'The wall is that updates and scans want different physical shapes. Streaming wants cheap appends, idempotent retry, and explicit ordering, while scans want large compact files, column statistics, and predictable pruning.',
+        'Changelog readers make the wall stricter. A materialized view needs inserts, deletes, update-before records, update-after records, and ordering rules, not just the current snapshot after the fact.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Paimon brings an LSM-style idea into lakehouse storage. Accept changes in a write-optimized form, publish coherent snapshots so readers have stable table versions, expose changelog reads for incremental consumers, and compact files later so scans do not pay forever for the update pattern. Fresh writes and clean reads are separated in time rather than forced into one immediate layout.',
-        'The design works only because the table records enough metadata. Primary keys define row identity. Sequence or ordering fields define which event wins when updates race. Snapshots define visibility for batch readers. File indexes and statistics define what can be skipped. Compaction defines how old write debt is merged into a cleaner read shape.',
-      ],
-    },
-    {
-      heading: 'LSM table mechanics',
-      paragraphs: [
-        'In a primary-key table, incoming rows are not merely appended as independent facts. They are changes to keyed state. A new row may insert an order, update the status of the same order, or delete it. The storage engine can buffer changes, flush them into files, and later merge files so that the latest value for each key is easier to read.',
-        'This is the lakehouse version of an LSM tradeoff. Writes become cheaper because they create new files rather than rewriting every older file immediately. Reads need metadata and merge logic because the newest answer may be spread across several levels or runs. Compaction is the background process that repays this debt by merging older and newer files according to table semantics.',
-      ],
-    },
-    {
-      heading: 'Snapshots',
-      paragraphs: [
-        'A snapshot is the table version that readers can agree on. Without snapshots, a query might see half of one commit and half of another. With snapshots, a batch reader can plan against a coherent set of manifests and files. Streaming writers can continue producing newer commits while older readers finish against the version they selected.',
-        'Snapshots also give the system a recovery and retention model. A failed writer should not expose partial state. A reader should be able to resume from a known version. Cleanup should not remove files still needed by active readers or incremental consumers. The metadata layer is therefore part of correctness, not an optional catalog convenience.',
-      ],
-    },
-    {
-      heading: 'Changelog mechanics',
-      paragraphs: [
-        'The changelog view turns table evolution into a stream. Consumers can tail inserts, update-before and update-after records, deletes, or normalized changes depending on the table configuration and read mode. The important lesson is that a changelog is not the same thing as a pile of raw source events. It is a table-aware description of how state changed.',
-        'Primary keys and ordering rules are what make that possible. If two events for the same customer arrive out of order, the system needs a deterministic rule for the winner. If a delete arrives, readers need to know whether it removes a visible row, writes a tombstone, or becomes a no-op because a newer update already won. These choices decide whether downstream state is correct.',
-      ],
-    },
-    {
-      heading: 'Read path',
-      paragraphs: [
-        'A good lakehouse read path avoids reading bytes whenever metadata can prove they are irrelevant. Partition information can skip directories or file groups. Column statistics can skip files outside a predicate range. File indexes can narrow candidate files for keys or values. Aggregate pushdown can answer some questions from metadata or smaller summaries.',
-        'This matters because write-optimized storage creates read amplification. If every query must merge many small files and inspect every historical update, the table is fresh but slow. Paimon needs pruning, indexing, and compaction together: pruning reduces files considered, indexes reduce files opened, and compaction reduces the number of fragments that represent the same logical keys.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine an orders database replicated by Debezium into a lakehouse. Order 42 is inserted as pending, updated to paid, updated again to shipped, and later corrected. The source stream may contain retries or late messages. A Paimon primary-key table uses the order id as identity and an ordering field to decide which record is the current value.',
-        'A BI query reads a snapshot and sees one current row for order 42. A streaming materialized view tails changes and updates revenue totals as order states change. A compaction job later merges the files containing older versions so future scans do not walk every intermediate update. One table serves batch and streaming consumers because identity, order, visibility, and cleanup are explicit.',
+        'Paimon applies an LSM-style storage idea to a lakehouse table. It accepts changes in a write-optimized form, publishes snapshots for stable reads, exposes changelogs for incremental readers, and compacts files later.',
+        'The core invariant is that table state is derived from primary keys, sequence rules, and snapshot metadata. Files are the storage medium, but metadata decides which files and changes define a reader-visible table version.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The LSM table view follows the write-to-read lifecycle. CDC events flow through a stream processor, land in write-friendly storage, become part of a snapshot, receive metadata for pruning, and later pass through compaction. The important transition is from raw change events to table versions that a query engine can reason about.',
-        'The changelog lake view focuses on semantics. The key path answers which row is being changed. The sequence path answers which change wins. The log path feeds two readers: snapshot readers that want current state and streaming readers that want deltas. The animation is showing why a lakehouse table format has to be both a storage layout and a change protocol.',
+        'Incoming rows enter a primary-key table as changes to keyed state. A row can insert a key, update the same key, or delete it, and the sequence field decides which change is newer when events arrive out of order.',
+        'The table writes data files and metadata, commits a snapshot, and lets readers choose a snapshot or tail a changelog. File indexes, partitions, and column statistics prune work before bytes are read, while compaction merges older and newer files into a cleaner read shape.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Why it works',
       paragraphs: [
-        'Paimon pays for freshness with operational debt. Small files accumulate. Compaction consumes compute and I/O. File indexes take space and must remain consistent with data files. Snapshots and changelog retention need cleanup policies. A table that is easy to write can become expensive to query if compaction falls behind or metadata becomes too large.',
-        'The semantic tradeoffs are just as important. Strict ordering may require sequence fields from the source system. Idempotent writes require stable identifiers. Deletes require clear tombstone behavior. Schema evolution must preserve reader expectations. A misconfigured table can look healthy at the storage layer while producing incorrect downstream aggregates.',
+        'Correctness comes from making row identity and order explicit. If two events mention the same primary key, the table can decide whether one replaces the other, deletes it, or is ignored because a newer sequence already won.',
+        'Snapshots give batch readers a stable version instead of a moving file set. Changelog reads are correct only when they describe the same committed state transitions that snapshots would materialize.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Paimon pays for fresh updates with read and maintenance debt. Small files, multiple runs, snapshots, indexes, and changelog retention all consume storage and metadata budget until compaction reduces them.',
+        'When writes double, flush pressure and compaction pressure rise before query cost falls. When query selectivity worsens, pruning misses and more files are opened, so the table behaves less like a clean columnar scan and more like a merge of update fragments.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Paimon is strongest when one table must support frequent updates and analytical reads. CDC ingestion, operational analytics, near-real-time dashboards, slowly changing dimensions, streaming materialized views, and pipelines that need both Flink-style streaming and batch query engines are natural fits.',
-        'It is also valuable when teams want to reduce the gap between online and analytical state. Instead of exporting from an operational store into a separate append-only lake, the table format itself understands primary-key updates, snapshots, and incremental reads. That reduces duplicate pipelines, although it does not remove the need for careful data contracts.',
+        'Paimon fits CDC ingestion, operational analytics, near-real-time dashboards, slowly changing dimensions, and streaming materialized views. The useful pattern is one table that supports both current-state reads and incremental change consumption.',
+        'It is especially useful with Flink-style streaming pipelines feeding a lakehouse. The stream processor writes updates, batch engines read snapshots, and downstream systems tail changelogs without inventing a second state model.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Paimon is not a replacement for an operational database that needs very low-latency point reads, transactions across many entities, or user-facing request paths. It is a lakehouse table system, so its strengths are durable table storage, stream and batch integration, and analytical access rather than single-row serving latency.',
-        'It can also be unnecessary for simple append-only datasets. If records never update, deletes are rare, and consumers only need periodic snapshots, a simpler table format may be easier to operate. The extra machinery is justified when identity, ordering, and incremental change are central to the workload.',
+        'Paimon is not a low-latency operational database. If the product path needs single-row reads in a few milliseconds, a serving store is a better fit than a lakehouse table over files.',
+        'It is also unnecessary for simple append-only data. If rows never update, deletes are rare, and readers only need daily snapshots, the primary-key, changelog, and compaction machinery may be more burden than value.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Worked example',
       paragraphs: [
-        'Common failure modes include unstable primary keys, missing sequence fields, duplicate CDC events that are not idempotent, late updates that overwrite newer state, compaction lag, snapshot retention that breaks incremental readers, and consumers that ignore update-before or delete records. Each failure is a violation of the table contract.',
-        'Operational monitoring should therefore compare both sides of the table. Check file counts, compaction backlog, snapshot age, changelog lag, failed commits, index health, and query scan volume. Also compare snapshot-derived aggregates with changelog-derived aggregates. If those disagree, the issue is likely semantic, not merely performance.',
+        'Imagine order 42 receives four CDC events: insert pending at sequence 10, update paid at 20, duplicate pending at 10, and delete at 30. A primary-key Paimon table keeps the key as order 42 and uses the sequence to make delete at 30 the current state.',
+        'A batch reader at snapshot 7 sees no current row for order 42 after the delete. A changelog reader sees the insert, update, and delete transitions, while compaction later merges files so future scans do not revisit all four event records.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study LSM Tree and LSM Compaction Strategies to understand write amplification and read amplification. Study Apache Hudi Timeline Filegroups, Delta Lake, Apache Iceberg, and Project Nessie to compare table metadata designs. Study Streaming Watermarks and Debezium CDC for late data and source change capture.',
-        'For primary references, read the Apache Paimon documentation, especially the sections on primary-key tables, snapshots, changelog reads, file indexes, and compaction. Then build a small example mentally: three updates and one delete for the same key, one snapshot reader, one changelog reader, and one compaction cycle. If you can explain what each consumer sees, the design has become concrete.',
+        'Use the Apache Paimon documentation for primary-key tables, snapshots, changelog reads, file indexes, and compaction. Those sources define the exact table modes and metadata rules.',
+        'Study LSM Trees for write amplification, Debezium CDC for source events, Apache Hudi and Apache Iceberg for neighboring table formats, and streaming watermarks for late data. Then trace one key through three updates, one delete, one snapshot read, and one changelog read.',
       ],
     },
-      {
-      heading: 'Why it works',
-      paragraphs: [
-        "Give the proof sketch as a preservation argument: invariant before, move, invariant after.",
-        "If there is a nontrivial corner case, name it explicitly.",
-        "When correctness is explicit, readers can transfer the method to new inputs.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Apache Paimon Streaming Lakehouse Case Study moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };

@@ -187,176 +187,88 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for WebAuthn Passkeys. A public-key login case study: challenge records, RP ID scoping, credential IDs, public keys, authenticator data, signatures, and counters..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Read the registration view as the server creating a verifier, not a password replacement string. Active nodes are challenge, RP ID, user handle, authenticator, credential ID, public key, and server record. Found nodes are values that will be reused during later authentication.',
+        'Read the assertion view as a fresh proof. The authenticator signs a new challenge for the relying party, and the server verifies the signature with the stored public key. The safe inference is that login succeeds only if challenge, origin, RP ID, flags, and signature line up.',
         {type:"callout", text:"WebAuthn replaces reusable secrets with a credential lookup plus a fresh site-scoped signature that the server can verify without holding the private key."},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Passwords make the server store something attackers can target and make users type a secret into pages that may be fake. Even with hashing and MFA, phishing and credential reuse keep turning login into a shared-secret problem.',
-        'WebAuthn changes the shape of login. A site stores a public key for that site. The user device keeps the private key. Each login is a fresh signature over a challenge bound to the real relying party.',
+        'Passwords make users type reusable secrets into web pages and make servers store password verifiers that attackers can target. Hashing helps, but phishing and credential reuse remain core weaknesses. A fake site can collect a password and often a one-time code before the user notices.',
+        'WebAuthn changes login into public-key authentication. The site stores a public key. The authenticator keeps the private key. Each login signs a fresh challenge bound to the real relying party.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The usual login design stores a password hash, checks a submitted password, and adds an OTP or push prompt for extra protection. That design is familiar, deployable, and better than storing plaintext passwords.',
-        'It still leaves users entering reusable secrets into pages. It also leaves recovery, phishing resistance, MFA enrollment, and credential stuffing as separate problems bolted around the same shared-secret core.',
+        'The obvious design stores a password hash, checks submitted passwords, and adds an OTP or push prompt for extra assurance. This is familiar and deployable. It is much better than plaintext passwords.',
+        'The design still has a shared-secret core. Users can enter the secret into a phishing page, attackers can reuse captured credentials, and recovery workflows often become the weakest path. MFA reduces risk, but many code-based MFA flows are still transferable.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The wall',
       paragraphs: [
-        'If a phishing site collects a password and OTP, it can replay them quickly against the real site. If a password database leaks, attackers can attempt offline cracking and reuse. If recovery is weak, attackers bypass the stronger primary factor.',
-        'OTP helps, but many OTP flows are still phishable because the secret or code is transferable. The missing invariant is site-scoped possession of a private key that cannot be replayed to a different origin.',
+        'The wall is replay. A password or OTP proves that the user knows something that can be copied. If an attacker captures it quickly, the attacker can present the same evidence to the real site.',
+        'The missing invariant is site-scoped possession. The login proof must depend on a private key that does not leave the authenticator and on the relying-party identity that the browser sees. A copied string should not be enough.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The credential is scoped to a relying-party ID and used through the browser. The authenticator signs a fresh challenge together with authenticator data, and the server verifies the signature using the stored public key for that credential ID.',
-        'That turns login into a lookup plus a proof of possession. The server can verify the proof, but a server breach does not reveal a secret that can produce future proofs.',
+        'Registration creates a credential record: credential ID, public key, RP ID, user handle, algorithms, and metadata. Authentication later looks up that credential and asks the authenticator to sign a fresh challenge. The server verifies the signature but never needs the private key.',
+        'The credential is scoped to a relying-party ID, usually a registrable domain such as bank.example. A phishing site on another origin cannot ask the authenticator for a bank.example assertion. That scope is the main data-structure change behind passkeys.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "The registration view shows the permanent record being created. The relying party sends a challenge and policy, the authenticator creates a key pair scoped to the RP ID, and the server stores the credential ID and public key. The server is not storing a secret it can later leak.",
-        "The assertion view shows the repeatable login proof. A fresh challenge, origin, RP ID hash, authenticator flags, and signature all have to line up. The interesting part is not that the user unlocked a device; it is that the device signed the right challenge for the right relying party.",
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'Registration begins when the relying party sends public-key credential creation options: challenge, RP ID, user handle, algorithms, authenticator selection, and timeout. The authenticator creates a key pair and credential ID, then returns attestation data and the public key. The server stores the credential record.',
-        'Authentication begins with a new challenge. The browser creates clientDataJSON containing the challenge and origin. The authenticator returns authenticatorData, a signature over authenticatorData plus the client-data hash, and the credential ID. The server finds the public key and validates challenge, origin, RP ID hash, flags, signature, and counter behavior.',
+        'During registration, the server sends creation options containing a random challenge, relying-party information, user handle, allowed public-key algorithms, and authenticator policy. The browser passes those options to the authenticator through navigator.credentials.create. After user consent, the authenticator creates a key pair and returns attestation data, credential ID, and public key.',
+        'During authentication, the server sends a new challenge and either a list of allowed credential IDs or a discoverable-credential request. The browser calls navigator.credentials.get. The authenticator signs authenticatorData plus the hash of clientDataJSON, and the server verifies challenge, origin, RP ID hash, flags, signature, and counter or equivalent risk signal.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Fresh challenges stop replay. Origin and RP ID binding stop a phishing site from asking a credential for bank.example to sign a login for attacker.example. The signature proves the authenticator holds the private key for this credential.',
-        'The server-side record is safe to expose in a way a password verifier is not. A public key verifies signatures but cannot create them. That is why breach resistance and phishing resistance come from the same data-structure change.',
+        'Fresh challenges stop replay because an old signature is tied to an old random value. Origin and RP ID checks stop ordinary phishing because the browser reports the origin that made the request and the authenticator signs for the scoped relying party. The private key never leaves the authenticator.',
+        'A leaked server record is not enough to log in. The public key can verify signatures but cannot create them. That is why WebAuthn reduces both phishing risk and password-database breach impact through the same mechanism.',
       ],
     },
     {
-      heading: 'Registration details',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Registration is a ceremony, not a form submit. The relying party chooses a random challenge, declares the RP ID, identifies the user, chooses allowed public-key algorithms, and describes authenticator requirements such as resident credential and user verification preferences. The browser binds this request to the page origin before the authenticator creates anything.',
-        'The response gives the server an attested credential record. In many consumer deployments, attestation is reduced or ignored for privacy and deployability. In managed enterprise deployments, attestation can matter because the organization may want to know which authenticator class created the credential. Either way, the server must store enough metadata to verify later assertions and manage credential lifecycle.',
-      ],
-    },
-    {
-      heading: 'Assertion details',
-      paragraphs: [
-        'Authentication starts with a new challenge and a set of allowed credential IDs, unless discoverable credentials let the authenticator help with account selection. The browser creates client data containing the challenge and origin. The authenticator signs authenticator data plus the hash of that client data. The server verifies the challenge, origin, RP ID hash, signature, user presence, user verification requirement, and counter behavior.',
-        'This is where passkeys differ from an OTP prompt. A code can be copied from one site to another. A WebAuthn signature is tied to the RP ID and challenge. A phishing page can ask the browser for its own origin, but it cannot make that origin become the bank origin unless the browser, DNS, TLS, and relying-party identity have all been compromised in a much deeper way.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'WebAuthn adds ceremony state, credential records, browser API complexity, recovery flows, device management, and user-experience edge cases. Synced passkeys improve usability but move some trust to the platform account and its recovery process.',
-        'The sign counter is useful risk evidence, not a perfect clone oracle. Some authenticators may report zero or behave differently across synced credentials, so services need explicit risk handling instead of a single universal counter rule.',
-        'The server data model also becomes more explicit. A user may have several credentials, some discoverable and some not, created on different platforms with different user-verification behavior. Good account security depends on showing, naming, revoking, and auditing those credentials clearly instead of treating passkeys as one invisible replacement password.',
+        'WebAuthn costs ceremony and account-management work. A user may have 5 credentials across devices and platform accounts. The service must store each credential, name it, show last use, revoke it, and handle device loss without weakening the whole system.',
+        'It also costs implementation precision. The server must compare challenges, validate origin and RP ID hash, parse authenticator data, check user presence or verification requirements, and handle sign-counter differences. A single universal counter rule is too brittle for synced passkeys.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Passkeys are strong for consumer login, enterprise SSO, admin consoles, payment step-up, and any account where phishing and password reuse are real threats.',
-        'They work especially well when the service can support multiple credentials per user, clear recovery, risk-based step-up, and audit logs that distinguish registration, authentication, recovery, and credential removal.',
+        'Passkeys fit consumer login, enterprise SSO, admin consoles, payment step-up, developer tools, and any account where phishing and password reuse are real threats. The access pattern is repeated authentication where the user has a local or synced authenticator.',
+        'They work best with multiple credentials per account, clear recovery, risk-based step-up, and audit logs that distinguish registration, authentication, recovery, and credential removal. Passkeys are an authentication primitive, not a complete account-security program.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Where it fails',
       paragraphs: [
-        'WebAuthn does not solve authorization after login. The server still owns sessions, resource policy, account recovery, device enrollment, rate limits, abuse detection, and audit.',
-        'It is also not frictionless for every environment. Legacy browsers, shared devices, platform-account recovery, lost devices, and account transfer all need product and security design.',
-        'The sharpest failure mode is weak recovery. If account recovery falls back to email links, SMS, or support-desk override with little evidence, attackers will route around the phishing-resistant primary login. A passkey deployment should be reviewed together with enrollment, recovery, device removal, step-up, and session revocation.',
+        'WebAuthn does not solve authorization after login. The server still owns sessions, resource policy, account recovery, rate limits, abuse detection, and device enrollment. A valid assertion only proves control of a credential for that account.',
+        'The sharpest failure is weak recovery. If email reset, SMS fallback, or support override is easier to attack than the passkey flow, attackers use that path. Review passkeys together with enrollment, recovery, device removal, and session revocation.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A bank enrolls a passkey for a customer account. The server sends a registration challenge for bank.example, the authenticator creates a scoped credential, and the bank stores the public key, credential ID, user handle, RP ID, and counter metadata.',
-        'Later, a phishing site cannot get that credential to sign for bank.example because browser and authenticator scoping bind the credential to the real relying party. For a high-risk transfer, the bank requires user verification and a fresh assertion rather than trusting an old session alone.',
+        'A bank enrolls a passkey. The server sends a 32 byte challenge for bank.example, user handle 8127, and algorithm ES256. The authenticator creates credential c9f1, stores the private key, and returns the public key. The bank stores credential c9f1 with the account record.',
+        'On login, the server sends a new 32 byte challenge. The authenticator signs for bank.example after device unlock. The server finds c9f1, verifies the signature and challenge, then creates a session. A phishing site at bank-login.example cannot get a valid bank.example assertion because the RP ID and origin checks fail.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: W3C WebAuthn Level 3 at https://www.w3.org/TR/webauthn-3/ and FIDO Alliance passkeys overview at https://fidoalliance.org/passkeys/.',
-        'Study WebAuthn Passkey Credential Discovery for discoverable credentials and account selectors, JWT Verification and OAuth PKCE Token Lifecycle Case Study for adjacent web identity flows, Hash Table for credential-ID lookup, JSON Parser Stack Case Study for structured browser payloads, and OPA Rego Policy Decision Graph or Zanzibar Authorization Case Study for policy after authentication.',
+        'Primary sources: W3C WebAuthn Level 3 at https://www.w3.org/TR/webauthn-3/, MDN Web Authentication API at https://developer.mozilla.org/en-US/docs/Web/API/Web_Authentication_API, and the FIDO Alliance passkeys overview at https://fidoalliance.org/passkeys/.',
+        'Study next by role: WebAuthn Passkey Credential Discovery for account pickers, Hash Table for credential-ID lookup, JSON Parser Stack for browser payload parsing, OAuth PKCE Token Lifecycle for adjacent identity flows, and Zanzibar Authorization for policy after authentication.',
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why WebAuthn Passkeys moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

@@ -178,104 +178,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        "Classic DNS is a distributed naming system, not a proof system. It can tell a resolver that `www.example.com` has an address, but the base protocol does not prove that the answer was signed by the zone owner or left unchanged in transit. That gap made forged answers and cache poisoning valuable attacks.",
-        "DNSSEC adds data origin authentication and integrity. A validating resolver does not merely ask what answer came back. It asks whether the answer can be proven by signatures and key delegations that connect back to a configured trust anchor, normally the root key.",
+        'Read the animation as a proof path, not as a lookup tree alone. DNSSEC is the DNS Security Extensions protocol family, an RRset is a set of DNS records with the same owner name and type, and a validating resolver is a resolver that checks signatures before trusting data. Active state is the link being checked, visited state is proof material already validated, and found state is a final verdict.',
+        'The safe inference is chained trust. If the resolver trusts the root key, and the root signs a DS record for com, and com signs a DS record for example.com, then a valid example.com DNSKEY can be trusted to verify records in that child zone. A final signature is not enough without the parent commitments that authorize the key.',
         {type: "callout", text: "DNSSEC validation is a proof path through delegated keys, not a signature check on the final RRset alone."},
         {type: "image", src: "https://upload.wikimedia.org/wikipedia/commons/d/d2/DNS_schema.svg", alt: "Schematic diagram of the domain-name hierarchy from a root node through top-level domains and subdomains.", caption: "DNS hierarchy diagram, TilmannR, based on work by Hank van Helvete and George Shuklin, CC BY-SA 2.5, via Wikimedia Commons."},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Classic DNS tells a resolver what answer came back, but it does not prove that the answer came from the zone owner. Attackers have exploited that gap through forged responses and cache poisoning. DNSSEC adds origin authentication and integrity to DNS data.',
+        'The resolver needs more than a signature over the final answer. It needs to know that the signing key is authorized for the zone that owns the answer. The chain of trust solves that authorization problem by following DNS delegation from a configured trust anchor.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        "The simple idea is to let every zone sign its own records and return the public key next to the answer. That is not enough. An attacker who can forge the answer can also present a forged key unless the resolver already knows which key is authorized for the zone.",
-        "The opposite simple idea is to configure every resolver with every zone key. That also fails. Zones appear, disappear, delegate, and roll keys. A resolver cannot carry the whole internet's key inventory. Validation has to follow the DNS delegation tree instead of replacing it with a global key list.",
+        'The first simple idea is to let every zone publish a public key next to its signed records. That fails because an attacker who can forge the record can also send a forged key. The resolver needs an independent reason to trust the key.',
+        'The second simple idea is to configure every resolver with every zone key. That does not scale because zones delegate, appear, disappear, and roll keys. A resolver needs a smaller root of trust and a repeatable way to authorize child keys.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        "The wall is delegation. DNS authority moves from root to top-level domain to child zone, and validation must move with it. A signature over the final answer is meaningless unless the resolver can prove that the signing key is the right key for that final zone.",
-        "Time is another wall. DNSSEC signatures have inception and expiration times. Keys roll. DS records can be wrong. Resolvers cache records with TTLs. A validation system that ignores time turns old proof into live authority, which is exactly what attackers want.",
+        'Delegation is the wall. DNS authority moves from root to top-level domain to child zone, so validation must move with it. A signature by example.com matters only if the resolver can prove that the example.com key was authorized by its parent chain.',
+        'Time is part of the wall. DNSSEC signatures have inception and expiration times, records have TTLs, and keys roll. A resolver that accepts expired proof can turn yesterday authority into today false trust.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "DNSSEC turns validation into a proof path. The resolver starts from a trust anchor. A signed parent DS record commits to a child DNSKEY. That child key signs its own DNSKEY RRset and the RRsets in its zone. The same bridge repeats until the requested answer is reached.",
-        "Think of the data structure as a signed graph. One edge says a trusted key signed an RRset. Another says a parent DS digest matches a child DNSKEY. Another says an RRSIG is valid for this owner name, type, class, TTL, algorithm, key tag, and time window. The final verdict is the result of the whole path, not a single signature check.",
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        "The chain-validation view is about authority moving downward. Do not treat each key as equally trusted. The resolver earns trust step by step: trust anchor, signed root data, parent DS, child DNSKEY, final signed answer.",
-        "The resolver-verdict view is about classification. Secure, insecure, bogus, and indeterminate are different outcomes. A missing DS at a delegation can intentionally end the chain as insecure. A present DS with a bad child signature is bogus. A network timeout or unsupported algorithm may leave the resolver unable to finish.",
+        'DNSSEC validation is a sequence of authenticated commitments. A trust anchor authorizes a parent DNSKEY, the parent signs a DS record that commits to a child DNSKEY, and the child key signs records in its zone. Each link narrows which key is allowed to speak for the next zone.',
+        'The resolver verdict comes from the whole path. Secure means the chain and final RRset signature validate. Bogus means required proof failed, insecure means the signed chain intentionally ended at an unsigned delegation, and indeterminate means the resolver could not decide.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        "A client asks for `www.example.com A`. The validating recursive resolver obtains the answer RRset and RRSIG, the `example.com` DNSKEY RRset, the DS record from `com`, the `com` DNSKEY RRset, and the DS record from root. Some of that material may already be cached, but cached proof still has TTL and signature bounds.",
-        "Starting from the trust anchor, the resolver validates the signed root material, checks that the root DS points to the `com` DNSKEY, validates the `com` DNSKEY RRset, checks that the `com` DS points to the `example.com` DNSKEY, validates the child DNSKEY RRset, and finally validates the answer RRSIG. It also checks owner name, type, class, original TTL, algorithm, key tag, inception time, and expiration time.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        "Suppose an attacker injects an address record for `www.example.com`. The forged packet may look syntactically correct, but the resolver will ask for the RRSIG over the A RRset and the DNSKEY that should verify it. If the attacker cannot produce a valid signature under the zone key, the final answer cannot become secure.",
-        "If the attacker also invents a DNSKEY, the parent DS check blocks the move. The `com` zone signed a DS digest for the real `example.com` key, not the attacker's key. A child key that does not match the parent commitment is not authorized, even if it can sign its own forged answers.",
+        'For www.example.com A, the resolver collects the answer RRset and RRSIG, the example.com DNSKEY RRset, the DS record from com, the com DNSKEY RRset, and the DS record from the root zone. Cached material can be reused only inside its TTL and signature validity window. Each piece has a role in the proof.',
+        'Starting from the root trust anchor, the resolver validates signed root material, checks the root DS commitment to the com DNSKEY, validates com DNSKEY material, checks the com DS commitment to the example.com DNSKEY, and then validates the final answer signature. It also checks algorithm, key tag, owner name, record type, class, original TTL, and signature time.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "The chain works because every accepted link is authenticated by a key the resolver already trusts. A parent does not sign every child answer. Instead, it signs a DS record that commits to the child key. The child key then signs its own records. This preserves delegation while giving the resolver a cryptographic path through the namespace.",
-        "The verdicts follow from that proof. Secure means the chain and final RRset signature validate. Bogus means a chain was expected but a required proof failed. Insecure means the chain intentionally ended at an unsigned delegation, often because no DS exists. Indeterminate means the resolver could not decide, which is different from proof of authenticity.",
+        'The correctness argument is induction over delegation. The trust anchor is accepted as the base case. If a trusted parent signs a DS record that matches a child DNSKEY, and that child DNSKEY validates its DNSKEY RRset, then the child key is authorized for that zone.',
+        'The final answer is accepted only after the authorized zone key validates the RRset signature. A forged DNSKEY fails at the parent DS check. A forged answer under the real zone fails at the RRSIG check. Expired or mismatched proof fails before it can become cached authority.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "DNSSEC adds bytes, queries, signature checks, cache state, and operational failure modes. A resolver may need DNSKEY, DS, RRSIG, NSEC, or NSEC3 records in addition to the requested answer. UDP truncation, fallback to TCP, and larger responses can matter on constrained paths.",
-        "Caching helps but does not remove the cost. DNSKEY and DS records can be reused across many lookups, yet signatures expire, TTLs run out, and key rollovers change the proof graph. A resolver has to balance reuse with the risk of treating old proof as fresh proof.",
+        'DNSSEC adds records and computation to ordinary DNS resolution. A lookup may need DNSKEY, DS, and RRSIG records in addition to the requested answer. Larger responses can cause UDP truncation and TCP fallback, and each signature check consumes CPU.',
+        'Caching changes the behavior. Once a resolver has valid com DNSKEY and DS material, many child lookups can reuse it until TTL or signature expiration. The cost then shifts from repeated chain fetches to careful cache lifetime management and operational handling of key rollovers.',
       ],
     },
     {
-      heading: 'Negative answers',
+      heading: 'Real-world uses',
       paragraphs: [
-        "A secure answer is not always an address. DNSSEC also has to prove absence. If a name does not exist or a type is not present at an existing name, the resolver needs authenticated denial of existence. NSEC and NSEC3 provide signed proof that a name or type falls into a covered gap.",
-        "This matters because unsigned negative answers are valuable to attackers. A forged NXDOMAIN can hide a real service, and a forged NODATA can suppress a specific record type. DNSSEC turns absence into a signed claim with its own validation rules.",
-      ],
-    },
-    {
-      heading: 'Operational review',
-      paragraphs: [
-        "A production DNSSEC review should ask whether the resolver can explain every verdict: which trust anchor was used, which DNSKEY validated which RRset, which DS matched which child key, which signature time window was accepted, and where the chain became secure, insecure, bogus, or indeterminate.",
-        "Most outages come from ordinary operations. Expired signatures, bad key rollovers, mismatched parent DS records, unsupported algorithms, bad clocks, oversized responses, or stale resolver state can break a signed domain for validating clients even when the authoritative server is answering.",
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        "DNSSEC wins when resolvers need authenticity for DNS data even if the transport path is hostile. It protects against forged answers and cache poisoning because a forged RRset must carry a valid signature under an authorized key chained to the trust anchor.",
-        "It also creates a foundation for higher-level systems. DANE can bind TLS information to DNSSEC-signed records. Signed service records can become stronger routing hints. Negative proof lets resolvers cache absence without accepting an attacker-supplied denial.",
+        'DNSSEC is useful where resolvers must reject forged DNS data even on hostile networks. It protects the cache because a fake RRset cannot be stored as secure unless the attacker can produce a valid chain to the trust anchor. That changes DNS from unauthenticated data delivery into verifiable data delivery.',
+        'It also supports higher-level protocols that bind security data to DNS. DANE can use DNSSEC-signed records to authenticate TLS-related information. Authenticated denial records let resolvers reject forged negative answers instead of trusting an unsigned no.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        "DNSSEC does not encrypt DNS queries and does not hide the name being looked up. DNS-over-HTTPS and DNS-over-TLS protect transport privacy between client and resolver; DNSSEC protects data authenticity. These layers are complementary, not interchangeable.",
-        "DNSSEC also cannot prove data below an insecure delegation. If the parent has no DS for the child, the resolver treats the child as insecure rather than bogus. That boundary is deliberate, but it means DNSSEC deployment is only as strong as the signed path that actually exists.",
-        "It does not make wrong zone data correct. If the legitimate zone signs a bad address, DNSSEC proves that the zone signed it. Integrity is not truth. Operators still need good publishing pipelines, monitoring, and rollback plans.",
+        'DNSSEC does not encrypt DNS queries or hide which names are looked up. DNS-over-HTTPS and DNS-over-TLS protect transport privacy between client and resolver, while DNSSEC protects data authenticity. Those layers solve different problems.',
+        'DNSSEC also proves authenticity, not correctness. If a zone operator signs a wrong address, validation proves that the zone signed the wrong address. Bad clocks, expired signatures, broken key rollovers, wrong parent DS records, and unsupported algorithms can also make valid domains fail for validating clients.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose an attacker injects www.example.com A 198.51.100.77. The resolver asks for the RRSIG over the A RRset and the DNSKEY that should verify it. If the attacker cannot sign with the authorized example.com key, the answer is bogus.',
+        'Suppose the attacker also sends a fake DNSKEY that signs the forged answer. The com zone has a DS digest for the real example.com key, not the fake key. If the fake key digest does not match the signed parent DS, the proof stops before the final answer is considered secure.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        "Primary sources: RFC 4033 DNSSEC Introduction at https://www.rfc-editor.org/rfc/rfc4033, RFC 4034 DNSSEC Resource Records at https://www.rfc-editor.org/rfc/rfc4034, RFC 4035 DNSSEC Protocol Modifications at https://www.rfc-editor.org/rfc/rfc4035, RFC 5155 for NSEC3 at https://www.rfc-editor.org/rfc/rfc5155, and RFC 9276 for current NSEC3 guidance at https://www.rfc-editor.org/rfc/rfc9276.",
-        "Study How DNS Works for the resolver walk, DNS Negative Cache and NXDOMAIN for absence caching, DNSSEC NSEC3 Authenticated Denial for signed non-existence proofs, Merkle Tree for commitment structure, Sparse Merkle Tree Non-Membership for a modern authenticated-absence analogy, and TLS 1.3 Handshake for the adjacent certificate-authentication layer.",
+        'Primary sources include RFC 4033 at https://www.rfc-editor.org/rfc/rfc4033, RFC 4034 at https://www.rfc-editor.org/rfc/rfc4034, RFC 4035 at https://www.rfc-editor.org/rfc/rfc4035, RFC 5155 at https://www.rfc-editor.org/rfc/rfc5155, and RFC 9276 at https://www.rfc-editor.org/rfc/rfc9276. Study recursive DNS lookup first, then DNSSEC NSEC3 for authenticated denial, Merkle trees for commitment structure, and TLS certificate validation for a neighboring chain-of-trust model.',
       ],
     },
   ],

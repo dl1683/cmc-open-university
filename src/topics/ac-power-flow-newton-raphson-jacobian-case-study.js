@@ -221,211 +221,161 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The "newton loop" view shows the full solver cycle: case data feeds an initial voltage guess, mismatches are computed, the Jacobian is assembled, a linear step is solved, and a convergence gate decides whether to stop or iterate. Active nodes are the current stage of the loop. The "found" marker on the convergence gate means the tolerance test has been reached.',
-        'The "jacobian blocks" view focuses on the four-block structure of the Newton Jacobian and how sparsity, bus-type masks, and factorization interact. Active blocks are the diagonal partials (dP/dang, dQ/dV); compared blocks are the off-diagonal cross-partials.',
-        'In both views, the matrix displays show bus-type masks and run-record fields. Green-highlighted cells are the quantities the solver actively modifies; blue-highlighted cells are diagnostic or constraint data that shapes but does not participate in the Newton update.',
+        'The newton-loop view shows a solver for alternating current, or AC, power flow. AC power flow means finding voltage magnitudes and voltage angles that make generated power, consumed power, and network losses balance at every bus. Watch the loop as a feedback system: mismatch is measured, the Jacobian is built, a correction is solved, and the voltage estimate moves.',
+        'The jacobian-blocks view shows the matrix used by Newton-Raphson, an iterative method that replaces a hard nonlinear problem with a local linear one. A Jacobian is a table of derivatives: each entry says how one mismatch changes when one voltage variable changes. Active cells are the derivatives being used in the current solve, while masked cells show variables that are not legal for that bus type.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          text: 'The load flow problem is the backbone problem of power system analysis. Its solution is required before any other analysis -- fault studies, stability studies, optimal dispatch, and expansion planning -- can proceed.',
-          attribution: 'Stott & Alsac, "Fast Decoupled Load Flow," IEEE Trans. PAS, 1974',
-        },
         {type:'callout', text:'AC power flow is the computational foundation under every grid operation — fault analysis, stability assessment, optimal dispatch, expansion planning, and real-time monitoring all require a converged power-flow solution as their starting point. Without it, no other power systems analysis can begin.'},
-        'A power grid operator needs a steady-state operating point before asking harder questions. Given a network model -- generators, loads, transformer taps, shunts, and branch impedances -- what are the voltage magnitudes and angles at every bus? Are active and reactive power balanced? Are voltages within limits? Will a proposed outage or dispatch change leave the system in a plausible state?',
-        'AC power flow answers that baseline question. It solves for bus voltages that satisfy nonlinear active-power and reactive-power balance equations. Nearly every other grid study starts from this result: contingency analysis, voltage-security assessment, transfer-limit studies, optimal power flow, state-estimation comparisons, restoration planning, and operator-training simulations.',
-        {
-          type: 'note',
-          text: 'The word "flow" is misleading. Power on an AC network depends on complex voltages, admittances, angle differences, and reactive behavior. The solver finds a physically consistent electrical state, not a routing assignment. Kirchhoff and Ohm, not shortest paths.',
-        },
+        'Grid operators need a consistent electrical snapshot before they can make dispatch, outage, or safety decisions. The inputs are a network model, generator set points, loads, transformer taps, and limits. The output is a voltage magnitude and angle at each non-reference bus, plus implied branch flows and losses.',
+        'The equations are nonlinear because AC power depends on products of voltages and trigonometric functions of angle differences. A bus is a connection point in the grid, and a slack bus is the reference point that absorbs the remaining active and reactive power mismatch. Without a solved power-flow case, later studies are reasoning from guesses.',
       ],
-    },
+
+
+   },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first reasonable approach is to write one big linear system and solve it once. Grid topology assembles into a sparse bus-admittance matrix (Y-bus). Sparse linear algebra is mature. If power depended linearly on the unknown voltages, a single factorization-and-solve would be enough.',
-        'A simplified DC power-flow approximation follows that spirit. It assumes voltage magnitudes are 1.0 p.u., angle differences are small (so sin(theta) is approximately theta), and reactive power can be ignored. Under those assumptions the active-power balance becomes a linear system in voltage angles alone:',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'P = B_dc * theta\n\nwhere:\n  P     = vector of net active injections (generation - load) at non-slack buses\n  B_dc  = susceptance submatrix of Y-bus (real, sparse, symmetric)\n  theta = vector of voltage angles at non-slack buses\n\nOne LU factorization of B_dc, one back-substitution, done.',
-        },
-        'DC power flow is useful for some planning and market-clearing studies, but it cannot answer the full AC question. Voltage magnitudes, reactive power, losses, transformer controls, and stressed operating conditions matter in real grids. The full AC equations are nonlinear: the injection at each bus depends on products of voltage magnitudes and trigonometric functions of angle differences. A one-shot linear solve misses the mechanism that makes the network electrical rather than purely topological.',
-      ],
+
+
+
+
+       'The first attempt is a single linear solve. Build the bus-admittance matrix, assume voltage magnitudes stay near 1.0 per unit, assume angle differences are small, ignore reactive power, and solve for voltage angles. This is the direct current, or DC, power-flow approximation.',
+        'That approximation is useful because it is sparse, fast, and often good enough for rough active-power screening. One factorization can solve a large case quickly, and contingency tools can reuse the same structure. It is a good engineering shortcut when voltage and reactive effects are not the decision point.',
+
+     ],
     },
     {
-      heading: 'The wall',
+
+
+
+     heading: 'The wall',
       paragraphs: [
-        'The wall is not just nonlinearity. It is constrained nonlinearity with state-dependent equation structure. Different bus types expose different unknowns and contribute different equations:',
-        {
-          type: 'table',
-          headers: ['Bus type', 'Fixed quantities', 'Solved quantities', 'Equations contributed'],
-          rows: [
-            ['Slack (reference)', 'V, angle', 'P, Q (absorbs residual)', 'None -- sets the reference frame'],
-            ['PV (generator)', 'P, |V|', 'angle, Q', 'One P-mismatch equation'],
-            ['PQ (load)', 'P, Q', '|V|, angle', 'One P-mismatch + one Q-mismatch'],
-            ['Isolated', 'None', 'Excluded', 'Removed from system'],
-          ],
-        },
-        'The solver must respect those masks everywhere. The state vector, mismatch vector, Jacobian rows, Jacobian columns, update step, convergence check, and output reconstruction all need the same bus ordering. One off-by-one error in the PV/PQ mask can produce a numerical answer that looks precise and means nothing.',
-        'Reactive-power limits add a state transition mid-solve. A generator bus starts as PV because its automatic voltage regulator controls voltage magnitude. If the reactive output hits a physical limit (turbine rating, field current, stability margin), the bus must switch to PQ with Q fixed at the limit. That remasking changes the equations being solved. Treating it as a cosmetic post-check is a common way to produce wrong but converged results.',
-        {
-          type: 'note',
-          text: 'The mask contract is a data-structure problem, not a physics footnote. Most Newton power-flow bugs are not formula errors. They are row-and-column membership errors: a PV bus contributing a Q-mismatch row it should not, or a slack bus appearing in the state vector.',
-        },
-      ],
+        'The wall appears when voltage magnitude, reactive power, transformer controls, losses, or stressed operating points matter. A PV bus fixes active power and voltage magnitude, a PQ bus fixes active and reactive load, and the slack bus fixes the reference angle. Each type contributes different unknowns and equations.',
+
+       'That means the state vector is not just all buses pasted into a matrix. The solver must keep the same bus masks in the mismatch vector, Jacobian rows, Jacobian columns, update step, and output reconstruction. A PV bus that hits a reactive limit may need to become a PQ bus mid-solve, changing the equations while the iteration is running.',
+
+     ],
     },
-    {
+
+
+   {
       heading: 'The core insight',
-      paragraphs: [
-        'Newton-Raphson power flow turns the nonlinear problem into a sequence of sparse linear problems. At each iteration: compute the mismatch between specified and calculated injections, build the Jacobian (local derivative map from voltage-state changes to mismatch changes), solve the resulting linear system for a correction, and update the voltage state.',
-        'The Jacobian has four main blocks, each a sparse matrix whose sparsity mirrors the grid topology:',
-        {
-          type: 'diagram',
-          label: 'Newton Jacobian block structure',
-          text: '         |  d(angle)   d(|V|)  \n    -----+------------------------\n    dP   |   J11        J12     \n         | dP/d(ang)  dP/d|V|   \n    -----+------------------------\n    dQ   |   J21        J22     \n         | dQ/d(ang)  dQ/d|V|   \n\n    J11 rows: PV + PQ buses    J11 cols: non-slack buses\n    J12 rows: PV + PQ buses    J12 cols: PQ buses only\n    J21 rows: PQ buses only    J21 cols: non-slack buses\n    J22 rows: PQ buses only    J22 cols: PQ buses only\n\n    Nonzero pattern follows Y-bus: entry (i,j) is nonzero\n    only if bus i connects to bus j or i == j.',
-        },
-        'The insight is local linearization plus sparse structure plus bus-type masking. Newton supplies the correction direction. The grid topology supplies sparsity. Bus-type masks decide which rows and columns exist in the assembled system. Convergence gates decide whether the correction has actually reached a balance point.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A typical run starts by assembling Y-bus from branch impedances, transformer taps, and shunt admittances. It prepares specified net injections (P_gen - P_load, Q_gen - Q_load) and bus-type lists. It sets an initial voltage vector -- often a flat start (all |V| = 1.0 p.u., all angles = 0) for a new case, or a warm start from a nearby solved case. The slack bus angle sets the reference frame.',
-        {
-          type: 'code',
-          language: 'python',
-          text: '# Core Newton loop (polar coordinates, simplified)\ndef newton_pf(Ybus, Sspec, V0, pv, pq, tol=1e-6, max_iter=20):\n    V = V0.copy()\n    for k in range(max_iter):\n        # Calculated complex power: S_calc = diag(V) * conj(Ybus * V)\n        S_calc = V * np.conj(Ybus @ V)\n        # Mismatch: specified minus calculated\n        dP = Sspec[pv_pq].real - S_calc[pv_pq].real\n        dQ = Sspec[pq].imag   - S_calc[pq].imag\n        mismatch = np.concatenate([dP, dQ])\n        if np.max(np.abs(mismatch)) < tol:\n            return V, k, "converged"\n        # Build Jacobian blocks J11, J12, J21, J22\n        J = build_jacobian(Ybus, V, pv, pq)\n        # Solve J @ dx = mismatch\n        dx = spsolve(J, mismatch)\n        # Update angles (all non-slack) and magnitudes (PQ only)\n        V[pv_pq] *= np.exp(1j * dx[:len(pv_pq)])\n        V[pq]    *= (1 + dx[len(pv_pq):])\n    return V, max_iter, "did not converge"',
-        },
-        'At each iteration, the solver computes calculated bus injections from the current complex voltages and Y-bus, then forms the mismatch. Active-power mismatches appear for PV and PQ buses; reactive-power mismatches appear for PQ buses only. The slack bus is never solved as an unknown.',
-        'The solver builds Jacobian blocks using the same masks, solves J * dx = mismatch, and applies the correction. It checks the infinity norm of the mismatch against tolerance. If the solution is good enough, it stops. Otherwise it repeats until convergence or a maximum-iteration guard fires.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Newton-Raphson works because a differentiable nonlinear function is locally close to its first-order Taylor expansion. Near a valid solution, the mismatch function f(x) can be approximated by f(x) + J * dx. Choosing dx = -J^{-1} * f(x) aims to drive that local approximation toward zero.',
-        'When the starting point is close enough and the Jacobian is nonsingular, Newton converges quadratically: the error roughly squares each iteration. For power systems, that typically means 3-6 iterations for a normal operating point. A 10,000-bus network that starts with mismatches around 1.0 p.u. often reaches 1e-8 tolerance in 4-5 iterations.',
-        {
-          type: 'bullets',
-          items: [
-            'Quadratic convergence: if the error at iteration k is epsilon, the error at k+1 is roughly C * epsilon^2. This is why Newton typically needs far fewer iterations than first-order methods like Gauss-Seidel.',
-            'Warm starts exploit this: a nearby solved case puts the initial guess close to the solution, so the quadratic regime begins immediately.',
-            'The convergence condition is practical, not absolute. A converged result means modeled injections balance under modeled topology and solver tolerances. It does not prove the field system is in that state.',
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Consider a contingency-analysis tool studying a single line outage on a 5-bus system. The base case has already converged in 4 iterations. The tool removes branch 2-4 from the topology, rebuilds Y-bus, and uses the base-case voltages as a warm start.',
-        {
-          type: 'table',
-          headers: ['Iteration', 'Max |dP| (p.u.)', 'Max |dQ| (p.u.)', 'Max |dx_angle| (rad)', 'Event'],
-          rows: [
-            ['0', '0.42', '0.18', '--', 'Warm start from base case'],
-            ['1', '0.073', '0.031', '0.015', 'Bus 3 Q near upper limit'],
-            ['2', '0.0018', '0.0009', '3.2e-4', 'Bus 3 hits Q_max, switches PV -> PQ'],
-            ['3', '4.1e-5', '2.8e-5', '7.6e-6', 'Re-masked Jacobian, new PQ bus 3'],
-            ['4', '2.3e-8', '1.1e-8', '4.0e-9', 'Converged (tol = 1e-6)'],
-          ],
-        },
-        'The warm start saves iterations: a flat start on this contingency case would need 7 iterations. The PV-to-PQ switch at iteration 2 changes the equation structure mid-solve. The run record should log the switch reason (Q_max = 1.5 p.u., actual Q = 1.52 p.u.), the iteration where it happened, and the fact that the Jacobian was reassembled with a new mask.',
-        'If the run had not converged, the trace should point to candidate causes: islanding after the outage, an impossible load pocket, a generator hitting reactive limits with nowhere to remask, or an ill-conditioned Jacobian near voltage collapse. A failed solve with a useful diagnosis is more valuable than a silent non-converged result that downstream tools accidentally consume.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'The dominant cost per iteration is the sparse linear solve. For a grid with n buses and m branches, the Jacobian has O(n + m) nonzeros. Sparse LU factorization with good ordering (approximate minimum degree, nested dissection) typically costs O(n^{1.2} to n^{1.5}) for planar-like power grids -- far below the O(n^3) of dense factorization.',
-        {
-          type: 'table',
-          headers: ['Network size', 'Jacobian dimension', 'Typical nonzeros', 'Iterations (normal)', 'Iterations (stressed)'],
-          rows: [
-            ['IEEE 14-bus', '23 x 23', '~100', '3-4', '5-7'],
-            ['IEEE 118-bus', '181 x 181', '~900', '4-5', '6-10'],
-            ['Polish 2383-bus', '~3,700 x 3,700', '~18,000', '4-6', '8-15'],
-            ['ERCOT ~8,000-bus', '~13,000 x 13,000', '~65,000', '4-6', '10-20+'],
-          ],
-        },
-        'Warm starts change behavior. A flat start is fine for small or normal cases. A warm start from a nearby solved operating point can cut iterations in half across contingency sweeps. A bad warm start -- where topology or bus roles changed enough that the old state is misleading -- can increase iterations or cause divergence.',
-        {
-          type: 'note',
-          text: 'Sparsity is not free. Fill-in during factorization can grow significantly for poorly ordered or meshed networks. The ordering strategy (AMD, COLAMD, nested dissection) can change factorization cost by 2-10x on large grids. Production solvers often reuse symbolic factorization across related cases, paying the ordering cost once.',
-        },
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'AC power flow is the steady-state engine behind most grid analysis tools:',
-        {
-          type: 'bullets',
-          items: [
-            'Energy Management Systems (EMS): operators solve power flow every few minutes to evaluate the current operating point and test "what if" contingencies.',
-            'Contingency analysis (N-1, N-2): remove one or two elements, re-solve, check for voltage or thermal violations. A 10,000-bus grid with 2,000 contingencies means 2,000 Newton solves, often warm-started from the base case.',
-            'Optimal Power Flow (OPF): the AC power-flow equations become equality constraints inside an optimization that minimizes cost, losses, or emissions.',
-            'Planning studies: test proposed transmission upgrades, generation retirements, or load growth scenarios against AC feasibility before committing capital.',
-            'State estimation: uses the same Y-bus and injection model but adds measurement reconciliation on top of the power-balance equations.',
-          ],
-        },
-        'It is the wrong tool for fast electromechanical transients, protection-relay dynamics, harmonics, electromagnetic transients, and any study where the steady-state phasor model is insufficient. It is also too detailed for some high-level screening tasks where a DC approximation is acceptable and the missing reactive or voltage detail does not affect the decision.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Non-convergence is evidence, not just an error code. It can mean the physical case has no feasible operating point under the assumptions, or it can mean the model is wrong. Common failure modes and their diagnostic signals:',
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Diagnostic signal', 'Typical action'],
-          rows: [
-            ['Island without slack', 'Singular Jacobian at iteration 1', 'Run topology processor, split islands, assign slack per island'],
-            ['Bad initial guess', 'Large oscillating dx, no mismatch reduction', 'Switch to flat start or use a closer warm-start case'],
-            ['Reactive limit cycling', 'Repeated PV <-> PQ switching', 'Review Q-limit settings, enforce minimum iterations between switches'],
-            ['Voltage collapse proximity', 'Jacobian near-singular, small eigenvalue', 'Reduce loading, check PV curves, review reactive reserves'],
-            ['Bad model data', 'Converged but voltages at 2.0 p.u. or angles at 90 degrees', 'Audit impedance data, transformer taps, shunt values'],
-          ],
-        },
-        'A converged result can still fail operationally. The voltage profile may violate limits. A branch may overload. A generator may sit at a reactive limit that requires operator action. A downstream study may require a stricter tolerance than the default run used. The power-flow result is an input to engineering judgment, not the end of the workflow.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Keep the indexing contract explicit. Store external bus IDs, internal ordering, slack/PV/PQ masks, isolated-bus list, and the mapping back to user-facing IDs. Build tests around mask alignment because most solver bugs are row-and-column membership bugs, not formula bugs.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Run record: what a production solver should log per solve\nconst runRecord = {\n  caseId:        "contingency-line-24-outage",\n  topoHash:      "a3f7c1...",       // hash of Y-bus structure\n  baseMVA:       100,\n  solverMethod:  "polar-newton",\n  tolerance:     1e-6,\n  maxIterations: 20,\n  initSource:    "warm-start-base-case-v3",\n  qLimitPolicy:  "switch-at-limit-then-restart",\n  iterations: [\n    { k: 0, maxDP: 0.42,   maxDQ: 0.18,   event: null },\n    { k: 1, maxDP: 0.073,  maxDQ: 0.031,  event: "bus3-Q-near-limit" },\n    { k: 2, maxDP: 0.0018, maxDQ: 0.0009, event: "bus3-PV-to-PQ" },\n    { k: 3, maxDP: 4.1e-5, maxDQ: 2.8e-5, event: null },\n    { k: 4, maxDP: 2.3e-8, maxDQ: 1.1e-8, event: "converged" },\n  ],\n  converged:     true,\n  stoppingReason: "mismatch < tol",\n  violations:    { voltage: [], thermal: ["branch-5-7: 102% rating"] },\n};',
-        },
-        'Treat reactive-limit handling as a state machine. If a PV bus switches to PQ, record the reason, the limit hit, and the iteration. Decide whether to restart the Newton loop or continue with re-masked equations. The important part is that the decision is explicit and reproducible.',
-        {
-          type: 'note',
-          text: 'A failed solve with a useful diagnosis is more valuable than a silent non-converged result that downstream tools accidentally consume. The run record is the mechanism that turns a numerical loop into an operational system.',
-        },
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: the MATPOWER manual (version 8.0) documents a mature open-source implementation. Stott and Alsac (1974) introduced the fast-decoupled variant that exploits weak coupling between P-angle and Q-voltage subsystems. Tinney and Walker (1967) established sparse factorization ordering for power networks.',
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Power Grid Bus Admittance Sparse Matrix -- if Y-bus assembly is unfamiliar, study this first.',
-            'Prerequisite: CSC Column Sparse Matrix -- the storage format that makes Jacobian factorization practical.',
-            'Extension: SCADA State Estimation -- adds measurement reconciliation on top of the power-balance model.',
-            'Extension: Sherman-Morrison Rank-One Update -- low-rank Y-bus updates for branch outages without full reassembly.',
-            'Alternative: Fast-Decoupled Load Flow -- trades quadratic convergence for cheaper iterations by exploiting P-angle / Q-voltage decoupling.',
-            'Downstream: Distribution Feeder Outage Restoration Switching -- an operational workflow that consumes power-flow results.',
-          ],
-        },
-      ],
-    },
-  ],
-};
+
+
+     paragraphs: [
+        'Newton-Raphson power flow keeps the full AC equations but solves them through local linear corrections. At iteration k, the solver computes the mismatch f(x_k), builds the Jacobian J(x_k), solves J dx = -f, and applies dx to the voltage angles and magnitudes. The process repeats until the largest mismatch is below tolerance.',
+
+       'The insight is that grid physics gives the Jacobian a sparse pattern. A bus derivative is nonzero mostly for the bus itself and its electrical neighbors, so the matrix is far smaller in practice than a dense all-to-all table. Newton supplies the correction rule; sparsity makes it affordable; bus masks make it physically legal.',
+
+     ],
+
+   },
+
+   {
+
+     heading: 'How it works',
+
+     paragraphs: [
+
+       'The solver starts by assembling Y-bus, the sparse admittance matrix that encodes lines, transformers, and shunts. It creates specified net injections, chooses bus masks, and initializes voltage magnitudes and angles. A flat start uses 1.0 per unit magnitudes and zero angles, while a warm start uses a nearby solved case.',
+
+       'Each iteration computes calculated complex power from the current voltages, subtracts it from specified power, and builds the mismatch vector. Active-power mismatches are included for PV and PQ buses, while reactive-power mismatches are included only for PQ buses. The slack bus is not solved because it defines the reference frame.',
+
+       'The Jacobian is assembled in four blocks: dP by angle, dP by voltage magnitude, dQ by angle, and dQ by voltage magnitude. The sparse linear solve produces angle updates for non-slack buses and magnitude updates for PQ buses. The convergence gate checks the largest absolute mismatch, not whether the update merely looks small.',
+
+     ],
+
+   },
+
+   {
+
+     heading: 'Why it works',
+
+     paragraphs: [
+
+       'The correctness argument is local linearization plus an invariant. The invariant is that every mismatch row and every state column matches the current bus-type masks. When that invariant holds, the linear solve computes a correction in exactly the variables the AC model allows to move.',
+
+       'Near a true solution, a differentiable function is well approximated by its first derivative. If the Jacobian is nonsingular and the starting point is close enough, Newton corrections reduce the error rapidly. A converged solve means the modeled injections balance under the modeled topology and tolerance; it does not prove the field system or input data are correct.',
+
+     ],
+
+   },
+
+   {
+
+     heading: 'Cost and complexity',
+
+     paragraphs: [
+
+       'The dominant cost is sparse factorization of the Jacobian at each iteration. For n buses and m branches, the number of Jacobian nonzeros grows roughly with n + m, but factorization creates fill-in. Good ordering can make a 10,000-bus case practical; poor ordering can make the same case much slower.',
+
+       'Cost behaves through iterations and fill-in, not through bus count alone. A normal warm-started case may converge in 3 to 5 iterations, while a stressed case near a voltage-collapse boundary may need many more or fail. Doubling the grid roughly doubles the raw nonzeros, but factorization cost can grow faster because the eliminated matrix becomes denser.',
+
+     ],
+
+   },
+
+   {
+
+     heading: 'Real-world uses',
+
+     paragraphs: [
+
+       'Energy management systems use AC power flow to evaluate the current operating point and run contingency studies. Planning tools use it to test new lines, generator retirements, load growth, and voltage-support devices. Optimal power flow uses the same balance equations as constraints while optimizing cost, losses, or emissions.',
+
+       'The method is appropriate when steady-state phasor behavior is the right model. It is not a substitute for protection studies, electromagnetic transients, harmonics, or fast rotor-angle dynamics. The solved case is a foundation for those workflows, not an answer to every grid question.',
+
+     ],
+
+   },
+
+   {
+
+     heading: 'Where it fails',
+
+     paragraphs: [
+
+       'Newton can fail when the case is infeasible, islanded without a slack bus, initialized badly, or too close to a singular Jacobian. Reactive-limit cycling can also cause trouble when a generator repeatedly switches between PV and PQ status. These failures should be logged as diagnoses, not hidden behind a generic nonconvergence flag.',
+
+       'A converged result can still be operationally bad. Voltages may violate limits, branches may overload, and a generator may sit at a reactive limit. Correct numerical balance is only the first gate; engineering constraints still need separate checks.',
+
+     ],
+
+   },
+
+   {
+
+     heading: 'Worked example',
+
+     paragraphs: [
+
+       'Take a 5-bus case with bus 1 as slack, bus 2 as PV, and buses 3 through 5 as PQ. A line outage changes Y-bus and the warm-start mismatch begins at max |dP| = 0.42 per unit and max |dQ| = 0.18 per unit. The tolerance is 1e-6 per unit.',
+
+       'Iteration 1 reduces the mismatch to 0.073 and 0.031. Iteration 2 reaches 0.0018 and 0.0009, but bus 2 computes Q = 1.52 per unit against a Qmax of 1.50, so the solver fixes Q at the limit and remasks bus 2 from PV to PQ. After reassembly, iteration 3 reaches 4.1e-5 and iteration 4 reaches 2.3e-8, so the case converges.',
+
+       'The useful run record includes the topology hash, bus masks, tolerance, iteration count, max mismatches, Q-limit event, and final violations. That record turns a numerical answer into an inspectable operating artifact. If a downstream contingency report flags branch 4-5 at 102 percent of rating, the operator can trace exactly which solved state produced that alarm.',
+
+     ],
+
+   },
+
+   {
+
+     heading: 'Sources and study next',
+
+     paragraphs: [
+
+       'Study MATPOWER AC power-flow documentation for a production-grade reference implementation. Read Stott and Alsac on fast-decoupled load flow to see how the P-angle and Q-voltage coupling can be approximated. Read Tinney and Walker on sparse network factorization to understand why matrix ordering is a first-class performance issue.',
+
+       'Study next: Power Grid Bus Admittance Sparse Matrix for Y-bus construction, CSC Column Sparse Matrix for sparse storage, SCADA State Estimation for measurement reconciliation, and Distribution Feeder Outage Restoration Switching for a workflow that consumes power-flow solves.',
+
+     ],
+
+   },
+
+ ],
+}
+;

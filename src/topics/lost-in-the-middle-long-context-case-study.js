@@ -204,123 +204,44 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Lost in the Middle is a long-context failure mode: a language model may answer correctly when relevant evidence appears near the beginning or end of its context, but miss the same evidence when it appears in the middle. The point is not that the context window is too small. The point is that usable recall can be position-dependent even inside the advertised window.',
-        {type:'callout', text:'A long context window is capacity, not recall; reliable systems must foreground and test evidence across position, length, and distractor pressure.'},
-        'The TACL paper "Lost in the Middle" tested multi-document question answering and key-value retrieval while moving relevant information to different positions in the input. It found that performance often peaks near the beginning or end and drops when the relevant item is in the middle: https://aclanthology.org/2024.tacl-1.9/ and https://arxiv.org/abs/2307.03172. The accompanying repository includes data and experiment scripts: https://github.com/nelson-liu/lost-in-the-middle.',
-        'The topic exists because long-context products are easy to misread. A 128K or 1M token window is an input capacity claim. It is not a guarantee that the model will use every span equally well, preserve every dependency, or retrieve buried evidence under pressure.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The obvious approach is to put the whole corpus into the prompt and ask the model to answer. That feels attractive because it avoids retrieval engineering, chunking decisions, and source selection. It also gives demos a simple story: everything is in context.',
-        'The wall is that context is not a uniform database scan. Primacy, recency, position encodings, attention competition, instruction placement, and distractor similarity can all shape what the model uses. The relevant clause may be present in the prompt and still functionally absent from the answer.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Long context is capacity, not guaranteed recall. The system must prove that evidence remains usable as length, insertion position, chunk order, and distractor similarity change. A single successful needle test at an easy position does not establish that proof.',
-        'This shifts the design question. Instead of asking "can the model fit the document?" ask "can the system reliably find, foreground, quote, and reason over the evidence that matters?" That system may still use long context, but it uses it with retrieval, packing, citation, and evaluation discipline.',
-      ],
-    },
-    {
-      heading: 'Why it matters',
-      paragraphs: [
-        'Long context is easy to oversell. A 128K or 1M token window is a storage budget, not a promise that every token is used equally well. Attention Mechanism shows that every query scores against keys, but the model still has to decide which keys matter. Positional Encoding determines how order enters the geometry. KV Cache makes serving long prompts possible, but it does not make the model robust to distractors, stale instructions, or buried evidence.',
-        'This matters for legal review, medical records, research agents, incident response, codebase analysis, and any workflow where a tiny clause in a large document can change the answer. If evaluation only checks convenient document orders, a system can appear reliable while failing on realistic layouts. If prompt engineering always places citations near the end, teams may confuse template luck with long-context understanding.',
-        'The failure is especially dangerous because it is silent. The model can produce a fluent answer that cites the wrong section or omits a buried exception. Without a source ledger, the user may not know whether the answer came from the decisive evidence or from nearby distractors.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The mechanism is not one bug. It is a stack effect. Attention scores compete across many similar spans. Position representations have to extrapolate or generalize over long distances. Instruction templates may privilege early policy and late recency. Retrieval order can place important chunks between noisy neighbors. The model has learned many tasks where beginnings and endings carry high signal.',
-        'Needle-in-a-haystack tests make the mechanism visible by holding the question fixed and moving the answer span. If accuracy changes only because the answer moved, the context window is not behaving like an order-invariant memory store.',
-      ],
-    },
-    {
-      heading: 'Benchmark design',
-      paragraphs: [
-        'Needle-in-a-haystack tests insert a relevant fact into a long body of distractor text and ask the model to retrieve it. They are valuable because they sweep context length and insertion position. But simple needles often share literal words with the question, so a model can exploit string-like matching. That is useful for basic recall, but it can overstate the ability to connect semantically related evidence.',
-        'NoLiMa extends this idea by minimizing lexical overlap between the question and the needle, forcing the model to infer latent associations instead of matching exact words. Its arXiv abstract reports that 11 evaluated models fell below 50 percent of their strong short-context baselines at 32K tokens, and even strong models degraded under longer contexts: https://arxiv.org/abs/2502.05167. The official code and results are at https://github.com/adobe-research/NoLiMa.',
-        'A serious benchmark grid varies context length, evidence position, distractor similarity, answer type, question wording, chunk order, and whether the relevant evidence appears once or multiple times. It should also check citation fidelity, because a correct-looking final answer can be unsupported or supported by the wrong span.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A contract-review assistant receives a 120-page vendor agreement and must answer whether customer data may be used to train vendor models. The key clause is not in the data-processing addendum; it is a middle-page carveout under "service improvement." A naive long-context system sends the whole contract to the model and asks for an answer. It works when the clause is near the end in a test fixture, then fails when a real contract places it in the middle between unrelated security exhibits.',
-        'A stronger system treats the problem as retrieval plus verification. It chunks the contract, indexes definitions and obligations, retrieves candidate spans for "training," "improvement," "analytics," "model," and defined terms, reranks candidate clauses, quotes the exact span, and then asks the model to reason over a compact pack. The final answer cites the clause and preserves uncertainty if the retrieved span conflicts with another section. Multi-Index RAG, Maximal Marginal Relevance, RAG Context Packing Token Budget, Cross-Encoder Reranker, Agent Memory & Context Engineering Case Study, and RAG Evaluation all become practical tools, not optional extras.',
-        'The article-grade lesson is that long context does not remove information architecture. It moves the burden. You still need document structure, term expansion, retrieval quality, ordering choices, and an answer format that exposes which evidence controlled the conclusion.',
-      ],
-    },
-    {
-      heading: 'Mitigations and limits',
-      paragraphs: [
-        'Mitigations include retrieval before reasoning, reranking, quote extraction, evidence grouping, recency-safe prompt templates, source ledgers, and evaluation grids that vary length, insertion position, distractor similarity, chunk order, and question wording. RAG is not magic: U-NIAH reports that retrieval noise and reverse chunk ordering can degrade performance, while RAG can still mitigate lost-in-the-middle for smaller models in controlled settings: https://arxiv.org/abs/2503.00353.',
-        'The important test is not "can the model answer one needle prompt?" It is "does accuracy stay stable as the answer moves, context grows, distractors become semantically similar, and the question stops sharing literal terms with the evidence?" If not, use long context as one ingredient in a larger system: retrieve, compress, isolate, cite, and audit.',
-        'The main limit is that every mitigation has its own failure mode. Retrieval can miss the decisive span. Reranking can prefer fluent distractors. Compression can drop qualifiers. Quote-first prompting can overfit to snippets and lose global context. The goal is not to replace one fragile trick with another; it is to make each step inspectable.',
-      ],
-    },
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The position-bias plot compares an ideal flat line with a measured trough. A flat line would mean evidence position does not matter. The trough means the same evidence is less usable when buried in the middle. The prompt graph turns that into a concrete system shape: the question is stable while the needle moves.',
-        'The benchmark view separates literal recall from semantic recall. Literal needles are useful sanity checks. Latent needles and position sweeps expose whether the model can connect meaning across a long context. The RAG frame shows why a smaller, better-packed context can outperform a giant prompt that buries the answer.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Lost in the Middle in TACL at https://aclanthology.org/2024.tacl-1.9/, arXiv version at https://arxiv.org/abs/2307.03172, Lost in the Middle repository at https://github.com/nelson-liu/lost-in-the-middle, NoLiMa at https://arxiv.org/abs/2502.05167, NoLiMa repository at https://github.com/adobe-research/NoLiMa, and U-NIAH at https://arxiv.org/abs/2503.00353.',
-        'Study Attention Mechanism, Multi-Head Attention, Positional Encoding, RoPE, KV Cache, RAG Pipeline, Multi-Index RAG, Maximal Marginal Relevance, RAG Context Packing Token Budget, Cross-Encoder Reranker, Agent Memory & Context Engineering Case Study, LLM Evaluation Harnesses, and RAG Evaluation next.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is to trust the context window as a uniform memory: paste the entire document, ask the question, and expect the model to find the answer wherever it sits. This feels right because the model accepts the input without complaint and the attention mechanism theoretically scores every token against every other token.',
-        'The wall is that attention is not a database index. Scores compete across thousands of keys. Position encodings, training distribution, instruction placement, and distractor similarity all shape which passages win the attention competition. A passage can be present in the prompt and still functionally invisible to the answer.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Lost-in-the-middle analysis works as a diagnostic because it isolates position from content. By holding the question and answer text fixed while moving only the position of the relevant passage, the experiment proves that accuracy changes are caused by position, not by content difficulty. If accuracy were flat across positions, the context window would behave like uniform memory. The U-shaped curve (high at edges, low in the middle) proves it does not.',
-        'The diagnostic is valid because it controls for confounds. The question stays the same, the answer text stays the same, and the distractors stay the same. Only the insertion point changes. Any accuracy change is therefore attributable to positional factors: attention patterns, position encoding extrapolation, primacy and recency biases from training, or instruction-following behavior that privileges early and late tokens.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The cost of long-context failure is not compute -- it is silent incorrectness. A model that misses buried evidence still produces a fluent answer. The user sees a confident response and has no signal that the decisive passage was ignored. In legal review, medical record analysis, or compliance checking, this failure mode is worse than a crash because it looks like success.',
-        'Mitigation costs are real but bounded. Retrieval adds an indexing and ranking step. Reranking adds a cross-encoder pass. Quote-first prompting adds output tokens. Position-varied evaluation adds test cases. Each costs less than the silent error it prevents, but none is free. The practical tradeoff is: spend engineering effort on evidence foregrounding now, or spend debugging effort on wrong answers later.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'Lost-in-the-middle awareness matters most in document-grounded question answering, legal contract review, medical record summarization, compliance auditing, and any workflow where a small clause buried in a large document can change the answer. It also matters in multi-turn conversation where early instructions drift outside the attention sweet spot.',
-        'The practical response is not to avoid long context but to design systems that foreground evidence: retrieve candidate passages, rerank by relevance, place high-signal spans near prompt edges, quote exact text before reasoning, and evaluate with position-swept test sets. Systems that skip this step may pass demos where evidence happens to sit near an edge and fail on real document layouts.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Mitigations themselves can fail. Retrieval can miss the decisive passage if the query does not match its vocabulary. Reranking can prefer fluent distractors over dry but correct legal text. Quote-first prompting can overfit to snippets and lose document-level structure. Position-varied evaluation can use too few samples or too-easy needles.',
-        'The deeper limit is that lost-in-the-middle is a symptom, not a root cause. The underlying issue is that attention over long sequences is an approximation of memory, not memory itself. Improving position encodings, training on longer data, and using retrieval all help, but none guarantees uniform recall across arbitrary document layouts. Honest evaluation must test the hard case: important evidence buried among similar distractors far from both edges.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Lost in the Middle (Liu et al., TACL 2024) at https://aclanthology.org/2024.tacl-1.9/ and https://arxiv.org/abs/2307.03172, repository at https://github.com/nelson-liu/lost-in-the-middle. NoLiMa (latent needle benchmark) at https://arxiv.org/abs/2502.05167 and https://github.com/adobe-research/NoLiMa. U-NIAH (RAG vs long-context comparison) at https://arxiv.org/abs/2503.00353.',
-        'Prerequisites: Attention Mechanism for how scores compete, Multi-Head Attention for parallel attention paths, Positional Encoding and RoPE for how position enters the geometry. Extensions: RAG Pipeline and Multi-Index RAG for retrieval-based mitigation, Maximal Marginal Relevance and Cross-Encoder Reranker for evidence ranking, RAG Context Packing Token Budget for prompt engineering, KV Cache for serving cost, and RAG Evaluation for measuring retrieval quality. Contrast with Sliding-Window Attention Context Policy, which trades recall for bounded cost.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read this as a position test for long-context recall. Active markers show where the relevant evidence sits, compare lines show ideal uniform recall, and found points show where the model actually answers correctly.',
+      {type:'callout', text:'A long context window is capacity, not recall; reliable systems must foreground and test evidence across position, length, and distractor pressure.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Lost in the middle is a long-context failure where a language model uses evidence near the beginning or end of a prompt but misses the same evidence in the middle. The text is present, yet the answer behaves as if it were absent.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to paste the whole document into the prompt. It feels reasonable because the model accepts the input and attention can score tokens across the context window.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is that attention is not a database index. Position encoding, primacy, recency, distractor similarity, instruction placement, and attention competition affect which spans control the answer.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Long context must be tested by position, not only by length. The system goal is to find, foreground, cite, and reason over controlling evidence under length and distractor pressure.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'A diagnostic holds the question, evidence, and distractors fixed while moving only the evidence position. A production system mitigates the failure with retrieval, reranking, careful context packing, quote extraction, and source ledgers.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument for the diagnostic is controlled comparison. If input content is constant and only insertion position changes, then accuracy changes expose positional sensitivity.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The cost of failure is silent incorrectness because the model can answer fluently while ignoring the decisive clause. Mitigation cost is paid in indexing, reranking, packing, citation checks, and position-varied evals.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'This matters in contract review, medical record analysis, compliance audits, codebase question answering, research agents, and incident response. In each case, a small buried passage can override a large surrounding narrative.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'Retrieval can miss the decisive span when query terms differ from document terms. Reranking can prefer fluent distractors, compression can drop qualifiers, and literal needle tests can overstate semantic recall.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A 120-page contract asks whether vendor staff may use customer data for model training. The decisive clause is on page 67 under service improvement and allows training only on aggregated data after opt-out review.',
+      'A full-context prompt answers from an end-page data-processing addendum and says training is forbidden. A retrieval-first system searches training, improvement, analytics, and defined terms, quotes page 67, and returns the conditional answer.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Study Lost in the Middle at https://aclanthology.org/2024.tacl-1.9/ and https://arxiv.org/abs/2307.03172, the repository at https://github.com/nelson-liu/lost-in-the-middle, NoLiMa at https://arxiv.org/abs/2502.05167, and U-NIAH at https://arxiv.org/abs/2503.00353.',
+      'Next, study attention, multi-head attention, positional encoding, RoPE, KV cache, RAG pipeline, multi-index RAG, maximal marginal relevance, cross-encoder reranking, context packing, source ledgers, and RAG evaluation.',
+    ] },
   ],
 };

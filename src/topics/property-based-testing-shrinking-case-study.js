@@ -201,73 +201,90 @@ export function* run(input) {
 }
 
 export const article = {
-  references: [
-    { title: 'Hypothesis Documentation', url: 'https://hypothesis.readthedocs.io/' },
-    { title: 'Hypothesis Strategies Reference', url: 'https://hypothesis.readthedocs.io/en/latest/data.html' },
-    { title: 'Hypothesis Compositional Shrinking', url: 'https://hypothesis.works/articles/compositional-shrinking/' },
-  ],
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Example tests are necessary, but they prove one story at a time. A developer writes the empty case, the happy path, and the bug they remember. That leaves the unimagined cases: duplicate values, resize boundaries, Unicode normalization, negative zero, interleaved operations, missing keys, old versions, and strange ordering. Many production bugs are not deep algorithmic failures; they are ordinary inputs arriving in a shape nobody wrote by hand.`,
-        `Property-based testing exists to turn a rule into a search problem. Instead of saying "this queue works for the three examples I chose," the test says "for any generated sequence of valid queue operations, the observable behavior should match the model." Hypothesis describes this style as writing tests that should pass for all inputs in a described range while the tool chooses examples, including edge cases: https://hypothesis.readthedocs.io/.`,
-        {type:'callout', text:`Property-based testing turns a specification into a search system, and shrinking turns the first failure into the smallest useful debug artifact.`},
+        'Read the generator-search view as a loop over executable claims. A property is a rule that should hold for a family of inputs, and a strategy is the generator that builds those inputs. Active nodes show generation and execution; found nodes show a counterexample that violates the property.',
+        'Read the shrinking tree as a second search. Each candidate is a simpler input tried after the first failure. A candidate that still fails replaces the current best failure; a candidate that passes is discarded because it lost the bug.',
+        {type:'callout', text:'Property-based testing turns a specification into a search system, and shrinking turns the first failure into the smallest useful debug artifact.'},
       ],
     },
     {
-      heading: 'The naive approach and its wall',
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive answer is to add more examples. That helps, but it keeps human imagination as the coverage engine. The developer must know which length, ordering, duplicate, and boundary should be suspicious before the test can check it. Random fuzzing moves past that limit by generating many inputs, but raw fuzzing often reports a huge failure: a 500-operation sequence, a large JSON document, or a byte string that crashes the parser without explaining the essential cause.`,
-        `The wall is not only finding a failure. The wall is turning the failure into a debug artifact. A massive failing input proves that something is wrong, but it may hide the actual trigger under noise. Property-based testing earns its place by pairing generation with shrinking. It searches for counterexamples, then searches again for a smaller counterexample that still violates the same property.`,
+        'Example tests prove the cases a developer thought to write. They are necessary, but they usually cover polite inputs: empty lists, one normal value, and the bug remembered from last week. Real failures often come from duplicate values, boundary sizes, strange ordering, old versions, or operation sequences nobody wrote by hand.',
+        'Property-based testing exists to search the input space from a stated rule. Instead of testing one queue script, the test says that any valid sequence of enqueue and dequeue operations should match a simple model. The framework then generates many cases and keeps the failing ones for replay.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to add more examples. That helps because examples are readable and targeted. A developer can write the known edge cases and explain each one during review.',
+        'The next approach is random fuzzing. Generate large random inputs and see what crashes. Fuzzing finds failures that examples miss, but the first report can be a 500-operation sequence or a huge byte string that proves something broke without showing the smallest cause.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is not only finding a failure. It is turning that failure into a debug artifact. A giant failing input may hide the one operation, byte, or size transition that actually matters.',
+        'There is also an oracle problem. The test must know what correct behavior means for generated inputs. Without a property, model, round trip, or invariant, random data only creates noise.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `A property is a behavioral claim that should hold over a family of inputs. Sorting should return an ordered permutation. Encoding then decoding should recover the original value. A cache should never exceed capacity. A queue should dequeue in the same order values were enqueued. A state machine should match a simpler reference model. The strategy describes the input space the tool is allowed to explore.`,
-        `Shrinking is the second insight. Once a generated input fails, the framework tries simpler candidates: remove an operation, shorten a list, lower a number, replace a string with a simpler string, reorder a structure, or simplify one branch of a composed value. It keeps only candidates that still fail. The result is not merely smaller; it is more explanatory because everything removed was unnecessary to preserve the bug.`,
+        'A property is a behavioral invariant over a generated domain. Sorting should return an ordered permutation. Encoding followed by decoding should recover the original value. A cache should never exceed capacity. A state machine should match a simpler reference model.',
+        'Shrinking makes the method useful after failure. Once an input fails, the framework tries to remove operations, shorten lists, lower numbers, simplify strings, or simplify nested values. It keeps only changes that preserve the failure, so the final case contains less irrelevant material.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
-        `The loop has several records. A strategy generates an example. The property executes real code against that example. The runner records whether it passed, failed, timed out, or was discarded. If it fails, the shrinker proposes simplifications and reruns the property. The replay database stores seeds or concrete examples so future test runs can check known failures first. A good failure report names the property, the minimal case, the seed or database key, and enough environment detail to reproduce it.`,
-        `Strategies are structured generators, not just random value factories. An integer strategy knows about zero, small numbers, bounds, and shrinking toward simpler values. A list strategy knows about length and elements. A state-machine strategy can generate operation sequences with preconditions. The Hypothesis strategies reference documents how values are generated and shrunk across these structures: https://hypothesis.readthedocs.io/en/latest/data.html. Composition matters because real bugs often live in nested data, not a single primitive.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The generator-search view proves that the generator defines the explored world. The strategy node feeds ordinary examples and edge cases into the property. If the strategy never builds a resize boundary, a queue resize bug can remain invisible no matter how many examples run. The property node is the specification. Passing examples are evidence, but a failing example is more valuable because it identifies a concrete input where the rule and implementation disagree.`,
-        `The shrinking-tree view proves that simplification is conditional. A shrink candidate that passes is thrown away because it lost the bug. A candidate that still fails becomes the new center of search. The size plot is the key: the framework is driving input complexity downward while preserving the failure signal. The final small case is a distilled bug report, not a random artifact.`,
+        'The runner asks a strategy for an example and executes the property against real code. It records pass, fail, discard, timeout, and enough seed or example data for replay. If the case fails, shrinking starts from that concrete input.',
+        'Strategies are structured generators, not plain random functions. An integer strategy knows about zero and bounds. A list strategy knows about length and element shrinkers. A state-machine strategy can generate operation sequences while respecting preconditions.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Property-based testing works when the property captures the real contract and the generator reaches the relevant domain. In the queue case, the claim might be that a model list and the implementation produce the same dequeued values after any valid sequence of enqueue and dequeue operations. A resize bug may require just enough operations to cross an internal capacity boundary. The generator can discover that boundary, and the shrinker can remove unrelated operations until the smallest failing sequence remains.`,
-        `The method is not an exhaustive proof. It executes real code but samples the space. Its strength is that it samples with structure and then preserves failures as regression material. Hypothesis has written about compositional shrinking because shrinking must respect how values were built: https://hypothesis.works/articles/compositional-shrinking/. Shrinking a JSON object, a command sequence, or a graph is not the same as shrinking a number, but the principle is the same: simpler while still failing.`,
+        'The method works when the property captures the real contract and the strategy reaches the relevant domain. If the queue must behave like a model list, every generated valid operation sequence can compare implementation outputs with model outputs. A resize bug becomes visible when the generator crosses the internal capacity boundary.',
+        'Shrinking is correct as a debugging aid because it only accepts candidates that still violate the same property. It is not a proof of minimality in every mathematical sense, but it is a monotone search toward simpler failing examples. The final input is useful because every removed part was unnecessary to reproduce the failure.',
       ],
     },
     {
-      heading: 'Tradeoffs and cost',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The cost is test design. A weak property can pass forever while checking almost nothing. A generator can miss the meaningful domain. Excessive filtering can discard most examples and waste time. Nondeterministic code can make shrinking unstable because a candidate fails once and passes later. Slow properties reduce the number of examples the runner can explore. State-machine tests require a reference model or oracle, which can be more work than ordinary examples.`,
-        `There is also a maintenance tradeoff. Good properties become living specifications, which is valuable, but they need names, scope, and replay stability. When a counterexample is found, commit the minimal case as a regression test or keep it in the example database. When the domain changes, update the strategy and property together. Treat the failure report as an artifact: seed, minimal input, property name, implementation version, and environment matter.`,
+        'Runtime cost is examples times property cost. If one property run takes 5 milliseconds and the runner tries 1000 examples, the test spends about 5 seconds before shrinking. A slow database-backed property may need fewer examples or a fake model because search multiplies the cost.',
+        'The larger cost is test design. A weak property can pass forever while checking little. Excessive filtering wastes generated cases. Nondeterministic code can make shrinking unstable because a candidate fails once and passes later.',
       ],
     },
     {
-      heading: 'Uses and failure modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Property-based testing is strong for parsers, serializers, encoders, decoders, queues, heaps, hash tables, permission systems, API round trips, numeric code, date logic, and state machines. It catches the bug class where curated examples are too polite. It also pairs well with metamorphic testing: if an exact oracle is hard, check relations such as round-trip, idempotence, monotonicity, commutativity, conservation, or equivalence with a slower reference implementation.`,
-        `It fails quietly when the property is tautological, when the generator only produces easy cases, or when the assertion checks implementation details rather than behavior. It can also mislead when generated values are valid syntactically but impossible in the real system. Property tests complement model checking, SMT solving, and symbolic execution. They run the real implementation, but they do not explore every path. Use them where executable invariants and rich input generation buy practical coverage.`,
+        'Property-based testing works well for parsers, serializers, encoders, decoders, queues, heaps, caches, permission checks, date logic, numeric code, and state machines. These domains have clear invariants and many awkward inputs.',
+        'It also works when exact expected output is hard but a relation is easy. Round trips, idempotence, monotonicity, conservation, commutativity, and equivalence with a slower reference implementation can all act as testable properties.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it fails',
       paragraphs: [
-        `Study TLA+ State-Space Model Checking for exhaustive bounded exploration of abstract states, Alloy Relational Model Finder for structural counterexamples, SMT Solver Theory Combination and Symbolic Execution Path Constraints for solver-backed paths, Queue and Hash Table for concrete invariant practice, and Bootstrap Confidence Intervals for thinking clearly about sampled evidence. The durable skill is learning to state properties that are strong enough to find bugs and narrow enough to debug.`,
+        'It fails when the generator never reaches the bug. A queue resize property will not find a resize bug if generated operation sequences never exceed the initial capacity. Strategy design is coverage design.',
+        'It also fails when generated values are syntactically valid but impossible in production, or when the property repeats the implementation instead of checking behavior. Property tests complement examples, model checking, symbolic execution, and fuzzing; they do not replace all of them.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A ring-buffer queue starts with capacity 4 and doubles to 8. The property says dequeued values must match a model array for any valid sequence. The runner finds this failure: enqueue 0, 1, 2, 3, dequeue twice, enqueue 4, 5, 6, then dequeue all values; the implementation returns 2, 3, 6, 5 instead of 2, 3, 4, 5, 6.',
+        'Shrinking removes unrelated operations and values. It may end at enqueue 0, 1, 2, 3, dequeue, enqueue 4, 5, dequeue all, which still crosses wraparound plus resize. That small case points directly at the copy order during resize instead of making the developer inspect hundreds of random commands.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Hypothesis documentation, Hypothesis strategy reference, and the Hypothesis article on compositional shrinking. Also study QuickCheck because it established the modern property-based testing style.',
+        'Study state-space model checking, Alloy, SMT solvers, symbolic execution, parser fuzzing, and reference-model testing next. The practical skill is writing properties that are strong enough to find bugs and small enough to debug.',
       ],
     },
   ],

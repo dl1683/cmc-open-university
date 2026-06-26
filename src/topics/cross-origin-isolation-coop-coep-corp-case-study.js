@@ -1,4 +1,4 @@
-﻿// Cross-origin isolation: COOP separates browsing context groups, COEP requires
+// Cross-origin isolation: COOP separates browsing context groups, COEP requires
 // explicit resource opt-in, and CORP/CORS make subresource embedding auditable.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -165,396 +165,55 @@ export function* run(input) {
   else throw new InputError('Pick a cross-origin isolation view.');
 }
 
-export const article = {
-  sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The graph traces how a document reaches the `crossOriginIsolated` state. Each node is a header, policy check, or runtime capability. Each edge is a dependency that must pass before the next node activates.',
-        {
-          type: 'bullets',
-          items: [
-            'Active nodes are the header or resource being evaluated right now.',
-            'Compare nodes are constraints not yet resolved -- the grant or path still missing.',
-            'Found nodes are checks that passed: their contract is satisfied and cannot regress.',
-            'Removed nodes are capabilities the browser withholds because a check failed.',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'The "header triad" view walks the three-header contract. The "resource audit" view walks a migration dependency graph. Both end at the same gate: crossOriginIsolated true or false.',
-        },
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Spectre-class CPU attacks proved that any process sharing an address space with cross-origin data can extract that data through timing side channels. SharedArrayBuffer and high-resolution timers make the attack practical from JavaScript. Browsers disabled SharedArrayBuffer entirely in January 2018, then brought it back only for pages that prove their cross-origin boundaries are explicit.',
-        {type:'callout', text:'Cross-origin isolation is a conjunctive contract: the document opts into isolation and every cross-origin resource must explicitly opt into being embedded.'},
-        {
-          type: 'quote',
-          text: 'To be able to use SharedArrayBuffer, your document needs to be in a secure context. For top-level documents, two headers need to be set to cross-origin isolate your site.',
-          attribution: 'MDN, "SharedArrayBuffer" documentation',
-        },
-        'Cross-origin isolation is the document state that proves those boundaries. It requires two cooperating checks: the page must sever implicit opener relationships with cross-origin windows (COOP), and every embedded cross-origin resource must explicitly consent to being used in this context (COEP). The browser grants powerful APIs only after both pass.',
-        {
-          type: 'table',
-          headers: ['Capability', 'Without isolation', 'With isolation'],
-          rows: [
-            ['SharedArrayBuffer', 'Blocked', 'Available'],
-            ['performance.now() precision', '100 us (coarsened)', '5 us or better'],
-            ['Atomics.wait()', 'Blocked on main thread', 'Available in workers'],
-            ['measureUserAgentSpecificMemory()', 'Blocked', 'Available'],
-            ['window.opener to cross-origin', 'Available', 'Severed by COOP'],
-          ],
-        },
-        {
-          type: 'note',
-          text: 'CSP restricts where resources load from. Cross-origin isolation asks a different question: has every loaded resource opted into being embedded by this isolated document? The two are complementary, not substitutes.',
-        },
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The natural first attempt is two response headers on the app route:',
-        {
-          type: 'code',
-          language: 'text',
-          text: [
-            '# Attempt: add both headers',
-            'Cross-Origin-Opener-Policy: same-origin',
-            'Cross-Origin-Embedder-Policy: require-corp',
-          ].join('\n'),
-          label: 'The standard header pair for strict isolation',
-        },
-        'This is not naive. COOP `same-origin` moves the page into its own browsing context group. COEP `require-corp` demands that every cross-origin resource carry explicit permission. On a small first-party page with same-origin scripts and a CORS font, those two headers are enough.',
-        'The attempt breaks on the first uncontrolled dependency. A third-party analytics script, a CDN image without CORP, an ad iframe, or a payment popup that relies on `window.opener` -- any one of them blocks the isolated state for the entire document.',
-        {
-          type: 'bullets',
-          items: [
-            'Header-only rollout works when the route owns every resource and popup.',
-            'Worker-only rollout fails because SharedArrayBuffer is gated by the embedding document, not the worker.',
-            'CSP-only rollout fails because CSP controls allowed sources, not whether resources opted into an isolated embedder.',
-            'CORS-only rollout fails because many browser embeds use no-cors mode unless the element explicitly opts into CORS.',
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Cross-origin isolation is all-or-nothing at the document boundary. One failing resource edge blocks the entire isolated state.',
-        {
-          type: 'diagram',
-          text: [
-            '  doc (COOP + COEP)',
-            '   |',
-            '   +-- app.js          same-origin   --> PASS',
-            '   +-- compiler.wasm   same-origin   --> PASS',
-            '   +-- fonts.gstatic   CORS headers  --> PASS',
-            '   +-- cdn.images      CORP header   --> PASS',
-            '   +-- analytics.js    no headers    --> BLOCK  <-- wall',
-            '   +-- payment iframe  no headers    --> BLOCK',
-            '   |',
-            '   crossOriginIsolated = false',
-          ].join('\n'),
-          label: 'One missing header on one resource blocks isolation for the entire page',
-        },
-        'The invariant is conjunctive: isolation = COOP passes AND every resource edge passes COEP. There is no "mostly isolated." The browser evaluates a boolean, not a score.',
-        {
-          type: 'table',
-          headers: ['Asset edge', 'Typical request mode', 'Passing path', 'Common failure'],
-          rows: [
-            ['Same-origin JS', 'same-origin', 'Served by isolated origin', 'Redirect to another origin'],
-            ['CDN WASM binary', 'cors or no-cors', 'CORS + crossorigin attr, or CORP', 'COEP violation blocks worker SAB'],
-            ['CDN image / font', 'no-cors', 'CORP: cross-origin, or credentialless', 'Resource blocked; visual breakage'],
-            ['Analytics script', 'no-cors (vendor-controlled)', 'Vendor adds headers, or remove from route', 'Vendor cannot or will not set headers'],
-            ['OAuth / payment popup', 'top-level navigation', 'Redesign to postMessage handoff', 'Opener channel severed by COOP'],
-            ['Cross-origin iframe', 'nested browsing context', 'Frame satisfies compatible COEP', 'Frame blocked or isolation lost'],
-          ],
-        },
-        {
-          type: 'note',
-          text: 'The wall is stricter than "does the page load?" A page can render correctly and still fail the isolation gate. The only reliable deployment test is the runtime boolean plus resource-level diagnostics.',
-        },
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Cross-origin isolation is a two-sided contract. The page declares it wants isolation (COOP + COEP). Each resource declares it consents to being embedded by an isolated page (CORS or CORP). The browser verifies both sides before granting capabilities.',
-        {
-          type: 'diagram',
-          text: [
-            '       PAGE SIDE                  RESOURCE SIDE',
-            '  +---------------------+    +------------------------+',
-            '  | COOP: same-origin   |    | CORS: Access-Control-  |',
-            '  |  severs opener refs |    |  Allow-Origin (read    |',
-            '  |                     |    |  grant for cors loads) |',
-            '  | COEP: require-corp  |    |                        |',
-            '  |  demands resource   |    | CORP: cross-origin     |',
-            '  |  opt-in on every    |    |  (embed consent for    |',
-            '  |  cross-origin load  |    |   no-cors loads)       |',
-            '  +---------------------+    +------------------------+',
-            '            |                           |',
-            '            +---- both satisfied? ------+',
-            '                        |',
-            '               crossOriginIsolated = true',
-          ].join('\n'),
-          label: 'Isolation requires mutual consent: the page opts in, each resource opts in',
-        },
-        'CORP and CORS are not synonyms. CORS is a request/response protocol allowing cross-origin reads. CORP is a resource-side header telling browsers which origins may consume the response in no-cors contexts. COEP uses both declarations to decide whether an isolated document may embed each resource.',
-        {
-          type: 'note',
-          text: 'The invariant is fail-closed: every privileged execution path must branch on the browser-observed isolated state, and every resource edge must have one declared reason it is allowed to load.',
-        },
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The browser evaluates two independent checks when loading a document with COOP and COEP headers.',
-        {
-          type: 'table',
-          headers: ['Check', 'Header', 'Evaluates', 'Failure effect'],
-          rows: [
-            ['Opener', 'COOP', 'Is the opener same-origin?', 'Page moves to new browsing context group; window.opener nulled'],
-            ['Embedder', 'COEP', 'Does every cross-origin subresource carry CORS or CORP?', 'Non-compliant resources are blocked from loading'],
-          ],
-        },
-        'The opener check runs first. `COOP: same-origin` puts the document into a new browsing context group if its opener is cross-origin. This severs the bidirectional `window.opener` reference -- the page can no longer be scripted by a cross-origin window that opened it.',
-        'The embedder check runs on every subresource load. For each cross-origin no-cors request, the browser looks for a `Cross-Origin-Resource-Policy` header on the response. For cross-origin cors requests, normal CORS validation applies. If any resource fails, it is blocked, and `crossOriginIsolated` stays false.',
-        {
-          type: 'code',
-          language: 'text',
-          text: [
-            '# Response headers for a fully isolated page:',
-            'Cross-Origin-Opener-Policy: same-origin',
-            'Cross-Origin-Embedder-Policy: require-corp',
-            '',
-            '# Each cross-origin resource must include one of:',
-            'Cross-Origin-Resource-Policy: cross-origin   # for no-cors loads',
-            'Access-Control-Allow-Origin: https://app.example  # for cors loads',
-          ].join('\n'),
-          label: 'Minimal header set for the strict isolation path',
-        },
-        'There is also a compatibility path. `COEP: credentialless` loads cross-origin no-cors resources without sending cookies or client certificates. Resources that depend on ambient credentials break, but public CDN assets that simply lack CORP headers will load.',
-        {
-          type: 'table',
-          headers: ['COEP value', 'Cross-origin no-cors behavior', 'Credentials sent', 'CORP required'],
-          rows: [
-            ['unsafe-none', 'Load normally', 'Yes', 'No'],
-            ['require-corp', 'Blocked unless CORS or CORP', 'Yes', 'Yes'],
-            ['credentialless', 'Load without credentials', 'No', 'No'],
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The security argument rests on one property: an isolated page has no opaque cross-origin data in its process.',
-        {
-          type: 'bullets',
-          items: [
-            'COOP ensures no cross-origin window shares a browsing context group, so no cross-origin data is accessible through opener references.',
-            'COEP ensures every cross-origin resource explicitly opted in, so no opaque response body leaked through no-cors fetches.',
-            'Together, the process contains only same-origin data and cross-origin data whose owners granted explicit access.',
-          ],
-        },
-        'Because there is no secret cross-origin data to extract, Spectre-class timing attacks against the process cannot leak anything the attacker does not already have permission to read. This is why the browser re-enables SharedArrayBuffer: the precondition for the attack -- cohabitation with opaque cross-origin data -- has been eliminated.',
-        {
-          type: 'quote',
-          text: 'The two headers complement each other: COOP protects your document from being accessed by other origins, while COEP prevents your document from accessing data from other origins that have not explicitly granted permission.',
-          attribution: 'Eiji Kitamura and Domenic Denicola, "Making your website cross-origin isolated" (web.dev, 2021)',
-        },
-        {
-          type: 'table',
-          headers: ['Policy', 'Question it answers', 'What it does NOT answer'],
-          rows: [
-            ['COOP', 'Can this document share a browsing context group with its opener?', 'Whether scripts, images, fonts, or iframes are allowed to load'],
-            ['COEP', 'Must cross-origin resources prove they can be embedded here?', 'Whether another window may keep an opener reference'],
-            ['CORP', 'Is this no-cors response willing to be consumed by this document?', 'Whether JavaScript may read the response body via fetch'],
-            ['CORS', 'Did the server allow this cross-origin read path?', 'Whether unrelated no-cors embeds are acceptable'],
-          ],
-        },
-        'The policy is mechanical, not reputational. The browser does not judge whether a vendor is trustworthy. It checks whether the vendor set a header. This makes the guarantee auditable.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Cross-origin isolation has zero runtime overhead. It is a policy check at document and resource load time. The complexity is entirely operational: finding every dependency, coordinating headers with third parties, and preventing future regressions.',
-        {
-          type: 'table',
-          headers: ['Cost center', 'What grows', 'Mitigation'],
-          rows: [
-            ['Resource audit', 'Every script, worker, WASM, font, image, iframe, stylesheet, source map', 'Automated staging audit plus browser DevTools reports'],
-            ['Vendor negotiation', 'Third-party resources whose headers you cannot set', 'Move off isolated route, proxy through same origin, or replace vendor'],
-            ['Credential behavior', 'Resources depending on cookies or HTTP auth', 'Prefer CORS with explicit credentials; avoid credentialless for personalized assets'],
-            ['Popup compatibility', 'OAuth, payment, chat, document-preview flows', 'Use non-isolated handoff route or postMessage redesign'],
-            ['Regression risk', 'New vendor tags added after launch', 'CI check that fails when isolated pages lose crossOriginIsolated'],
-          ],
-        },
-        'Cost scales with the number of cross-origin dependencies, not with traffic or data volume. A page with 3 same-origin scripts and 1 CORS font is trivial to isolate. A page with 40 vendor tags, 6 ad iframes, and a payment popup may be impossible without architectural changes.',
-        {
-          type: 'note',
-          text: 'Popup flows are the most common surprise. OAuth redirect flows often rely on window.opener to pass tokens. COOP: same-origin severs that reference. The fix is usually postMessage with a known target origin, or a redirect-based flow that avoids opener.',
-        },
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A web IDE ships a Rust-to-WASM compiler. Single-threaded compilation takes 18 seconds on a large project. A shared-memory worker pool cuts it to 7 seconds by letting parser, type-checker, optimizer, and codegen workers coordinate through a shared work queue backed by SharedArrayBuffer.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: [
-            '// Gate: only enable shared-memory workers if isolated',
-            'if (globalThis.crossOriginIsolated) {',
-            '  const shared = new SharedArrayBuffer(64 * 1024 * 1024);',
-            '  worker.postMessage({ type: "compile", buffer: shared });',
-            '} else {',
-            '  const copy = new ArrayBuffer(64 * 1024 * 1024);',
-            '  worker.postMessage({ type: "compile", buffer: copy }, [copy]);',
-            '  console.warn("SAB unavailable -- check isolation headers");',
-            '}',
-          ].join('\n'),
-          label: 'Production code gates on crossOriginIsolated, never assumes it',
-        },
-        'The team inventories every resource on the compiler route:',
-        {
-          type: 'table',
-          headers: ['Resource', 'Origin', 'Current state', 'Migration path'],
-          rows: [
-            ['app.js', 'same-origin', 'Passes', 'None needed'],
-            ['compiler.wasm', 'same-origin', 'Passes', 'None needed'],
-            ['editor.css', 'same-origin', 'Passes', 'None needed'],
-            ['Google Fonts', 'fonts.gstatic.com', 'CORS present', 'Already compatible'],
-            ['CDN images', 'cdn.example.com', 'No CORP', 'Add CORP: cross-origin'],
-            ['Analytics tag', 'analytics.vendor.com', 'No headers, opaque', 'Move off compiler page'],
-            ['Payment iframe', 'pay.vendor.com', 'Uses window.opener', 'Redesign to postMessage'],
-          ],
-        },
-        'The analytics vendor cannot add CORP. The team moves the tag to marketing pages that do not need isolation. The payment flow is redesigned to use postMessage instead of window.opener.',
-        {
-          type: 'diagram',
-          text: [
-            '  Before:                            After:',
-            '  /editor (no isolation)              /editor (isolated)',
-            '    +-- app.js                          +-- app.js',
-            '    +-- compiler.wasm                   +-- compiler.wasm',
-            '    +-- fonts (CORS)                    +-- fonts (CORS)',
-            '    +-- cdn images (no CORP)            +-- cdn images (CORP added)',
-            '    +-- analytics.js (opaque)           +-- payment (postMessage)',
-            '    +-- payment (opener)                crossOriginIsolated = true',
-            '    crossOriginIsolated = false',
-            '                                      /marketing (no isolation)',
-            '                                        +-- analytics.js',
-            '                                        +-- ads, widgets',
-          ].join('\n'),
-          label: 'Isolate the route that needs SharedArrayBuffer, not the entire site',
-        },
-        {
-          type: 'table',
-          headers: ['Step', 'Action', 'State change'],
-          rows: [
-            ['1', 'Add COOP + COEP to /editor only', 'Route enters strict policy path'],
-            ['2', 'Inventory assets in DevTools', 'Find 7 resource edges, 2 failing'],
-            ['3', 'Move core assets to same origin', 'app.js, compiler.wasm, worker.js pass'],
-            ['4', 'Serve font with CORS + crossorigin attr', 'Font uses explicit CORS path'],
-            ['5', 'Remove analytics from compiler route', 'Vendor-controlled blocker eliminated'],
-            ['6', 'Route login through /auth/return', 'OAuth keeps handoff without weakening COOP'],
-            ['7', 'Gate runtime on crossOriginIsolated', 'SAB enabled only when browser confirms'],
-            ['8', 'Add staging assertion + report endpoint', 'Future regressions caught pre-production'],
-          ],
-        },
-        {
-          type: 'note',
-          text: 'A useful migration log names the first failing edge. "crossOriginIsolated is false" is too coarse. "compiler.wasm loaded from cdn.example without CORS or CORP" is actionable.',
-        },
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'Cross-origin isolation earns its migration cost when shared memory or high-resolution timing changes what the product can do.',
-        {
-          type: 'table',
-          headers: ['Application class', 'Why isolation matters'],
-          rows: [
-            ['Browser IDEs (StackBlitz, CodeSandbox)', 'WASM compiler workers sharing memory across threads'],
-            ['Media encoders (Squoosh, ffmpeg.wasm)', 'Video/image pipelines with SharedArrayBuffer frame queues'],
-            ['Scientific notebooks', 'Large matrix operations coordinated across worker threads'],
-            ['CAD / 3D editors', 'Geometry buffers shared between render and physics workers'],
-            ['ML inference demos', 'Model weight buffers shared with WASM inference workers'],
-            ['Game engines (Unity WebGL)', 'Frame-synchronized shared state across audio, physics, render'],
-          ],
-        },
-        'Isolation also serves as an architecture forcing function. Moving ads, opaque analytics, and vendor widgets off the high-performance page makes the execution surface cleaner and the dependency graph auditable.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Isolation fails when the page cannot control its resource edges.',
-        {
-          type: 'bullets',
-          items: [
-            'Ad networks inject opaque cross-origin iframes and scripts that rarely carry CORP or CORS. A page with ads is usually incompatible with require-corp.',
-            'Legacy analytics tags load via no-cors with no header negotiation path. The vendor must change, or the tag leaves the isolated page.',
-            'Partner widgets (chat, support, surveys) often depend on window.opener or ambient cookies. Both break under isolation.',
-            'CDN resources without CORP require the CDN operator to add headers. If you do not control the config, you cannot fix the edge.',
-            'credentialless softens COEP but strips cookies, breaking any resource that depends on session state.',
-          ],
-        },
-        'Isolation is not a substitute for other defenses. It does not prevent XSS, validate input, enforce CSP, secure cookies, or gate Fetch Metadata. It narrows one attack surface -- opaque cross-origin data in the process -- so powerful APIs can be re-enabled safely.',
-        {
-          type: 'table',
-          headers: ['Mistake', 'Why it fails', 'Better decision'],
-          rows: [
-            ['Enable SAB without runtime check', 'One resource or Permissions Policy can block isolation', 'Branch on crossOriginIsolated at runtime'],
-            ['Set CORP: cross-origin on everything', 'Exposes resources to broader no-cors consumption', 'Choose same-origin / same-site / cross-origin per asset'],
-            ['Isolate the whole site at once', 'Vendor-heavy pages create unrelated breakage', 'Isolate only the route that needs shared memory'],
-            ['Treat credentialless as transparent', 'Cookies are stripped; personalized responses break', 'Test authenticated resources separately'],
-            ['Ignore popup flows', 'COOP severs opener used by OAuth or payments', 'Design postMessage handoff or separate route'],
-          ],
-        },
-        {
-          type: 'note',
-          text: 'The worst failure mode is partial confidence: a team adds COOP and COEP, assumes SAB works, ships no fallback, and discovers in production that a vendor tag silently blocked isolation. Always gate on the runtime boolean.',
-        },
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'table',
-          headers: ['Source', 'Covers'],
-          rows: [
-            ['MDN: Cross-Origin-Opener-Policy', 'COOP values, browsing context group mechanics'],
-            ['MDN: Cross-Origin-Embedder-Policy', 'COEP values, require-corp vs. credentialless'],
-            ['MDN: Cross-Origin-Resource-Policy', 'CORP values: same-origin / same-site / cross-origin'],
-            ['MDN: crossOriginIsolated', 'Runtime boolean, worker property, gating pattern'],
-            ['web.dev: "Making your website cross-origin isolated"', 'End-to-end migration guide with worked examples'],
-            ['WHATWG Fetch spec', 'Normative CORS, no-cors, and embedder policy algorithms'],
-            ['HTML spec: cross-origin embedder policy', 'Browsing context group creation and opener enforcement'],
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: CORS Preflight Cache -- understand the CORS protocol before reasoning about COEP.',
-            'Extension: SharedArrayBuffer & Atomics Wait/Notify -- the capability isolation unlocks.',
-            'Related: Subresource Integrity Hash Manifest -- another resource-edge verification mechanism.',
-            'Contrast: CSP Nonce & Hash Policy -- restricts resource sources but does not require resource consent.',
-            'Deeper: Fetch Metadata Request Gate -- server-side complement to browser-side isolation.',
-          ],
-        },
-      ],
-    },
-  ],
-};
+
+export const article = { sections: [
+  { heading: 'How to read the animation', paragraphs: [
+    'The header-triad view shows how a document reaches crossOriginIsolated. Active nodes are the current header or resource check; found nodes are satisfied contracts; removed nodes are capabilities withheld because the contract failed.',
+    'The resource-audit view is a dependency graph. Every script, worker, WASM module, image, font, iframe, and tag needs a same-origin path, CORS path, CORP header, or credentialless-compatible load.',
+  ] },
+  { heading: 'Why this exists', paragraphs: [
+    'Spectre-class attacks made high-resolution timers and shared memory dangerous when a process also contains opaque cross-origin data. Browsers therefore gate SharedArrayBuffer and related capabilities behind stronger isolation.',
+    'Cross-origin isolation is the browser state that says the opener boundary and embedded-resource boundary are explicit. A page opts in, and every cross-origin resource must consent to being used in that page.',
+    {type:'callout', text:'Cross-origin isolation is a conjunctive contract: the document opts into isolation and every cross-origin resource must explicitly opt into being embedded.'},
+  ] },
+  { heading: 'The obvious approach', paragraphs: [
+    'The obvious approach is to add Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp to the page. That works for a small first-party route where all resources are same-origin or already CORS/CORP-compatible.',
+    'It breaks on uncontrolled dependencies. One third-party analytics script, CDN image without CORP, payment popup relying on window.opener, or ad iframe can block the isolated state for the whole document.',
+  ] },
+  { heading: 'The wall', paragraphs: [
+    'The wall is conjunctive failure. crossOriginIsolated is true only when COOP passes and every COEP-governed resource edge passes; there is no mostly isolated state for SharedArrayBuffer.',
+    'The migration wall is inventory. A page can look visually fine and still fail the runtime boolean because one opaque subresource loaded through a path that did not opt into isolation.',
+  ] },
+  { heading: 'The core insight', paragraphs: [
+    'Cross-origin isolation is a two-sided contract. COOP controls opener relationships and browsing context groups, while COEP requires embedded cross-origin resources to provide explicit permission through CORS, CORP, or a credentialless path.',
+    'CORS and CORP answer different questions. CORS allows a cross-origin read path; CORP tells the browser which origins may consume a no-cors response as an embedded resource.',
+  ] },
+  { heading: 'How it works', paragraphs: [
+    'COOP: same-origin moves the document away from cross-origin opener relationships, usually nulling window.opener across the boundary. COEP: require-corp makes the browser check each cross-origin subresource before loading it into the page.',
+    'For a cors request, normal CORS validation must pass. For a no-cors request, the response needs a Cross-Origin-Resource-Policy value that permits consumption, unless the page uses a credentialless mode that strips credentials for compatible no-cors resources.',
+  ] },
+  { heading: 'Why it works', paragraphs: [
+    'The security argument is that an isolated page should not share powerful timing and memory tools with opaque cross-origin data. COOP removes cross-origin opener access, and COEP blocks cross-origin resources that did not opt in.',
+    'Once the browser can establish that boundary, it can safely expose SharedArrayBuffer to the page and workers. The proof is mechanical: headers and resource modes pass, not vendor reputation.',
+  ] },
+  { heading: 'Cost and complexity', paragraphs: [
+    'The runtime cost is small, but the dependency cost can be large. A route with 4 first-party assets may isolate in an hour; a route with 30 vendor tags, 5 ad iframes, and an OAuth popup may need architecture changes.',
+    'The maintenance cost is regression control. Every new vendor script, CDN asset, worker, iframe, font, and popup needs an isolation-compatible path or the page can lose crossOriginIsolated after a deploy.',
+  ] },
+  { heading: 'Real-world uses', paragraphs: [
+    'It fits browser IDEs, WASM compilers, media encoders, CAD tools, scientific notebooks, game engines, and ML demos that need SharedArrayBuffer or precise timing. The common access pattern is worker-heavy computation with shared memory.',
+    'It also cleans architecture. Moving ads, analytics, and opaque widgets off the high-performance route creates a smaller dependency graph for pages that need powerful browser features.',
+  ] },
+  { heading: 'Where it fails', paragraphs: [
+    'It fails on pages that depend on opaque third-party resources the team cannot control. Ad networks, legacy analytics tags, partner widgets, personalized CDN assets, and opener-based payment flows are common blockers.',
+    'It also fails when code assumes isolation instead of checking it. Production code should branch on globalThis.crossOriginIsolated and provide a fallback path when the browser withholds SharedArrayBuffer.',
+  ] },
+  { heading: 'Worked example', paragraphs: [
+    'A browser IDE compiles a project in 18 seconds with copied ArrayBuffers. A SharedArrayBuffer worker pool cuts compile time to 7 seconds, so the /editor route adds COOP and COEP and inventories app.js, compiler.wasm, fonts, CDN images, analytics, and payment popup.',
+    'The audit finds 7 resource edges: 4 pass, CDN images need CORP, analytics has no compatible header, and payment uses opener. The team adds CORP to images, removes analytics from /editor, redesigns payment handoff through postMessage, and enables SAB only when crossOriginIsolated is true.',
+  ] },
+  { heading: 'Sources and study next', paragraphs: [
+    'Primary sources: MDN COOP, COEP, CORP, SharedArrayBuffer, and crossOriginIsolated docs; web.dev guidance on making a site cross-origin isolated; WHATWG Fetch; and HTML policy algorithms. Study browsing context groups, no-cors requests, and worker memory next.',
+    'Then compare CORS Preflight Cache, CSP Nonce Hash Policy, Subresource Integrity, Fetch Metadata, Permissions Policy, and Service Workers. Each tool controls a different browser boundary.',
+  ] },
+] };

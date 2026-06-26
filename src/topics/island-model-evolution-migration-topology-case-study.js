@@ -221,67 +221,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Evolutionary search is attractive when the object being optimized is hard to differentiate or hard to describe analytically: a neural architecture, a robot controller, a program, a schedule, a game-playing policy, or a simulation-heavy design. The algorithm keeps a population of candidates, mutates and recombines them, evaluates their fitness, and lets stronger candidates influence the next generation. That gives the search a way to move without gradients, but it also creates a classic failure: a population can become too similar too early.`,
-        `The island model exists to fight that collapse while using parallel hardware well. Instead of one global population, it runs several semi-independent subpopulations called islands. Each island explores its own region of the search space, and only occasional migrants cross between islands. The data-structure problem is controlled information flow: discoveries should travel, but not so quickly that every island becomes a copy of the current winner.`,
-        {type:`callout`, text:`Island models make migration topology part of the search bias, balancing local diversity against controlled spread of discoveries.`},
-        {type:`image`, src:`https://upload.wikimedia.org/wikipedia/commons/c/c2/Island_population_model_of_an_evolutionary_algorithm.png`, alt:`Island model diagram with eight subpopulations connected by migration edges`, caption:`Island population model diagram by Studi90, via Wikimedia Commons, CC BY-SA 4.0.`},
+        'The animation shows an evolutionary algorithm split into islands. An evolutionary algorithm keeps candidate solutions, scores them with a fitness function, mutates or recombines them, and selects survivors. An island is one subpopulation that evolves mostly on its own. Migration means sending selected candidates across topology edges to other islands.',
+        'Active nodes are islands currently evaluating, selecting, sending, or receiving candidates. Found nodes are candidates that survive a local selection step or become migrants. Compare markers show competing topology choices such as ring, star, mesh, or random links. The diversity plot shows whether islands are still exploring different regions.',
+        {type:'callout', text:'Island models make migration topology part of the search bias, balancing local diversity against controlled spread of discoveries.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c2/Island_population_model_of_an_evolutionary_algorithm.png', alt:'Island model diagram with eight subpopulations connected by migration edges', caption:'Island population model diagram by Studi90, via Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'The naive approach and its wall',
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive design is one large population. It is simple: evaluate every candidate, select the best, mutate them, and repeat. It spreads useful genetic material quickly, which can be good on smooth search spaces. The wall appears on rugged landscapes with many basins. A lucky early candidate can dominate selection before the population has sampled enough alternatives. Once diversity falls, later mutation is mostly local repair around the same basin.`,
-        `The opposite naive design is many independent runs with no communication. That protects diversity, but it wastes discoveries. If one worker finds a useful building block, every other worker must rediscover it from scratch. The island model sits between those extremes. It keeps local search separate most of the time, then uses migration as a scheduled, topologized, auditable way to share candidates.`,
+        'Evolutionary search is useful when the object is hard to optimize with gradients or exact formulas, such as a robot controller, neural architecture, schedule, program, or simulation design. A single population can improve, but it can also collapse around an early good candidate before alternatives have been tested.',
+        'The island model exists to preserve diversity while using parallel hardware. Each island explores locally, and migration shares discoveries on a schedule. The design problem is not just compute distribution. It is controlled information flow.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is one large population. Evaluate all candidates, keep stronger ones, mutate them, and repeat. Good traits spread quickly because every candidate competes in the same arena.',
+        'The opposite simple approach is independent restarts. Run many separate populations and never communicate. That protects exploration, but it wastes discoveries because every worker must rediscover useful building blocks alone.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is premature convergence. If one candidate is lucky early, selection can fill the population with close variants. Later mutation then explores only one basin of the search space, even if another basin contains better solutions.',
+        'Parallelism adds another wall. Expensive evaluators finish at different times, machines fail, seeds differ, and scores can be noisy. Without a migration ledger, a stale or lucky candidate can look like progress and spread through the system.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `Migration topology is not implementation decoration. It is part of the search bias. A ring lets discoveries move slowly around the population, which protects local exploration. A star makes a hub powerful: useful discoveries spread fast, but hub choices can dominate. A dense mesh makes every island highly connected, which raises the chance that the same elite candidate floods the whole system. A random or time-varying topology can mix these behaviors.`,
-        `The other insight is that migrants are not just values. A candidate has an identity, a lineage, a score, a seed, a worker, an evaluator version, a timestamp, and sometimes a retry history. In cheap textbook examples those fields are hidden. In real evolutionary search, they decide whether a migrant is comparable, stale, duplicated, contaminated by a flaky evaluator, or worth admitting into another island.`,
+        'Migration topology is part of the algorithm. A ring spreads discoveries slowly and preserves local variation. A star spreads through a hub and can converge quickly. A dense mesh shares information fast but risks making all islands similar.',
+        'A migrant is not just a candidate value. It carries lineage, seed, score, evaluator version, worker, age, and mutation history. Those fields decide whether the receiving island should trust it, quarantine it, ignore it as a duplicate, or let it compete.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
-        `Inside each island, the loop is ordinary evolutionary search. Generate children by mutation or recombination, evaluate fitness, select survivors, update the local population, and keep an archive of strong candidates. On a migration interval, each island chooses a small export set: perhaps its elites, a random sample, novelty-maximizing candidates, or a mixture. Those exports travel only along topology edges. The receiver applies its own insertion policy rather than blindly replacing local candidates.`,
-        `A production island model also needs scheduling machinery. Evaluation may mean a simulator run, benchmark suite, training job, or physical experiment, so results return asynchronously. The evaluator ledger records candidate hash, seed, score, worker, age, retry count, and environment. A freshness policy prevents a three-generation-old result from beating a current candidate unfairly. A replacement policy decides whether a migrant competes immediately, waits in quarantine, or is discarded as a duplicate.`,
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        `The topology view proves that migration edges are search constraints. A ring, star, mesh, and random graph do not differ only in drawing style; they differ in how fast information spreads and how quickly diversity is at risk. The diversity plot compares a single population with a ring. The single population drops faster because every candidate competes in one shared arena. The ring keeps subpopulations distinct longer, so more basins remain alive.`,
-        `The asynchronous evaluator view proves that distributed evolution is also a distributed-systems problem. The queue, worker nodes, selection step, and migration step are part of the algorithm because they decide which evidence is trusted. If a slow worker returns a stale elite, if a failed benchmark is retried under a different environment, or if one seed is unusually favorable, the search can promote noise. The ledger is not bookkeeping after the fact; it protects selection itself.`,
+        'Each island runs a local evolutionary loop. It evaluates candidates, selects survivors, creates children by mutation or recombination, and records an archive of useful candidates. Every M generations, it exports a small set such as elites, novel candidates, or a mixed sample.',
+        'Migrants travel only along topology edges. The receiver applies an insertion policy: replace weak candidates, add to a queue, admit only if novel, or compare against a local validation benchmark. The evaluator ledger records enough evidence to reproduce why the migrant was accepted.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The model works because it separates exploitation from communication. Within an island, selection can exploit local discoveries aggressively. Across islands, migration throttles how much of that exploitation becomes global. Sparse topology and low migration rates preserve independent hypotheses. Periodic exchange still lets strong building blocks move outward, so the whole system is not merely a set of isolated restarts.`,
-        `Correctness here is not a proof that the global optimum will be found. Evolutionary algorithms rarely give that kind of guarantee in practical spaces. The useful invariant is behavioral: maintain multiple partially independent populations while allowing bounded sharing. When diversity metrics, migration ledgers, and evaluator versions are recorded, the team can tell whether improvement came from real search progress or from takeover, stale scores, seed luck, or worker bias.`,
+        'The model works because it separates local exploitation from global communication. Inside an island, selection can exploit good local discoveries. Across islands, sparse or delayed migration prevents one discovery from instantly dominating all populations.',
+        'There is no general proof that an island model finds the global optimum in practical search spaces. The useful correctness argument is behavioral: if islands retain separate populations and migration is bounded, then the system maintains multiple hypotheses while still allowing good building blocks to travel.',
       ],
     },
     {
-      heading: 'Tradeoffs and cost',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The main benefit is parallelism. Most candidate evaluations are independent, so islands map well to worker pools, clusters, regions, or hardware classes. Communication can be small compared with evaluation cost. The main price is control-plane complexity: migration schedules, topology choices, replacement policies, score normalization, stale-result handling, and reproducibility records all become part of the system.`,
-        `The knobs interact. High migration rate spreads discoveries but can homogenize the search. Low migration rate protects exploration but may delay useful building blocks. Elite-only migration can cause clone takeover. Random migration can preserve diversity but waste bandwidth on weak candidates. Dense topologies reduce time to spread, while sparse topologies lower communication and preserve local variation. There is no universal setting; the right policy depends on evaluator noise, landscape ruggedness, and budget.`,
+        'Evaluation usually dominates cost. If one candidate simulation costs 2 minutes and there are 8 islands with 50 candidates each, one generation costs 800 candidate-minutes, but it can run in parallel across workers. Migration messages are small compared with evaluation.',
+        'The control cost is real. The system must store lineage, seeds, scores, evaluator versions, migration time, replacement decisions, and duplicates. Higher migration rates reduce rediscovery time but increase takeover risk. Lower rates preserve diversity but can delay useful discoveries.',
       ],
     },
     {
-      heading: 'Uses and failure modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Island models are useful for distributed hyperparameter search, simulator-heavy robotics, genetic programming, program synthesis, architecture search, game agents, hardware design exploration, and quality-diversity systems. They are especially natural when evaluation is expensive and parallel capacity is available. They also fit organizational boundaries: one island can run on a fast approximate evaluator, another on a slower trusted benchmark, and migration can be allowed only when evidence is comparable.`,
-        `They fail when migration policy is treated casually. A single champion sent everywhere can erase exploration. Scores from different evaluator versions can make old candidates look better than they are. Asynchronous queues can prefer fast-to-evaluate candidates over genuinely good ones. Duplicate candidates can consume budget across islands. A topology that is too sparse can behave like isolated restarts, while one that is too dense becomes a global population with extra overhead.`,
+        'Island models fit distributed hyperparameter search, architecture search, robotics, genetic programming, simulation-heavy design, game agents, compiler heuristic tuning, and quality-diversity experiments. They are strongest when evaluation is expensive and parallel capacity is available.',
+        'They also fit mixed evaluators. One island can use a fast approximate simulator while another uses a slower trusted benchmark. Migration can require confirmation before a candidate moves from cheap evidence to expensive evidence.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A migration policy can erase the benefit. Elite-only migration in a dense topology can make every island a copy of the current champion. Too little migration behaves like isolated restarts. Unnormalized scores can make candidates from one evaluator version dominate unfairly.',
+        'Asynchronous execution can bias selection toward fast candidates rather than good candidates. Duplicate candidates can consume budget on many islands. A missing ledger makes it impossible to tell whether improvement came from search, seed luck, stale scores, or worker bias.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose 4 islands each hold 25 candidates. Each candidate evaluation costs 30 seconds. One generation is 100 evaluations, or 50 minutes of work on one worker, but with 20 workers it takes about 2.5 minutes plus scheduling overhead. Every 5 generations, each island exports 2 migrants to its two ring neighbors.',
+        'After 20 generations, island A has found a candidate with score 0.91, while B, C, and D have best scores 0.84, 0.86, and 0.82. In a mesh with elite migration every generation, 0.91 may appear everywhere within one or two generations and diversity may collapse. In a ring with 2 migrants every 5 generations, the 0.91 building block travels more slowly, giving other islands time to keep testing different basins.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: Island Models Meet Rumor Spreading at https://hpi.de/friedrich/docs/publications/2017/GECCO_c.pdf, sparse migration topology runtime analysis at https://pmc.ncbi.nlm.nih.gov/articles/PMC6438647/, and dynamic island model framework at https://univ-angers.hal.science/hal-03350615v1/document. Study Evolutionary Search for the base loop, Differential Evolution for population updates, Quality Diversity MAP-Elites for diversity as an objective, Gossip Protocol for spreading behavior, Message Queue for asynchronous evaluation, and Distributed Tracing for replaying candidate evidence across workers.`,
+        'Primary sources: Island Models Meet Rumor Spreading at https://hpi.de/friedrich/docs/publications/2017/GECCO_c.pdf, sparse migration topology runtime analysis at https://pmc.ncbi.nlm.nih.gov/articles/PMC6438647/, and dynamic island model framework at https://univ-angers.hal.science/hal-03350615v1/document.',
+        'Study evolutionary algorithms, selection pressure, mutation, recombination, gossip protocols, distributed queues, benchmark reproducibility, quality diversity, and MAP-Elites next. The practical exercise is to compare ring and mesh migration on the same random seed budget.',
       ],
     },
   ],

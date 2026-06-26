@@ -194,276 +194,88 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. The block-layout view traces how a dense matrix becomes three BSR arrays: block row pointers, block column indices, and dense value tiles. The kernel-fit view traces the decision of whether BSR is the right format for a given sparsity pattern.',
-        {
-          type: 'bullets',
-          items: [
-            'Active (highlighted): the current stage in the BSR pipeline -- the array being populated or the format being evaluated.',
-            'Found (green): a result committed to the output -- a stored block, a chosen format, a confirmed kernel path.',
-            'Compare (blue): a contrast case that clarifies the active decision -- CSR versus BSR tradeoffs, full tiles versus ragged tails.',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'The block-layout view answers "how does BSR represent the matrix?" The kernel-fit view answers "should you use BSR at all?" Watch both before deciding BSR is the right tool for a problem.',
-        },
+        'Read BSR as a sparse matrix layout with two levels. Sparse means most entries are zero, and matrix kernels should not multiply by zeros if they can avoid it. BSR, or block sparse row, stores fixed-size dense blocks for the nonzero regions and row pointers that say which block rows are present.',
+        'The safe inference rule is shape before speed. If nonzeros cluster into blocks, a kernel can load dense tiles and use vector lanes well. If nonzeros are scattered, the block format stores padding zeros and performs work that a scalar sparse format would skip.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {type:'callout', text:'BSR only wins when zeros have shape. It turns clusters of nonzeros into dense tiles the hardware can use, but scattered sparsity becomes padded work.'},
-        {
-          type: 'quote',
-          text: 'The key to sparse matrix performance is not the number of zeros -- it is whether the storage format matches the structure the hardware can exploit.',
-          attribution: 'Observation from the NVIDIA cuSPARSE design guide',
-        },
-        'Many sparse matrices are not random dust. Finite-element stiffness matrices have 3x3 or 6x6 blocks corresponding to degrees of freedom per node. Block-pruned transformer weights have 32x32 or 64x64 tiles aligned to GPU warp dimensions. Graph adjacency matrices from community-structured networks cluster nonzeros into dense diagonal blocks.',
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png', alt:'Sparse matrix from a finite element problem, with nonzero entries shown in black', caption:'Sparse matrices from finite element problems often reveal exploitable block structure rather than random zeros. Source: Wikimedia Commons, Finite element sparse matrix.png, Oleg Alexandrov, public domain.'},
-        'The standard scalar sparse format, CSR, stores one row pointer, one column index, and one value per scalar nonzero. For a matrix with 10,000 nonzeros, CSR stores 10,000 column indices. If those nonzeros happen to fall in 100 dense 10x10 blocks, BSR stores 100 block-column indices instead -- a 100x reduction in index metadata -- and each block becomes a regular dense tile that the hardware knows how to multiply fast.',
-        {
-          type: 'note',
-          text: 'BSR is not about saving storage. A half-empty 16x16 tile wastes 128 scalar slots. BSR is about converting irregular scalar work into regular tile work the hardware can pipeline.',
-        },
+        'Sparse matrices appear when each row interacts with only a small part of the problem. Physics meshes, graph computations, recommender systems, and neural network pruning can all produce many zeros. A dense matrix stores and multiplies every entry, so zeros become memory traffic and arithmetic waste.',
+              {type:'callout', text:'BSR only wins when zeros have shape. It turns clusters of nonzeros into dense tiles the hardware can use, but scattered sparsity becomes padded work.'},,
+              {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/8a/Finite_element_sparse_matrix.png', alt:'Sparse matrix from a finite element problem, with nonzero entries shown in black', caption:'Sparse matrices from finite element problems often reveal exploitable block structure rather than random zeros. Source: Wikimedia Commons, Finite element sparse matrix.png, Oleg Alexandrov, public domain.'},,
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The reasonable first attempt is CSR (Compressed Sparse Row). CSR is the general-purpose workhorse: three arrays (row pointers, column indices, values), no assumptions about where nonzeros cluster, and broad library support in SciPy, cuSPARSE, MKL, and every sparse linear algebra package.',
-        {
-          type: 'table',
-          headers: ['Property', 'CSR', 'Dense'],
-          rows: [
-            ['Index overhead', '1 col index per nonzero', 'None'],
-            ['Kernel regularity', 'Irregular -- each row has variable length', 'Perfectly regular'],
-            ['Memory for 90% sparse 1024x1024', '~410 KB (values + indices)', '~4 MB (full matrix)'],
-            ['SpMV kernel pattern', 'Gather from scattered columns', 'Contiguous GEMV'],
-            ['GPU friendliness', 'Warp divergence on short rows', 'cuBLAS-optimized'],
-          ],
-        },
-        'CSR works well for truly unstructured sparsity -- random graphs, power-law networks, general-purpose scientific codes where nonzero locations follow no geometric pattern. Teams reach for CSR because it handles any sparsity pattern without wasting storage on zeros.',
+        'The obvious approach is compressed sparse row, or CSR. CSR stores each nonzero value, its column index, and a row pointer array. It is simple and skips zeros exactly.',
+        'CSR works well when nonzeros have no regular shape. But every value may bring an index lookup, an indirect load, and a small multiply-add. Modern CPUs and GPUs prefer chunks of contiguous work, not one unpredictable scalar at a time.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'CSR hits two walls simultaneously when the sparsity pattern is block-structured.',
-        'Wall 1: index explosion. A 1024x1024 matrix with 64 dense 16x16 blocks has 16,384 nonzeros. CSR stores 16,384 column indices. BSR stores 64 block-column indices. The metadata ratio is 256:1. On a GPU, those 16,384 index loads compete for memory bandwidth with the actual arithmetic.',
-        'Wall 2: irregular inner loops. CSR processes each row as a variable-length scatter-gather. The GPU launches one thread per row (or per warp per row), but rows have different lengths. Short rows waste SIMD lanes. Long rows serialize memory accesses. The kernel cannot predict the access pattern at compile time.',
-        {
-          type: 'diagram',
-          text: 'CSR inner loop (per row):          BSR inner loop (per block):\n  for each nnz in row:               for each stored block in block-row:\n    load col_idx[j]                     load bCol[b]\n    load val[j]                         load tile[b] (RxC contiguous)\n    load x[col_idx[j]]  <-- random      dense_multiply(tile, x_slice)\n    y[i] += val[j] * x[col_idx[j]]       ^^ regular, pipelineable',
-          label: 'CSR does one random gather per nonzero; BSR does one regular tile multiply per block',
-        },
-        {
-          type: 'note',
-          text: 'The wall is not "CSR is slow." CSR is optimal for unstructured sparsity. The wall is: when nonzeros cluster into dense rectangles, CSR pays per-scalar overhead for structure the hardware could exploit as tiles.',
-        },
+        'The wall is hardware utilization. A sparse matrix-vector multiply can become memory-bound because it streams values, indices, and vector reads while doing little arithmetic per byte. Random column access also harms cache behavior because vector elements are fetched in an order the hardware cannot easily prefetch.',
+        'Many real matrices are not random; their nonzeros appear in local patches. CSR ignores that shape. If four neighboring rows often touch the same four neighboring columns, storing sixteen values as one dense block can reduce index overhead and improve vector reuse.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'BSR lifts the unit of sparsity from one scalar to one dense block. The sparse structure selects which blocks exist. The dense structure fills each block with regular data. This separation lets the outer loop skip absent blocks (sparse benefit) while the inner loop runs a fixed-size dense kernel (hardware benefit).',
-        {
-          type: 'diagram',
-          text: 'Logical 8x8 matrix, block size 4x4 (2x2 block grid):\n\n  [ A A A A | . . . . ]     bPtr = [0, 1, 2]    (2 block-rows + sentinel)\n  [ A A A A | . . . . ]     bCol = [0, 1]        (block 0 in block-row 0,\n  [ A A A A | . . . . ]                            block 1 in block-row 1)\n  [ A A A A | . . . . ]     vals = [ tile_0 (4x4 dense),\n  [- - - - -+- - - - -]              tile_1 (4x4 dense) ]\n  [ . . . . | B B B B ]\n  [ . . . . | B B B B ]     Total indices: 2 (not 32)\n  [ . . . . | B B B B ]     Total values:  32 (same as CSR)\n  [ . . . . | B B B B ]     Kernel:  2 calls to 4x4 dense multiply',
-          label: 'BSR arrays for a matrix with two dense 4x4 blocks',
-        },
-        'The invariant: every stored block occupies a fixed R x C rectangle at position (bRow * R, bCol[b] * C) in the logical matrix. Missing blocks are zero. The values tensor is three-dimensional: vals[b][r][c] gives the scalar at local row r, local column c of stored block b.',
-        {
-          type: 'code',
-          text: '// BSR SpMV: y = A * x, where A is stored in BSR format\nfunction bsr_spmv(bPtr, bCol, vals, R, C, x, y) {\n  const numBlockRows = bPtr.length - 1;\n  for (let bi = 0; bi < numBlockRows; bi++) {\n    // Sparse outer loop: skip absent block columns\n    for (let jj = bPtr[bi]; jj < bPtr[bi + 1]; jj++) {\n      const bj = bCol[jj];        // which block column\n      const tile = vals[jj];       // R x C dense tile\n      // Dense inner loop: regular, pipelineable\n      for (let r = 0; r < R; r++) {\n        for (let c = 0; c < C; c++) {\n          y[bi * R + r] += tile[r][c] * x[bj * C + c];\n        }\n      }\n    }\n  }\n}',
-          language: 'javascript',
-        },
+        'The core insight is to store a sparse matrix of dense tiles. Instead of saying value at row i and column j exists, BSR says this block row has a nonzero block at block column k, then stores all entries inside that fixed-size block. The block may contain some zeros, but it gives the kernel a regular tile.',
+        'This changes the unit of work. CSR schedules scalar nonzeros. BSR schedules small matrix-vector products, such as a 4 by 4 block times four input vector values. The extra padded zeros can be worth it if the block has enough real nonzeros and the hardware uses the dense tile efficiently.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'BSR construction from a dense matrix proceeds in four steps.',
-        {
-          type: 'bullets',
-          items: [
-            'Step 1 -- Choose block shape (R x C). This is a design parameter, not discovered from data. Common choices: 2x2, 4x4, 16x16, 32x32. The block shape must divide the matrix dimensions evenly, or the matrix must be padded.',
-            'Step 2 -- Scan the matrix in block-row order. For each R-row band, identify which C-column slices contain at least one nonzero. Each such slice becomes a stored block.',
-            'Step 3 -- Build bPtr. Entry bPtr[i] is the index of the first stored block in block-row i. bPtr has (M/R + 1) entries, where M is the number of matrix rows. The sentinel bPtr[M/R] equals the total number of stored blocks.',
-            'Step 4 -- Build bCol and vals. For each stored block, append its block-column index to bCol and its R x C dense tile (including any internal zeros) to vals.',
-          ],
-        },
-        'After construction, SpMV iterates block-rows via bPtr, block-columns via bCol, and dispatches a dense R x C multiply for each tile. The sparse part is the block-row/block-column traversal. The dense part is the tile kernel.',
-        {
-          type: 'table',
-          headers: ['Array', 'Length', 'Element', 'Role'],
-          rows: [
-            ['bPtr', 'M/R + 1', 'integer offset', 'Locates stored blocks per block-row'],
-            ['bCol', 'nnzb', 'integer block-column', 'Names the column position of each stored block'],
-            ['vals', 'nnzb x R x C', 'scalar value', 'Dense payload for each stored block'],
-          ],
-        },
-        {
-          type: 'note',
-          text: 'nnzb is the number of stored blocks, not the number of scalar nonzeros. A matrix with 16,384 scalar nonzeros in 64 dense 16x16 blocks has nnzb = 64.',
-        },
+        'BSR uses three main arrays. The block pointer array marks the start and end of blocks for each block row. The block column array stores the column index for each dense block. The value array stores block_size by block_size values for every stored block.',
+        'During multiplication y = A x, the kernel loops over block rows. For each stored block, it loads the matching slice of x, multiplies the dense block by that slice, and accumulates into the output slice y. The block size is fixed, so the inner loop can be unrolled or mapped to SIMD lanes.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness follows from the CSR argument lifted to blocks. Each block-row slice (bPtr[i] to bPtr[i+1]) lists every nonzero block in that block-row. Each bCol entry names the block-column. Each vals tile supplies the scalar contents. If every nonzero block appears exactly once and missing blocks contribute zero, the BSR representation computes the same result as the dense matrix.',
-        'Performance is conditional on three properties holding simultaneously:',
-        {
-          type: 'bullets',
-          items: [
-            'Block density -- stored blocks must be mostly full. A 16x16 tile with 10 nonzeros out of 256 wastes 96% of the dense computation.',
-            'Block count reduction -- the number of stored blocks (nnzb) must be much smaller than the number of scalar nonzeros (nnz). The ratio nnz / nnzb should approach R * C.',
-            'Kernel availability -- the hardware must have a fast dense kernel for the chosen tile shape and dtype. A 7x7 tile has no cuBLAS GEMM; a 16x16 tile maps directly to a tensor core.',
-          ],
-        },
-        {
-          type: 'quote',
-          text: 'Sparse formats do not make computation cheaper. They make the right computation possible by skipping the empty parts. BSR makes the right computation regular by grouping the non-empty parts into tiles.',
-          attribution: 'Design principle from SciPy sparse documentation',
-        },
+        'The correctness argument is coverage. Every matrix coordinate belongs to exactly one possible block position. If a block is stored, the kernel multiplies all values in that block; if a block is absent, all values in that region are treated as zero.',
+        'The output matches dense multiplication because multiplication distributes over the partition into blocks. Summing each stored block contribution into y gives the same result as summing every individual nonzero. Missing blocks contribute zero, so omitting them is safe.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Measure', 'BSR', 'CSR', 'Dense'],
-          rows: [
-            ['Index storage', 'M/R + nnzb integers', 'M + nnz integers', '0'],
-            ['Value storage', 'nnzb * R * C scalars', 'nnz scalars', 'M * N scalars'],
-            ['SpMV arithmetic', 'nnzb * R * C multiply-adds', 'nnz multiply-adds', 'M * N multiply-adds'],
-            ['SpMV memory pattern', 'Contiguous tiles + sparse block index', 'Scattered scalar gather', 'Contiguous rows'],
-            ['Padding waste', 'nnzb * R * C - nnz zeros stored', '0', 'M * N - nnz zeros stored'],
-          ],
-        },
-        'The critical ratio is block fill = nnz / (nnzb * R * C). When block fill approaches 1.0, BSR stores almost no wasted zeros and the dense inner kernel runs at full efficiency. When block fill drops below 0.5, more than half the tile arithmetic is on padding zeros.',
-        {
-          type: 'code',
-          text: '# Concrete example: 1024x1024 matrix, 5% scalar density\n# Scenario A: nonzeros in 200 dense 16x16 blocks (block fill = 1.0)\n#   CSR: 52,428 col indices + 1,025 row ptrs = 53,453 ints\n#   BSR: 200 block-col indices + 65 block-row ptrs = 265 ints\n#   Index reduction: 200x\n#   Padding waste: 0 extra scalars\n\n# Scenario B: nonzeros scattered across 3,000 16x16 blocks (block fill = 0.068)\n#   CSR: 52,428 col indices + 1,025 row ptrs = 53,453 ints\n#   BSR: 3,000 block-col indices + 65 block-row ptrs = 3,065 ints\n#   Index reduction: 17x\n#   Padding waste: 3,000 * 256 - 52,428 = 715,572 extra scalars\n#   BSR stores 14x more data than CSR values alone',
-          language: 'python',
-        },
-        'Doubling the block dimension quadruples tile area. A 32x32 tile has 1,024 scalars; if only 50 are nonzero, BSR stores 974 zeros per block. The index savings grow with tile area, but so does padding waste. The optimal block size balances these two forces for the specific sparsity pattern and hardware kernel.',
+        'Let block size be b and stored block count be m. Storage for values is m * b * b numbers, plus m block-column indices and one pointer per block row. Computation is also proportional to m * b * b multiply-add positions, even when some positions inside a stored block are zero.',
+        'Cost behaves badly when occupancy is low. A 4 by 4 block with only 3 real nonzeros stores and processes 16 positions, so 13 positions are padding. A 4 by 4 block with 14 real nonzeros is a good fit because one index describes many useful values.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Domain', 'Typical block size', 'Why BSR fits'],
-          rows: [
-            ['Finite element analysis', '3x3 or 6x6', 'Each mesh node has 3 (2D) or 6 (3D) degrees of freedom; stiffness matrix couples nodes in dense blocks'],
-            ['Block-pruned transformers', '32x32 or 64x64', 'Pruning masks are aligned to GPU warp/tile dimensions; blocks are fully dense or fully zero'],
-            ['Graph Laplacians (community structure)', '~cluster size', 'Intra-community edges form dense diagonal blocks; inter-community edges are sparse off-diagonal'],
-            ['Batched small linear systems', 'system size', 'Block-diagonal matrices where each block is an independent dense system'],
-          ],
-        },
-        'In block-pruned neural networks, the training procedure learns which blocks to zero out. The surviving blocks are fully dense by construction, so block fill is exactly 1.0. NVIDIA Ampere and Hopper GPUs have hardware paths for structured sparsity at the 2:4 and block level, making BSR the natural storage format for inference.',
-        {
-          type: 'note',
-          text: 'BSR is a kernel compatibility question, not a storage question. A block pattern that looks elegant on paper is useless if no fast kernel exists for that tile shape, dtype, and batch size on the target hardware. Always check the kernel library first.',
-        },
+        'BSR fits finite element matrices, circuit simulation, block-structured graphs, batched small systems, and pruned neural network layers where sparsity has local structure. The access pattern is repeated multiplication with the same matrix layout, so conversion cost can be amortized. A solver may multiply by the matrix thousands of times.',
+        'It is especially useful when block size matches hardware. A 4 by 4 or 8 by 8 block can map to vector registers, GPU warps, or tensor-style microkernels. The layout turns irregular global sparsity into regular local computation.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Symptom', 'Better alternative'],
-          rows: [
-            ['Low block fill', 'Most tiles are >50% zeros; arithmetic wasted on padding', 'CSR or COO for unstructured sparsity'],
-            ['Ragged matrix dimensions', 'Matrix rows/cols not divisible by block size; edge blocks need masking', 'CSR (no alignment requirement)'],
-            ['No kernel for tile shape', 'Custom block size with no optimized BLAS/cuSPARSE path', 'Dense (if sparsity < 70%) or CSR'],
-            ['Conversion churn', 'Build COO -> convert CSR -> convert BSR -> run once -> discard', 'Keep original format; amortize conversion'],
-            ['Dynamic sparsity', 'Nonzero pattern changes each iteration; BSR must be rebuilt', 'CSR with dynamic insertion or dense'],
-          ],
-        },
-        'A matrix can be 95% sparse at the scalar level and still be a terrible BSR candidate. If 50,000 nonzeros are scattered one-per-block across 50,000 16x16 tiles, BSR stores 50,000 * 256 = 12.8 million scalar slots for 50,000 actual values. CSR stores exactly 50,000 values. The word "sparse" is not enough; the distribution determines the format.',
-        'Block size selection by aesthetics is another common failure. Larger blocks amortize index overhead but increase padding. A team that picks 64x64 because "bigger blocks = fewer blocks" may store 4,096 scalars per tile when the average block contains 200 nonzeros.',
-        {
-          type: 'note',
-          text: 'Conversion overhead is real. Building BSR from COO requires sorting by block-row, identifying block boundaries, and allocating the values tensor. If the BSR layout is used once and discarded, conversion can dominate the total runtime.',
-        },
+        'BSR fails on random sparsity. If nonzeros are scattered, most stored blocks are mostly zeros, so the format increases both memory and arithmetic. In that case CSR, COO, or another format may do less work.',
+        'It also fails when the chosen block size is wrong. Too small and the kernel gets little regularity. Too large and padding dominates. The block size is an engineering parameter tied to matrix structure and hardware, not a universal constant.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider an 8x8 matrix with block size 4x4 (a 2x2 block grid). The matrix has nonzeros only in block (0,0) and block (1,1) -- two dense diagonal blocks.',
-        {
-          type: 'code',
-          text: '// Dense 8x8 matrix (. = 0):\n// [ 2  1  0  3 | .  .  .  . ]\n// [ 0  4  1  0 | .  .  .  . ]\n// [ 1  0  5  2 | .  .  .  . ]\n// [ 0  3  0  1 | .  .  .  . ]\n// [- - - - - - + - - - - - -]\n// [ .  .  .  . | 3  0  1  0 ]\n// [ .  .  .  . | 0  2  0  4 ]\n// [ .  .  .  . | 1  0  6  0 ]\n// [ .  .  .  . | 0  1  0  3 ]\n\n// BSR representation (R=4, C=4):\nbPtr = [0, 1, 2]          // block-row 0 has 1 block, block-row 1 has 1 block\nbCol = [0, 1]             // block 0 is at block-col 0, block 1 at block-col 1\nvals = [\n  [[2,1,0,3],[0,4,1,0],[1,0,5,2],[0,3,0,1]],   // tile 0\n  [[3,0,1,0],[0,2,0,4],[1,0,6,0],[0,1,0,3]],   // tile 1\n]\n\n// CSR for comparison:\nrowPtr = [0, 3, 5, 8, 10, 12, 14, 16, 18]\ncolIdx = [0,1,3, 1,2, 0,2,3, 1,3, 4,6, 5,7, 4,6, 5,7]  // 18 entries\nvalues = [2,1,3, 4,1, 1,5,2, 3,1, 3,1, 2,4, 1,6, 1,3]  // 18 entries\n\n// BSR indices: 2 + 2 = 4 integers\n// CSR indices: 9 + 18 = 27 integers\n// Ratio: 6.75x fewer indices with BSR',
-          language: 'javascript',
-        },
-        'Now change the example: scatter the same 18 nonzeros across all four 4x4 blocks instead of concentrating them in two. BSR must store all four blocks (nnzb = 4), each as a 4x4 tile = 64 total scalar slots for 18 actual values. Block fill drops to 18/64 = 0.28. CSR still stores exactly 18 values. BSR now wastes memory and computes on 46 padding zeros per SpMV.',
-        {
-          type: 'table',
-          headers: ['Metric', 'Clustered (2 blocks)', 'Scattered (4 blocks)'],
-          rows: [
-            ['nnzb', '2', '4'],
-            ['Scalar slots stored', '32', '64'],
-            ['Actual nonzeros', '18', '18'],
-            ['Block fill', '0.56', '0.28'],
-            ['BSR index count', '4', '6'],
-            ['CSR index count', '27', '27'],
-            ['Verdict', 'BSR wins', 'CSR wins'],
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Measure before choosing. Build block-fill histograms for candidate tile shapes (2x2, 4x4, 8x8, 16x16, 32x32). Plot the distribution of fill ratios across stored blocks. A single average hides the tail that decides whether BSR helps.',
-            'Check kernel availability first. Query your target library (cuSPARSE, MKL, rocSPARSE) for supported block sizes and dtypes. A 7x7 tile has no optimized path; a 16x16 tile maps to tensor cores on Ampere+.',
-            'Sort block columns within each block-row. Sorted bCol arrays simplify debugging, enable deterministic tests, and allow binary search during random-access queries.',
-            'Coalesce duplicates before the kernel path. If the assembly process can produce multiple contributions to the same block position, sum them during construction rather than storing duplicates.',
-            'Benchmark end-to-end. The BSR kernel may be 3x faster than CSR, but if conversion from COO takes longer than the kernel, the pipeline loses. Measure: construction + host-device transfer + kernel + output validation.',
-          ],
-        },
-        {
-          type: 'code',
-          text: '# Block-fill histogram for format selection (Python/NumPy)\nimport numpy as np\n\ndef block_fill_histogram(A, R, C):\n    """Return fill ratio per block for a dense matrix A."""\n    M, N = A.shape\n    fills = []\n    for bi in range(M // R):\n        for bj in range(N // C):\n            tile = A[bi*R:(bi+1)*R, bj*C:(bj+1)*C]\n            nnz_tile = np.count_nonzero(tile)\n            if nnz_tile > 0:\n                fills.append(nnz_tile / (R * C))\n    return fills\n\n# Decision rule:\n# If median(fills) > 0.5 and len(fills) < nnz/4: BSR likely wins\n# If median(fills) < 0.3 or len(fills) > nnz/2: CSR likely wins',
-          language: 'python',
-        },
+        'Consider an 8 by 8 matrix with 2 by 2 blocks. Suppose there are 5 nonzero blocks, so BSR stores 5 * 4 = 20 numeric positions. CSR would store only the actual nonzeros, so BSR is only better if those blocks are dense enough to reduce index and kernel overhead.',
+        'If each 2 by 2 block has all 4 entries nonzero, BSR stores 20 useful values and 5 block indices. CSR stores 20 values and 20 column indices. BSR saves 15 indices and gives the kernel five dense micro-multiplies.',
+        'If each 2 by 2 block has only 1 real nonzero, BSR still stores 20 numeric positions for 5 useful values. CSR stores 5 values and 5 column indices. The same format that helped dense blocks now wastes 15 padded multiplies.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'SciPy sparse tutorial -- https://docs.scipy.org/doc/scipy/tutorial/sparse.html -- covers COO, CSR, CSC, BSR construction and conversion with code examples.',
-            'PyTorch sparse tensors -- https://docs.pytorch.org/docs/stable/sparse.html -- documents BSR layout for autograd-compatible block-sparse operations.',
-            'NVIDIA cuSPARSE -- https://docs.nvidia.com/cuda/cusparse/ -- reference for GPU-accelerated BSR SpMV and SpMM with supported block sizes.',
-            'MLIR SparseTensor dialect -- https://mlir.llvm.org/docs/Dialects/SparseTensorOps/ -- compiler infrastructure for generating sparse kernels from high-level tensor expressions.',
-            'Bulucc et al., "Parallel Sparse Matrix-Matrix Multiplication and Indexing" (2012) -- analysis of block-sparse performance in distributed settings.',
-          ],
-        },
-        {
-          type: 'table',
-          headers: ['Role', 'Topic'],
-          rows: [
-            ['Prerequisite', 'COO Sparse Tensor Assembly Primer -- understand coordinate-level sparse construction before block-level compression'],
-            ['Prerequisite', 'CSC Column Sparse Matrix Primer -- CSR/CSC are the scalar baselines BSR improves on'],
-            ['Extension', 'Structured Pruning N:M Sparsity Case Study -- finer-grained structured sparsity within blocks'],
-            ['Companion', 'Accelerator Kernel Compatibility Matrix Case Study -- how hardware constraints determine format selection'],
-            ['Application', 'WebGPU Parallel Prefix Scan Compaction -- GPU-side construction primitives relevant to BSR assembly'],
-          ],
-        },
+        'Primary sources: sparse BLAS documentation, Intel oneMKL sparse matrix formats, NVIDIA cuSPARSE block sparse routines, and numerical linear algebra texts on sparse storage. Use vendor docs for exact layout details because memory order and kernel constraints vary.',
+        'Study next by role. For sparse formats, compare COO, CSR, CSC, ELLPACK, and HYB. For performance, study roofline analysis, cache locality, SIMD, and GPU memory coalescing. For applications, study finite element assembly and graph adjacency matrices.',
       ],
     },
   ],
 };
-

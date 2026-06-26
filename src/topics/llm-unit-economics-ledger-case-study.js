@@ -322,116 +322,44 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'An LLM unit-economics ledger measures the cost of useful answers, not the cost of tokens in isolation. It starts with inference physics: input tokens, output tokens, prefill, decode, KV cache residency, hardware, and utilization. Then it adds the product layer: routing, cache hits, retries, verifier calls, policy rejects, fixed operations, support burden, privacy boundaries, and quality gates. The final unit is cost per accepted answer.',
-        'That distinction matters because the product does not sell raw token generation. It sells a support answer, a legal draft, a coding suggestion, an agent action, a summary, or an ambient feature. A cheap response that fails quality and must be retried is not cheap. A route that saves model spend but breaks p99 latency is not cheaper in the product sense. A ledger makes those hidden costs visible.',
-        {type: 'callout', text: 'Price the accepted product outcome, not the raw token stream.'},
-      ],
-    },
-    {
-      heading: 'Why raw token math is not enough',
-      paragraphs: [
-        'Raw token math is the floor. If you know model size, precision, hardware price, throughput, and utilization, you can estimate a cost per million tokens. That is useful, but it is incomplete. It ignores idle capacity, batch shape, tail latency, failed generations, safety filters, evaluation, retries, route fallbacks, and the engineering layer needed to keep the service running.',
-        'It also hides phase behavior. Prefill and decode are different workloads. Prefill processes the prompt and builds KV cache, often with more parallelism. Decode emits one token step after another and often waits on memory bandwidth for weights and KV cache. Input tokens and output tokens can therefore have different cost shapes. A prompt-heavy summarization workload, a short-chat workload, and a long-reasoning workload should not share one average token price unless the team is intentionally choosing to lose information.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is to price the accepted product unit, not the visible model call. Tokens are one input to that unit. The real unit also includes route choice, quality rejection, retry work, cache behavior, latency misses, privacy controls, fixed operations, and the cost of keeping the service reliable.',
-        'That changes the engineering question. A cheaper model is not cheaper if it increases rejections. A faster route is not faster if it raises fallback traffic. A self-hosted path is not cheaper if idle headroom and on-call work dominate the GPU savings. The ledger forces each route to prove that accepted-answer economics improved.',
-      ],
-    },
-    {
-      heading: 'The minimum row',
-      paragraphs: [
-        'A useful ledger row records at least these fields: request id, tenant or product surface, task class, model id, route, provider or cluster, input tokens, output tokens, prefill time, decode time, queue time, cache hit state, KV memory class, verifier calls, retry count, accepted or rejected state, rejection reason, privacy boundary, SLO class, and final cost allocation.',
-        'The row should also record fixed and shared costs through allocation keys. Hosted API usage may be direct. Self-hosted inference needs GPU depreciation or rental, utilization, power if relevant, networking, storage, SRE, ML engineering, evaluation, release management, safety review, monitoring, incident response, and idle headroom. Some of those costs are hard to allocate perfectly. That is not a reason to omit them. A rough allocation is still better than pretending the GPU bill is the whole service.',
-      ],
-    },
-    {
-      heading: 'A concrete formula',
-      paragraphs: [
-        'For one route, start with generated cost: input token cost plus output token cost, or the internal equivalent from GPU seconds and utilization. Add verifier cost, retrieval cost, cache lookup cost, tool-call cost, and amortized fixed cost. Then divide by accepted answers, not attempted answers. In plain form: accepted unit cost = total route cost / accepted answers.',
-        'If 1000 attempts cost $10 in model and service spend, but 120 are rejected by policy or quality checks and 80 require one retry, the accepted-answer cost is not one cent. The retry work consumed more compute, and only 880 answers were accepted. If retries add $0.80, the accepted unit is $10.80 / 880, or about 1.23 cents. The point is not the specific number. The point is the denominator. Rejected and retried work belongs in the cost of useful answers.',
-        'The same formula applies to latency. Average tokens per second is not the user unit. The user feels time to first token, time to final answer, and p99 misses. A route that is cheap on average but often misses a contractual deadline should be charged for its misses, fallback calls, or customer-impact budget.',
-      ],
-    },
-    {
-      heading: 'How the visualizer maps the ledger',
-      paragraphs: [
-        'The token-ledger view shows that the raw GPU floor is only one column. Workload mix controls prefill and decode. Tokens control billable or internal compute. Utilization controls the idle tax. Operations add fixed cost. Quality determines whether the answer counts. Routing decides which path pays the bill. The accepted answer is at the end because it is the business unit.',
-        'The product-routes view shows why one model path is usually wrong. FAQ traffic may be served from a governed semantic cache. Low-risk drafting may use a small model plus verification. Legal or financial answers may need a stronger model, citations, and audit logs. Ambient features may need on-device inference because cloud cost grows with every background use. The ledger records why the route fired so cost changes can be explained later.',
-      ],
-    },
-    {
-      heading: 'Hosted API versus self-hosting',
-      paragraphs: [
-        'A hosted API price is not raw GPU rental divided by tokens. It packages model serving, burst capacity, scheduling, safety systems, monitoring, abuse handling, model refreshes, compliance work, uptime, and support. Some of the gap is provider margin. Some of it is the service layer that a buyer would otherwise have to build and operate.',
-        'Self-hosting can still win, but only after fixed costs amortize. A team must run capacity planning, model loading, batching, KV cache management, upgrades, security, evals, incident response, and fallback. Low-volume teams often rationally pay hosted prices because the alternative is hiring and operating a platform. High-volume teams, stable workloads, strict privacy boundaries, or repetitive prompts may earn self-hosting, smaller-model routing, caching, or on-device execution.',
-      ],
-    },
-    {
-      heading: 'Routing as economics',
-      paragraphs: [
-        'A route policy is a financial control plane. It decides when to spend on a strong hosted model, when to use a small model, when to hit a cache, when to run on device, when to defer, and when to reject. The policy should consider task risk, tenant tier, privacy boundary, prompt length, expected output length, queue state, cache hit probability, deadline, and fallback.',
-        'Consider a support product. FAQ requests first try a semantic cache with authorization and freshness checks. Low-risk drafting goes to a smaller model and a verifier. Account-specific questions use retrieval plus a stronger model if the account tier requires higher reliability. Legal-risk answers require citations and audit. Ambient meeting summaries run locally when possible, because always-on cloud usage can grow faster than subscription revenue.',
-        'Every route writes a ledger row. The row explains why the route fired, what it spent, what data left the device or tenant boundary, whether the output passed quality checks, and what fallback was available. That record becomes the artifact for cost review, privacy review, vendor migration, and regression debugging.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Build the ledger from the request path outward. The inference gateway should attach a stable request id, model id, route id, tenant tier, task class, privacy boundary, and SLO class before it calls any model. The serving layer should add queue time, prefill time, decode time, input tokens, output tokens, cache state, batching state, accelerator pool, and error or timeout state. The quality layer should add verifier calls, reject reasons, retry count, human escalation, and accepted status.',
-        'Keep cost allocation explicit instead of hiding it in dashboards. Hosted API calls can be priced directly from provider invoices. Self-hosted calls need an allocation model for GPU hours, reserved idle headroom, power if tracked, networking, storage, monitoring, engineering, safety review, and evaluation. The allocation model will be imperfect, but it should be versioned. When finance or engineering changes the allocation rule, old and new cost views should be explainable.',
-        'Store route decisions as facts, not only as aggregate metrics. A row should answer: why was this model chosen, what cheaper route was considered, what risk forced the stronger route, what fallback existed, and what quality gate accepted the answer? That detail turns the ledger into a debugging tool. Without it, a cost spike becomes a mystery: more users, longer prompts, worse cache hit rate, lower utilization, a provider price change, or a quality regression can all look like the same monthly bill.',
-      ],
-    },
-    {
-      heading: 'Operating review loop',
-      paragraphs: [
-        'Review the ledger by slice. Separate interactive and batch traffic, free and enterprise tenants, short and long prompts, retrieval and no-retrieval tasks, cached and uncached answers, high-risk and low-risk domains, and each model route. A single blended cost per token can hide the fact that one feature is profitable, another is subsidized by the rest of the product, and a third is cheap only because its failures are being handled manually.',
-        'The weekly review should compare accepted-answer cost, p95 and p99 latency, reject rate, retry rate, cache hit rate, fallback rate, quality score, and incident count. Cost reductions that worsen protected quality slices should be rejected. Quality gains that double spend may still be worth it for high-value tasks. The ledger does not decide strategy by itself; it gives product, finance, and engineering the same factual surface.',
-        'Use experiments to change the route policy. Route a small slice to a cheaper model, a quantized self-hosted model, a larger context window, a cache-first strategy, or an on-device path. Compare accepted-answer cost at matched quality and SLO. If the cheaper path wins only by increasing retries, hiding tail latency, or dropping hard cases, it is not a real win. If it preserves acceptance and latency, promote it and leave the decision trail in the ledger.',
-      ],
-    },
-    {
-      heading: 'Costs that hide in the tail',
-      paragraphs: [
-        'Tail latency has a cost even when the average looks fine. Slow requests hold KV cache, occupy queue slots, trigger retries, violate SLOs, and may force the system to keep more warm capacity. A ledger should record p50, p95, p99, timeout, and fallback behavior by route. Without that split, a team can ship a cheap average path that quietly burns user trust and incident budget.',
-        'KV cache is another hidden cost. Long prompts and long outputs hold memory for active sequences. Fragmentation can reduce effective capacity. Remote KV transfer can add network pressure. Tiered offload can save GPU memory but add promotion latency. These state costs belong in unit economics because they decide how many concurrent accepted answers the fleet can produce.',
-        'Quality is the most expensive hidden cost. If a small model is 40 percent cheaper but causes more rejected answers, support escalations, manual review, or customer churn, the route may be worse. Evaluation slices need to match the product: citations, code correctness, policy compliance, tone, freshness, privacy, tool-call safety, and domain-specific accuracy.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'A unit-economics ledger is most useful when product traffic is mixed. One feature may need a strong model. Another may be safe with caching. A third may need local execution for privacy. A fourth may be batchable overnight. The ledger keeps those decisions from collapsing into one average cost number.',
-        'It also wins during architecture changes. Quantization, prompt caching, PagedAttention, continuous batching, chunked prefill, speculative decoding, self-hosting, and on-device inference all claim to reduce cost. The ledger asks the same question for each: did accepted-answer cost fall at the same quality and SLO, or did the cost move somewhere else?',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'The ledger fails when teams feed it bad allocation rules. If fixed engineering cost is ignored, self-hosting looks artificially cheap. If policy rejects are omitted, risky routes look cheap. If p99 misses are averaged away, overloaded systems look healthy. If tenant tiers are mixed together, a free-user workload can hide the cost of an enterprise guarantee.',
-        'It also fails when used as a pure cost cutter. The cheapest answer is often no answer, but a product exists to create value. The ledger should sit beside revenue, retention, risk, and quality. The goal is not minimum spend. The goal is profitable, reliable, policy-compliant answers for the right tasks.',
-      ],
-    },
-    {
-      heading: 'Misconceptions',
-      paragraphs: [
-        'Do not call the raw compute floor the price. It is a lower bound under assumptions. Do not call the hosted API gap pure margin. Some of it buys a service layer. Do not call a route cheaper until retries, rejects, p99, privacy, and fixed operations are included. Do not average input and output tokens if prefill and decode have different bottlenecks.',
-        'Do not hide vendor or model lock-in in application code. A route ledger should make model id, provider, fallback, cache hit, and quality result visible. That makes migration possible. It also prevents a cost regression from looking like harmless application behavior.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary and production context sources: JAX scaling book inference overview at https://jax-ml.github.io/scaling-book/inference/, NVIDIA H100 product page at https://www.nvidia.com/en-us/data-center/h100/, Efficiently Scaling Transformer Inference at https://arxiv.org/abs/2211.05102, and PagedAttention/vLLM at https://arxiv.org/abs/2309.06180.',
-        'Study Transformer Inference Roofline, LLM Inference Cost Stack Case Study, KV Cache Concurrency Capacity Model, LLM Serving: PagedAttention, LLM Continuous Batching, Chunked Prefill Token Budget Scheduler, Prefill/Decode Disaggregation Case Study, KV Cache Transfer Fabric Case Study, KV Cache Tiered Offload Store, SLO-Aware LLM Request Router, LLM Serving Admission-Control Goodput Gate, LLM Serving Autoscaling Warm Pool, Semantic Cache for LLMs, LLM Response Cache Safety Ledger, GenAI Trace Token Cost Ledger, Verifier-Guided Inference Control Plane Case Study, Agent Model Router & Context Handoff Ledger, On-Device LLM Inference Cost Crossover, Feature Flag Control Plane, Distributed Tracing, Tail Latency & p99 Thinking, and Scaling as Local Optimum Case Study next.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read this as a cost path from request to accepted product outcome. Active nodes add cost, compare nodes show alternate routes, and found nodes are accepted answers that can be charged to a real unit.',
+      {type: 'callout', text: 'Price the accepted product outcome, not the raw token stream.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'A large language model (LLM) product sells an answer, draft, summary, action, or decision aid, not a token stream. Token price is only one input to the product cost.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to multiply input and output tokens by a provider price. For self-hosting, the same instinct divides GPU rental by generated tokens.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is denominator error. Attempts, tokens, and accepted product outcomes are different units, and failed attempts must be charged to the accepted answers that remain.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'The ledger prices accepted outcomes at matched quality and service-level objective (SLO). Each row records route, tokens, prefill, decode, cache state, verifier calls, retries, rejects, privacy boundary, and final acceptance.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'The gateway attaches request id, tenant, task class, route id, privacy boundary, and SLO class. Serving adds queue time, token counts, cache state, accelerator pool, timeout state, and the quality layer adds verifier calls, reject reasons, retry count, and accepted status.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is accounting conservation. Every attempt either becomes an accepted outcome or becomes overhead assigned to the accepted outcomes produced by that route.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The ledger costs instrumentation, allocation rules, data storage, finance review, and governance. Cost behaves by slice because enterprise traffic, free traffic, long prompts, retrieval-heavy answers, and high-risk domains have different economics.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'The ledger fits support assistants, coding tools, legal drafting, enterprise copilots, agent workflows, semantic caches, and on-device features. It is strongest when a product mixes cheap routes and expensive protected routes.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'The ledger fails when allocation rules are dishonest. Ignoring fixed engineering cost makes self-hosting look cheap, and ignoring rejects makes risky routes look cheap.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Suppose 1000 support attempts spend $9.20 on model calls, $0.80 on retrieval, $1.00 on verifiers, and $2.00 on allocated platform cost. If 120 fail quality and 80 retry once for another $1.60, total cost is $14.60 for 880 accepted answers.',
+      'The accepted-answer cost is $14.60 / 880, or 1.66 cents. A route that lowers model spend by $2.00 but doubles rejects can make raw token cost better while accepted-answer cost gets worse.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Study JAX scaling book inference at https://jax-ml.github.io/scaling-book/inference/, Efficiently Scaling Transformer Inference at https://arxiv.org/abs/2211.05102, PagedAttention at https://arxiv.org/abs/2309.06180, and NVIDIA H100 context at https://www.nvidia.com/en-us/data-center/h100/.',
+      'Next, study Transformer Inference Roofline, LLM Inference Cost Stack, KV Cache Concurrency Capacity Model, Continuous Batching, Chunked Prefill, SLO-Aware LLM Request Router, Admission-Control Goodput Gate, Autoscaling Warm Pool, Semantic Cache, and On-Device LLM Inference Cost Crossover.',
+    ] },
   ],
 };

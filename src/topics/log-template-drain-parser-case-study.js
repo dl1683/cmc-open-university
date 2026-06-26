@@ -219,94 +219,45 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `Operational logs are written as text because text is easy for humans and application developers. A service can emit "Failed login for user 42 from 10.0.0.7" without designing a schema first. During an incident, that flexibility is useful: engineers can search the exact message, grep a file, or paste the line into a ticket. But machines do not do well when every changing number, ID, path, or IP address creates a different event string.`,
-        `The monitoring system usually wants stable event types. "Failed login for user 42" and "Failed login for user 91" are different strings but probably the same event. "Timeout calling payments after 800 ms" and "Timeout calling payments after 1200 ms" should often count together. If the system treats full log lines as metric labels, it creates cardinality noise. If it stores only raw strings, anomaly detection has to rediscover the same pattern again and again. If it relies entirely on hand-written regular expressions, coverage falls behind as services and libraries change.`,
-        `Drain exists to turn raw log streams into templates online. A template such as "Failed login for user <*> from <*>" becomes an operational key. The platform can count it, alert when it appears for the first time, compare its rate before and after a deploy, join examples to traces, and keep a small set of representative raw lines for debugging. Drain is not trying to understand English or the full application grammar. It is a practical data structure for making log text usable at telemetry scale.`,
-        {type: `callout`, text: `Drain turns unstable text into stable operational keys by indexing log shape before scoring templates.`},
-        {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg`, alt: `Trie diagram showing shared prefixes for several short words.`, caption: `Trie example by Booyabazooka, based on Deco, with modifications by Superm401, Wikimedia Commons, public domain.`},
-      ],
-    },
-    {
-      heading: 'The tempting wrong answer',
-      paragraphs: [
-        `The first tempting answer is a regex library maintained by the observability team. For a small system, this can work. You mask UUIDs, numbers, IP addresses, request IDs, and known paths; then you map the remaining messages to event names. The wall appears when logs come from many teams, languages, dependencies, and deployment versions. New messages appear during incidents, exactly when nobody wants to write a parser before investigating the failure. Regex rules also conflict: a broad rule may swallow a meaningful distinction, while a narrow rule may leave thousands of near-duplicate templates.`,
-        `The second tempting answer is to let search handle everything. Store every line, index every token, and let engineers query later. Search is necessary, but it does not solve grouping. Alerting, dashboards, anomaly detection, and release comparison need a stable key. Counting every full line produces nonsense when IDs and timestamps vary. Counting only severity loses the failure shape. The system needs a middle layer between raw text and hand-modeled events.`,
-        `Drain takes that middle path. It assumes many logs have stable tokens mixed with variable tokens. It indexes log shape cheaply, compares a new line only against plausible candidate templates, and generalizes token positions when examples show that the position varies. It gives operations teams useful structure without requiring every service to emit perfect structured events from day one.`,
-      ],
-    },
-    {
-      heading: 'Core insight and data structure',
-      paragraphs: [
-        `Drain uses a fixed-depth parse tree as an index over log shape. A raw line is first preprocessed and tokenized. Obvious variables may be masked before parsing: IP addresses, UUIDs, hex strings, timestamps, numbers, request IDs, emails, paths, or service-specific tokens. The parser then uses cheap structural properties, especially token count and selected token positions, to route the line into a small candidate group.`,
-        `That fixed-depth tree is the key performance idea. A naive online parser would compare every incoming log line against every existing template. That becomes expensive as the number of templates grows. Drain instead asks coarse questions first. How many tokens does the line have? What stable token appears at a selected position? Which branch should this line follow? By the time it scores similarity, it is comparing against a much smaller set of templates.`,
-        `A template is a sequence of tokens where some positions are constants and some are wildcards. Similarity is usually based on how many non-wildcard tokens match between the incoming line and a candidate template. If enough stable positions match, the line joins that template group. If a token differs in a position that was previously constant, the template may generalize that position to a wildcard. If no candidate is similar enough, the parser creates a new template group. That rejection path is important: new failure modes should remain visible instead of being forced into the nearest old pattern.`,
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        `The fixed-depth-tree view starts with raw text and moves through tokenization. The length bucket is the first strong discriminator: lines with different token counts often cannot share an exact token-position template. Position branches then use selected tokens to narrow the candidate set. Those branches are not a semantic parse of the application. They are an index that keeps online matching cheap.`,
-        `The similarity node is where the parser makes the operational decision. If the candidate template "Failed login user <*>" sees "Failed login user 91," the stable tokens match and the variable position is already a wildcard. If the current template is still "Failed login user 42," the new example may cause the last position to become <*>, producing the more general template. If the incoming line is "Disk full on node a," it should not be forced into the login group merely because one token overlaps.`,
-        `The online-update view shows why Drain is a streaming algorithm rather than an offline clustering report. The template set evolves as logs arrive. Each accepted line can refine the template. Each rejected line can create a new group. Downstream systems then treat template IDs as event keys: count per service and version, flag newly created templates, attach raw examples, correlate with traces, and route noisy templates to review instead of alerting on every unique string.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `Drain works because many production log statements are generated from format strings. A developer writes something like ` + "`logger.error(\"Failed login user {} from {}\", userId, ip)`" + `. The runtime emits many concrete lines, but the stable words remain in the same positions. Drain exploits that regularity. It does not need to infer arbitrary grammar; it needs to recover the rough shape of format strings from observed examples.`,
-        `The fixed-depth tree also matches the online requirement. Logs arrive continuously. An observability pipeline cannot wait for a nightly clustering job before detecting a new error after a deploy. Drain can process each line, update templates, and emit a template ID immediately. The quality may improve as more examples arrive, but the system has a useful event key from the start.`,
-        `The method is deliberately conservative compared with deep language understanding. Token equality and wildcards are easy to explain to operators. When a template changes, an engineer can inspect the old template, the incoming line, and the wildcarded position. That transparency matters during incident response. A clever opaque model that clusters logs better on average can still be hard to trust when it merges two rare failure modes during an outage.`,
-      ],
-    },
-    {
-      heading: 'Where it wins in a telemetry pipeline',
-      paragraphs: [
-        `A practical pipeline usually masks first, parses second, and enriches third. Masking removes obvious variables and sensitive values before they explode cardinality or leak into downstream stores. Parsing assigns a template ID and template text. Enrichment attaches service name, deployment version, severity, host, trace ID, span ID, route, region, customer tier, or other resource attributes. The result is a log event that can be counted and correlated without discarding raw context.`,
-        `The template ID should not replace the raw line. Engineers still need examples, parameters, stack traces, and surrounding context. A good system stores representative raw events and keeps links from template counts back to sample lines. During an incident, the workflow is often: notice a new template after deploy, inspect its examples, jump to traces with the same trace ID, compare metrics for the affected service, and decide whether the template is a symptom or the root signal.`,
-        `Templates also create governance hooks. A newly created template in a critical service may require review. A template whose count suddenly spikes can become an alert candidate. A template that contains unmasked emails, tokens, or customer identifiers can trigger a privacy fix. A template that changes every deploy may indicate unstable logging code. The parser is not only compression; it is a way to turn messy text into operational inventory.`,
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `Drain reduces online comparison cost by using a fixed-depth tree, but it does not make parsing free. The system still pays for preprocessing, tokenization, tree traversal, similarity scoring, template updates, template storage, and downstream cardinality. Those costs are usually small compared with full-text clustering, yet they matter at log-ingestion scale.`,
-        `The main quality tradeoff is between merge and split errors. A low similarity threshold or aggressive wildcarding can merge distinct events into one template. A high threshold or weak masking can split one event into thousands of templates. The right setting depends on the operational use: security teams may prefer preserving distinctions, while high-volume platform dashboards may prefer stable aggregate keys.`,
-        `There is also a latency and governance tradeoff. Online parsing gives immediate template IDs for new logs, but early templates may change as more examples arrive. If template IDs feed alerts, anomaly detection, or retention policy, the pipeline needs versioning and review rules so template churn does not create false operational history.`,
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        `Start with masking rules before tuning Drain itself. Mask timestamps, UUIDs, IP addresses, request IDs, numbers, hex strings, paths, emails, access tokens, and known service-specific identifiers. Do that before export to shared stores. A parser that learns to wildcard secrets after seeing examples has already leaked the first examples.`,
-        `Keep template identity separate from template text. The text may generalize over time as constants become wildcards, but downstream systems need stable identifiers, creation time, version, service scope, parser configuration, and example lines. Store enough provenance to explain why a line matched a template during an incident.`,
-        `Evaluate with labeled slices, not only aggregate template counts. Sample high-volume templates, newly created templates, templates that changed recently, and templates near alert thresholds. Check both over-wildcarding and under-wildcarding. Track template churn per service and deploy version; sudden churn is often a logging change, parser regression, or real incident signal.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `Drain fails when shape is not enough. Two messages can share many tokens but mean different things. "Payment retry succeeded for order <*>" and "Payment retry failed for order <*>" differ by one critical token. An overly aggressive threshold or wildcard rule can hide that distinction. This is over-wildcarding: one vague template absorbs multiple event types and makes alerts less precise.`,
-        `It also fails in the opposite direction. If request IDs, paths, numbers, hashes, or user-controlled strings are not masked before parsing, the parser may create too many templates. This is under-wildcarding: one event type fragments into many keys. The symptom is high template churn, noisy novelty alerts, and dashboards dominated by one-off strings. Better masking rules, tokenization, and threshold tuning are usually required.`,
-        `Free-text parsing is the wrong tool when the application already emits good structured logs. If a JSON log has stable fields for event name, error code, tenant, route, and duration, the pipeline should extract those fields instead of pretending the message string is the source of truth. Drain is most useful for legacy logs, third-party text, mixed estates, and transitional systems where perfect instrumentation is not available.`,
-        `Privacy is a separate requirement. Drain can wildcard a token after seeing variation, but that may happen after sensitive data has already entered the pipeline. Redaction and classification should happen before storage or export. Secrets, session tokens, emails, phone numbers, access keys, and customer IDs need controls that do not depend on the parser eventually learning a wildcard.`,
-      ],
-    },
-    {
-      heading: 'Concrete example',
-      paragraphs: [
-        `Suppose the stream begins with "Failed login user 42 from 10.0.0.7." Preprocessing masks the IP and maybe the number, producing tokens like ["Failed", "login", "user", "<*>", "from", "<*>"]. The parser routes the line by token count and selected positions. No candidate exists, so it creates a new template. Later it sees "Failed login user 91 from 10.0.0.8." The same length and stable positions lead to the same group, and the wildcard positions absorb the changing values.`,
-        `Now a deploy introduces "Failed login user 91 because account locked." It may share the first few tokens but has a different length and different suffix. Depending on configuration, it should become a separate template because it represents a distinct event. If the parser merges it into the generic failed-login template, the security team may miss that account-lock failures are growing. If it splits every user into a new template, the team gets alert noise. The engineering work is tuning the parser so the operational distinction matches the incident distinction.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: the Drain publication page at https://pinjiahe.github.io/publication/2017-ICWS, the Drain paper PDF at https://netman.aiops.org/~peidan/ANM2023/6.LogAnomalyDetection/phe_icws2017_drain.pdf, the OpenTelemetry Logs Data Model at https://opentelemetry.io/docs/specs/otel/logs/data-model/, and the OpenTelemetry log data appendix at https://opentelemetry.io/docs/specs/otel/logs/data-model-appendix/. Use the original paper for the algorithm and current OpenTelemetry specifications for modern log-pipeline vocabulary.`,
-        `Next, study Trie for prefix-index thinking, Finite State Machine for recognizing structured text, Count-Min Sketch and Heavy Hitters for noisy telemetry counts, OpenTelemetry Collector for ingestion pipelines, Distributed Tracing for correlation by trace ID, AIOps Incident Response for downstream use, Metric Label Cardinality Control for the cost of unbounded keys, and PII Redaction Token Span Pipeline for privacy controls that should happen before inferred templates are stored.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read this as an online parser for operational log text. Active nodes show tokenization, tree routing, similarity scoring, and template update; found nodes are stable event templates that downstream systems can count.',
+      {type: `callout`, text: `Drain turns unstable text into stable operational keys by indexing log shape before scoring templates.`},
+      {type: `image`, src: `https://upload.wikimedia.org/wikipedia/commons/b/be/Trie_example.svg`, alt: `Trie diagram showing shared prefixes for several short words.`, caption: `Trie example by Booyabazooka, based on Deco, with modifications by Superm401, Wikimedia Commons, public domain.`},
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Logs are often text because text is easy for developers and useful during incidents. Machines need stable event keys, while raw lines contain changing ids, numbers, paths, IP addresses, and user values.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is hand-written regular expressions. That works for a small estate, but services, libraries, deployment versions, and incident-only messages change faster than the rule library.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is cardinality and coverage. Counting every full line creates one event per user id, while broad regex rules can merge failures that operators need to keep separate.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Many log lines come from format strings: stable words plus variable slots. Drain uses a fixed-depth parse tree to route by token count and selected token positions before scoring templates.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'Preprocessing masks timestamps, UUIDs, IP addresses, paths, numbers, emails, and request ids. The parser routes by length, follows token-position branches, scores similarity, wildcardizes varying positions, or creates a new template.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is approximate but inspectable. If two lines share the same format string after variables are masked, their stable tokens should match at the positions Drain uses for routing and scoring.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Drain reduces comparison cost from all templates to a candidate group. Cost behaves through merge and split errors: a loose threshold hides distinct events, while a strict threshold fragments one event into noisy templates.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Drain fits legacy text logs, third-party libraries, mixed language estates, and observability pipelines that need event keys before every team emits structured logs. New templates after deploy can trigger review or alert candidate creation.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'Drain fails when shape hides meaning. It also fails when masking happens after storage, because secrets may leak before the parser learns a wildcard.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'The line "Failed login user 42 from 10.0.0.7" masks to "Failed login user <*> from <*>" and creates a six-token template. The next line with user 91 and another IP joins that template because the stable positions match.',
+      'A deploy later emits "Failed login user 91 because account locked". It should become a separate template because the suffix changes the operational event, even though the first tokens overlap.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Study Drain at https://pinjiahe.github.io/publication/2017-ICWS, the paper PDF at https://netman.aiops.org/~peidan/ANM2023/6.LogAnomalyDetection/phe_icws2017_drain.pdf, and the OpenTelemetry Logs Data Model at https://opentelemetry.io/docs/specs/otel/logs/data-model/.',
+      'Next, study tries, finite state machines, Count-Min Sketch, heavy hitters, OpenTelemetry Collector, distributed tracing, metric label cardinality, AIOps incident response, and PII redaction token spans.',
+    ] },
   ],
 };

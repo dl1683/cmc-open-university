@@ -359,114 +359,54 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Reinforcement-learning results are unusually easy to overstate. A single lucky seed, drifting environment, changed reward, hidden simulator patch, or weak stress test can make an impressive curve mean very little.',
-        'An RL experiment reproducibility ledger exists to make those claims inspectable. It records code versions, environment versions, simulator assets, reward-function versions, random seeds, rollout budgets, raw reward events, evaluation slices, confidence intervals, stress tests, and release decisions.',
-        {type:'callout', text:'An RL result is credible only when the score is tied to replayable rows for code, environment, reward, seeds, stress tests, and release decisions.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The naive approach is to report the best run or the last checkpoint. That is tempting because RL curves are noisy and compute is expensive.',
-        'Another naive approach is to treat the scalar reward as ground truth. RL optimizes the reward it receives, not the outcome the team meant.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The wall is variance plus proxy drift. Two seeds under the same headline setup can diverge sharply. A reward proxy can improve while real task quality falls. A policy can beat training opponents and fail against strange legal behavior.',
-        'That means the experiment record has to include the setup, not only the score.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Treat an RL claim as a bundle of replayable rows. A run row names code, environment, reward, seed, hyperparameters, rollout budget, and evaluation protocol. A rollout row stores episode facts. A stats row reports spread and uncertainty. A release row records stress gates and rollback triggers.',
-        'Reward auditing is separate from score reporting. The scalar reward should be derivable from raw events, and hidden task-quality checks should be visible enough to detect reward hacking.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        "In the seed-ledger view, watch the claim widen from one run to a distribution. A single curve is not a result. The ledger ties each score to code, environment, reward, seed, budget, and evaluation protocol so variance can be inspected instead of hidden.",
-        "In the reward-audit view, follow raw events before the scalar reward. The scalar is only a compressed signal. If the raw event stream shows that the agent found a loophole, the reward number has become evidence of reward hacking rather than progress.",
-        "In the stress-gate view, the release decision is the state transition. A policy does not move forward because the best seed looked good; it moves forward because the ledger says the result survived variance, ablations, hidden checks, and deployment-like stress.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A navigation policy improves average reward by 12 percent in one seed. The ledger shows that five other seeds are flat, one seed collapses, and the improved seed exploited a simulator shortcut where bumping a wall gives a shaping reward without reaching the goal. Without the ledger, the team might ship a lucky exploit. With the ledger, the run becomes a reward-audit failure.',
-        'A stronger experiment records the environment build, map set, reward-function hash, action-space version, sensor noise, rollout count, and evaluation slices. The release gate then compares median performance, tail failures, stress scenarios, and ablations. The decision is slower than reading one curve, but it produces a claim someone else can inspect.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Each run appends rows to a ledger. A run row identifies the agent code, base model or policy checkpoint, simulator version, reward-function hash, seed id, hyperparameters, rollout count, training budget, and evaluation protocol.',
-        'A rollout row records episode id, environment state snapshot, actions, reward components, terminal condition, hidden checks, and timing. A stats row reports seed spread, confidence intervals, median or interquartile mean, and ablations.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'It works because most RL failures are not invisible once the right state is recorded. Seed variance, reward-channel exploitation, simulator drift, and stress-test gaps leave evidence if the ledger is built for them.',
-        'It also makes comparisons fairer. Two checkpoints are comparable only when code, environment, reward, seeds, budget, and evaluation protocol are named.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The ledger costs compute and discipline. Seed sweeps, stress suites, hidden evals, rollouts, and replayable logs all take time and storage.',
-        'The alternative is worse: a policy update with no debugging handle. Production RL releases should name the exact run, reward version, stress suite, rollback trigger, and owner.',
-        'Storage cost can be controlled by tiering evidence. Keep compact run metadata for every experiment, sampled rollout traces for ordinary runs, full traces for release candidates, and raw failure traces for regressions. The point is not to store everything forever; it is to preserve enough evidence to reproduce the claim and debug the failure.',
-      ],
-    },
-    {
-      heading: 'What the ledger should contain',
-      paragraphs: [
-        'At minimum, record repository commit, dependency lockfile, base model or policy checkpoint, environment image, simulator assets, reward version, random seed, hyperparameters, training budget, evaluation budget, hardware class, and metric definitions. For agentic or robotic systems, also record tool permissions, reset conditions, sensor noise, and safety constraints.',
-        'For every release candidate, store the decision packet: score distribution, confidence interval or bootstrap estimate, hidden-eval result, known failure cases, stress-test result, human review notes, rollback condition, and comparison to the previous shipped policy. That packet is what turns a training run into an engineering artifact.',
-      ],
-    },
-    {
-      heading: 'Reporting standard',
-      paragraphs: [
-        'A serious RL report should lead with distributions, not only peak curves. Show seed count, median or interquartile mean, uncertainty, compute budget, environment version, reward version, and the exact selection rule for the checkpoint being reported. If the best seed was selected after looking at outcomes, say so.',
-        'For production, add release gates. A policy should not ship only because reward improved. It should pass regression slices, stress cases, safety constraints, rollout monitoring, and rollback criteria tied to the same ledger identity.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'This ledger wins in simulator-heavy RL, RLHF, agent training, game self-play, robotic policies, recommender bandits, and any environment where seeds, reward functions, and deployment shifts can change the conclusion.',
-        'It is also useful for research reading: it helps separate algorithmic progress from compute scale, environment scaffolding, and reporting choices.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'It fails if teams record only scores and not raw reward events. It fails if stress tests are weaker than deployment. It fails if reward and environment versions are not pinned.',
-        'It also fails culturally when one high-scoring run is treated as proof.',
-        'It can also become ritual paperwork if nobody uses it to make decisions. The ledger should block release, trigger reward redesign, force environment pinning, or justify rollback. If it never changes behavior, it is just a dashboard with better nouns.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'OpenAI Five is the scale case. The official OpenAI writeup says the system played about 180 years of Dota games against itself each day and trained with a scaled-up PPO setup on 256 GPUs and 128,000 CPU cores. That is an impressive RL engineering result, but it also shows why the training environment, restrictions, reward design, self-play opponents, and compute budget are part of the claim.',
-        'AlphaStar is the league case. DeepMind describes initial supervised learning from human games, then league training where competitors branch, older competitors freeze, matchmaking and objectives adapt, and the final agent is sampled from the Nash distribution of the league. That is scaffolded population training, not blank-slate reward magic.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Deep Reinforcement Learning that Matters at https://arxiv.org/abs/1709.06560, Adversarial Policies: Attacking Deep Reinforcement Learning at https://arxiv.org/abs/1905.10615 and https://adversarialpolicies.github.io/, OpenAI Five at https://openai.com/index/openai-five/, AlphaStar at https://deepmind.google/blog/alphastar-mastering-the-real-time-strategy-game-starcraft-ii/, PPO at https://arxiv.org/abs/1707.06347, and the local RL.pdf in the provided document corpus.',
-        'Study Value Iteration, Policy Gradients, RLHF & Preference Optimization, DeepSeek-R1: GRPO and RLVR, Process Reward Models & Verifier Search, Verifier-Guided Inference Control Plane, Benchmark Variance & Model Selection, Data Leakage & Contamination, Contextual Bandit Logged Policy Evaluation, Feature Flags, Distributed Tracing, and Write-Ahead Log next.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the seed-ledger graph as a claim pipeline. Active nodes identify the code, environment, seeds, and rollouts that produced the result; found nodes are statistics and reports; compare nodes are signals that can make a headline score misleading.',
+      'The reward-audit and stress-gate views add two checks. A scalar reward must be tied to raw event facts, and a policy must survive stress cases before release.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Reinforcement learning, or RL, trains a policy by letting it act in an environment and receive reward. RL results are fragile because random seeds, simulator versions, reward functions, rollout budgets, and stress tests can change the conclusion.',
+      'A reproducibility ledger is a structured record of those moving parts. It turns a score into a row that can be replayed, audited, compared, and rejected when the evidence is weak.',
+      {type:'callout', text:'An RL result is credible only when the score is tied to replayable rows for code, environment, reward, seeds, stress tests, and release decisions.'},
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to report the best run or the final checkpoint. That is tempting because RL curves are noisy, compute is expensive, and one clean curve is easier to explain than a distribution.',
+      'Another obvious approach is to trust the scalar reward as the task result. That fails because RL optimizes the reward it receives, not the outcome the team meant.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is variance plus drift. Two seeds can produce very different policies under the same headline setup, and a small environment or reward change can make old comparisons invalid.',
+      'Stress tests expose another wall. A self-play agent can beat its training opponents and still fail against legal but strange behavior.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Treat an RL claim as a bundle of replayable ledger rows. A run row names code, environment, reward, seed, hyperparameters, rollout budget, and evaluation protocol.',
+      'A rollout row stores episode facts, actions, reward components, terminal conditions, and timing. A stats row reports spread and uncertainty, while a release row records stress gates and rollback triggers.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'Each experiment appends structured rows as it runs. The ledger records the repository commit, dependency lockfile, simulator image, asset version, reward hash, seed id, hardware class, training budget, and evaluation budget.',
+      'When training finishes, the ledger produces a decision packet. That packet includes seed distribution, median or interquartile mean, confidence interval, stress-test results, reward-audit notes, known failures, and comparison to the previous baseline.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The ledger works because most RL failures leave evidence when the right state is recorded. Seed variance appears as spread, reward hacking appears as scalar-fact divergence, simulator drift appears as version mismatch, and brittle policies fail stress cases.',
+      'It also makes comparisons fair. Two checkpoints are comparable only when code, environment, reward, seeds, budget, and evaluation protocol are named.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The ledger costs compute, storage, and discipline. Six seeds cost about six times one seed, hidden stress suites add rollouts, and replayable traces can become large.',
+      'Cost should be tiered by decision risk. Store compact metadata for every run, sampled traces for routine experiments, full traces for release candidates, and raw failure traces for regressions.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'This ledger is useful in simulator RL, game self-play, robotic policies, RLHF, verifier-driven agent training, recommender bandits, and any system where reward or environment changes can invalidate a result.',
+      'It is also useful for reading papers. The same structure helps separate algorithmic improvement from compute scale, environment scaffolding, seed selection, and reporting choices.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'It fails if teams record only scores and not raw events. It fails if stress tests are easier than deployment, if hidden tests leak into training, or if reward and environment versions are not pinned.',
+      'It also fails culturally when the ledger never changes a decision. A good ledger can block release, force reward redesign, require environment pinning, trigger rollback, or prove that a regression is only a lucky-seed illusion.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A navigation policy is trained with 6 seeds. Final scores are 82, 37, 76, 51, 88, and 44, while the baseline scores are 60, 55, 57, 61, 58, and 54. Reporting the 88 seed claims a large win; the median of the new policy is 63.5, and the spread includes a collapse.',
+      'The ledger shows why. The high seed found a simulator shortcut where brushing a wall gave shaping reward without reaching the target, while the low seed got trapped by a map layout unseen in training. The release packet blocks the model, keeps the traces, patches the reward, and reruns the same seed set.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Deep Reinforcement Learning that Matters at https://arxiv.org/abs/1709.06560, Adversarial Policies: Attacking Deep Reinforcement Learning at https://arxiv.org/abs/1905.10615 and https://adversarialpolicies.github.io/, OpenAI Five at https://openai.com/index/openai-five/, AlphaStar at https://deepmind.google/blog/alphastar-mastering-the-real-time-strategy-game-starcraft-ii/, and PPO at https://arxiv.org/abs/1707.06347.',
+      'Study Value Iteration, Policy Gradients, RLHF and Preference Optimization, DeepSeek-R1: GRPO and RLVR, Process Reward Models and Verifier Search, Benchmark Variance and Model Selection, Data Leakage and Contamination, Contextual Bandit Logged Policy Evaluation, Feature Flags, Distributed Tracing, and Write-Ahead Log next.',
+    ] },
   ],
 };

@@ -319,74 +319,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why AdaTape exists',
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The tape-bank view shows AdaTape as an input-length controller. AdaTape means adaptive computation with an elastic input sequence: the model appends a variable number of auxiliary tape tokens before a shared transformer processes the sequence. Active slots show which tape tokens are selected for the current example.',
+        'The elastic-input view shows cost. Adding k tape tokens to n base tokens changes attention over n + k tokens, not only over k. The safe inference is that extra tokens are useful only when their quality gain pays for longer attention and harder batching.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
       paragraphs: [
         {type:'callout', text:'AdaTape’s key insight: instead of making the model deeper for hard inputs, make the input longer. Append a variable number of auxiliary tape tokens to the sequence. Easy examples get few extra tokens; hard examples get more. The transformer stays fixed-depth, but the input is elastic — giving adaptive compute without dynamic depth or early exit.'},
-        'AdaTape is a way to give a neural network a variable compute budget without changing the depth of the main model. A standard transformer spends the same sequence budget on every example after tokenization or patching. A simple image, a cluttered image, and an algorithmic input with hidden structure all travel through the same number of blocks with the same input length. That is clean for batching, but it wastes compute on easy cases and under-serves hard cases.',
-        'The ICML 2023 paper Adaptive Computation with Elastic Input Sequence proposes a different knob. Instead of asking an example to run for more layers, AdaTape appends a variable number of auxiliary tape tokens to the input. Easy examples can receive few extra tokens. Hard examples can receive more. The model still uses a shared transformer, but the sequence entering that transformer is elastic.',
+        'A standard transformer spends roughly the same depth on every example after tokenization. Easy examples, cluttered examples, and algorithmic examples all move through the same block count. That regularity is good for batching but wasteful when difficulty varies.',
+        'AdaTape exists to give hard examples extra workspace without changing the main model depth. A reader module looks at the input, selects a variable number of tape tokens, and appends them to the base sequence. The transformer stays shared and fixed-depth, while the input length becomes adaptive.',
       ],
     },
     {
-      heading: 'The obvious approach and wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach to adaptive computation is dynamic depth. Adaptive Computation Time lets a recurrent model decide how many refinement steps to spend. Early-exit models let an example stop at a shallower layer when the answer is already clear. Mixture-of-Depths routes only some tokens through expensive blocks. These methods are reasonable because depth is where much of the work happens.',
-        'The wall is control and hardware regularity. Dynamic depth changes the execution path, which can make batching, caching, and accelerator utilization harder. It also asks the model to decide when enough internal processing has happened. AdaTape keeps the main transformer path more regular and moves adaptivity to the input interface. The question becomes easier to state: how many extra working tokens should this example bring into the shared computation?',
+        'The obvious adaptive-compute approach is dynamic depth. A model can run more layers for hard examples, stop early for easy examples, or route only some tokens through expensive blocks. This is reasonable because much of a transformer cost sits inside repeated layers.',
+        'Another obvious method is to use a fixed set of memory tokens for every example. That adds workspace while keeping execution regular. It does not adapt cost, because every example pays for the same extra tokens whether they help or not.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that extra tokens can act as extra computational workspace. A transformer does not only process tokens as data. Tokens also become slots in the attention graph. Adding a token creates another representation that can attend to the input, collect detail, participate in later layers, and influence the output. If those tokens are selected carefully, input length becomes a compute allocation mechanism.',
-        'This makes AdaTape closer to learned retrieval than to ordinary padding. A tape bank stores candidate tape tokens. A reader looks at the current input and chooses a variable-length subset. The chosen tokens are appended to the base sequence, and the transformer processes the augmented sequence. The invariant is that every example keeps its base tokens, while the selected tape tokens supply additional work only where the controller believes that work will help.',
+        'Dynamic depth complicates batching, caching, scheduling, and accelerator utilization. Examples in the same batch may want different layer counts, which creates idle work or fragmented execution. It also asks the model to decide when enough internal computation has happened.',
+        'Fixed memory tokens hit the opposite wall. They improve capacity for some inputs but add constant cost to all inputs. If only 20 percent of examples need extra workspace, the remaining 80 percent still pay the attention and memory bill.',
       ],
     },
     {
-      heading: 'Mechanism and data structures',
+      heading: 'The core insight',
       paragraphs: [
-        'The main data structures are ordinary but easy to get wrong. The system needs a tape bank, an input summary or query vector, selected tape-token ids, an elastic sequence buffer, an attention mask, position metadata, a maximum tape budget, and statistics for selected token counts. In a deployed system it also needs padding buckets, because variable sequence length can fragment batches and create tail-latency spikes.',
-        'The bank can be trainable or input-derived. A trainable bank stores learned vectors that behave like reusable scratchpad slots. An input-derived bank extracts candidate tape tokens from another view of the same example, such as finer image patches or lower-level details. Adaptive Tape Reading scores or ranks candidate tape tokens, chooses a count and content, and materializes the final sequence. The important implementation detail is that selection changes both content and length. A fixed set of memory tokens would add constant cost. AdaTape makes the count part of the route.',
+        'Extra tokens can act as conditional workspace. In a transformer, a token is not only data; it is a slot in the attention graph that can gather evidence and influence later representations. Adding tokens gives the model more places to store and combine information.',
+        'AdaTape moves adaptivity to the input interface. The base sequence remains present for every example, while a reader selects zero or more tape tokens from a bank or input-derived pool. The invariant is that selected tape tokens must add useful evidence more often than they add wasted attention.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The system builds an input summary or query vector, scores candidate tape tokens, chooses a count, and appends the selected tokens to the base sequence. It also creates an attention mask and position metadata so padding stays invisible and selected tokens attend legally. A maximum tape budget keeps the worst case bounded.',
+        'The tape bank can be learned vectors, input-derived detail tokens, or a mix. A learned bank behaves like reusable scratchpad slots. An input-derived bank can pull finer image patches or local details only when the summary says they matter.',
+        'Training rewards the reader when the selected tokens improve task performance enough to justify their cost. Serving usually adds length buckets so requests with similar augmented lengths batch together. Without buckets, one hard example can force every request in a batch to pad to its long sequence.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'AdaTape works when difficulty is uneven across examples and the reader can detect useful extra context before the main computation. If every example needs the same amount of detail, a fixed sequence is simpler. If hard cases can be recognized from a summary, then the reader can give those cases more working slots. The extra slots increase attention opportunities and representation capacity where the input is dense, ambiguous, or algorithmically demanding.',
-        'The correctness argument is not a proof in the classic algorithm sense. It is an inductive-bias argument. The transformer is still trained end to end, so selected tape tokens must learn to carry useful information. The architecture makes one behavior available: conditional workspace. Training rewards the reader when selected tokens improve the task enough to offset any cost penalty. The design is trustworthy only if evaluation shows that token use rises on genuinely harder slices and that quality improves more than a fixed-budget baseline at comparable cost.',
+        'The method works when difficulty is uneven and detectable before the main transformer computation. If a summary can identify hard examples, the reader can allocate more token slots to them. Those slots increase attention opportunities and representation capacity where the input is dense or ambiguous.',
+        'The correctness argument is not a classic proof; it is an inductive-bias and evaluation argument. The architecture permits conditional workspace, and training must learn to use it. The claim is trustworthy only if token count rises on genuinely harder slices and if adaptive selection beats a fixed-token baseline at matched compute.',
       ],
     },
     {
-      heading: 'Cost behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Tape tokens are not free. In a full attention transformer, adding tokens increases the attention table. If the base sequence has n tokens and AdaTape appends k tape tokens, the attention work grows with the augmented length, not with k alone. A small k can be cheap. A large k on long inputs can dominate latency and memory. The cost curve is especially visible at p95 and p99 because the hardest examples tend to request the most extra tokens.',
-        'Batching adds a second tax. Accelerators like rectangular work. If every request has a different augmented length, the serving system either pads to the largest example in a batch or creates many small buckets. Padding wastes compute; too many buckets reduce batch size. A practical AdaTape route needs a maximum tape cap, length buckets, and admission rules that keep the worst case bounded.',
+        'Full attention cost grows with the square of augmented length. If n = 512 base tokens and k = 64 tape tokens, attention cells grow from 512 * 512 = 262,144 to 576 * 576 = 331,776, about 27 percent more. If k = 256, the table grows to 768 * 768 = 589,824, more than double the base cost.',
+        'Batching adds tail cost. If one request in a batch uses 256 tape tokens and the others use 16, padding can make all of them pay for the longest case. Production use needs a cap, buckets, telemetry on selected-token counts, and a policy for rejecting or rerouting pathological examples.',
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Real-world uses',
       paragraphs: [
-        'AdaTape is useful when examples have uneven complexity and the extra information can be represented as tokens. Vision is a natural fit because some images need fine local evidence while others are globally obvious. Algorithmic tasks are another fit because extra scratchpad-like tokens can help preserve intermediate state. Any setting with cheap summaries and expensive details can use the same pattern: summarize first, then pull detail only when needed.',
-        'It is also a useful mental bridge to retrieval, memory tokens, and latent arrays. Retrieval-augmented generation retrieves external chunks. Perceiver-style models use a fixed latent bottleneck. AdaTape retrieves or selects internal auxiliary tokens with a variable count. The shared lesson is that a model interface is a data structure. The interface decides which information becomes part of the working set and which cost the model pays to use it.',
+        'AdaTape is useful when examples have uneven complexity and extra evidence can be represented as tokens. Vision is a natural fit because some images need fine local detail while others are globally obvious. Algorithmic tasks can also benefit when extra slots act like scratchpad state.',
+        'It is also a bridge to retrieval and latent-array models. Retrieval-augmented generation pulls external chunks, Perceiver-style models use latent bottlenecks, and AdaTape selects internal auxiliary tokens with variable count. The common lesson is that the model interface decides the working set and therefore the cost.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'AdaTape is a poor fit when dynamic length is more expensive than the accuracy gain. It can lose to a fixed larger model if nearly all examples request many tape tokens. It can lose to a smaller fixed model if the reader is noisy and spends tokens on easy examples. It can also fail when the bank content is weak. A learned bank may become a bag of vague vectors. An input-derived bank may copy low-value details. In both cases, the augmented sequence grows without adding useful evidence.',
-        'Masking and position handling are common failure points. Tape tokens must attend to the right base tokens. Padding must remain invisible. Selected-token order must be stable enough for training and serving. A production system must also handle distribution shift. If the route that once needed two tape tokens now needs eight because inputs changed, the system should show that drift before latency and cost surprise operators.',
+        'AdaTape fails when nearly all examples ask for many tape tokens. In that case a fixed larger model or fixed longer sequence may be simpler and faster. It also fails when the reader is noisy and spends tokens on easy examples.',
+        'The bank can fail too. A learned bank may become vague vectors that add little information, while an input-derived bank may copy low-value detail. Masking, position handling, selected-token order, and padding bugs can make training and serving disagree.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Good evaluation separates quality from cost. Track task score by tape-token count, score by difficulty slice, average and tail selected-token count, augmented sequence length, batch padding waste, attention memory, time to first output, p50 latency, p99 latency, and fallback frequency. A healthy route shows a quality-cost knee: adding tokens helps up to a point, then stops paying. If the curve is flat, the tape is decorative. If cost rises faster than quality, the controller is too generous.',
-        'A good ablation suite compares no tape, fixed tape count, random selected tape, learned bank, input-derived bank, and AdaTape selection under matched compute. The key claim is not that extra tokens help. Extra tokens usually help if enough compute is added. The claim is that adaptive extra tokens spend the budget better than a fixed policy.',
+        'A vision classifier uses 196 base patch tokens from a 224 by 224 image. The tape cap is 64 tokens, and the reader can choose 0, 16, 32, or 64. Easy product images average 8 selected tokens, cluttered shelf images average 48, and occluded images hit the cap.',
+        'Base attention has 196 * 196 = 38,416 cells. With 32 tape tokens, the table becomes 228 * 228 = 51,984 cells, about 35 percent more. If the hard-slice accuracy rises from 82 percent to 88 percent while average latency rises from 11 ms to 13 ms, the trade may be acceptable.',
+        'A fixed 64-token policy would make every example use 260 * 260 = 67,600 attention cells. AdaTape avoids that cost on easy inputs, but only if the reader selects low counts there. The evaluation must compare adaptive tokens against fixed 16, fixed 32, and fixed 64 under matched latency.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources are the PMLR paper page at https://proceedings.mlr.press/v202/xue23e.html, the arXiv version at https://arxiv.org/abs/2301.13195, the Google Research overview at https://research.google/blog/adatape-foundation-model-with-adaptive-computation-and-dynamic-read-and-write/, and the Scenic AdaTape code path at https://github.com/google-research/scenic/tree/main/scenic/projects/adatape.',
-        'Study Adaptive Computation Time to understand halting over recurrent steps. Study Mixture-of-Depths and early-exit transformers for depth-side adaptivity. Study Attention, Transformer blocks, Perceiver IO, retrieval-augmented generation, tokenization, KV cache behavior, and LLM inference cost models to see the broader pattern: adaptive systems work only when the controller improves the quality-cost tradeoff under real serving constraints.',
+        'Primary sources are the ICML 2023 AdaTape paper, the arXiv version, the Google Research overview, and the Scenic project implementation. Read the method with attention to selected-token count, quality-cost curves, and fixed-budget baselines.',
+        'Study next: Adaptive Computation Time for halting decisions, Mixture-of-Depths and early-exit transformers for depth-side adaptivity, Attention and Transformer Blocks for the cost model, Perceiver IO for latent arrays, retrieval-augmented generation for external context, and KV cache behavior for serving consequences.',
       ],
     },
   ],

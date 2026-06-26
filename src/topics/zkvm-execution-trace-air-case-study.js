@@ -189,20 +189,90 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'Why this exists', paragraphs: ['Hand-writing a circuit for every application is powerful but expensive. A zkVM offers a different bargain: write a guest program for a virtual machine, execute it, and prove that the execution was valid.', 'The proof is not magic around source code. The prover records a machine trace, constrains that trace with algebraic rules, commits to it, and produces a receipt that a verifier can check much faster than replaying the computation.', {type: 'callout', text: 'A zkVM receipt is only as trustworthy as the trace constraints, program identity, and public statement that it binds together.'}] },
-    { heading: 'The obvious approach', paragraphs: ['The obvious way to verify a program is to run it again. That is fine when the verifier has the time, inputs, environment, and trust boundary needed to replay the computation.', 'A zkVM is useful when the verifier wants a compact proof that a specific program produced specific public outputs, while private inputs or expensive execution stay with the prover.'] },
-    { heading: 'The wall', paragraphs: ['A program execution is messy: program counters, opcodes, registers, memory reads and writes, range limits, control flow, and host interactions. A proof system needs this mess turned into algebra.', 'The dangerous boundary is between guest and host. The proof covers what the guest program and VM constraints actually enforce. It does not automatically prove host-side code, unchecked assumptions, UI claims, or off-chain policy.'] },
-    { heading: 'The core insight', paragraphs: ['A VM execution can be represented as a trace table. Each row is a step. Each column is a machine component: pc, opcode, registers, memory events, helper values, and component-specific state.', 'AIR, or algebraic intermediate representation, defines constraints over that table: transition rules, boundary conditions, memory consistency, range checks, and component interactions. Once the trace is constrained, STARK machinery and FRI can prove the table has the required structure.'] },
-    { heading: 'Mechanism', paragraphs: ['The trace-table view is the central mental shift. A zkVM proof is not a log file. It is a constrained table where the next row must follow from the previous row according to the VM instruction semantics.', 'The receipt-pipeline view shows the trust path: guest code runs, trace and AIR become committed polynomial data, FRI proves low-degree consistency, and the receipt binds the proof to program identity and public outputs.', 'This is also why a zkVM feels different from a traditional VM. The VM is not only executing instructions; it is producing evidence that the instruction stream, memory behavior, and public outputs are mutually consistent.'] },
-    { heading: 'Why it works', paragraphs: ['If every transition, memory relation, range condition, and boundary rule is enforced, then a valid trace corresponds to a valid execution of the VM. The proof system lets the verifier check a compressed version of those constraints.', 'Program identity matters because a proof of "some program ran" is not useful. The receipt must bind the image ID, public journal, and proof bytes so the verifier knows exactly what statement was proven.'] },
-    { heading: 'Complete case study', paragraphs: ['A guest program verifies a signature over an artifact hash and writes the accepted artifact ID to the public journal. The trace records every VM step. AIR ensures instruction semantics and memory consistency. The receipt binds the image ID and journal.', 'The application verifier must still check that the image ID is the approved verifier program and that the journal contains the expected artifact ID. Without those checks, a valid receipt can be attached to the wrong application claim.'] },
-    { heading: 'Cost and behavior', paragraphs: ['zkVMs trade developer ergonomics for proving overhead. They reduce the need to hand-design circuits, but the prover may pay heavily for VM execution, memory consistency, lookups, recursion, and proof aggregation.', 'A useful deployment ledger records guest image ID, public inputs, private-input policy, journal schema, proof system version, cycle count, proving time, verification time, receipt size, and what host-side assumptions remain outside the proof.'] },
-    { heading: 'Where it wins', paragraphs: ['zkVMs fit verifiable computation, rollups, off-chain execution receipts, private input proofs, reproducible policy checks, and systems where many developers need proof-carrying programs without becoming circuit engineers.', 'They are especially educational because they connect familiar machine concepts to proof-system concepts: rows become trace steps, transition functions become constraints, and receipts become signed-style verification artifacts.'] },
-    { heading: 'Where it fails', paragraphs: ['A zkVM does not make an application correct by itself. It proves the guest execution under the VM rules. If the guest checks the wrong statement, omits an input, trusts a host value, or exposes the wrong journal, the proof can still verify.', 'Common mistakes are skipping image-ID checks, treating the public journal as decoration, assuming host code is proven, ignoring private-input provenance, and benchmarking verifier time while hiding prover cost.'] },
-    { heading: 'Worked example', paragraphs: ['Suppose a marketplace wants proof that a private scoring rule accepted a seller without revealing every input. The guest program receives private evidence, checks the scoring rule, and writes only the accepted seller ID and score band to the public journal. The prover runs the guest and returns a receipt.', 'The verifier should not merely ask whether the receipt verifies. It must check that the receipt uses the approved image ID, that the journal schema is the expected one, that the seller ID matches the transaction being approved, and that any public parameters are current. The math proves the guest execution; the application still has to bind that execution to the right business claim.'] },
-    { heading: 'Operational checklist', paragraphs: ['Track guest image IDs as versioned public API. Changing guest code changes the statement being proven, so deployment needs migration rules for old receipts and clear rejection of unknown images. Treat journal fields the same way: they are the public interface between proof and application.', 'Measure prover time, verifier time, receipt size, recursion depth, memory pressure, and failure reasons separately. A zkVM integration that advertises fast verification while ignoring proving cost may still be unusable for real workloads. Also keep a ledger of host assumptions, because those are precisely the parts the proof does not cover.'] },
-    { heading: 'What to watch in production', paragraphs: ['The hardest production bug is usually not invalid algebra. It is proving the wrong statement. A receipt may be mathematically valid while the application forgot to check the image ID, accepted an old guest version, trusted a host-provided timestamp, or interpreted the journal with the wrong schema.', 'Keep proof verification close to application authorization. The verifier should bind proof bytes, guest identity, public outputs, domain-specific parameters, and user action into one decision. Splitting those checks across services without a clear contract makes it easy for a valid proof to be reused in the wrong context.', 'Also plan for upgrades. Guest programs, proof systems, recursion schemes, and security assumptions change. A serious zkVM deployment needs versioned acceptance policy: which receipts are still valid, which images are deprecated, and how old public journals should be interpreted.'] },
-    { heading: 'Rule of thumb', paragraphs: ['Ask three questions before trusting a zkVM claim: what exact program was proven, what exact public statement did it publish, and what important assumptions stayed outside the guest. If any of those answers is vague, the receipt may be impressive but the application is not yet secure.', 'A good zkVM integration makes those answers boring. The image ID is pinned, the journal schema is documented, the verifier rejects unexpected versions, and the product claim is phrased narrowly enough that the proof actually supports it.', 'The proof should narrow trust, not move it to an unlabeled corner of the system. If someone cannot point to the remaining trust assumptions, the integration is not finished.'] },
-    { heading: 'Study next', paragraphs: ['Primary sources: RISC Zero STARK by Hand at https://dev.risczero.com/proof-system/stark-by-hand, RISC Zero security model at https://dev.risczero.com/api/security-model, and FRI docs at https://dev.risczero.com/reference-docs/about-fri.', 'Study FRI Low-Degree Folding for the low-degree engine, Merkle Tree for commitments, ZK-SNARK Arithmetization for the broader translation problem, and Finite State Machine for state-transition thinking.'] },
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the trace-table view as one program execution flattened into rows. Active cells are the machine state being checked now, compare cells are the next-row values that must follow from it, and found cells are constraints already satisfied. A safe inference is this: a valid row transition proves one VM step only if the AIR actually encodes that instruction rule.',
+        'A zkVM is a zero-knowledge virtual machine: it runs a guest program and produces a cryptographic receipt that the execution followed the VM rules. AIR means algebraic intermediate representation, a set of algebraic constraints over an execution trace. The receipt pipeline shows how trace, constraints, and public journal become a verifiable claim.',
+        {type: 'callout', text: 'A zkVM receipt is only as trustworthy as the trace constraints, program identity, and public statement that it binds together.'},
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Writing a custom circuit for every application is slow and error-prone. A zkVM offers another route: write ordinary guest code for a supported instruction set, run it, and prove that the run was valid. The developer pays proving overhead to avoid hand-building every circuit.',
+        'The verifier wants a narrow claim. It may want to know that a private input passed a rule, that a compiled artifact came from a source, or that an off-chain computation produced a public output. The verifier should not rerun the whole program or see every private input.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is deterministic replay. Give the verifier the program, the inputs, and the environment, then let it run the computation again. That is simple when the computation is small and public.',
+        'Replay fails when inputs are private, execution is expensive, or many verifiers need to check the same result. It also fails when the verifier cannot trust the environment that produced the answer. A receipt lets the verifier check a compact proof instead of executing the whole trace.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that a program execution is messy. The VM has a program counter, opcodes, registers, memory reads, memory writes, range limits, system calls, and public output. The proof system needs all of that turned into algebra without leaving gaps.',
+        'The guest-host boundary is the dangerous edge. The proof covers what the guest program and VM constraints enforce. It does not automatically prove the host code, the UI text, the source repository, the wall-clock time, or any business rule that stayed outside the guest.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to represent execution as a table. Each row is a VM step, and each column records a component such as program counter, opcode, register value, memory address, or helper variable. Valid execution means adjacent rows obey the instruction semantics.',
+        'AIR writes those semantics as polynomial constraints over the table. Boundary constraints set the initial and final conditions. Memory and range constraints make sure the table does not cheat by reading impossible values or using out-of-range fields.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The prover runs the guest program and records the trace table. It then commits to polynomial encodings of trace columns and answers verifier challenges using the proof protocol. In STARK-style systems, FRI is often used to prove that certain polynomials have low enough degree.',
+        'The receipt must bind more than math. It needs the guest image id, the public journal, and the proof bytes. The image id tells the verifier which program was proven, and the journal is the public output that the application is allowed to read.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is simulation by constraints. If every opcode transition, memory relation, range rule, and boundary rule is enforced, then an accepting trace corresponds to a valid execution of the VM. The proof lets the verifier check that structure without reading the whole table.',
+        'Program identity closes the application gap. A proof that some guest ran is not useful. The verifier must check that the image id is the approved program and that the journal fields are bound to the action being authorized.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The prover cost grows with trace length and constraint complexity. If a guest program takes 2,000,000 VM cycles and a change makes it take 4,000,000 cycles, the trace roughly doubles before proof-system constants. Memory checks, recursion, and lookup tables can dominate real proving time.',
+        'The verifier cost is much smaller, but that can mislead product teams. A receipt that verifies in milliseconds may have required seconds or minutes of proving. A serious integration tracks cycle count, proving time, verifier time, receipt size, guest version, and assumptions left on the host side.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'zkVMs fit verifiable computation where developers want proof-carrying programs instead of custom circuits. Uses include rollup execution, private policy checks, software provenance, reproducible build claims, off-chain computation receipts, and audit workflows. The fit is strongest when the proof statement can be kept narrow.',
+        'They are also useful as an education bridge. Registers, memory, program counters, and opcodes are familiar machine concepts. zkVMs show how those concepts become algebraic constraints and then a receipt that another system can verify.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the application proves the wrong statement. A receipt can be mathematically valid while the product forgot to check the image id or accepted a journal field with the wrong schema. The proof narrows trust only if the verifier binds it to the right action.',
+        'It can also fail on cost. A program with heavy memory traffic, large hashes, or many unsupported host interactions can create an enormous trace. If proving time is longer than the business process can tolerate, a smaller custom circuit or ordinary audit trail may be better.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a guest program verifies a signature over artifact hash H and writes accepted = 1 and artifact = H to the journal. The trace has 500,000 VM cycles. The AIR checks instruction steps, memory consistency, and the final journal write.',
+        'The application verifier must still check the receipt uses image id I, where I is the approved verifier program. It must also check the journal artifact equals the artifact being released. If it skips either check, an attacker may present a valid receipt for a different guest or a different artifact.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Start with RISC Zero STARK by Hand at https://dev.risczero.com/proof-system/stark-by-hand and the RISC Zero security model at https://dev.risczero.com/api/security-model. Use those sources to separate trace proving from the application checks that bind image id and journal.',
+        'Study ZK-SNARK Arithmetization for the general translation problem, FRI Low-Degree Folding Proof Case Study for low-degree checking, Merkle Tree for commitments, and Finite State Machine for transition-rule thinking.',
+      ],
+    },
   ],
 };

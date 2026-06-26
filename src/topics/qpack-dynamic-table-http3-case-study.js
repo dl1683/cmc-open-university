@@ -243,92 +243,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the encoder-stream view as two kinds of traffic. Request streams carry HTTP field sections, while the QPACK encoder stream mutates the dynamic table. A dynamic table is a connection-local list of reusable header fields indexed by number.',
+        'In the blocking-budget view, a blocked stream is a request stream waiting for table inserts it references. Required Insert Count is the minimum dynamic-table state needed before decoding is safe. The safe inference is simple: a decoder may use an indexed dynamic entry only after the insert that created it has been processed.',
+        {type:'callout', text:'QPACK makes header compression safe over independent QUIC streams by separating table mutation state from request field sections.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'HTTP requests repeat a lot of header fields. Methods, schemes, status codes, content types, cookies, authorization shapes, cache controls, and user-agent prefixes recur across many requests. Sending those fields literally every time wastes bytes and slows down the start of work.',
-        'QPACK exists because HTTP/3 still needs indexed header compression, but HTTP/3 no longer has one ordered TCP byte stream. HPACK used that order to keep the encoder and decoder dynamic tables synchronized. QUIC streams can arrive independently, so a request can outrun the table update it references.',
-        {type:'callout', text:'QPACK makes header compression safe over independent QUIC streams by separating table mutation state from request field sections.'},
+        'HTTP headers repeat. Methods, schemes, status codes, cookies, authorization shapes, content types, and cache controls often recur across many requests. Compression saves bytes by replacing repeated fields with indexes.',
+        'HTTP/3 runs over QUIC, where streams are independent and can arrive out of order. HTTP/2 HPACK relied on one ordered TCP byte stream to keep table updates and header blocks synchronized. QPACK exists because HTTP/3 still wants dynamic compression without letting one late stream corrupt another stream.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to reuse HPACK from HTTP/2. HPACK has a static table for common fields and a dynamic table for repeated connection-specific fields. A later header block can say "use entry 42" instead of repeating the whole field.',
-        'That works when both endpoints process one ordered stream of header blocks and table mutations. In HTTP/3, request streams are independent. If a request field section arrives before the encoder-stream bytes that insert entry 42, the decoder cannot safely know what entry 42 means.',
+        'The obvious approach is to reuse HPACK. Put common fields in a static table, insert repeated connection-specific fields into a dynamic table, and let later headers refer to table indexes. That is efficient when every header block and table update is processed in the same order.',
+        'In HTTP/3, a request field section can arrive before the encoder-stream insert it references. If the decoder guessed, index 42 could mean the wrong field or no field at all. The old ordered-stream assumption is gone.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'QPACK separates the compressed field section from the dynamic-table mutation log. The encoder stream mutates the table. Request streams carry field sections. The decoder stream reports which sections and inserts have been processed. The field section prefix says how much table state is required before decoding is safe.',
-        'The core invariant is simple: a decoder may use a dynamic reference only after it has processed the insert that created that entry. Required Insert Count, Base, acknowledgments, and blocked-stream limits exist to preserve that invariant without forcing every request stream to wait for every other request stream.',
+        'The wall is head-of-line independence. QUIC deliberately lets independent streams make progress even when another stream is delayed. A compression design that forces all requests to wait for one ordered header stream would throw away that transport benefit.',
+        'At the same time, table references must stay exact. The decoder cannot decode a dynamic reference without knowing the entry. QPACK must allow bounded waiting for compression gains while preventing unbounded blocked streams and wrong decodes.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'The core insight',
       paragraphs: [
-        'The encoder-stream view shows compression state as its own ordered log. Dynamic-table inserts must be processed before any field section that references them. A request stream can arrive early, but it cannot safely decode a reference to a table entry it has not seen.',
-        'The blocking-budget view shows the safety valve. QPACK allows bounded waiting because byte savings matter, but it makes the bound explicit so compression cannot turn into unbounded application latency and memory growth.',
+        'Separate mutation from use. Inserts and capacity changes travel on the QPACK encoder stream. Request streams carry field sections with a prefix that names the table state they require. The decoder stream sends acknowledgments so the encoder can learn what the peer has processed.',
+        'The invariant is that references are safe only after the dependent table state exists at the decoder. Required Insert Count, Base, acknowledgments, and blocked-stream limits are protocol machinery around that one rule.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The encoder chooses among literals, static-table references, and dynamic-table references. Inserts travel on the QPACK encoder stream. A request field section carries Required Insert Count and Base, then literals or indexed references relative to that base.',
-        'If the decoder has processed enough inserts, it decodes immediately. If not, it may block that request stream, but only within the peer advertised blocked-stream limit. The decoder stream then sends Section Acknowledgment, Stream Cancellation, and Insert Count Increment signals so the encoder can manage risk and table lifetime.',
-        'An API client with repeated authorization and cookie fields is the normal win. The first request may send literals or insert table entries. Later requests use compact references. If one request references an insert that is late, only that request waits; other field sections that use literals, static entries, or already-known dynamic entries can continue.',
+        'The encoder chooses between literals, static-table references, and dynamic-table references. Literals are larger but never depend on dynamic state. Dynamic references are smaller for repeated connection-specific fields, but they can block if the insert has not arrived.',
+        'A field section includes the table state needed to decode it. If the decoder has processed enough inserts, it decodes immediately. If not, it can block the stream within the advertised limit, then resume after the encoder-stream bytes arrive.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'QPACK is correct because the decoder never guesses table state. Required Insert Count defines the minimum insert count needed by a field section. Base anchors relative indexes. Decoder feedback tells the encoder which dynamic entries are safe to reuse or evict.',
-        'When the required state is present, an index resolves to one table entry under the shared indexing rules. When the state is missing, the decoder blocks or rejects instead of decoding the wrong field. The protocol trades some latency risk for a precise synchronization contract.',
-        'This is the same broad systems move as a replicated log: references are safe only after the dependent state is known to exist. QPACK uses smaller protocol machinery than a database log, but the reasoning is familiar. Do not consume a reference until the state that gives it meaning has arrived.',
+        'QPACK is correct because the decoder never guesses the dynamic table. When required state is present, an index resolves under shared rules to one table entry. When required state is missing, the decoder waits or rejects rather than inventing a value.',
+        'Feedback makes table lifetime safe. Section acknowledgments and insert count increments tell the encoder which entries are known and which references are still risky. Stream cancellation prevents the encoder from waiting forever for a request section that no longer matters.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'QPACK can save many bytes when headers repeat, but the dynamic table costs memory and bookkeeping on both endpoints. Inserts, relative indexes, capacity changes, acknowledgments, cancellations, and eviction all have to stay consistent under packet loss and stream reordering.',
-        'The encoder policy decides the latency tradeoff. A literal is larger but never blocks. A static reference is small and safe when the field is in the static table. A dynamic reference is smallest for repeated connection-specific fields, but it can stall if the insert has not arrived. When the request count doubles, the byte savings can compound, but so can blocked-stream pressure if the encoder is too aggressive.',
+        'The byte savings trade against latency risk and memory. A literal may spend 80 bytes now and never block. A dynamic reference may spend a few bytes later but can stall a request if the needed insert is delayed. Doubling repeated requests increases savings only if the table entries stay useful and the peer keeps up.',
+        'Implementation complexity is real. Both endpoints track insert counts, relative indexes, table capacity, eviction, acknowledgments, cancellations, and blocked-stream limits under packet loss. The codec is not just compression; it is distributed state management on one connection.',
       ],
     },
     {
-      heading: 'Incident review',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A practical QPACK incident starts with an HTTP/3 service that shows request latency spikes without matching backend work. The transport is alive, but some request streams are blocked waiting for dynamic-table inserts on the encoder stream. The fix may be to reduce risky dynamic references, lower table capacity, use literals for critical fields, or tune the blocked-stream limit.',
-        'The diagnostic question is precise: which field section required which insert count, had the decoder processed that insert, and did encoder feedback justify the reference? That review keeps teams from blaming QUIC generally when the actual problem is a compression-state ordering choice.',
-      ],
-    },
-    {
-      heading: 'Deployment review',
-      paragraphs: [
-        'A deployment review should separate three policies: what may be indexed, when a dynamic reference is worth the blocking risk, and how much blocked-stream budget the peer is allowed to consume. Those are different decisions. A field can be safe to compress but still not worth referencing on a latency-critical request.',
-        'Good telemetry reports dynamic-table capacity, insert count progress, blocked streams, encoder-stream loss, decoder acknowledgments, and fallback to literals. Without those signals, operators see only application latency and miss the compression-state cause.',
-        'A conservative encoder can start with literals and static references, then use dynamic references only after feedback shows that the peer is processing inserts promptly. That policy spends a few more bytes early to avoid turning connection warm-up into a latency trap.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'QPACK wins for repeated, medium-to-large header sets on long-lived HTTP/3 connections. API clients, browser sessions, service meshes, and CDN-to-origin traffic often repeat cookies, authorization shapes, content negotiation fields, and cache metadata.',
-        'It is especially useful when bandwidth or round-trip startup cost matters and the peer has signaled enough dynamic table capacity and blocked-stream budget to make references worthwhile.',
-        'The best wins come from stable, repeated fields whose byte savings recur across many requests.',
+        'QPACK wins on long-lived HTTP/3 connections with repeated medium-size headers. Browsers, API clients, CDNs, service meshes, and mobile apps often resend cookies, authorization shapes, content negotiation fields, and cache metadata.',
+        'It is most useful when the peer advertises enough dynamic table capacity and blocked-stream budget to justify risk. Conservative encoders can start with literals and static references, then use dynamic references after feedback shows the peer is processing inserts promptly.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'QPACK is weak when headers are mostly one-off, high-cardinality, or sensitive enough that compression is disabled or constrained. Literal encoding can be better than filling a table with entries that will not repeat.',
-        'It also fails as a latency optimization when the encoder chases byte savings beyond the peer budget. A tiny dynamic reference that blocks a request on the critical path can be worse than a larger literal that the application can process immediately.',
-        'Sensitive fields also need care. Compression can interact with side-channel risk when attackers can influence plaintext and observe sizes. QPACK is a codec, not a security policy; applications and intermediaries still decide which fields should be indexed, never indexed, or sent literally.',
+        'It fails when headers are mostly one-off or high-cardinality. Filling the table with values that will not repeat wastes memory and may evict useful entries. Literal encoding can be better for unique request metadata.',
+        'It also fails as a latency optimization when byte savings create critical-path blocking. A tiny dynamic reference that stalls authentication headers can be worse than a larger literal. Sensitive fields need policy too, because compression can interact with size-based side channels.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A client sends 100 requests on one HTTP/3 connection. Each request repeats an authorization header of 900 bytes and a cookie of 600 bytes. If QPACK inserts those two fields once, later requests may replace about 1500 literal bytes with small indexed references, saving roughly 148000 bytes across 99 later requests before overhead.',
+        'Now assume request 12 references an insert with Required Insert Count 5, but the decoder has processed only 4 inserts because the encoder stream packet was delayed. That request blocks. If the blocked-stream limit is 2 and two other requests are already blocked, the encoder must choose safer literals or risk violating the peer budget.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RFC 9204 QPACK at https://datatracker.ietf.org/doc/html/rfc9204, RFC 9114 HTTP/3 at https://datatracker.ietf.org/doc/html/rfc9114, and RFC 7541 HPACK at https://datatracker.ietf.org/doc/html/rfc7541. Study HTTP/3 over QUIC for the transport constraint, HTTP/3 Priority Urgency Scheduler for request scheduling, HPACK Dynamic Table HTTP/2 Case Study for the predecessor design, QUIC Transport Streams & Loss Recovery for stream ordering, Base-128 Varint & ZigZag Encoding and Huffman Coding for compact encodings, and Backpressure & Flow Control for bounded waiting.',
+        'Primary sources: RFC 9204 for QPACK, RFC 9114 for HTTP/3, and RFC 7541 for HPACK. These specifications define the table-state contract and the predecessor design.',
+        'Study HTTP/3 over QUIC, QUIC streams and loss recovery, HPACK, Huffman coding, varints, backpressure, and flow control next. The transferable lesson is that compression over independent streams needs explicit dependency state.',
       ],
     },
   ],

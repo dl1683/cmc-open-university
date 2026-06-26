@@ -282,73 +282,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Topic Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Membership inference asks a narrow question with serious privacy consequences: was this exact record in the training set of this model? The attacker does not need to steal the record, recover a label, or invert the model into a readable sample. Participation can be the secret. If the model was trained on hospital discharges, fraud investigations, genetic tests, therapy chats, or disciplinary records, proving that one person appears in the training data can reveal something sensitive even when every individual prediction looks ordinary.',
-        'This topic exists because machine learning privacy is not only about encrypting datasets at rest. A trained model can become a side channel. The classic black-box result by Shokri, Stronati, Song, and Shmatikov showed that confidence vectors can leak train-versus-holdout fingerprints, especially when a model overfits and exposes rich probabilities. The case study here treats membership inference as both an attack and a release audit: if an outside party can learn participation from model behavior, the model is carrying private evidence out through its API.',
+        'The shadow-attack view asks whether one candidate record was in a model training set. A member is a record used during training; a non-member is a similar record held out. Active nodes are model queries and feature extraction steps; found nodes are signals the attack can use.',
         {type:'callout', text:'Membership inference treats model confidence as behavioral evidence of training participation, so privacy must be audited as a release property.'},
+        'The leakage-audit view compares model quality against privacy risk. Confidence means how strongly the model scores its predicted class. The safe inference is that high accuracy does not prove low leakage; a model can predict well and still reveal which records it saw.'
       ],
     },
     {
-      heading: 'The Naive Privacy Story',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive story says that privacy is safe because the model only returns predictions. In that story, the training set is hidden, the API does not display records, and the user sees only a label or a probability vector. That story fails because prediction behavior is evidence. A model may be unusually certain on records it saw during training. It may assign a lower loss to those records than to similar records it did not see. It may expose a large gap between the top class and the runner-up class. None of those signals is the raw record, but together they can become an in-or-out classifier.',
-        'The second naive defense is to say that a single score is too weak to matter. It often is weak by itself. The problem is aggregation. An attacker can collect many examples from the same distribution, query repeatedly, compare losses, and learn thresholds. A release team can make the same mistake in reverse by reporting only global validation accuracy. Validation accuracy can be flat while train accuracy and attack success keep rising. Privacy risk can increase after product quality has stopped improving.',
+        'Membership inference exists because participation can be private. If a model was trained on hospital visits, legal disputes, school discipline records, or private documents, proving that one person appears in the training set can reveal sensitive facts. The attacker does not need to reconstruct the record.',
+        'A trained model can leak through behavior. It may assign lower loss, higher confidence, or sharper probability gaps to examples it memorized. The privacy question becomes a release question: does the deployed model carry evidence of its training set into the API?'
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Membership inference works when training leaves a behavioral fingerprint. Generalization means the model has learned a pattern that applies to unseen examples. Memorization means some records receive record-specific familiarity. The attack tries to detect that difference. It does not ask whether the prediction is correct. It asks whether the model behaves as if the candidate was part of the optimization history.',
-        'Shadow models make that insight operational. The attacker lacks labels for the target model because they do not know which target examples were in training. So the attacker builds a miniature training world where membership is known. Data from a similar distribution is split into shadow train and shadow holdout sets. Shadow models are trained, queried, and their outputs are labeled as member or non-member. An attack classifier then learns the fingerprint and applies it to the target model.',
+        'The obvious privacy story is that hiding the raw data is enough. The API returns a class label or probabilities, not the training set. That story feels reasonable because no row is printed back to the caller.',
+        'A second obvious defense is to look only at validation accuracy. If validation accuracy is good, the model seems to generalize. But validation accuracy can stay flat while train confidence keeps rising and membership leakage increases.'
       ],
     },
     {
-      heading: 'How The Attack Works',
+      heading: 'The wall',
       paragraphs: [
-        'A black-box attack begins with a candidate record and query access to the target. The attacker sends the candidate through the target and collects whatever the API returns: a predicted class, a top probability, a full vector, or log probabilities. The richer the output, the easier the attack usually becomes. From that output the attacker derives features such as loss under the true label, entropy, top-class probability, probability margin, calibration residual, rank of the correct class, and sometimes changes under small perturbations.',
-        'The shadow-model phase creates labeled training data for the attack. Suppose the attacker has public or synthetic data from the same source distribution. They train several shadow models, each with known train and holdout records. Every shadow output is converted into the same feature vector used for the target. The attack classifier learns that low loss plus high confidence may mean member, while higher loss and flatter confidence may mean non-member. The final target decision is just a classifier score over those features, interpreted with base rates and thresholds.',
+        'The wall is overfitting. Overfitting means the model learned details that help on training records more than on new records. Those details can create a behavioral gap between members and non-members.',
+        'The attacker usually does not know target membership labels, so it cannot directly train on the target model. It needs a substitute world where membership is known. Shadow models provide that substitute by imitating the training setup on related data.'
       ],
     },
     {
-      heading: 'What The Visual Is Proving',
+      heading: 'The core insight',
       paragraphs: [
-        'The first visual proves that the private question is separate from the prediction task. The candidate record enters the target, the target returns scores, and those scores become attack features. The attack classifier is not checking whether the model guessed the correct label. It is checking whether the score pattern resembles known training examples. That distinction is why a model can be accurate and still leak membership.',
-        'The audit visual proves that privacy risk can be measured as a release property. If validation accuracy has flattened but train accuracy and attack AUC continue rising, extra training may be buying memorization instead of useful quality. The gate view turns privacy from a vague concern into a packet of evidence: shadow attack results, canary exposure, differential privacy accounting, rare-slice risk, output policy, and a documented decision.',
+        'Treat model outputs as evidence. The attack converts a prediction into features such as loss, top probability, entropy, and margin between the top two classes. These features are not the private record, but they can reveal familiarity.',
+        'A shadow model is a model trained by the attacker on data from a similar distribution. The attacker knows which shadow records were in training and which were held out. That creates labeled examples for a separate attack classifier: output pattern in, member or non-member out.'
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'How it works',
       paragraphs: [
-        'The attack is strongest when the train distribution and the non-member distribution are not treated equally by the model. Overfitting creates a train-test loss gap. Duplicates and near-duplicates make some records appear easier than they should. Rare slices create examples that the model can memorize because there are not many similar cases to generalize from. Overconfident calibration turns small differences in familiarity into large differences in probability.',
-        'The method also works because modern APIs often expose more information than the caller needs. A full probability vector is a detailed behavioral signature. Even a top probability can carry signal. If the attacker knows the true label, loss is especially useful. If the attacker does not know the true label, entropy and margin can still reveal unusual confidence. The shadow classifier collects weak clues and turns them into a ranking of membership likelihood.',
+        'The attacker gathers public, purchased, synthetic, or otherwise similar data. It trains several shadow models, each with a known train split and holdout split. It queries those models on both splits and records their output features.',
+        'The attack classifier learns the member fingerprint from the shadow outputs. Low loss and high confidence may point toward member; flatter confidence may point toward non-member. The trained attack is then applied to target-model outputs for candidate records.',
+        'A defender can run the same process as an audit. The release team trains shadow models or uses known train and holdout data, measures attack AUC and precision at deployment thresholds, and compares risk across model versions and data slices.'
       ],
     },
     {
-      heading: 'Costs And Tradeoffs',
+      heading: 'Why it works',
       paragraphs: [
-        'The attack cost is compute, representative data, and careful evaluation. Training many shadow models can be expensive. If the shadow data does not match the target distribution, the learned boundary can fail. Attack reporting also needs base-rate discipline. A high AUC says the attack ranks members above non-members; it does not by itself say how many positive claims are true at a deployment threshold. Precision, recall, population prevalence, and the harm of false accusation all matter.',
-        'The defense cost is not free either. Early stopping may reduce memorization but leave some utility on the table. Rounding or hiding probabilities can reduce API value for legitimate users. Deduplication and grouped splits require data engineering. Differential privacy gives a formal limit on individual influence, but it usually trades off with quality, training stability, and compute. A useful audit table records these costs beside the measured risk rather than pretending privacy is a single switch.',
+        'The correctness argument is statistical, not absolute. If training makes member outputs systematically different from non-member outputs, a classifier can learn that difference. The attack is valid when evaluation uses separate records and reports how well the learned boundary transfers to the target setting.',
+        'Shadow models work when they approximate the target training distribution closely enough. They do not need to be identical to the target model; they need to expose a similar member-versus-non-member gap. When the gap disappears, the attack loses signal.'
       ],
     },
     {
-      heading: 'Real Uses And Release Gates',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Membership inference audits are used anywhere participation is sensitive: medical models, education platforms, financial risk systems, enterprise copilots, location datasets, biometric systems, and language models trained on private documents. A hospital readmission classifier is a simple example. The red team trains shadow models on related clinical data, finds that low loss and wide margins identify rare diagnosis records, and reports high attack AUC on that slice. The team responds with patient-level grouping, episode deduplication, earlier stopping, probability caps for low-trust callers, and a differential privacy experiment for the most sensitive deployment.',
-        'The operational lesson is that membership inference belongs in the release process. Store train-test gaps, shadow attack metrics, canary exposure, rare-slice results, output precision rules, dedupe status, and privacy budget. Compare model versions on both utility and leakage. This connects directly to Data Leakage & Contamination: leakage asks whether evaluation saw information it should not have; membership inference asks whether the trained model reveals who it saw.',
+        'Attack cost grows with shadow training. Ten shadow models at 2 GPU-hours each cost 20 GPU-hours before the target is queried. Rich probability vectors reduce query count because each response carries more signal than a class label.',
+        'Defense cost is also behavioral. Early stopping may lower leakage but reduce accuracy. Rounding probabilities may protect users but hurt legitimate calibration workflows. Differential privacy can bound individual influence, but it usually spends accuracy, compute, or tuning budget.',
+        'Base rates matter. If only 1 percent of a population are members, an attack with impressive AUC can still produce many false accusations at a loose threshold. A release audit should report precision and recall at the threshold a real attacker would use.'
       ],
     },
     {
-      heading: 'Failure Modes And Limits',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Do not report only attack accuracy. Accuracy can be misleading under rare base rates. Do not tune defenses only on global averages, because rare or duplicated slices may leak first. Do not assume that hiding the full vector removes the risk; top confidence, entropy, rank, and repeated queries may still carry signal. Do not assume federated learning solves the problem automatically; client updates can leak unless secure aggregation, differential privacy, and robust evaluation are part of the system.',
-        'A failed attack is also hard to interpret. It may mean the model is genuinely robust, or it may mean the attacker used weak shadow data, poor thresholds, too few queries, or the wrong metric. A privacy audit should therefore test multiple attack families, include slice-level reporting, and document residual uncertainty. The goal is not to prove that no attack exists. The goal is to reduce known leakage paths and make the remaining risk explicit.',
+        'Membership-inference audits belong in medical models, education systems, financial risk models, enterprise copilots, biometric systems, location models, and language models trained on private corpora. The common condition is that the training population itself is sensitive.',
+        'The same thinking helps with data governance. Deduplication, grouped train-test splits, rare-slice reporting, confidence-output policy, and differential privacy accounting all become release artifacts. Privacy is measured beside utility instead of assumed from access control.'
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Study Differential Privacy SGD for a formal training-time defense, then Federated Learning & Secure Aggregation for distributed settings where updates themselves may leak. Study Calibration & Reliability Diagrams because overconfidence is a common attack signal. Study ROC Curves & AUC, Precision/Recall, and Threshold Optimization so attack reports do not collapse into one misleading number. Then study Influence Functions, Model Inversion Confidence Attack, Data Leakage & Contamination, and LLM Training Data Extraction to see how privacy risk appears across the full model lifecycle.',
+        'The attack fails when shadow data is poor, target outputs are too coarse, query access is limited, or the model genuinely treats members and non-members similarly. A failed attack is not a proof of safety. It may only show that this attack was weak.',
+        'Audits fail when they report only aggregate accuracy. Rare slices, duplicates, and outliers can leak first. A model can pass a global privacy check while exposing a small group that the average hides.'
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a classifier has 10,000 known training records and 10,000 holdout records for audit. On members, average true-label loss is 0.18. On non-members, it is 0.42. A threshold of 0.25 flags 6,000 members and 1,500 non-members.',
+        'Recall is 6,000 divided by 10,000, or 60 percent. Precision under the balanced audit set is 6,000 divided by 7,500, or 80 percent. The attack is learning a real behavior gap, not guessing labels.',
+        'Now apply the same threshold in a population where only 1 percent are true members. Out of 1,000,000 candidates, there are 10,000 members and 990,000 non-members. The same 60 percent recall finds 6,000 members, but a 15 percent false positive rate flags 148,500 non-members. Precision falls to about 3.9 percent, which is why deployment reports must include base rates.'
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: Shokri, Stronati, Song, and Shmatikov, Membership Inference Attacks Against Machine Learning Models, https://arxiv.org/abs/1610.05820. Study differential privacy SGD, calibration, ROC and AUC, precision and recall, data leakage, model inversion, and training-data extraction next.'
       ],
     },
   ],

@@ -1,4 +1,4 @@
-﻿// PostgreSQL buffer pool: shared buffer descriptors, pins, usage_count, dirty
+// PostgreSQL buffer pool: shared buffer descriptors, pins, usage_count, dirty
 // pages, background writer/checkpointer pressure, and clock-sweep eviction.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -168,169 +168,77 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for PostgreSQL Buffer Pool Clock Sweep. How PostgreSQL shared buffers use buffer descriptors, pins, usage_count, dirty flags, clock-sweep victim selection, background writes, and checkpoints..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Read a buffer as a fixed-size memory slot that can hold one database page. The tag map answers whether a requested relation block is already cached, while the descriptor says whether that slot is pinned, dirty, recently used, or reusable.',
+        'In the clock-sweep view, the hand is not searching for the oldest page exactly. It is searching for an unpinned page whose usage_count has fallen to zero, while dirty pages add a writeback step before reuse.',
         {type:"callout", text:"Clock sweep separates lookup from replacement: tags find cached pages, descriptors decide whether each frame is pinned, dirty, protected, or cold enough to reuse."},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'PostgreSQL stores tables and indexes as pages on disk, but query execution wants those pages in memory. The shared buffer pool is the database-owned cache of those pages. It lets backends reuse hot pages, coordinate access to dirty pages, and enforce write-ahead logging rules before pages are replaced or flushed.',
-        'This is more than a simple cache. A page can be pinned by a backend, dirtied by a transaction, protected by locks, referenced by relation and block identity, and subject to recovery rules. Replacement has to respect all of that while many backends are reading and writing concurrently.',
-        'The central question is practical: when memory is full and a new page is needed, which existing buffer can be reused without breaking correctness or causing unnecessary stalls?',
+        'PostgreSQL stores tables and indexes as disk pages, but execution wants recently used pages in memory. The shared buffer pool is the database-owned cache that lets backends reuse pages while coordinating pins, dirty state, and write-ahead logging.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious cache policy is exact LRU: every access moves the page to the front of a list, and eviction removes the least-recently used page. It is easy to explain and often good in small caches.',
-        'The wall is concurrency and bookkeeping. A busy database cannot afford a highly contended global list mutation on every page access. It also cannot evict a page merely because it is old. If a backend has pinned the page, the page is in active use. If the page is dirty, replacement may require writeback, and writeback is constrained by WAL ordering.',
-        'Clock sweep is the compromise: approximate recency with a small counter on each buffer descriptor and scan for a safe victim when replacement is needed.',
+        'The obvious cache policy is exact least-recently used, or LRU. Every access moves a page to the front of a list, and eviction removes the oldest page at the back.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is concurrent replacement. A backend cannot evict a pinned page, and a dirty victim may require writeback that must respect WAL ordering.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The data structure is a pool of fixed-size page frames plus buffer descriptors. A descriptor records which relation block is in the slot, whether it is dirty, how many backends have it pinned, and a small usage_count that acts as a recency signal.',
-        'A tag map answers the lookup question: is relation R, fork F, block B already in shared buffers? The clock sweep answers the replacement question: if it is not, which slot can be reused?',
-        'The clock hand walks the descriptor array. Pinned buffers are skipped. Buffers with positive usage_count receive a second chance by decrementing the count. An unpinned buffer with usage_count zero is a candidate victim. If it is dirty, it must be written before reuse.',
+        'Approximate recency with a small counter on each buffer descriptor. The tag map finds cached pages quickly, and the clock sweep spends replacement work only when a new slot is needed.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'In the clock-sweep view, follow the distinction between lookup and replacement. The tag map finds a page if it is already cached. The descriptor fields decide whether a cached page can be kept, skipped, decremented, or replaced.',
-        'When the clock hand reaches a pinned buffer, the animation skips it because a backend still depends on that memory slot. When it reaches a buffer with usage_count, the hand decrements the counter rather than evicting immediately. When it reaches a cold unpinned buffer, the victim choice becomes possible.',
-        'In the dirty-writeback view, watch the dirty bit and disk edge. A clean victim can be reused quickly. A dirty victim connects replacement to WAL safety, background writing, checkpoints, and foreground latency.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'A backend requests a page by buffer tag, roughly relation identity plus fork and block number. If the tag is present, the backend pins the buffer and can use the page. The pin protects the page from eviction while the backend reads or modifies it.',
-        'If the tag is absent, the buffer manager needs a free or reusable slot. The clock hand scans descriptors. Pinned buffers are not candidates. Recently used buffers have usage_count decremented. Eventually the hand finds a cold unpinned slot. That slot can hold the incoming page after any required dirty writeback.',
-        'Dirty buffers are pages that differ from disk. A transaction may have modified them, but the database does not immediately write every page to disk. WAL records protect recovery first; page writeback can happen later through backends, background writer, or checkpoint activity.',
+        'A backend requests a page by buffer tag, roughly relation identity plus fork and block number. On a miss, the clock hand skips pinned buffers, decrements positive usage_count values, and chooses an unpinned zero-count buffer after any required dirty writeback.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Clock sweep works because the buffer pool does not need exact recency to make useful decisions. A page touched repeatedly accumulates second chances. A one-time scan page receives little protection and eventually becomes replaceable.',
-        'The policy is cheap enough for concurrent work. Instead of updating a global LRU structure on every page hit, PostgreSQL uses local descriptor state and scans when replacement is needed. That moves some work from every access to the less frequent victim-selection path.',
-        'Pins preserve correctness. They turn "recently useful" and "currently in use" into separate concepts. A page can be cold but still pinned; replacement must wait.',
+        'Correctness starts with pins. A pinned page is never a victim, so replacement does not take memory away from a backend that is actively reading or changing it.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Imagine an OLTP workload repeatedly touching customer account pages while a dashboard query scans historical orders. The customer pages keep getting pinned and their usage_count remains positive. The dashboard scan brings in many pages that may be read once and never reused.',
-        'As the clock hand moves, it skips active customer pages, decrements pages that recently proved useful, and eventually reuses cold scan pages. The policy is not perfect, but it usually protects the hot set without maintaining a precise global recency list.',
-        'Now add writes. If many candidate victims are dirty, a foreground backend may have to write one before it can read the next page. That is where background writer and checkpoint tuning affect tail latency.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The cost of the policy is scanning and occasional extra passes when many buffers are pinned or have positive usage_count. In normal operation that is cheaper than exact LRU bookkeeping on every page access.',
-        'The expensive moments are dirty victim writeback and checkpoint pressure. A clean victim is simple. A dirty victim may force I/O. If dirty pages pile up, the database can move from smooth background work to visible stalls.',
-        'shared_buffers sizing, storage speed, checkpoint configuration, workload shape, and long-running transactions all change the observed behavior. The same clock-sweep algorithm can feel fast or painful depending on those surrounding conditions.',
+        'The replacement cost is the number of descriptors inspected before a victim appears. If the pool has 1 million buffers and most have positive usage_count or pins, one allocation may scan many descriptors before finding a clean reusable slot.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Clock sweep wins in a concurrent database because it gives a compact, low-contention approximation of cache value. It is good enough to protect pages with repeated use and simple enough to operate under heavy backend concurrency.',
-        'It is especially useful in mixed workloads: hot indexes, hot account rows, occasional scans, background maintenance, and write traffic all sharing one finite memory budget.',
+        'Clock sweep fits PostgreSQL because many backends share one finite memory budget. It gives hot indexes, hot heap pages, scans, maintenance, and writes a common replacement policy with low per-hit bookkeeping.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It cannot defeat a working set that is much larger than memory. If the hot set does not fit, the clock hand will churn. It also cannot make slow storage fast when dirty writeback lands on the foreground path.',
-        'Long pins can make replacement harder. Large scans can still disturb cache residency. Undersized shared_buffers can push too much work to the operating system cache. Oversized shared_buffers can make checkpoints and memory pressure harder to manage.',
-        'Do not describe shared buffers as a hash map. The map is only the lookup structure. The real lesson is the combination of descriptors, pins, usage_count, dirty state, WAL ordering, and background writeback.',
+        'It fails when the working set is larger than memory. It also cannot hide writeback debt when many candidate victims are dirty and foreground backends have to wait on storage.',
       ],
     },
     {
-      heading: 'Worked example (2)',
+      heading: 'Worked example',
       paragraphs: [
-        'An OLTP database has a hot customer table and a reporting query that scans old orders. Hot customer pages keep getting pinned and refreshed. The scan needs many buffer slots. The clock hand skips pinned descriptors, decrements usage_count on recently used pages, and eventually reuses cold pages.',
-        'If the scan collides with many dirty pages, background writer and checkpoint behavior determine whether foreground backends wait on disk writes. The buffer pool lesson is not just caching; it is eviction plus durability.',
+        'Suppose the pool has 8 buffers. Five hot customer pages have usage_count 3, one reporting page has usage_count 1, one page is pinned, and one clean old page has usage_count 0, so the next miss can reuse the clean zero-count page immediately.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: PostgreSQL pg_buffercache at https://www.postgresql.org/docs/current/pgbuffercache.html, PostgreSQL resource consumption settings at https://www.postgresql.org/docs/current/runtime-config-resource.html, PostgreSQL freelist.c source documentation at https://doxygen.postgresql.org/freelist_8c_source.html, and PostgreSQL WAL configuration at https://www.postgresql.org/docs/current/wal-configuration.html.',
-        'Study PostgreSQL WAL Checkpoint & Recovery, Readahead & Dirty Writeback, Linux Page Cache XArray, Write Caching, MVCC Internals & VACUUM, and Database Indexing next.',
+        'Primary sources: PostgreSQL pg_buffercache at https://www.postgresql.org/docs/current/pgbuffercache.html, PostgreSQL resource consumption settings at https://www.postgresql.org/docs/current/runtime-config-resource.html, PostgreSQL freelist.c source documentation at https://doxygen.postgresql.org/freelist_8c_source.html, and PostgreSQL WAL configuration at https://www.postgresql.org/docs/current/wal-configuration.html. Study PostgreSQL WAL Checkpoint and Recovery, Readahead and Dirty Writeback, Linux Page Cache XArray, Write Caching, MVCC Internals and VACUUM, and Database Indexing next.',
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why PostgreSQL Buffer Pool Clock Sweep moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

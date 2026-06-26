@@ -209,102 +209,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Delta Lake deletion vectors exist because lakehouse tables are built from large immutable columnar files, but users still expect row-level deletes, updates, and merges. Parquet is excellent when a query scans columns from large files. It is awkward when a job needs to remove three rows from a one-gigabyte file.',
-        'The table has two different duties. It must make the row disappear from the current logical table quickly, and it must eventually remove old bytes when storage, privacy, or compliance policy requires physical cleanup. Treating those as the same operation makes every small mutation pay the cost of a full file rewrite.',
-        'A deletion vector separates the two duties. The Delta transaction log commits a small descriptor that points to a compressed bitmap of invalid row positions. Readers apply that bitmap as part of snapshot reconstruction. Later maintenance can rewrite files and vacuum old data under normal retention rules.',
+        'The soft-delete view shows a Delta Lake data file plus a deletion vector. A deletion vector is a compressed set of row positions that should be hidden from the current table snapshot. Active nodes are the log action, descriptor, and bitmap; found nodes are the old Parquet bytes that still exist; removed cells are rows readers must skip.',
+        'The safe inference rule is file F with deletion vector D means live rows equal rows in F minus row positions in D. The purge view separates logical deletion from physical cleanup. A row can be absent from query results before its bytes are removed from storage.',
         {type:'callout', text:'Deletion vectors split logical visibility from physical cleanup, making sparse row mutations cheap while preserving a later purge path for the old bytes.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is rewrite-on-mutation. A DELETE finds every touched Parquet file, writes replacement files without the deleted rows, removes the old files from the Delta snapshot, and commits the new files. This keeps readers simple because every visible file contains only live rows.',
-        'The wall is write amplification. A sparse privacy delete, a small CDC correction, or a MERGE that updates a few scattered rows can force large file rewrites. If the same table receives many small row-level changes, the system spends most of its work copying unchanged rows.',
-        'A second wall is scheduling. Immediate rewrite makes the mutation job do cleanup work even when the cluster is busy or when a later compaction pass would be cheaper. Deletion vectors let the commit publish the logical change first and let maintenance choose a better rewrite window.',
+        'Lakehouse tables store data in large immutable Parquet files, but users still need row-level deletes, updates, and merges. Parquet is efficient because it scans column chunks from stable files. It is expensive when a job must change three rows inside a 1 GB file.',
+        'A deletion vector exists to make the logical change small. The transaction log publishes a bitmap descriptor, readers apply the bitmap, and a later maintenance job rewrites the file when cleanup is worth the cost. The table gets fast visibility change now and physical cleanup later.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core insight is that a data file and its row-validity mask together define the live rows for that file. The file stores the physical rows. The deletion vector stores the set of row positions that should be ignored for the current table version.',
-        'The invariant is simple: live rows for a logical file equal rows in the Parquet file minus positions present in the current deletion vector. If a row position is in the bitmap, a conforming reader must not return that row for that snapshot. If the position is absent, normal file and predicate rules apply.',
-        'This turns a row-level mutation into a metadata update instead of an immediate rewrite. The idea is close to MVCC: logical visibility changes first, and physical cleanup can lag behind as long as readers use the right versioned metadata.',
+        'The obvious approach is copy-on-write. A DELETE reads every affected Parquet file, writes replacement files without the deleted rows, removes the old files from the snapshot, and commits the replacements. Readers stay simple because every visible file contains only live rows.',
+        'This approach is correct and often fine for dense changes. If 80 percent of a file is changing, rewriting the file is direct and leaves no read-time mask. The trouble starts when the mutation is sparse.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'A DELETE, UPDATE, or MERGE first identifies row positions inside affected Parquet files. With deletion vectors enabled, the writer can commit a Delta log action that attaches a deletion-vector descriptor to a file instead of immediately replacing the file. That descriptor is now part of the table snapshot.',
-        'The descriptor records how to load the bitmap: storage type, path or inline bytes, offset, size in bytes, and cardinality. The bitmap itself is a compressed 64-bit Roaring-style set of row indexes. It is not a general query index. It is a validity set scoped to one data file in one table version.',
-        'A reader builds the Delta snapshot from checkpoints and JSON log actions, discovers that a live file has a deletion vector, loads the bitmap, and filters out those row positions while scanning. Vectorized readers can apply the mask while producing record batches, so downstream operators see only live rows.',
-        'Purge is a later mechanism. A rewrite job reads the old file, applies the bitmap, writes a replacement file that contains only live rows, and commits a new version that removes the masked file and adds the replacement. VACUUM can delete old files only after retention allows older snapshots to disappear.',
+        'The wall is write amplification. Deleting 3 rows from a 1 GB Parquet file can require reading about 1 GB and writing about 1 GB just to preserve the other 999,997 rows. The logical change is tiny, but the physical operation copies the whole file.',
+        'There is also a scheduling wall. Immediate rewrite makes the user-facing mutation job perform maintenance work under load. If many small CDC corrections arrive, the system spends most of its time copying unchanged bytes instead of publishing table-state changes.',
       ],
     },
     {
-      heading: 'What the visuals show',
+      heading: 'The core insight',
       paragraphs: [
-        'In the soft-delete view, the log descriptor is the publication point. The Parquet file is still an input to the query, but the bitmap changes which row ordinals are visible. The row bytes and the row-validity rule travel together.',
-        'The descriptor table is deliberately small. It teaches the minimum metadata a reader needs before it can apply the mask: where the bitmap lives, how many bytes to read, and how many row positions it contains.',
-        'The purge-lifecycle view separates three events: logical deletion, rewrite, and old-file removal. A row can be absent from query results before it is absent from storage. That distinction is the source of both the performance win and the compliance risk.',
+        'Split row visibility from byte cleanup. A data file can remain physically present while a versioned bitmap says which row ordinals are invisible. The Delta snapshot rule supplies the contract: the log, not the directory listing, defines which file and mask pair a reader must use.',
+        'The invariant is local to a file. For each logical file reference, a row ordinal is visible if it is in the file and absent from the current deletion vector. That is enough for all conforming readers to derive the same row set from the same committed metadata.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A DELETE, UPDATE, or MERGE first identifies affected row positions inside each touched Parquet file. With deletion vectors enabled, the writer commits a Delta log action that attaches a deletion-vector descriptor to the file. The descriptor records storage type, path or inline bytes, offset, size, and cardinality.',
+        'A reader reconstructs the snapshot from the log, sees that a live file has a deletion vector, loads the bitmap, and filters those row positions while scanning. A later purge job reads the old file, applies the mask, writes a replacement file containing only live rows, and commits a new version. VACUUM deletes old files only after retention allows older snapshots to disappear.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness comes from the Delta snapshot rule. A table version is the result of applying committed log actions. If the log action says file F is live with deletion vector D, then the logical contents of F are defined by F minus D. Readers that understand the protocol all derive the same live row set from the same committed metadata.',
-        'The bitmap representation is correct because row positions are stable within the referenced file. A bitmap membership test answers one question: should this ordinal be skipped for this file in this snapshot? It does not need to know the row value, partition value, or query predicate.',
-        'Roaring-style compression makes the representation practical. Sparse deletions can be represented as compact integer sets. Dense runs can also compress well. The format keeps membership checks and iteration cheap enough that read-time filtering is usually far less expensive than rewriting a large file for a tiny logical change.',
+        'Correctness follows from the snapshot invariant. If version V says file F is live with deletion vector D, then every reader of version V computes F minus D. Bitmap membership is a deterministic predicate on row ordinal, so repeated reads of the same version produce the same logical table.',
+        'The bitmap is safe because row positions are stable inside the referenced file. It does not need to understand values, predicates, or partitions. Query predicates still decide which live rows match; the deletion vector only decides which physical row positions are no longer eligible.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Deletion vectors reduce write IO for small row-level mutations, but they move some cost to reads and maintenance. Readers must load and apply masks. Query planning can be less sharp until files are rewritten because file-level statistics may still describe rows that are no longer visible.',
-        'They also add protocol and compatibility cost. Every engine that reads the table must understand deletion vectors or fail safely. A table feature that is correct for one writer can still be an operational hazard if an older reader silently ignores the mask.',
-        'The economics depend on mutation density. A handful of deleted rows in many large files is a strong fit. A file whose rows are mostly invalid is carrying bitmap debt: every read pays a filtering cost until purge, and a rewrite may have been cheaper earlier.',
-        'Physical cleanup is not instant. REORG, OPTIMIZE-style jobs, or compaction can materialize the delete into new files. VACUUM then removes old files after retention. Shortening retention may reduce storage debt, but it can break time travel and long-running jobs.',
+        'For sparse mutations, write cost drops from file size to bitmap size plus log metadata. If a 1 GB file has 1,000,000 rows and 10 rows are deleted, a plain bitset would need about 125 KB, and a compressed Roaring-style bitmap can be much smaller. The copy-on-write path still moves about 2 GB of I/O for that tiny logical change.',
+        'The cost moves to reads and maintenance. Readers must load masks and apply row filters. File statistics may describe deleted rows until purge rewrites the file. If a file accumulates many masked rows, every query pays to scan dead bytes, and rewrite becomes the better behavior.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Deletion vectors win for sparse row-level mutation in analytical tables: privacy deletes, small corrections, CDC merges, late-arriving updates, and merge-heavy lakehouse workloads. They let mutation jobs commit quickly while file rewrite work moves to a better maintenance window.',
-        'They are also useful when many engines share the same table. A committed Delta snapshot can publish row-level visibility without forcing every writer to coordinate a heavy rewrite job at mutation time.',
-        'The best deployments treat deletion vectors as temporary visibility metadata, not as a place to store endless table debt. They monitor the backlog and schedule purge work before masked files dominate important scans.',
+        'Deletion vectors fit privacy deletes, late corrections, CDC merges, small updates, and merge-heavy analytical tables. They are useful when the table receives many sparse row-level changes but queries can tolerate a small mask application cost until maintenance runs.',
+        'They also help multi-engine lakehouse deployments because the logical update is published through the shared Delta protocol. The catch is that every production reader must support the table feature or fail closed. A reader that ignores the bitmap returns deleted rows.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The biggest misconception is that a deletion vector is physical erasure. It is not. Old row bytes can remain in old Parquet files until rewrite and retention cleanup remove them. A privacy workflow must track query invisibility and storage removal as separate milestones.',
-        'Another failure mode is reader mismatch. If an older engine cannot read a table feature, the safe result is a clear failure. The unsafe result is a query that returns rows the current snapshot marks as deleted.',
-        'Large or long-lived masks can also harm performance. A query that repeatedly scans files with high-cardinality deletion vectors pays a read tax. A purge job that falls behind can turn a write-saving feature into a read-side liability.',
-        'Finally, deletion vectors do not make Parquet a low-latency OLTP store. They help row-level maintenance on analytical files. They are not row locks, secondary indexes, or a replacement for a serving database.',
+        'The design fails as an erasure mechanism if teams confuse logical invisibility with physical deletion. Old bytes can remain in old Parquet files until rewrite and retention cleanup. Compliance workflows must track both query invisibility and storage removal.',
+        'It also fails when masks become dense or long-lived. A file with 900,000 deleted rows out of 1,000,000 is mostly dead data. At that point the deletion vector is carrying debt, and every scan pays a read tax until the file is rewritten.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose file F contains one million rows and a privacy request deletes rows 10, 42, and 900123. The transaction can commit a deletion-vector descriptor for F with those three row positions. Snapshot readers still open F, but they apply the bitmap and skip those rows.',
-        'Later, a purge job rewrites F into a new Parquet file that omits the three rows. The transaction log removes the old file from the current snapshot and adds the replacement. After the retention period, VACUUM can delete old files. The sequence is fast logical removal first, physical cleanup later.',
-        'Now change the example: 900,000 rows in F are invalid. A deletion vector can still represent the mask, but the table is now reading mostly dead data until purge. That is the signal to rewrite sooner.',
+        'File F has 1,000,000 rows and is 1 GB. A request deletes row ordinals 10, 42, and 900123. Copy-on-write reads 1 GB, writes a new almost-identical 1 GB file, and commits remove plus add actions; the deletion-vector path commits a descriptor for a bitmap containing three integers.',
+        'Now suppose 600,000 rows in F are deleted over time. The deletion vector may still be correct, but the next query reads a 1 GB file to recover only 400,000 live rows. A purge rewrite writes a smaller replacement, removes the masked file from the current snapshot, and lets VACUUM delete old bytes after retention.',
       ],
     },
     {
-      heading: 'Practical guidance',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Operate deletion vectors with three clocks: logical deletion time, rewrite time, and retention cleanup time. Users usually care about query results. Storage, audit, and compliance teams also care about when old bytes stop being reachable.',
-        'Track deletion-vector cardinality, masked-row fraction by file, affected-file count, purge backlog, query plans that scan masked files, reader protocol versions, and VACUUM retention. These metrics tell whether the system is saving rewrite cost or quietly moving cost into every read.',
-        'Use deletion vectors for sparse mutation. Force or schedule rewrites for dense mutation, hot files, or strict erasure requirements. Before enabling the feature, inventory all production readers and confirm they either support the table protocol or fail closed.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Delta Lake deletion-vector docs at https://docs.delta.io/delta-deletion-vectors/, Delta protocol deletion-vector specification at https://github.com/delta-io/delta/blob/master/PROTOCOL.md, and Databricks deletion-vector docs at https://docs.databricks.com/aws/en/delta/deletion-vectors.',
-        'Study Delta Lake Case Study for the transaction log, Roaring Bitmaps for compressed row sets, Parquet Columnar Format Case Study for immutable file layout, MVCC Internals and VACUUM for logical visibility versus cleanup, and Iceberg Row-Level Delete Files for a related lakehouse design.',
+        'Primary sources are the Delta Lake deletion-vector documentation, the Delta protocol specification, and Databricks documentation on deletion vectors, REORG, OPTIMIZE, and VACUUM. Read them with the split in mind: protocol visibility first, physical cleanup later.',
+        'Study Delta Lake Case Study for transaction-log snapshots, Roaring Bitmaps for compressed integer sets, Parquet Columnar Format Case Study for immutable file layout, MVCC Internals and VACUUM for versioned cleanup, and Iceberg Row-Level Delete Files for a contrasting lakehouse design.',
       ],
     },
   ],

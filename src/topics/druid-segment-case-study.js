@@ -188,96 +188,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Apache Druid is built for event analytics where data keeps arriving and users expect interactive answers. A dashboard asks for the last hour of traffic by country. An operations team filters incidents by service and region. A product manager slices signups by platform, campaign, and time bucket. The workload is repetitive, filter-heavy, time-oriented, and latency-sensitive.',
-        'The central data structure is the segment. A Druid datasource is not one giant mutable table. It is a collection of immutable, time-bounded, columnar files with indexes and metadata. Segments can be published, moved to deep storage, loaded by historical servers, cached, compacted, replicated, and retired. Once you treat the segment as the physical unit of analytics, Druid query behavior becomes much easier to reason about.',
+        'Read the segment-layout view as a physical contract between ingestion and query serving. Active nodes show how raw events become immutable segment files, and found nodes show the structures a query can use later.',
+        'Read the query-pruning view as ordered refusal. The safe inference rule is that a row can reach metric aggregation only after its segment survives the time filter and its row position survives the dimension filters.',
         {type: 'callout', text: 'A Druid segment is the unit where time partitioning, column layout, indexes, rollup, and cluster lifecycle meet, so query speed depends on segment shape as much as hardware.'},
         {type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/d/df/Apache_Druid_Architecture.svg', alt: 'Diagram of an Apache Druid cluster with query node, data nodes, deep storage, and master node components.', caption: 'Apache Druid cluster architecture diagram by Bucketsbuckets, CC BY-SA 4.0, via Wikimedia Commons.'},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Apache Druid exists for event analytics where new data arrives continuously and users expect dashboards to answer quickly. Most questions are time-windowed, filter-heavy, and aggregate-oriented.',
+        'The segment is the central data structure that makes this workload manageable. A segment is an immutable, time-bounded, columnar file with indexes and metadata, and the cluster can publish, cache, compact, replicate, and retire it as one unit.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        'The naive design is to append every event into a large table and scan it when a query arrives. Add a few indexes, add more machines, and hope the cluster can brute-force dashboard traffic. This ignores the most important property of the workload: most analytical questions start with time. If the query asks for the last hour, the engine should not even open data from last week.',
-        'A second naive design is to index every dimension aggressively and assume the query engine will figure it out later. That can backfire. High-cardinality dimensions create large dictionaries and indexes. Many tiny files create scheduling and metadata overhead. Raw row storage forces the engine to reconstruct whole events even when the query only needs one metric column. Druid is fast when physical shape matches query shape, not when every possible shortcut is added blindly.',
+        'The obvious approach is to append every event into one large table and scan it when a dashboard asks a question. Add indexes, add machines, and let the query engine brute-force the result.',
+        'That is reasonable at first because event data looks like a stream of rows. If the dataset is small or queries are rare, a direct scan can be simpler than a specialized ingestion and compaction pipeline.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is that raw event volume grows faster than user patience. Without physical pruning, filters are applied too late, after too many bytes have already been touched. A dashboard that should be interactive becomes a scan job. Even if the cluster has enough CPU, reading irrelevant files and irrelevant rows wastes memory bandwidth, cache, decompression work, and scheduling capacity.',
-        'Fresh ingestion adds pressure. Real-time systems often produce small or imperfect segment fragments because freshness matters immediately. Those fragments are useful for low-latency availability, but they are not always the best long-term scan shape. If they are never compacted, the cluster accumulates metadata overhead and scattered work. The data structure has a lifecycle: ingest now, serve now, reshape later.',
+        'The wall is that time filters should reject files before row filtering begins. If a query asks for the last hour, opening last week of data wastes scheduling, IO, decompression, and memory bandwidth.',
+        'Fresh ingestion adds another wall. Real-time tasks may create many small segment fragments for low latency, but those fragments become expensive long-term scan units if compaction never rewrites them.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Druid makes time the first physical boundary. Events are grouped into segments, usually by interval, and each segment packages the pieces needed to answer common analytical questions inside that interval. A segment contains a time column, dimension columns, metric columns, indexes, and metadata. It is both storage unit and pruning unit.',
-        'This gives the query engine two major chances to avoid work. First, interval pruning skips entire segments whose time ranges cannot contribute. Second, indexes such as bitmaps identify row positions inside candidate segments before metric columns are scanned. Aggregation happens after these refusals, so every skipped segment and skipped row is work the aggregator never sees.',
+        'Druid makes time the first physical boundary. Events are grouped into segments by interval, and each segment packages time, dimensions, metrics, indexes, and metadata for that interval.',
+        'This gives the engine a layered pruning path. Skip whole segments by time, use bitmap indexes to skip row positions inside survivors, then read metric columns only for rows that can contribute.',
       ],
     },
     {
-      heading: 'What the visualization shows',
+      heading: 'How it works',
       paragraphs: [
-        'The segment layout view follows ingestion into rollup, segment creation, internal columns, bitmap indexes, and publication to deep storage. The important lesson is that the segment is several data structures packaged together. Time and dimensions support pruning. Metric columns support fast aggregation. Deep storage and historical loading make the segment a cluster-management unit.',
-        'The query-pruning view shows Druid refusing unnecessary work in layers. A query for a recent time window first rejects old segments. It then uses bitmap filters for dimensions such as country or platform. Only surviving row positions feed metric aggregation. The highlighted cells are useful because they show the order of selectivity: file pruning first, row pruning second, metric scanning last.',
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        'Ingestion tasks transform raw events into segment files. Depending on configuration, Druid can roll up rows by time bucket and selected dimensions, combining metrics so future queries scan fewer rows. The segment is then published with metadata that makes it visible to the cluster. Published segments live in deep storage and are loaded by serving nodes that answer queries.',
-        'Inside the segment, columns are stored separately. The time column supports interval filtering and ordering. Dimensions may be dictionary encoded, which maps repeated string values to compact ids. Bitmap indexes can map dimension values to row positions. Metrics are stored in compressed numeric columns for aggregation. This columnar layout means a query can read the columns it needs instead of reconstructing whole events.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose a product analytics datasource receives clickstream events with time, country, platform, campaign, page, and revenue. Users often ask for revenue during the last hour where country is US and platform is iOS, grouped by campaign. A row-store scan would inspect a large number of events and repeatedly discover that most of them are outside the time window or do not match the filters.',
-        'With segments, the query first selects only segments overlapping the last hour. Inside those candidate segments, the country=US bitmap and platform=iOS bitmap are combined to produce matching row positions. The engine then reads the campaign dimension for grouping and the revenue metric column for aggregation. If older real-time fragments are later compacted, the same query may touch fewer files and benefit from better rollup.',
+        'Ingestion tasks transform raw events into segment files. Rollup can combine events with the same time bucket and selected dimensions, so future queries scan fewer rows when that aggregation is acceptable.',
+        'Inside a segment, dimension columns may be dictionary encoded, bitmap indexes map dimension values to row positions, and metric columns are stored in compressed numeric form. Published segment metadata tells the cluster where the segment lives and which interval it covers.',
+        'Compaction later rewrites older data into better-shaped segments. It can reduce file counts, improve rollup, clean up partitioning, and make common dashboard queries touch fewer physical objects.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design works because dashboard queries are repetitive. Users ask similar time-windowed, filter-heavy questions many times. Druid spends effort during ingestion and compaction to shape data so repeated questions can be answered with less scanning. This is the same general tradeoff behind column stores, bitmap indexes, materialized aggregates, and partition pruning.',
-        'The algorithmic pattern is layered selectivity. Time pruning removes files. Bitmap predicates remove row positions. Columnar layout keeps aggregation tight because the engine reads the metric columns it needs. Rollup can reduce rows when the analysis tolerates pre-aggregation. Compaction can rewrite older data into fewer, better-shaped segments after freshness pressure has passed.',
+        'The correctness argument is set restriction. Time pruning removes segments whose intervals cannot overlap the query, bitmap filters compute row-position sets for predicates, and metric aggregation runs only over the intersection that remains.',
+        'Rollup is correct only for queries that match the chosen aggregation grain. If the segment grouped by minute, country, and platform, then a query at that grain can use the pre-aggregated metrics, while a query needing raw event detail cannot recover what rollup discarded.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Segment design is a workload choice. Small segments increase metadata, scheduling, and coordination overhead. Very large segments can reduce parallelism and make rewrites expensive. High-cardinality dimensions can create large dictionaries and indexes. Rollup saves space and scan work only when the query model can tolerate the chosen aggregation granularity.',
-        'Compaction is also a cost. It consumes cluster resources to rewrite data that already exists. The benefit is future query shape: fewer segments, better rollup, cleaner partitioning, and less metadata. The right policy depends on freshness requirements, query concurrency, retention, data volume, and the value of lower latency on older intervals.',
+        'Cost behaves through segment shape. Too many small segments increase metadata and scheduling overhead, while segments that are too large can reduce parallelism and make rewrites expensive.',
+        'High-cardinality dimensions can make dictionaries and bitmap indexes large. Rollup saves scan work only when the chosen dimensions match repeated query patterns, and compaction spends cluster resources now to lower query cost later.',
+        'When query volume grows, the dominant cost is often not CPU alone. It is the number of segments opened, the selectivity of bitmaps, the amount of metric data scanned, and the backlog of compaction work.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Druid wins when queries have natural time windows, repeated filters, and aggregations over metrics. Product analytics, observability dashboards, ad-tech reporting, operational drilldowns, and event monitoring fit this shape well. The segment gives the engine a physical way to skip old intervals, filter rows cheaply, and aggregate only useful metric values.',
-        'It also wins when data can be modeled deliberately. A dashboard that mostly filters by time, region, and platform wants a different segment and dimension design than a forensic query tool that drills into individual user ids. Good Druid modeling starts with the questions users ask most often, then shapes segment granularity, dimensions, rollup, and compaction around those questions.',
+        'Druid fits product analytics, observability dashboards, ad reporting, operational monitoring, and security drilldowns. These systems usually ask recent time-windowed questions with repeated filters and aggregated metrics.',
+        'The segment design is especially useful when operators can model the workload. A dashboard that filters by time, country, and platform should shape granularity, dimensions, rollup, and compaction around those access paths.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Druid is less effective when physical shape and query shape diverge. Bad segment granularity can leave too much or too little data per segment. Poorly chosen rollup keys can either lose needed detail or save almost nothing. Extremely high-cardinality dimensions can make dictionaries and indexes expensive. Too many small segments can make query overhead dominate. Queries that need raw per-event detail may not benefit from rollup at all.',
-        'The common mistake is treating performance as only a cluster-sizing problem. Adding machines may help, but segment interval, partitioning, dimension choice, bitmap selectivity, rollup, and compaction policy often dominate user-visible latency. If these choices are wrong, more hardware can simply scan the wrong shape faster and still disappoint users.',
+        'Druid fails when the physical shape and query shape diverge. Bad segment granularity, poor rollup keys, high-cardinality dimensions, and too many small files can make the engine scan the wrong shape quickly.',
+        'It is also a poor fit for workloads that need frequent row-level updates or arbitrary raw-event reconstruction. The design favors immutable analytical segments, not transactional mutation.',
       ],
     },
     {
-      heading: 'Failure modes to test',
+      heading: 'Worked example',
       paragraphs: [
-        'Test segment counts per interval, average segment size, query fan-out, compaction backlog, rollup ratio, bitmap selectivity, high-cardinality dimension growth, and the latency difference between fresh and compacted intervals. A healthy system should make the main pruning path visible: which intervals were selected, which segments were loaded, which predicates reduced rows, and how much metric data was scanned.',
-        'Also test model changes. Adding a new dimension can increase storage and index cost. Changing granularity can alter rollup savings. A new dashboard filter can make an old segment shape less effective. Treat segment design as an evolving contract between ingestion and query behavior.',
+        'Suppose a datasource receives 120 million events per hour, stored as 60 one-minute segments with 2 million rows each. A query asks for revenue in the last 10 minutes where country is US and platform is iOS, grouped by campaign.',
+        'Time pruning keeps 10 segments and skips 50. If the US bitmap selects 30 percent of rows and iOS selects 40 percent, their intersection may leave about 2.4 million candidate rows across the 10 segments instead of 20 million.',
+        'The engine then reads campaign and revenue columns for those positions and aggregates by campaign. If later compaction rolls repeated events into minute-country-platform-campaign rows, the same query may scan thousands of rows instead of millions, but only because the rollup grain preserved the question.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources for this topic include Apache Druid segment documentation at https://druid.apache.org/docs/latest/design/segments/, Druid architecture documentation at https://druid.apache.org/docs/latest/design/architecture/, and Druid design documentation at https://druid.apache.org/docs/latest/design/.',
-        'Good next topics are Roaring Bitmaps, Parquet Columnar Format Case Study, DuckDB Vectorized Execution Case Study, Database Indexing, Block Range Index Zone Maps, Runtime Bloom Filter Join Pruning Case Study, LSM Tree compaction topics, and ClickHouse MergeTree Case Study.',
+        'Study Apache Druid documentation on segments, architecture, ingestion, rollup, and compaction. Then inspect query profiles that show selected intervals, segment count, bitmap selectivity, and scanned metric bytes.',
+        'Next study Roaring Bitmaps, columnar storage, partition pruning, rollup, LSM-tree compaction, ClickHouse MergeTree, Parquet, DuckDB vectorized execution, and runtime Bloom filters. The transfer lesson is that analytics speed is built into physical shape before the query starts.',
       ],
     },
   ],

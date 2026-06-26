@@ -211,104 +211,79 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a feedback controller. HPA means HorizontalPodAutoscaler, a Kubernetes controller that reads metrics and writes replica count through a workload scale subresource. Active nodes show metric collection, recommendation, history, policy, and patching; compare nodes show raw recommendations that may be held, clamped, or ignored.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A fixed replica count is a guess about future demand. If traffic doubles, too few Pods overload the service. If traffic falls, too many Pods waste CPU, memory, and rollout capacity. Humans can adjust replicas during planned events, but they cannot safely chase every load spike.',
-        'HorizontalPodAutoscaler is Kubernetes control-loop machinery for this problem. It reads metrics, computes a desired replica count, filters that recommendation through guardrails, and writes the result through the target workload scale subresource.',
+        'A fixed replica count is a guess about future demand. Too few Pods overload the service, while too many waste CPU, memory, and rollout capacity. HPA exists to turn observed pressure into replica recommendations, then filter those recommendations so noisy samples do not become noisy capacity changes.',
         {type:'callout', text:'HPA turns metrics into replica recommendations, then uses history and policy to keep noisy samples from becoming noisy capacity changes.'},
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is a threshold rule: if CPU is above 80 percent, add Pods; if CPU is below 40 percent, remove Pods. That rule is understandable, and it works when load changes slowly and startup time is short.',
-        'The wall is feedback noise. Metrics are sampled, averaged, and delayed. New Pods need scheduling, image pulls, readiness, and warmup. CPU can drop right after a burst even though the next burst is seconds away. A raw threshold can add capacity late, remove it early, and then recreate the same Pods.',
+        'The obvious autoscaler is a threshold rule: add Pods when CPU exceeds 80 percent and remove Pods when CPU falls below 40 percent. That rule is easy to explain and can work when traffic changes slowly. It fails when metrics are delayed, Pods start slowly, or one quiet sample arrives right after a burst.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is feedback delay. Metrics are sampled and aggregated, new Pods must schedule and become ready, and CPU can fall before warm capacity is safe to remove. A raw threshold can add replicas late, delete them early, and then recreate the same capacity during the next burst.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'HPA is a proportional controller wrapped in safety rails. The raw shape is desiredReplicas = ceil(currentReplicas * currentMetricValue / desiredMetricValue). If the metric is twice the target, the workload needs about twice as many replicas. If it is half the target, it can probably run with fewer.',
-        'The recommendation ring solves the dangerous half of the loop. Scale-up usually wants to react quickly. Scale-down should remember recent high recommendations, because warm capacity that was needed a minute ago may still be needed after one quiet sample.',
+        'The core insight is proportional control with memory. The raw recommendation is approximately `ceil(currentReplicas * currentMetric / targetMetric)`, so a workload at twice the target wants about twice the replicas. Stabilization history, tolerance, min and max bounds, missing-metric rules, and scaling policies decide whether that raw number is safe to write.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'On each sync, the controller finds the scale target, selects the Pods owned by that target, reads resource, custom, or external metrics, and computes a utilization ratio. The default kube-controller-manager sync period is 15 seconds, but freshness still depends on the metrics pipeline.',
-        'The raw recommendation is not the final patch. HPA applies tolerance to skip tiny moves, handles missing metrics and not-yet-ready Pods conservatively, clamps the result to minReplicas and maxReplicas, applies scale behavior policies, consults stabilization history, and only then writes /scale.',
-        'If several metrics are configured, each metric can produce its own desired replica count. HPA uses the largest usable recommendation, because under-scaling one real pressure signal is usually worse than over-scaling against another.',
-      ],
-    },
-    {
-      heading: 'The recommendation history',
-      paragraphs: [
-        'The stabilization window is a small time-indexed memory of past desired states. For downscale, Kubernetes looks back over the configured interval and uses the highest recent desired value. The default downscale stabilization window is 300 seconds unless configured otherwise; scale-up has no stabilization window by default.',
-        'That history acts like a rolling maximum, not a new metric. It says: if the controller recently proved the service needed more Pods, do not let one low sample delete that capacity immediately.',
+        'On each sync, HPA finds the target workload, reads resource, custom, or external metrics, computes one desired replica count per metric, and usually chooses the largest usable recommendation. It skips tiny moves inside tolerance, handles not-yet-ready Pods and missing metrics conservatively, clamps to `minReplicas` and `maxReplicas`, applies scale velocity policies, consults stabilization history, and patches `/scale` only when the final value changes.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The proportional formula preserves a simple control invariant: if average per-Pod pressure is above target, adding replicas should lower pressure per Pod; if pressure is below target, fewer replicas should carry the same work. The ratio measures how far the current state is from the target.',
-        'The guardrails turn that simple idea into cluster-safe behavior. Tolerance avoids churn around the target. Bounds prevent runaway scale. Policies limit velocity. History makes downscale depend on recent evidence, not only the newest sample.',
+        'The correctness argument is a control invariant, not a proof of perfect capacity. If average per-Pod pressure is above target, adding replicas should reduce pressure per Pod; if pressure is below target, fewer replicas can carry the same work. The guardrails preserve useful behavior around that formula by preventing tiny oscillations, runaway scale, and immediate downscale after one low sample.',
       ],
     },
     {
-      heading: 'What the diagram emphasizes',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the replica-formula view, follow the path from Pods to metrics to HPA to /scale. The important transition is where a metric ratio becomes a replica recommendation, then stops being a pure formula because tolerance, bounds, missing metrics, and behavior policy can change the final patch.',
-        'In the stabilization-window view, compare the raw recommendation line with the chosen line. When raw recommendations fall, the chosen line can stay high because the recent maximum is still inside the window. When the old high value expires, the controller is allowed to shrink.',
+        'Controller cost grows with HPA count, metric count, sync frequency, and metrics adapter latency. The larger runtime cost is the capacity it creates: scaling from 20 to 60 Pods may triple CPU reservation, image pulls, endpoint churn, and cold-start load on dependencies. Doubling the number of HPAs doubles periodic metric reads even when no scale action happens.',
+        'Scale-up behavior is bounded by metrics freshness, scheduler capacity, image pull speed, readiness, app warmup, and cluster spare nodes. Scale-down is often intentionally slower because deleting warm Pods too early can turn a recovered spike into another incident. The price of stability is holding capacity longer than the newest metric sample alone would suggest.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The controller work is periodic: fetch metrics, compute recommendations, update history, and patch /scale when the decision changes. Doubling the number of HPAs or metrics increases control-plane and metrics-system load, but the largest runtime cost is usually the Pods created by a scale-up.',
-        'Scale-up speed is bounded by metrics freshness, sync period, scheduling, image pulls, readiness probes, application warmup, and cluster spare capacity. Scale-down can be intentionally slow, because removing capacity too early can turn a recovered spike into another incident.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'HPA fits stateless or horizontally scalable services with a metric that tracks real pressure: CPU-bound APIs, worker pools with a queue-depth metric, consumers with lag, and services where extra replicas actually add throughput.',
-        'It works best when the cluster has spare nodes or fast node autoscaling, Pods start quickly, readiness probes are honest, and the target metric rises before users feel pain.',
+        'HPA fits horizontally scalable workloads where more replicas really add throughput: CPU-bound APIs, queue workers with lag metrics, consumers with backlog, and services whose bottleneck is visible before users feel pain. It works best when Pods start quickly, readiness is honest, cluster autoscaling can add nodes in time, and the chosen metric tracks the limiting resource rather than a convenient average.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'HPA is not instant capacity. If the cluster is full, images are large, readiness is slow, or traffic spikes faster than the loop can observe, new replicas arrive after the damage.',
-        'It also fails when the metric is a proxy for the wrong bottleneck. Average CPU can hide queue buildup, lock contention, database saturation, a hot shard, or one overloaded Pod. Noisy custom metrics without stabilization can make replicas flap.',
+        'HPA fails when capacity cannot arrive before damage occurs. Full clusters, slow images, cold caches, long readiness, and sudden traffic spikes can make replicas appear after the incident. It also fails when the metric hides the true bottleneck, such as average CPU masking one hot tenant, database saturation, lock contention, queue buildup, or a single overloaded Pod.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A checkout Deployment runs 6 replicas with a CPU target of 50 percent. A sample reports 72 percent average CPU, so the proportional recommendation is ceil(6 * 72 / 50) = 9 replicas. HPA records that recommendation and may patch /scale after behavior policy allows it.',
-        'Later the raw recommendation drops. The downscale window keeps the higher recent recommendation alive, so the workload holds warm capacity. After the high recommendation ages out, the final patch can fall to the lower value.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'Watch for CPU targets without CPU requests, metrics adapters that lag or fail, readiness probes that mark cold Pods ready too early, scale policies that are too aggressive for startup time, and minReplicas values that are below safe baseline capacity.',
-        'The most subtle failure is average-based blindness. One overloaded Pod, one hot tenant, or one saturated dependency can disappear inside a healthy mean. HPA can only control the signal it sees.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Choose the metric from the bottleneck, not from habit. CPU is reasonable for CPU-bound services with valid requests and stable per-request work. Queue depth, consumer lag, request concurrency, or custom throughput signals are better when work waits outside the Pod before CPU rises.',
-        'Set minReplicas from resilience needs, not from average cost. A service may need enough warm Pods to survive one zone issue, one slow rollout batch, or a normal morning spike before autoscaling reacts. HPA is a controller after baseline capacity, not a substitute for baseline capacity.',
-        'Audit HPA decisions during incidents. Capture the raw metric, chosen metric, missing metric behavior, readiness handling, tolerance result, stabilization history, scale policy, and final /scale patch. Without that record, teams often blame the workload when the real problem was a stale adapter, too-low maxReplicas, or a cold-start delay.',
+        'A checkout Deployment runs 6 replicas with a CPU target of 50 percent. A sample reports 72 percent average CPU, so the raw recommendation is `ceil(6 * 72 / 50) = ceil(8.64) = 9` replicas. If policy permits adding 3 replicas in this interval and `maxReplicas` is at least 9, HPA can patch the scale target to 9.',
+        'Later, CPU falls to 45 percent, giving `ceil(9 * 45 / 50) = 9`, then to 30 percent, giving `ceil(9 * 30 / 50) = 6`. If a 300-second downscale stabilization window still contains a recent recommendation of 9, HPA holds 9 instead of shrinking immediately. When that high recommendation expires, the final patch can drop to 6 if policy allows it.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Current official sources: Kubernetes HPA concept docs at https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/ and the autoscaling/v2 API reference at https://kubernetes.io/docs/reference/kubernetes-api/autoscaling/horizontal-pod-autoscaler-v2/.',
-        'Study next by role: Kubernetes Reconciliation for the controller pattern, Kubernetes Informer DeltaFIFO Workqueue for watch-driven controller state, Kubernetes Scheduler PriorityQueue Preemption for where new Pods go, Prometheus Rule Evaluation for metric production, SLO Error Budget Burn Rate Alert for user-impact signals, and Backpressure for protecting a service before scale-out catches up.',
+        'Use the official Kubernetes HorizontalPodAutoscaler concept page and autoscaling/v2 API reference as primary sources. They define the replica formula, metric types, tolerance, missing metrics, stabilization windows, scale policies, and `/scale` behavior.',
+        'Study Kubernetes informers next to understand the controller state path, then scheduler placement for new Pods, Prometheus rule evaluation for metric production, and backpressure because autoscaling is slower than rejecting or queueing work at the service boundary.',
       ],
     },
   ],

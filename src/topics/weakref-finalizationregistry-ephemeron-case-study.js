@@ -162,114 +162,21 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'JavaScript code often wants to remember data about an object without becoming the reason that object stays alive. A profiler may want per-DOM-node counters. A library may want private metadata for user objects. A renderer may want a wrapper cache that disappears when the wrapped object disappears.',
-        'Normal ownership is too strong for those cases. If the side table keeps an object alive, optional metadata becomes a leak. WeakMap, WeakSet, WeakRef, and FinalizationRegistry exist for code that needs to express a relationship without turning that relationship into ordinary reachability.',
-        {type:'callout', text:'Weak structures let code attach optional state to objects without turning that state into a reason the objects stay alive.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach and the wall',
-      paragraphs: [
-        'The obvious approach is a side cache: `const meta = new Map()`. Put the object in as the key and store counters, parsed data, layout state, or a wrapper as the value. The API is nice. You can look up, update, iterate, and measure the cache.',
-        'The wall is lifetime. A Map key is a strong reference. If the Map is module-level or long-lived, every key can stay alive until someone deletes it. That may be impossible when the object is a DOM node owned by the browser, a user object owned by application code, or a wrapper passed through plugins.',
-        'Manual deletion is good when ownership is clear. Weak structures are for the cases where ownership is not clear and forgetting to delete is worse than losing optional metadata.',
-      ],
-    },
-    {
-      heading: 'Reachability model',
-      paragraphs: [
-        'Garbage collection starts from roots such as the stack, globals, module state, closures, and engine internals. Anything reachable from those roots through strong references must stay alive. The collector can choose when to run, but it cannot collect an object that is still strongly reachable.',
-        'A weak edge is different. A WeakMap key slot, WeakSet entry, WeakRef target, or FinalizationRegistry target does not by itself keep the target alive. If only weak edges remain, the collector may reclaim the object at a time chosen by the engine.',
-        'This means weak tools are about permission, not scheduling. They let collection happen. They do not command collection to happen now.',
-      ],
-    },
-    {
-      heading: 'Core insight and invariant',
-      paragraphs: [
-        'The core insight is to keep metadata attached to object reachability without making the metadata table an owner. WeakMap gives the common form: if the key is alive from somewhere else, the value can be found; if the key is not alive, the entry does not rescue it.',
-        'The invariant is simple: only strong reachability keeps an object alive. Weak structures may observe or follow liveness, but they do not create liveness. Any design that accidentally stores the target strongly has left the weak model.',
-        'FinalizationRegistry adds another invariant: the held value must not keep the target alive. Store an id, token, path, or external handle. Do not store the target object or a closure that captures it.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'The weak-cache view starts with a strong edge from root to object. While that edge exists, WeakMap metadata and WeakRef both have a meaningful target. When the strong edge disappears, the important change is not instant destruction. The important change is that weak edges no longer prove liveness.',
-        'The finalizer-caveats view separates three things beginners often merge: the weak target, the strongly held cleanup value, and the later callback. The registry can remember an id for cleanup without keeping the target alive. If the held value contains the target, the model is broken and the program leaks.',
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        'WeakMap is an ephemeron table. The key is weak, but the value is available when the key is strongly reachable from somewhere else. This is why WeakMap is the default answer for per-object metadata and private library state.',
-        'WeakRef is a maybe-pointer. Calling `deref()` returns the target if it is still alive, or `undefined` if it was reclaimed. Code must be correct for both answers every time. A WeakRef is not a promise that the object will stay available later.',
-        'FinalizationRegistry records a target weakly and a held value strongly. If the target is collected, the engine may later call the cleanup callback with the held value. The callback is not synchronous, not prompt, and not guaranteed before shutdown.',
-        'Unregister tokens let explicit cleanup win. A robust design calls dispose, releases the resource directly, unregisters the finalizer entry, and treats the registry as a nonessential backstop.',
-      ],
-    },
-    {
-      heading: 'Why ephemerons matter',
-      paragraphs: [
-        'A plain weak pointer is not enough to explain WeakMap. The useful rule is conditional reachability. If the key is alive through a real owner, the map can expose the value. If the key is dead, the entry can vanish. The value does not save the key just because it sits in the same table entry.',
-        'That detail prevents a subtle leak. Metadata often points back to its owner. In a strong Map, key and value can keep each other reachable through the cache. In a WeakMap, the entry is considered only after the collector has evidence that the key is alive from outside the table.',
-      ],
-    },
-    {
-      heading: 'Correctness',
-      paragraphs: [
-        'The design works because it preserves the collector invariant. Strong references define liveness. Weak structures can depend on liveness without becoming part of the proof of liveness.',
-        'WeakRef has a small safety rule. If `deref()` returns an object, that object is kept alive through the current job, so code can use the returned reference during that turn. This is only a local safety rule. It does not say when collection will run.',
-        'FinalizationRegistry is correct only as optional cleanup. A program that depends on the callback for correctness is depending on an event the engine is free to delay or skip. Essential cleanup needs an explicit path.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine a UI diagnostics panel that stores `{ paints, lastLayoutMs }` for each DOM node it has observed. With `const metrics = new WeakMap()`, the node is the key and the metrics object is the value. As long as the node is part of the page or reachable from component state, `metrics.get(node)` works.',
-        'When the component unmounts and no strong reference to the node remains, the WeakMap entry stops mattering. The diagnostics panel does not need to hear about the unmount. It also cannot enumerate all keys, because enumeration would expose collector timing as program behavior.',
-        'If the panel has a secondary table keyed by numeric node id, a FinalizationRegistry can be a backstop that later removes that secondary row. The held value should be the id, not the DOM node and not a closure that captures the DOM node. If the callback never runs before process exit, correctness should still hold.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'WeakMap wins for private metadata, memoization tied to object identity, wrapper caches, per-DOM-node diagnostics, library state that should not mutate user objects, and optional metadata for platform-owned objects.',
-        'WeakRef can fit optional caches where every access can tolerate a missing value. For example, a cache may keep a weak reference to a large derived object and rebuild it when `deref()` returns `undefined`.',
-        'FinalizationRegistry can fit secondary bookkeeping cleanup where delayed cleanup is acceptable. It is a backstop for rows, ids, counters, or external indexes that are safe to leak temporarily and safe to clean later.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'The first failure mode is accidentally keeping the target alive. A held value that contains the target, a cleanup closure that closes over the target, an event listener, a pending promise, or a normal Map elsewhere can defeat the weak design.',
-        'The second failure mode is treating finalization as a lifecycle event. Do not use FinalizationRegistry to close files, release locks, commit transactions, revoke credentials, update UI, or make correctness visible to users. Use explicit cleanup for essential resources, then call `unregister` so the backstop does not run stale work later.',
-        'The third failure mode is timing dependence. Collection can be delayed by memory pressure, engine heuristics, object generations, process shutdown, or embedding behavior. Code that passes only when a forced-GC test runs at a certain moment is not production-safe.',
-        'The fourth failure mode is using weak tools to hide ownership mistakes. If there is a clear owner and a clear disposal point, explicit ownership is simpler and easier to test than weak reachability.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Choose WeakMap first. It is the high-level tool that usually matches the problem: attach metadata to an object without owning the object. Avoid wrapping it in APIs that expose size, enumeration, or cleanup timing.',
-        'Use WeakRef only behind a narrow abstraction. Every call site should handle `undefined`. Do not read a weak target, schedule work, and assume the target will still be there later unless a strong reference is held for the work that needs it.',
-        'For FinalizationRegistry, keep the held value small and target-free. Use ids, tokens, or resource handles. Pair registration with explicit dispose and unregister. Make the cleanup callback idempotent because it may run after explicit cleanup or after related state changed.',
-      ],
-    },
-    {
-      heading: 'Testing and operations',
-      paragraphs: [
-        'Test the deterministic parts: explicit dispose, unregister behavior, duplicate cleanup safety, and behavior when `deref()` returns `undefined`. Do not make correctness depend on forcing a collector at a precise point.',
-        'Use memory profiling to confirm that weak caches are not hiding strong references elsewhere. Common hidden owners include closures, event listeners, arrays used for debugging, pending tasks, console history, and normal Maps that were added for observability.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study MDN WeakMap, WeakRef, and FinalizationRegistry, the TC39 WeakRefs proposal, V8 weak references and finalizers, ephemeron tables, generational garbage collection, JavaScript closures, event listeners, LRU caches, and browser DOM lifetime. They explain why weak reachability is useful, narrow, and easy to misuse.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the graph as a reachability diagram. Active strong edges prove an object must stay alive, while weak edges can observe an object without saving it.',
+      'Garbage collection starts from roots such as stack variables, globals, closures, and engine internals. WeakMap, WeakRef, and FinalizationRegistry target edges do not count as ordinary ownership.',
+      {type:'callout', text:'Weak structures let code attach optional state to objects without turning that state into a reason the objects stay alive.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: ['Code often wants optional state for an object it does not own. A profiler may track DOM-node counters, or a library may store metadata for user objects.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is a Map from object to metadata. It is easy to inspect, but the Map key is a strong reference and can keep the object alive.'] },
+    { heading: 'The wall', paragraphs: ['The wall is ownership. If the side table is long-lived, optional metadata can become the reason a target object never becomes collectible.'] },
+    { heading: 'The core insight', paragraphs: ['The core insight is to separate association from ownership. WeakMap associates metadata with a key only while some other strong path keeps that key alive.'] },
+    { heading: 'How it works', paragraphs: ['WeakMap is an ephemeron table: the value is available when the key is strongly reachable from outside the table. WeakRef is a maybe-pointer, and FinalizationRegistry may later call cleanup with a held value after the target is reclaimed.'] },
+    { heading: 'Why it works', paragraphs: ['Correctness follows the collector invariant. Strong references define liveness, and weak references can depend on liveness without becoming part of the proof.'] },
+    { heading: 'Cost and complexity', paragraphs: ['WeakMap lookup is still expected constant-time behavior, but the collector must handle ephemeron marking. The behavioral cost is weaker observability: no reliable size, no key enumeration, and no cleanup timing.'] },
+    { heading: 'Real-world uses', paragraphs: ['WeakMap fits private metadata, wrapper caches, DOM-node diagnostics, and memoization tied to object identity. WeakRef and FinalizationRegistry fit optional caches and secondary cleanup where delayed cleanup is safe.'] },
+    { heading: 'Where it fails', paragraphs: ['Weak tools fail when another strong owner remains, such as an event listener, closure, debug array, pending task, or held value that captures the target. Finalizers also fail as lifecycle events because cleanup is not prompt or guaranteed.'] },
+    { heading: 'Worked example', paragraphs: ['A diagnostics panel tracks 5,000 DOM nodes. With Map, those nodes can stay alive after removal; with WeakMap, their metrics can vanish once the page and component state no longer strongly reference them.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: MDN WeakRef at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakRef, MDN FinalizationRegistry at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/FinalizationRegistry, and ECMAScript memory management at https://tc39.es/ecma262/multipage/managing-memory.html. Study ephemeron tables, tracing garbage collection, closures, event listeners, and explicit resource management next.'] },
   ],
 };

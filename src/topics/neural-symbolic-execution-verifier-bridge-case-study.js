@@ -194,85 +194,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Coding agents are good at producing plausible patches, explanations, and tests. Plausible is not the same as correct. A generated diff may satisfy the visible example while breaking a boundary case, removing an invariant, masking an error, or passing a shallow test suite for the wrong reason.',
-        'A neural-symbolic verifier bridge exists to separate proposal from acceptance. The neural side is useful because it can search a large space of repairs and hypotheses. The symbolic or executable side is useful because it can check specific claims against program semantics, path constraints, test commands, type systems, or runtime behavior.',
-        'The bridge is not a promise of full formal verification for every change. It is a system pattern: let the model propose, force the proposal through typed checks, return concrete counterexamples when checks fail, and store a proof ledger when checks pass. The value is disciplined feedback, not blind faith in either the model or the verifier.',
-        {type:'callout', text:'A verifier bridge keeps neural generation creative while moving acceptance to typed obligations, counterexamples, executable checks, and proof ledgers.'},
-      ],
-    },
-    {
-      heading: 'The naive agent loop',
-      paragraphs: [
-        'The naive loop is generate a patch, run available tests, and ship if the tests pass. That loop is attractive because it is easy to automate. It also mirrors how many human changes are reviewed in small projects: does the diff look reasonable, and does the test command turn green?',
-        'The wall appears when tests are incomplete. Unit tests sample behavior; they rarely enumerate every path. A model can also overfit to the visible failure by special-casing an input, deleting a check, broadening an exception, or changing the contract silently. Even when the patch is correct, a green test run may not tell future readers which property was repaired.',
-        'Model confidence is an even weaker signal. A language model can state an invariant fluently without grounding it in the program. A verifier bridge treats natural language as a source of candidate obligations, not as evidence. The question is always: what predicate, path, command, log, or solver result justifies this acceptance?',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'The core insight is to convert informal repair work into typed verification obligations. A patch is not only a string diff. It is a candidate program transformation. An invariant is not only explanatory prose. It is a predicate to check. A failing example is not only negative feedback. It is a concrete input, path condition, expected result, observed result, and replay command.',
-        'Once artifacts are typed, different engines can cooperate. A parser can turn source into an AST. A symbolic executor can explore feasible paths. A solver can decide whether path constraints admit a counterexample within scope. A test runner can execute generated cases in the real runtime. A proof ledger can record exactly which checks justified acceptance.',
-        'This is why the bridge is useful in agent search. A patch-search DAG without strong feedback can branch into many plausible but unverified edits. A verifier bridge turns failures into structured training signals and turns successes into auditable evidence. The model remains creative, but acceptance is delegated to mechanisms that can produce reproducible support.',
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        'A typical run begins with a task specification and a repository state. The model proposes a patch and may also propose the invariant it believes the patch restores. The bridge applies the patch in an isolated workspace, parses the changed region, identifies relevant functions or paths, and builds obligations from the task, invariant, type rules, and known tests.',
-        'The symbolic side then searches for satisfying assignments that violate the desired predicate. If it finds one, the bridge materializes a counterexample packet. That packet should include concrete input values, the path condition, expected predicate, observed output, source location, and a command that reproduces the failure when possible.',
-        'The executable side closes the loop against reality. Generated tests, target tests, type checks, linters, or project-specific commands run in the actual environment. If symbolic search and executable checks agree, the ledger stores the patch, obligations, solver result, commands, logs, and acceptance boundary. If they disagree, the record should say which layer failed or which claim was out of scope.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The proposal-to-proof graph proves that there are multiple trust boundaries. The task can be informal, the model proposal can be plausible, the patch can apply cleanly, and the invariant can sound right, yet none of those facts is proof. Evidence appears only after the artifacts pass through symbolic constraints, executable tests, or both.',
-        'The payload matrix proves that format discipline is part of verification. Text, diffs, predicates, path constraints, commands, logs, and proof records are different objects. If the system blurs them together, it cannot tell whether a failure came from the program, the parser, the solver model, the test runner, or the natural-language interpretation.',
-        'The counterexample view proves that rejection can be productive. A generic failed check leaves the agent guessing. A counterexample packet gives it a concrete failing path and a violated predicate. That turns the verifier from a gate into a teacher: it says not merely no, but here is the case your invariant did not cover.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The pattern works because it preserves the invariant being tested across iterations. In the bounds example, the first candidate checks only `i < n`. Symbolic search can find `i = -1` as a violating input. The next patch adds the lower bound but may still mishandle `i = n`. The final invariant, `0 <= i && i < n`, is stronger because the counterexamples forced both boundaries into the contract.',
-        'The correctness argument is scoped. If the extracted obligations accurately represent the desired property, if the symbolic encoding matches the program behavior in the checked region, and if executable tests cover the runtime assumptions outside the model, then passing checks reduce false acceptance risk. The proof ledger should state that scope plainly. It should not turn a bounded proof into a universal claim.',
-        'The learning benefit comes from replayable supervision. The final training record can contain the original task, failed proposal, counterexample, revised invariant, final patch, solver result, and test log. That is richer than a binary reward. It teaches future agents which path was missed and which check established the repair.',
-      ],
-    },
-    {
-      heading: 'Data structures and cost',
-      paragraphs: [
-        'The bridge needs durable records for task specs, candidate patches, parsed AST regions, inferred invariants, symbolic path constraints, solver models, generated counterexamples, executable tests, run logs, proof ledger entries, and exported training examples. Each record needs identity: repository revision, file paths, tool versions, command lines, environment, and timeout policy.',
-        'The cost is dominated by path search and execution. Symbolic execution can suffer path explosion as branches multiply. Solvers can struggle with strings, floating point, heap aliasing, concurrency, and complex library calls. Test execution can be slow or flaky. A practical bridge therefore uses triage: cheap static checks first, focused symbolic search over changed code next, generated edge cases after that, and heavier suites only when earlier evidence is promising.',
-        'The system also needs a vocabulary for uncertainty. Accepted, rejected, timed out, flaky, out of scope, parser failed, solver unsupported, and human review needed are different states. Collapsing them into pass or fail destroys the diagnostic value of the bridge.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'This pattern wins for code with crisp functional properties: parsers, validators, bounds checks, numeric guards, state-machine transitions, serialization logic, small algorithmic functions, and security-sensitive preconditions. It is also useful for benchmark suites where the same class of bug appears repeatedly and counterexamples can be replayed.',
-        'It pairs naturally with an agent candidate patch search DAG. The search system can generate many repairs, while the verifier bridge ranks them by evidence rather than style. Bad branches are pruned with concrete reasons. Good branches leave behind proof records that future agents, reviewers, and dataset builders can inspect.',
-        'The bridge is also a data flywheel. Every failed repair with a counterexample becomes a lesson. Every accepted repair with a scoped proof becomes a high-quality training sample. Over time, the agent can learn to propose invariants and tests that line up with the verifier instead of guessing what the benchmark might accept.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'The largest failure is overclaiming. A generated unit test is not a proof. A solver result inside a bounded model is not a guarantee about the whole program. A natural-language invariant is not checked until it is parsed into a formal or executable obligation. The ledger must name exactly what passed.',
-        'Translation errors are another risk. If the bridge mistranslates the task into the wrong predicate, it can prove the wrong thing. If the symbolic model omits library behavior, concurrency, floating-point effects, or external services, it may miss the real bug. If generated tests do not run through the same runtime path as production, they can create false confidence.',
-        'Some changes are poor fits. UI behavior, distributed timing, performance regressions, product policy, ambiguous requirements, and human-facing semantics often need review, measurement, or simulation rather than symbolic proof. A rigorous bridge should mark those cases as out of scope instead of manufacturing evidence.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Symbolic Execution Path Constraints to understand path predicates and satisfiability. Then study Abstract Interpretation Interval Domain for approximate static reasoning, Constrained Decoding for making model outputs parseable, Process Reward Models and Verifier Search for search-time feedback, Agent Candidate Patch Search DAG Case Study for branching repair workflows, and Verified Agent Trajectory Store for replayable evidence.',
-        'Primary sources and tools to know include KLEE for symbolic execution, Z3 for SMT solving, language AST libraries such as Python AST, and benchmark ecosystems such as SWE-agent and SWE-bench. The practical lesson is to connect neural generation to evidence-bearing systems without pretending that either side is sufficient alone.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read the graph as a trust pipeline. The neural part proposes a patch or invariant, and the symbolic or executable part decides which claims have evidence.', 'A verifier is a checker that can reject a program property with a concrete counterexample or accept it within a stated scope. The ledger at the end records exactly which checks passed.', {type:'callout', text:'A verifier bridge keeps neural generation creative while moving acceptance to typed obligations, counterexamples, executable checks, and proof ledgers.'}] },
+    { heading: 'Why this exists', paragraphs: ['Coding agents can produce plausible patches quickly. Plausible code can still delete an invariant, pass shallow tests, or special-case the visible example.', 'A verifier bridge separates proposal from acceptance. The model searches the repair space, while typed checks, symbolic execution, tests, or solvers decide whether the candidate satisfies the stated obligation.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is generate a patch, run the existing tests, and ship if they pass. That mirrors common small-project workflow and is easy to automate.', 'The failure is coverage. Existing tests sample behavior, while an agent can overfit the sampled case or weaken the contract in a way no current test exercises.'] },
+    { heading: 'The wall', paragraphs: ['The wall is that natural language confidence is not evidence. A model can say the bounds check is fixed while missing the negative-index path.', 'A second wall is translation. If the system turns the task into the wrong predicate, it can verify the wrong property with perfect mechanical confidence.'] },
+    { heading: 'The core insight', paragraphs: ['The core move is to turn informal repair claims into typed obligations. An obligation is a checkable statement such as index must satisfy 0 <= i and i < n before array access.', 'Once the claim is typed, several engines can cooperate. A parser locates changed code, symbolic execution explores paths, a solver finds counterexamples, and executable tests confirm behavior in the real runtime.'] },
+    { heading: 'How it works', paragraphs: ['The bridge receives a task, a repository revision, and a candidate patch. It applies the patch in isolation, parses the changed region, extracts relevant functions, and builds obligations from the task and code contract.', 'If symbolic search finds a violating input, the bridge returns a counterexample packet. That packet should include input values, path condition, expected predicate, observed output, source location, and replay command.', 'If checks pass, the bridge writes a proof ledger. The ledger stores the patch, obligations, solver result, test commands, logs, tool versions, and the scope of the claim.'] },
+    { heading: 'Why it works', paragraphs: ['The correctness argument is scoped by the obligation. If the obligation matches the intended property, the symbolic model matches the checked code, and executable tests cover runtime assumptions outside the model, then passing checks reduces false acceptance.', 'The bridge should not claim more than that. A bounded proof over one function is not a proof of the whole application, and a generated test is not a universal guarantee.'] },
+    { heading: 'Cost and complexity', paragraphs: ['Cost grows with paths, branch conditions, and solver difficulty. Ten independent branches can create up to 1,024 path combinations before pruning.', 'Execution cost also matters. A cheap static check can run on every candidate, while full test suites, fuzzing, or solver-backed search may need triage and timeouts.'] },
+    { heading: 'Real-world uses', paragraphs: ['The pattern fits parsers, validators, bounds checks, state-machine transitions, serialization code, and security-sensitive preconditions. These areas have crisp properties that can be turned into executable or symbolic obligations.', 'It also fits agent repair benchmarks. Failed patches become counterexample-rich training records, and accepted patches become evidence-bearing examples rather than bare diffs.'] },
+    { heading: 'Where it fails', paragraphs: ['It fails when the property is vague or social. UI taste, product policy, distributed timing, and human-facing semantics often need review, simulation, or measurement rather than symbolic proof.', 'It also fails when the bridge hides uncertainty. Parser failed, solver unsupported, timed out, flaky, out of scope, and rejected are different states that should not collapse into one red status.'] },
+    { heading: 'Worked example', paragraphs: ['A function returns arr[i] after checking only i < arr.length. With arr length 5, symbolic execution finds i = -1 as a path where -1 < 5 is true but the access violates the intended bound.', 'The agent adds i >= 0, producing the obligation 0 <= i and i < 5 for this concrete array. The solver can no longer find an integer i that passes the guard and violates the bound, and a generated test asserts that -1 is rejected.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources to study are KLEE for symbolic execution, Z3 for satisfiability modulo theories, language AST documentation, and SWE-bench style repair benchmarks. Read tool limits as carefully as success cases.', 'Study symbolic execution path constraints, SMT solving, abstract interpretation, property-based testing, constrained decoding, process reward models, and verified agent trajectory stores next. The practical goal is evidence-bearing repair, not proof theater.'] },
   ],
 };

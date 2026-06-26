@@ -233,84 +233,45 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'FINGER is a fast inference method for graph-based approximate nearest-neighbor search. It targets the query-time bottleneck in HNSW-style systems: greedy graph search repeatedly evaluates distances from the query to candidate neighbor vectors. Many of those exact distance computations do not change the candidate list, especially after the top-k upper bound becomes tight.',
-        'The paper, from Amazon-associated authors and collaborators, proposes using residual-vector geometry to approximate distances that are unlikely to matter. The local corpus summary captures the core insight well: if a point is farther away than the current top-k bound, the exact value of that distance is often irrelevant. You only need enough evidence to skip it safely.',
+    { heading: 'How to read the animation', paragraphs: [
+        'The search-bottleneck view shows graph-based approximate nearest-neighbor search, or ANN. Active nodes are candidates being expanded, found nodes are current top-k results, and compare marks a distance computation between the query vector and a candidate vector.',
+        'The residual-shortcut view uses the current node as a local reference point. A residual vector is the leftover direction after subtracting the part explained by that reference. The safe rule is: exact distance is needed near the frontier, while candidates safely outside the current bound can be screened with cheaper geometry.',
         {type:'callout', text:'FINGER saves query time by spending exact distance only on candidates that can still change the frontier.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/2/28/Hierarchical_Navigable_Small_World_%28HNSW%29.png', alt:'Multi-layer HNSW graph search diagram with entry point, query vector, and nearest neighbor.', caption:'Hierarchical Navigable Small World graph illustration by Rose electric, CC BY 4.0, via Wikimedia Commons.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious way to speed up graph ANN is to build a better graph or reduce vector dimension. Those can help, but they do not remove the hot-loop cost inside search: each visited node exposes neighbors, and each neighbor may require an exact distance computation against a high-dimensional query vector.',
-        'Another obvious move is to approximate every distance aggressively. That is dangerous because graph search is path dependent. A bad early estimate can prune a neighbor that would have led the search into the right region. FINGER is more careful: approximate mainly where the candidate is unlikely to beat the current bound, and keep exact scoring for candidates that can change the result.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is that not all distance computations have equal decision value. Near the frontier, exact distances matter because they determine which neighbors enter the heap or final top-k. Far outside the frontier, exact distances often only confirm rejection. If a cheaper geometric estimate can show that a candidate is safely outside the useful region, the algorithm saves work without changing the answer.',
-        'FINGER gets that estimate from local residual geometry around the current node. It reuses information about the query-to-current distance and neighbor structure, then estimates whether a neighbor can plausibly beat the bound. This makes the shortcut tied to the graph search state rather than a generic quantization pass.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'During graph search, suppose the current node is c, the query is q, and a neighbor candidate is d. FINGER decomposes q and d relative to c: projection along c plus residual components orthogonal to c. Because the algorithm has already scored c and has access to local neighbor relationships, it can estimate the angle between residual vectors and approximate d(q,d) without doing the full exact distance computation every time.',
-        'The shortcut is useful only with a quality policy. Candidates near the current bound should still be scored exactly, because they can change the frontier or final top-k set. Candidates that are clearly too far can be approximated or bypassed. Final reranking and recall@k measurement protect the system from approximation errors that would silently harm retrieval.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The search-bottleneck view is proving that the expensive step is repeated candidate scoring. Once the current top-k bound is tight, most neighbors do not improve the frontier. The visual asks the useful systems question: which exact computations are buying recall, and which are only proving an obvious rejection?',
-        'The residual-shortcut view shows the geometric trick. The current node is used as a local reference point. Query and candidate vectors are decomposed relative to that reference, and the residual relationship helps estimate whether the candidate deserves exact scoring. This is not random skipping; it is bounded approximation inside the search loop.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'It works because graph ANN search has a tightening bound. Early in search, many candidates may matter. Later, the heap contains better neighbors, so the threshold for entering the result set becomes harder to beat. More distance checks become low-value as search progresses.',
-        'It also works because local graph neighborhoods contain reusable geometry. Neighbor vectors around the current node are not arbitrary; the graph construction already connected points that are geometrically related. FINGER exploits that structure to avoid paying full vector distance cost for candidates that the local geometry suggests are safely too far.',
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Graph ANN search is often memory and distance-computation heavy. FINGER adds precomputed local geometry and estimation work, but saves repeated full-vector distance calculations during search. The reported results show FINGER accelerating graph-based methods such as HNSW across benchmark datasets, with the paper reporting 20% to 60% performance gains in many settings. The exact gain depends on dimension, graph quality, recall target, hardware, and how expensive the original distance metric is.',
-        'This is a classic systems tradeoff: move some work into precomputation and approximate screening so the hot query path does fewer exact operations. The risk is incorrect pruning. The right metric is not raw speed alone; it is throughput at a specified recall@k and downstream task quality.',
-        'The method is most attractive when exact distance is expensive and the graph search evaluates many candidates that never enter the result. It is less compelling when vectors are small, the distance kernel is already cheap, metadata filters dominate, or the deployment is bottlenecked on network and storage rather than arithmetic.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'FINGER belongs in the same mental folder as HNSW, Product Quantization, and RAG Pipeline engineering. Vector databases, recommender systems, two-tower retrieval, image search, deduplication, and semantic search all spend money on nearest-neighbor queries. A faster graph search path can reduce latency or allow higher recall settings under the same budget. For LLM systems, this can improve retrieval quality or reduce inference cost if fewer bad contexts are passed downstream.',
-      ],
-    },
-    {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'The technique does not make approximate nearest-neighbor search exact. It accelerates a graph search process by approximating low-value distance checks. If the approximation is applied too aggressively, recall can fall. It also does not solve bad embeddings, poor chunking, stale indexes, or metadata-filter problems. Treat it as a query-time acceleration layer, not a full retrieval architecture.',
-        'Another misconception is that a faster ANN kernel automatically improves a RAG product. If retrieval quality is capped by chunking, embedding mismatch, missing metadata filters, stale documents, or poor reranking, FINGER can only make the wrong retrieval faster. The right rollout measures recall@k, latency, and final answer quality together.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'Imagine a semantic search service over 200 million product vectors. HNSW gives good recall, but p99 latency rises when the search visits many candidates under a high recall setting. Product managers want better recall for long-tail queries, but the serving budget cannot absorb more exact distance computations.',
-        'FINGER fits as a search-side optimization. Keep the HNSW graph and recall target. Add residual-distance screening for candidates that look safely outside the current bound. Exact-score the candidates near the bound and rerank final survivors. The deployment test is simple: at the same recall@k, did p95 and p99 latency fall? Or, at the same latency, can the system run a higher recall setting without hurting downstream conversion or answer quality?',
-        'The safe rollout would shadow the shortcut first. Run ordinary exact-distance HNSW and FINGER side by side on sampled traffic, compare top-k overlap, recall against a brute-force sample, latency, and downstream ranking changes. Only then should the shortcut enter the serving path, and even then behind a recall guardrail and per-index configuration.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: FINGER at https://arxiv.org/abs/2206.11408, the ACM page at https://dl.acm.org/doi/10.1145/3543507.3583318, and Amazon Science at https://www.amazon.science/publications/finger-fast-inference-for-graph-based-approximate-nearest-neighbor-search. Study HNSW (Vector Search at Scale), Product Quantization for Vector Search, SVD & Low-Rank Approximation, Embeddings & Similarity, Multi-Index RAG, ANN Recall-Latency Pareto Ledger, and RAG Pipeline next.',
-      ],
-    },
+      ] },
+    { heading: 'Why this exists', paragraphs: [
+        'HNSW-style graph ANN avoids brute force, but the hot loop still scores many candidate neighbors. One exact distance over a 768-dimensional vector is cheap; hundreds or thousands per query become expensive. FINGER exists because many exact distances only confirm that a candidate is too far to matter.',
+      ] },
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is to build a better graph, reduce dimension, or write a faster distance kernel. Those help, but every expanded node still exposes neighbors that may need exact scoring. Approximating every distance is unsafe because graph search is path dependent.',
+      ] },
+    { heading: 'The wall', paragraphs: [
+        'The wall is decision value. Near the current top-k bound, a small distance error can change the heap and the path. Far outside the bound, exact scoring is often wasted because the candidate will be rejected either way.',
+      ] },
+    { heading: 'The core insight', paragraphs: [
+        'Use local residual geometry to decide when exact distance is worth paying. If current node c has already been scored against query q, and neighbor d is locally related to c, the method estimates whether d can beat the bound. Approximation is used mainly for low-value rejection.',
+      ] },
+    { heading: 'How it works', paragraphs: [
+        'The search maintains a candidate frontier and a result heap. The heap has a current worst accepted distance. For each neighbor, FINGER uses local geometric information to screen candidates that are clearly outside that bound and exact-scores candidates that could change the frontier.',
+      ] },
+    { heading: 'Why it works', paragraphs: [
+        'The correctness claim is about preserving recall behavior, not making ANN exact. The top-k bound tightens as search proceeds, so more later candidates are low-value rejections. If the screening policy avoids removing candidates that would change the final top k, latency falls without changing the returned set after exact rerank.',
+      ] },
+    { heading: 'Cost and complexity', paragraphs: [
+        'A brute-force search over 10,000,000 vectors of dimension 768 costs 7.68 billion coordinate comparisons. HNSW reduces the visit count; FINGER reduces exact distance calls inside that visit set. The cost is extra precomputed local geometry and a more complicated query loop.',
+      ] },
+    { heading: 'Real-world uses', paragraphs: [
+        'FINGER fits vector databases, semantic search, image search, recommender retrieval, deduplication, and RAG systems when graph search spends meaningful time on distance computations. It can reduce latency at fixed recall or allow a wider search under the same latency budget.',
+      ] },
+    { heading: 'Where it fails', paragraphs: [
+        'It fails when the approximation removes a bridge candidate that would lead to the correct neighborhood. It also does not fix bad embeddings, poor chunking, stale indexes, missing metadata filters, or weak reranking. The required rollout metric is recall at k and downstream quality at the same latency budget.',
+      ] },
+    { heading: 'Worked example', paragraphs: [
+        'Suppose graph search visits 900 candidates, and each exact 768-dimensional L2 distance reads 768 coordinates. That is 691,200 coordinate differences. If FINGER screens 40 percent safely, exact work falls to 540 candidates, or 414,720 coordinate differences. The saved 276,480 operations matter only if the final top 10 after exact rerank matches the baseline.',
+      ] },
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary sources: FINGER at https://arxiv.org/abs/2206.11408, the ACM page at https://dl.acm.org/doi/10.1145/3543507.3583318, and Amazon Science at https://www.amazon.science/publications/finger-fast-inference-for-graph-based-approximate-nearest-neighbor-search.',
+        'Study HNSW, Product Quantization, Embeddings and Similarity, Multi-Index RAG, ANN Recall-Latency Pareto Ledger, and RAG Pipeline next.',
+      ] },
   ],
 };

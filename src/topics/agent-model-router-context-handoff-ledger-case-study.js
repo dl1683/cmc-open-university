@@ -341,69 +341,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bf/Osi_model_7_layers.png/400px-Osi_model_7_layers.png', alt:'OSI seven-layer network model showing how protocols route data through abstraction layers', caption:'The OSI model routes data through protocol layers — each layer with its own contract and handoff. An agent model router does the same for intelligence: it decides which model, agent, or human owns the next step, what context crosses the boundary, and what evaluator checks the result. Source: Wikimedia Commons, Public domain'},
         {type:'callout', text:'An agent model router is not a cost optimizer. In production it is a control plane: it decides which context crosses model boundaries, which tools are available, which permissions are attenuated, which evaluator runs afterward, and which trace proves the route was justified. Routing is a correctness gate, not a billing feature.'},
-        'An agent model router is the control plane that decides which model, specialist agent, deterministic workflow, or human reviewer owns the next step. It is not only a cost optimizer. In a serious product it also decides which context crosses the boundary, which tools are available, which permissions are attenuated, which evaluator runs afterward, and which trace proves the route was justified.',
-        'This fills the gap between Agentic AI Patterns and Multi-Agent Orchestration Topologies. The generic agent loop explains planning, tools, memory, and evaluation. The router answers a narrower production question: when a workflow can use small models, deep models, code agents, research agents, domain specialists, or normal service code, how does the system switch without losing task state?',
+        'Read the route-matrix view as a control plane. A router is the component that chooses which model, specialist agent, workflow, tool set, or human reviewer owns the next step. Active nodes show the signals used for that choice: capability, policy, budget, tool access, context size, and risk.',
+        'Read the handoff view as a typed state transfer. A context capsule is a compact record of goal, progress, evidence, permissions, budget, and stop condition. The safe inference is that switching owners is not safe unless the receiving owner gets enough state and not too much authority.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why this exists',
       paragraphs: [
-        'The visual is not showing a chat feature with extra steps. It is showing a control plane. In the route-matrix view, the important movement is from one undifferentiated user request into a scored decision: task class, capability fit, policy constraint, context size, tool need, budget, and evaluator. A good router makes those inputs explicit before it gives work to a small model, a deeper model, a tool-using agent, a domain specialist, or a human reviewer.',
-        'In the context-handoff view, the key idea is that delegation is a state transition, not a summary paragraph. The receiving agent should get a capsule with task intent, current progress, evidence IDs, files or tool handles, remaining budget, permissions, unresolved questions, and the stop condition. The failure-audit view then asks whether the route was reversible and explainable. If the answer got worse, the ledger should show whether the problem was the wrong owner, missing context, stripped permissions, stale evidence, a weak evaluator, or an unsafe fallback.',
-        'This matters because routing errors are often misdiagnosed as model errors. A small model may look weak because it received no evidence. A large model may look wasteful because the router sent it routine work. A specialist may hallucinate because the handoff removed source IDs. The ledger turns those failures into inspectable causes so the team can repair the route, not just rewrite the prompt.',
+        'Agent products rarely have one best model for every step. A cheap model may classify intent well, a stronger model may synthesize risky conclusions, a code agent may need shell access, and a human may need to approve an external action. Routing exists because different steps need different owners.',
+        'The hard part is continuity. If the system switches from one model or agent to another, it can lose citations, permissions, unresolved questions, tool handles, or budget state. The router and handoff ledger make the switch inspectable instead of relying on a long transcript.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The first data structure is a capability matrix. Rows describe work classes such as lookup, code, legal analysis, drafting, judging, and final synthesis. Columns record model skill, tool requirements, context window, latency, cost, safety risk, and required evaluator. The route scorer turns that matrix plus request features into a chosen owner. The route ledger stores the request class, scores, policy checks, chosen owner, fallback reason, and trace IDs.',
-        'The second data structure is the context capsule. A capsule is smaller than the transcript and stricter than a summary. It should carry the task intent, current progress, unresolved decisions, evidence or claim IDs, tool handles, authorization scope, budget, stop condition, and pointers back to the raw trace. Agent Memory & Context Engineering explains how to store and pack that state; this case study explains how to move it across a route boundary.',
+        'The obvious approach is to send everything to the strongest model. That is simple and often works on small volumes. It reduces routing errors because there is no route decision to make.',
+        'The other obvious approach is cost routing: send short easy tasks to a cheap model and long hard tasks to an expensive model. That saves money, but it still treats routing mostly as billing. Production routing also has to consider tools, permissions, evidence, policy, latency, and required evaluation.',
       ],
     },
     {
-      heading: 'How routing works',
+      heading: 'The wall',
       paragraphs: [
-        'A typical request enters a classifier that estimates task type, risk, difficulty, context size, tool needs, and whether the result is externally visible. A low-risk lookup might go to a small cheap model with search. A code repair might go to a sandboxed coding agent with tests. A legal or financial conclusion might go to a stronger model plus a claim ledger and human review. A final answer might require a judge or citation checker even if earlier steps used cheaper workers.',
-        'Anthropic names routing as a workflow pattern where inputs are classified and directed to specialized follow-up tasks, including routing easy/common questions to cheaper models and harder/unusual questions to more capable ones: https://www.anthropic.com/engineering/building-effective-agents. The local deep-research corpus makes the same point from the user side: workflow reliability fails when a product cannot preserve context, switch model tiers, handle files, or continue long multi-turn work without forcing the user to restart.',
+        'The wall is state loss at the boundary. A model can answer poorly because the router stripped the evidence it needed, because the handoff summary dropped an unresolved constraint, or because the receiving agent did not inherit the required tool permission. The failure looks like weak reasoning, but the root cause is a bad transfer.',
+        'The second wall is over-authority. A receiver should not inherit every tool or data root the sender had. Tool scope, user identity, redaction policy, and approval state must be recalculated or attenuated when work crosses the boundary.',
       ],
     },
     {
-      heading: 'Context handoff',
+      heading: 'The core insight',
       paragraphs: [
-        'A handoff should be a typed operation. OpenAI Agents SDK describes handoffs as a way for one agent to delegate to another specialist, represented as tools to the LLM, with optional input schemas, input filters, callbacks, dynamic enablement, and handoff history controls: https://openai.github.io/openai-agents-python/handoffs/. The systems lesson is broader than one SDK: delegation needs an explicit contract or the next owner inherits a muddy transcript.',
-        'OpenAI also frames agents as applications that plan, call tools, collaborate across specialists, and keep enough state to complete multi-step work: https://developers.openai.com/api/docs/guides/agents. That "enough state" is the hard part. The capsule should be checkable against the trace, not trusted because it sounds coherent. If the receiver cannot cite the evidence, explain the current plan, respect the remaining budget, and name pending decisions, the handoff lost information.',
+        'Routing is a logged control-plane decision. The route record should store task class, required capabilities, context size, risk score, budget, policy gates, tool requirements, chosen owner, fallback reason, evaluator, and trace id. If the answer fails, the team can inspect the decision instead of guessing.',
+        'Handoff is a schema, not a summary. The capsule carries decision-critical state and pointers back to raw evidence. It should be small enough for the receiver to use and structured enough for an evaluator to detect context loss.',
       ],
     },
     {
-      heading: 'Complete case study: deep research workspace',
+      heading: 'How it works',
       paragraphs: [
-        'Imagine a professional deep-research workspace. The user uploads a 70-page filing, asks for market analysis, then asks follow-up coding questions to reproduce a chart. The router sends source discovery to a search specialist, long-document extraction to a file reader, numerical checks to a sandboxed code agent, synthesis to a stronger reasoning model, and final review to a judge calibrated on a golden set. Each handoff carries a capsule: goal, source ledger IDs, current outline, unresolved contradictions, code artifact paths, budget, and reviewer criteria.',
-        'Without the router ledger, failures are invisible. A weak answer could be caused by the wrong model, missing file access, stale memory, lost citations, a usage cap, or a policy gate that stripped the needed context. With the ledger, the product can inspect route scores, compare shadow routes, rerun only the failed segment, and train future routing rules from accepted-answer quality rather than raw thumbs-up ratings.',
+        'A request first enters a classifier. The classifier estimates task type, difficulty, risk, required tools, context size, external side effects, and whether the result is user-visible or compliance-sensitive. The router scores candidate owners against those features.',
+        'A low-risk lookup can route to a small model with search. A code repair can route to a sandboxed coding agent with tests. A legal or financial conclusion can route to a stronger model plus source ledger and human review. A final answer may require a judge even if earlier steps used cheaper workers.',
+        'When the owner changes, the system builds a capsule. It includes task intent, current state, evidence ids, tool handles, authorization scope, budget remaining, unresolved decisions, and stop criteria. The trace stores what crossed the boundary and why.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'A router works when it turns invisible judgment into a logged control-plane decision. The request features, capability scores, cost envelope, policy checks, tool requirements, selected owner, capsule fields, and evaluator result are all inspectable. That makes routing errors debuggable instead of mystical.',
-        'Typed handoffs work because they preserve just enough state for continuity while keeping provenance outside the summary. The receiver can follow trace links back to evidence, verify permissions, and continue from a known stop condition. That is what prevents a multi-agent workflow from becoming a chain of fresh starts.',
+        'The correctness argument is that each route can be explained from stored inputs. If a task needed shell access and the chosen owner had shell access, that part of the route is justified. If the task was high risk and the route attached a judge or human reviewer, the gate is visible.',
+        'Typed capsules work because they preserve continuity without pretending a summary is evidence. The receiver can follow evidence ids back to sources, respect narrowed permissions, and continue from a known stop condition. That prevents a multi-agent workflow from becoming a chain of fresh starts.',
       ],
     },
     {
-      heading: 'Operations and reliability',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'LangGraph persistence separates thread-scoped checkpoints from longer-term stores, which is exactly the distinction a router needs: current run state must survive interruption, while reusable user facts and preferences live outside the graph state: https://docs.langchain.com/oss/python/langgraph/persistence. Temporal describes durable execution as maintaining workflow state and progress through failures using event history, letting work resume from the last recorded event: https://docs.temporal.io/temporal. Those ideas apply directly to long agent workflows because route decisions and handoffs are state transitions.',
-        'Tracing closes the loop. OpenAI Agents SDK tracing records LLM generations, tool calls, handoffs, guardrails, and custom events; traces contain spans with parent-child relationships and metadata: https://openai.github.io/openai-agents-python/tracing/. A production router should emit spans for classification, score calculation, policy decision, selected owner, capsule fields, evaluator result, fallback reason, and final acceptance.',
+        'Cost is behavior, not only model price. A cheap model that drops a citation can force a stronger retry, a human review, or a customer-support escalation. A stronger model used everywhere can waste budget on routine steps and hide which slices actually need it.',
+        'Suppose 10,000 daily requests split into 7,000 lookups, 2,000 coding tasks, and 1,000 high-risk summaries. Sending all work to a 10-cent model costs $1,000 per day. Routing lookups to a 1-cent model, coding to a 6-cent agent path, and high-risk summaries to the 10-cent model costs $70 + $120 + $100, or $290 per day, before evaluator cost.',
+        'The complexity cost is measurement. The router needs capability tables, route rules, policy gates, trace spans, shadow mode, canaries, and slice metrics. Without those controls, it can silently drift toward cheap wrong answers or expensive unnecessary escalation.',
       ],
     },
     {
-      heading: 'Limits, pitfalls, and study next',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Do not let the router become hidden prompt magic. If route rules are not versioned, evaluated, and logged, the product will silently drift toward cheap-but-wrong answers or expensive-but-unnecessary escalation. Do not treat a handoff summary as evidence. Do not let a receiver inherit broad tool scope just because the sender had it. Do not optimize only for latency or cost if the expensive failures happen on a high-risk slice.',
-        'Primary and official sources: Anthropic Building Effective Agents at https://www.anthropic.com/engineering/building-effective-agents, OpenAI Agents SDK overview at https://developers.openai.com/api/docs/guides/agents, OpenAI handoffs at https://openai.github.io/openai-agents-python/handoffs/, OpenAI tracing at https://openai.github.io/openai-agents-python/tracing/, LangGraph persistence at https://docs.langchain.com/oss/python/langgraph/persistence, and Temporal durable execution overview at https://docs.temporal.io/temporal. Study Agentic AI Patterns, Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Model Context Protocol Case Study, Agent Memory & Context Engineering Case Study, Deep Research Agent Architecture Case Study, LLM Unit Economics Ledger Case Study, Feature Flag Control Plane, Distributed Tracing, LLM Judge Calibration & Drift Monitor, AI Audit Evidence Packet Case Study, Prompt Injection Threat Model, Zanzibar Authorization Case Study, and Temporal Workflow Case Study next.',
+        'Deep research workspaces use routing to split source discovery, long-document extraction, calculation, synthesis, and final review. Coding agents use it to decide when to use search, shell execution, static analysis, a repair loop, or human approval. Customer-support agents use it to route low-risk questions, refund decisions, and escalations differently.',
+        'The pattern is strongest where tasks have mixed risk and mixed tool needs. It is weaker when every request is short, low-risk, and uses the same data source. In that case, a router may add more moving parts than value.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the route rule is hidden prompt magic. If scores, policies, versions, and fallback reasons are not logged, the team cannot debug bad routing. The product will only show that the answer was bad, not whether the wrong owner or wrong context caused it.',
+        'It also fails when the capsule replaces provenance. A coherent handoff summary can omit the source that justified a claim. The receiver must get evidence pointers, not just prose that sounds like evidence.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A user uploads a 70-page filing and asks for a market-risk memo with a reproduced chart. The router classifies the task as high context, source-heavy, calculation-required, and externally visible. It routes extraction to a document specialist, chart reproduction to a sandboxed code agent, synthesis to a stronger reasoning model, and final review to a judge with citation checks.',
+        'The capsule to the synthesis model contains 18 extracted claims, 12 source ids, 2 unresolved contradictions, the chart artifact path, a $2 remaining budget, and a stop condition: every market claim must cite a source id. The final judge rejects the first answer because 3 claims lack source ids. The ledger shows the failure is a missing-citation handoff issue, not a general model failure.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study Anthropic Building Effective Agents at https://www.anthropic.com/engineering/building-effective-agents, OpenAI Agents SDK overview at https://developers.openai.com/api/docs/guides/agents, OpenAI handoffs at https://openai.github.io/openai-agents-python/handoffs/, OpenAI tracing at https://openai.github.io/openai-agents-python/tracing/, LangGraph persistence at https://docs.langchain.com/oss/python/langgraph/persistence, and Temporal durable execution at https://docs.temporal.io/temporal. Next study Agent Workflow DAG Compiler, Agent Memory and Context Engineering, Distributed Tracing, LLM Judge Calibration, Prompt Injection Threat Model, and Zanzibar Authorization.',
       ],
     },
   ],

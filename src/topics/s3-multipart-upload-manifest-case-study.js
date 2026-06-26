@@ -251,126 +251,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a temporary manifest for one large object. A manifest is a record that says which parts exist, what order they occupy, and which metadata must be sent when the object is committed.',
+        'The active part is being uploaded, retried, or committed. Part numbers define final object order; upload completion time does not.',
+        {type:'callout', text:'Multipart upload makes retry scope, ordering, integrity, and commit state explicit for one large object.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'S3 multipart upload exists because large object uploads are too expensive to treat as one fragile request. A single network failure should not force an 80 GB file to restart from byte zero.',
-        'The practical problem is resumable, parallel, verifiable upload with a clear commit point. Parts may arrive in any order, but the final object must have one ordered shape.',
-        {type:'callout', text:'Multipart upload makes retry scope, ordering, integrity, and commit state explicit for one large object.'},
+        'A large object upload is too fragile as one request. If an 80 GB file fails at byte 78 GB, restarting from byte zero wastes network time, compute time, and user patience.',
+        'S3 multipart upload exists to make large transfer resumable and parallel. The client uploads numbered parts under one upload ID, then asks S3 to assemble those parts into one object.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is one PUT request for the whole object. That is simple for small files and has one response to interpret.',
-        'The wall is failure scope. For large files, a timeout near the end wastes all prior transfer. One large request also limits parallelism and makes integrity reporting less granular.',
+        'The obvious approach is one PUT request for the whole object. It is simple, has one checksum story, and works well for small files.',
+        'For large files, the one-request model has a bad failure boundary. A transient network error invalidates all prior progress, and the sender cannot use multiple connections to fill available bandwidth.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is retry scope. Large uploads cross many failure domains: browser tab lifetime, mobile network changes, credential expiration, worker crashes, throttling, and regional network events.',
+        'A second wall is commit correctness. Parts can arrive in any order, but the final object must be one ordered byte stream, so the system needs a precise list of accepted parts at completion time.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The data structure is a temporary manifest keyed by upload ID. Each part record has a part number, server-side part tag, optional checksum information, size, and state.',
-        'Completion is the commit operation. The client submits the ordered part list, and S3 assembles one visible object from those accepted parts.',
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        `In the parts-and-checksums view, read each part as an independently retryable record under one upload ID. Part 2 can fail and be resent while parts 1, 3, and 4 remain accepted. Part numbers, not arrival order, define the eventual object order.`,
-        `In the complete-upload view, the manifest is the commit record. Until completion, the uploaded parts are temporary state. Completion chooses the accepted parts to assemble; abort deletes the temporary state. The lifecycle rule is the operational backstop for clients that disappear before cleaning up.`,
+        'Multipart upload separates transfer from commit. UploadPart stores temporary part state under an upload ID, while CompleteMultipartUpload is the commit operation that chooses the ordered part list.',
+        'That makes each part independently retryable. A failed part 17 can be resent without touching accepted parts 1 through 16 or parts 18 through 200.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The client creates a multipart upload, receives an upload ID, uploads numbered parts independently, retries failed parts, and tracks accepted part metadata. Parts are temporary until complete or abort.',
-        'CompleteMultipartUpload provides the manifest. AbortMultipartUpload removes temporary state. Lifecycle rules can expire incomplete uploads that clients abandoned.',
+        'The client initiates an upload and receives an upload ID. It chooses a part size, uploads part numbers independently, stores each accepted part number with its ETag or checksum metadata, and retries failed parts.',
+        'When all required parts are accepted, the client sends the ordered manifest in the complete request. If the job is canceled or abandoned, abort removes temporary parts, and lifecycle rules can clean up uploads that no client finishes.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because part number, not arrival order, defines final object order. A failed part can be retried without disturbing accepted parts, and the complete request chooses which accepted parts become the object.',
-        'The commit point is explicit. Before completion, clients do not read the final object. After completion, normal GET and HEAD see one assembled object.',
-        'The manifest also makes retries safe. Retrying part 2 replaces or supersedes the failed attempt for that part number; the final complete request names the accepted part metadata that should be used. That is the difference between parallel upload and uncontrolled append.',
+        'Correctness comes from using part number as the order key. If part 9 finishes before part 4, the final object still places part 4 before part 9 because completion concatenates by ascending part number.',
+        'The manifest prevents uncontrolled append. Completion names the exact accepted part metadata, so retrying a part can replace that part without changing the final order of the object.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Multipart upload adds state. Clients must choose part size, persist upload IDs, track retry state, validate checksums, complete once, and abort abandoned uploads. Small objects usually do not need this machinery.',
-        'ETag handling is a common pitfall. For multipart and encrypted objects, the ETag should not be assumed to be the plain MD5 digest of the entire object. Use checksum features for the integrity contract you need.',
+        'Multipart upload adds request cost, temporary storage cost, client state, and cleanup responsibility. For a 100 GB upload split into 1,000 parts of 100 MB, the process uses one initiate request, 1,000 upload-part requests, and one complete request before retries.',
+        'Part size controls behavior. Small parts reduce retry waste but increase request count and manifest size; large parts reduce request overhead but make every failed retry expensive.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Multipart upload wins for large objects, flaky networks, browser direct uploads, warehouse exports, media files, backups, and any upload where parallelism or retrying individual pieces matters.',
-        'It is strongest when the client can persist upload state and clean up abandoned attempts.',
+        'Multipart upload fits backups, media files, browser direct uploads, data lake exports, machine-learning datasets, database snapshots, and warehouse unloads. These workloads have objects large enough that retrying a slice is cheaper than retrying the whole object.',
+        'It also supports parallelism. A client with enough bandwidth can upload several parts at once, then commit the object after every required part has reached S3.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails as unnecessary overhead for small files. It also fails operationally when clients leak incomplete uploads, lose upload IDs, pick poor part sizes, or treat ETags as universal checksums.',
-        'Multipart is not a multi-object transaction. It commits one object assembled from parts, not a set of objects or metadata updates.',
+        'It is unnecessary overhead for small files. A 2 MB object does not need upload IDs, part records, abort logic, and lifecycle cleanup.',
+        'It also fails when clients lose state. If the upload ID or accepted part list exists only in process memory, a crash can leave temporary parts billed until lifecycle cleanup deletes them.',
       ],
     },
     {
-      heading: 'Operational checklist',
+      heading: 'Worked example',
       paragraphs: [
-        'Persist the upload ID and accepted part records outside the uploading process. If a worker crashes, another worker should be able to resume or abort from the manifest. Treat the manifest as job state, not as local memory.',
-        'Choose part size with both S3 limits and retry economics in mind. Very small parts increase request overhead and can hit part-count limits. Very large parts make each retry expensive. The right size depends on object size, network reliability, concurrency, and memory budget.',
-        'Always have an abort path and a lifecycle cleanup rule for incomplete uploads. Without cleanup, abandoned temporary parts can become invisible storage cost.',
+        'A service uploads an 80 GB video with 64 MB parts, which produces 1,280 parts. If part 733 fails after 45 MB, the retry resends only that 64 MB part instead of the whole 80 GB object.',
+        'With concurrency 16, the client keeps 16 parts in flight and records each accepted part number plus returned metadata. Completion sends the 1,280 ordered records; if the client sorted by finish time instead of part number, the assembled video would be corrupt even though every part uploaded.',
       ],
     },
     {
-      heading: 'Rule of thumb',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Use multipart upload when retry scope and parallelism matter. Do not use it merely because an SDK exposes it. Small files are often better as one PUT because the operational state is simpler.',
-        'The manifest is the truth. A completed object is assembled from the part numbers and tags in the complete request, so correctness depends on tracking that list accurately.',
-      ],
-    },
-    {
-      heading: 'Worked failure case',
-      paragraphs: [
-        'A browser uploads a 20 GB video in 100 MB parts. The tab crashes after part 127. If the upload ID and accepted part list only lived in memory, the client cannot resume cleanly. It may leak temporary parts until lifecycle cleanup removes them.',
-        'A better client persists the upload ID, part size, completed part numbers, ETags or checksums, and object key. On restart, it can list or reuse accepted parts, retry the missing range, and send one complete request with the ordered manifest.',
-      ],
-    },
-    {
-      heading: 'What to watch in production',
-      paragraphs: [
-        'Track incomplete upload age, abandoned upload bytes, retry counts by part, checksum failures, complete failures, and abort failures. These metrics catch the hidden cost of partially successful uploads.',
-        'Be careful with client-side concurrency. More parallel parts can improve throughput, but they also increase memory, open connections, retry storms, and pressure on upstream bandwidth. The best concurrency limit is a measured policy, not a hardcoded maximum.',
-      ],
-    },
-    {
-      heading: 'Integrity and ordering details',
-      paragraphs: [
-        'Part numbers define object order, not upload completion time. If part 9 finishes before part 4, the final manifest still places part 4 before part 9. A client that sorts by finish time can corrupt the assembled object even though every individual part uploaded successfully.',
-        'Checksums should be explicit. Multipart ETags have historically confused teams because they are not always the simple MD5 of the full object, especially with multipart uploads and encryption. Use the checksum fields and verification mode that match the integrity promise your system needs.',
-        'Completion should be idempotent at the job level. Record whether completion was requested, what manifest was sent, and what object version or response came back. A retry after a network timeout should not invent a different manifest.',
-      ],
-    },
-    {
-      heading: 'Design checklist',
-      paragraphs: [
-        'Before shipping multipart upload, decide part size, concurrency limit, retry budget, manifest persistence, checksum policy, abort policy, and lifecycle cleanup. Those are not SDK details; they are the reliability contract for large-object transfer.',
-        'Also decide how downstream readers learn that the object is complete. Many pipelines write a separate success marker, manifest table row, or transactional catalog update after completion so consumers do not race against in-progress uploads.',
-        'For browser and mobile clients, add credential lifetime and network-change behavior to the checklist. A resumable upload that outlives its presigned URLs or authentication session needs a refresh path, not just retry loops.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A warehouse exports an 80 GB Parquet file to S3. The uploader initiates multipart upload, chooses a part size, and uploads parts concurrently. Part 2 fails due to a network timeout, so the client retries only part 2. Each accepted part returns metadata and checksum information.',
-        'The client tracks accepted parts, sends CompleteMultipartUpload with part numbers and tags, and downstream engines read one object. If the job is cancelled before completion, the uploader aborts the upload; a lifecycle rule is the safety net for abandoned uploads.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: AWS multipart upload overview at https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html, UploadPart API at https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html, multipart checksum tutorial at https://docs.aws.amazon.com/AmazonS3/latest/userguide/tutorial-s3-mpu-additional-checksums.html, and abort-incomplete multipart lifecycle guidance at https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpu-abort-incomplete-mpu-lifecycle-config.html. Study S3 Object Storage Case Study, Content-Defined Chunking & Dedup, Reed-Solomon Erasure Coding, Parquet Columnar Format Case Study, and Transactional Outbox next.',
+        'Primary sources: AWS multipart upload overview at https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html, UploadPart API at https://docs.aws.amazon.com/AmazonS3/latest/API/API_UploadPart.html, and abort-incomplete lifecycle guidance at https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpu-abort-incomplete-mpu-lifecycle-config.html. Study S3 object storage, checksums, idempotency keys, content-defined chunking, and transaction commit protocols next.',
       ],
     },
   ],

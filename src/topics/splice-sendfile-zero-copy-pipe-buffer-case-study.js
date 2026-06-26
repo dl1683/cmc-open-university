@@ -175,96 +175,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A static file server often needs to move bytes from disk cache to a socket. The content already sits in the kernel page cache, and the destination is also in the kernel networking path. Copying the bytes into a user-space buffer just to copy them back into the kernel wastes CPU cycles, memory bandwidth, and cache space.',
-        'sendfile and splice exist to remove that unnecessary user-space copy. They do not remove all work. The kernel still manages page references, pipe buffers, socket queues, offsets, lifetimes, and backpressure. The win is that the application can move ownership and references instead of touching every byte.',
+        'Read the animation as a byte-ownership trace. A file descriptor is a kernel handle for an open file or socket, the page cache is the kernel memory that holds recently read file pages, and a pipe buffer is a small kernel record that can carry a reference to bytes rather than copied bytes.',
+        'Active nodes are the structures currently carrying the byte range. Removed nodes show work skipped by the fast path, usually the user-space buffer. The safe inference is narrow: if the page-cache page is referenced by the pipe or socket path and the user buffer is removed, the application avoided copying that range into user memory.',
         {type:'callout', text:'The fast path moves page references through bounded kernel queues, so lifetime and backpressure matter as much as copy avoidance.'},
       ],
     },
     {
-      heading: 'The obvious attempt',
+      heading: 'Why this exists',
       paragraphs: [
-        'The straightforward implementation is a read/write loop: read file bytes into a buffer, then write that buffer to the socket. It is portable, easy to debug, and correct for transformations because the application owns the bytes in the middle.',
-        'The wall appears when the transfer is large and unmodified. The loop performs two copies across the user-kernel boundary path, pollutes CPU caches with data the application never inspects, and burns memory bandwidth that could have gone to useful work. Under slow clients it also needs the same partial-write and readiness logic as the zero-copy path.',
+        'A static file server often sends bytes that the application never needs to inspect. The file bytes may already be in the kernel page cache, and the destination socket is also managed by the kernel. Copying the same bytes into a JavaScript, C, or Go buffer only to write them back into the kernel spends CPU and memory bandwidth without changing the response.',
+        'sendfile and splice exist for that case. They let the kernel connect a source descriptor to an output path while preserving byte order, offsets, and queue limits. The application still drives progress, but it does not need to touch every byte.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core data structure is a queue of references, not a buffer of copied bytes. Page-cache pages already contain the file data. Pipe buffers and socket queues can carry references to those pages or kernel buffers, plus offset, length, flags, and release rules.',
-        'sendfile packages the common file-to-socket case behind one interface. splice exposes the pipe-buffer bridge explicitly, usually requiring a pipe on one side of the transfer. The invariant is that byte order and offsets are preserved even when the implementation moves references instead of materializing bytes in user memory.',
+        'The obvious approach is a read/write loop. Read 64 KB from the file into a user buffer, then write 64 KB from that buffer to the socket. It is simple, portable, and works when the application must compress, encrypt, scan, or rewrite the bytes.',
+        'The cost is that the buffer becomes a needless stop for unchanged data. A 1 GB file copied through user space can move about 2 GB across copy boundaries before the network card even transmits it. The application also dirties CPU caches with data it will not interpret.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'Inspect the path as a chain of ownership and backpressure. The file descriptor names the source, the page cache holds the bytes, pipe buffers or socket queues carry references, and the application records how many bytes actually moved. The fast path is only real if the trace shows the bytes avoided user-space materialization.',
-        'The key debugging question is where the byte range lives right now. It may be in the page cache, attached to pipe buffers, queued to the socket, or already acknowledged by the write side. A zero-copy system that cannot answer that question is only a hope wrapped around a syscall.',
+        'The wall is memory bandwidth and queue behavior, not only syscall count. Faster disks and networks make extra copies more visible because the CPU must keep up with byte movement that carries no application information. Slow clients add another wall because the socket queue fills and every path becomes partial-progress I/O.',
+        'A naive zero-copy call also fails if it treats the syscall as all-or-nothing. The kernel may move 192 KB of a 1 MB range, return EAGAIN, or fall back because the source, sink, filesystem, or transformation does not support the path. Correct code must record the remaining byte range.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to move references to kernel pages when the bytes do not need transformation. A page reference plus offset and length can represent the same byte range as a copied buffer. The kernel can attach that reference to a pipe buffer or socket path and release it only after downstream consumers are done.',
+        'sendfile packages the common file-to-socket route. splice exposes the pipe as an explicit bridge between descriptors. In both cases, the invariant is that the destination stream receives exactly the requested byte order even when the implementation moves references instead of materialized bytes.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For sendfile, the application provides an input descriptor, output descriptor, optional offset, and byte count. The kernel looks up file pages, attaches data to the outgoing path where supported, advances offsets according to actual progress, and returns the number of bytes moved.',
-        'For splice, one side is normally a pipe. The first splice can attach file page references to pipe buffers. The second splice can move those pipe buffers into a socket or another compatible destination. The pipe is not just plumbing; it is the bounded queue that carries the transfer state.',
-        'Both calls must be driven like other I/O. They can move fewer bytes than requested, block, or return EAGAIN in nonblocking mode. A correct loop keeps the remaining byte range, waits for readiness, and retries without duplicating or skipping bytes.',
+        'For sendfile, the application passes an input descriptor, an output descriptor, an optional offset, and a count. The kernel looks up file pages, attaches eligible ranges to the outgoing path, advances by the number of bytes actually accepted, and returns that count. The loop repeats until the requested range is complete or an error branch wins.',
+        'For splice, one side is normally a pipe. One splice can attach source bytes to pipe buffers, and another splice can move those buffers toward the socket. The pipe is a bounded queue, so it is part of the flow-control design rather than a decorative connector.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Correctness comes from preserving the same stream contract as read/write. The destination receives the same byte sequence in the same order, and the returned byte count tells the application exactly how much of the range has advanced.',
-        'The optimization is safe only because the kernel owns the page-cache references, pipe-buffer lifetimes, and socket-queue release path. A page cannot be reclaimed or overwritten out from under an in-flight reference. Backpressure keeps the bounded queues from pretending the network accepted data it has not accepted.',
+        'Correctness comes from matching the stream contract of read followed by write. The byte at file offset x must appear at the destination before the byte at offset x + 1, and the returned count must equal the prefix of the range accepted by the kernel. Retrying from offset plus count preserves that invariant.',
+        'The optimization is safe because the kernel owns page lifetimes while references are in flight. A page-cache page cannot be freed or reused while a pipe buffer or socket queue still names it. Backpressure preserves truth: the kernel cannot report bytes as accepted by a full downstream queue unless that queue has actually taken responsibility for them.',
       ],
     },
     {
-      heading: 'Complete case study: static file server',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A server receives a request for a large static object. The file data is already in the Linux page cache. Instead of read into a user buffer and write to the socket, the server calls sendfile or constructs a splice loop. The kernel attaches page references to the outgoing path, the socket queue drains as the NIC sends, and the application loops on short progress until the byte range is complete.',
-        'If the client is slow, the socket send queue fills. The server must stop feeding that connection, wait for readiness, and avoid pinning too many page-cache pages behind slow clients. This connects File Descriptor Table & Open File Description, Linux Page Cache XArray, epoll Interest & Ready Lists, io_uring Submission & Completion Rings, and Backpressure & Flow Control.',
+        'The time saved is proportional to bytes not copied. For a 1 GB static response, avoiding two user-space copy legs can save roughly 2 GB of memory traffic, though the exact win depends on CPU, cache, NIC, TLS path, and filesystem support. When file size doubles, copy traffic in the naive path doubles; reference bookkeeping grows with segments and pages.',
+        'The space cost moves from user buffers to pinned or referenced kernel pages and queued descriptors. The engineering cost is higher than the happy-path syscall: short writes, EAGAIN, cancellation, rate limits, offset accounting, and fallback all need tests. Small files may lose because setup and branching dominate the saved copy.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Zero-copy saves copy cost, but it adds capability checks, fallback paths, and lifetime pressure. The fast path depends on support from the source, destination, filesystem, socket path, and operation. TLS, compression, filters, checksumming, or unsupported file types can force copies or a different offload path.',
-        'The practical cost is control complexity. The application still handles short transfers, readiness, cancellation, offsets, rate limiting, and error recovery. Slow clients can keep page references alive in outgoing queues, so a server must cap per-connection and global pressure.',
+        'The best fit is large static payloads: media segments, downloads, cached assets, backup streams, and reverse-proxy paths that forward unchanged bodies. The access pattern is sequential, and the application value is in routing and accounting rather than byte inspection.',
+        'It also appears in high-throughput servers that need to reduce CPU per transferred gigabyte. The useful metric is not whether sendfile was called, but how many response bytes actually stayed on a zero-copy-compatible path under real clients and TLS settings.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Where it fails',
       paragraphs: [
-        'The fit is strongest for large, already-cached, unmodified payloads: static files, media segments, backups, and proxy paths that forward bytes without inspecting them. The access pattern is sequential, and the application does not need to transform the body.',
-        'It is the wrong default for tiny responses, highly dynamic bodies, content that must be encrypted or compressed in user space, or paths where unsupported sources and sinks make fallback common. In those cases a plain buffered loop may be simpler and just as fast.',
+        'It fails when bytes must be changed in user space. Compression, application-layer encryption, content filtering, templating, checksumming, or unsupported descriptor pairs can force a copy or a different offload path. Kernel TLS and device offloads can change the answer, so measurement matters.',
+        'It also fails as a memory-pressure story if slow clients keep many page references queued. Avoiding copies does not make queues infinite. A server still needs per-connection caps, global limits, timeouts, and fallback observability.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Zero-copy calls can make partial progress. They can block or return EAGAIN in nonblocking mode. They can interact badly with transformations, TLS, compression, filters, or file types that do not support the path. They can also increase memory pressure if page references remain attached to slow downstream queues.',
-        'Another misconception is that avoiding user-space copies always dominates. For small payloads, syscall overhead, branchy fallback handling, and more complicated accounting can outweigh the benefit. For large static transfers, the savings in CPU and memory bandwidth are usually clearer.',
-      ],
-    },
-    {
-      heading: 'Operational signals',
-      paragraphs: [
-        'Track bytes sent by zero-copy path, fallback bytes, short-transfer count, EAGAIN count, socket-queue depth, pinned page pressure, per-connection outstanding bytes, slow-client age, TLS or compression bypass rate, and CPU cycles per transferred megabyte. These metrics tell you whether the design is actually saving work.',
-        'The fallback path needs the same observability as the fast path. A server that silently falls back to read/write for most responses may still be correct, but the performance story has changed. The article-level lesson is that system calls are not magic labels; workload fit and measured path determine the result.',
-      ],
-    },
-    {
-      heading: 'What to remember',
-      paragraphs: [
-        'splice and sendfile are reference-moving tools for specific byte paths. They are excellent when the application does not need to inspect or transform the payload. They are less compelling when responses are tiny, dynamic, encrypted in user space, or frequently unsupported by the source and sink.',
-        'For course design, teach this after file descriptors and page cache, then connect it to backpressure. Students should see that zero-copy is not only an optimization trick. It is a lifetime, offset, and queue-management discipline.',
+        'Suppose a server must send a 16 MB file over a socket, and the loop uses a 64 KB user buffer. The read/write path performs 256 reads and 256 writes at the buffer size, and it copies 16 MB from page cache to user space plus 16 MB from user space toward the socket path. The application paid 32 MB of copy traffic for bytes it never inspected.',
+        'With sendfile, the first call asks for 16 MB and the socket accepts 5 MB before its queue fills. The application records offset 5 MB and waits for writability. Three later calls move 5 MB, 5 MB, and 1 MB, producing the same 16 MB stream with four progress records instead of 512 buffer-copy operations.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: splice(2) at https://man7.org/linux/man-pages/man2/splice.2.html, sendfile(2) at https://man7.org/linux/man-pages/man2/sendfile.2.html, and Linux splice documentation at https://www.kernel.org/doc/html/latest/filesystems/splice.html.',
-        'Study next by role: File Descriptor Table & Open File Description for offset and descriptor semantics, Linux Page Cache XArray for the source pages, epoll Interest & Ready Lists and io_uring Submission & Completion Rings for driving nonblocking progress, NIC RX Ring & NAPI Poll for the device side, and Backpressure & Flow Control for the queue limits that zero-copy does not remove.',
+        'Primary sources start with Linux sendfile(2) at https://man7.org/linux/man-pages/man2/sendfile.2.html. Read Linux splice(2) at https://man7.org/linux/man-pages/man2/splice.2.html and the kernel splice notes at https://www.kernel.org/doc/html/latest/filesystems/splice.html for the pipe-buffer model.',
+        'Study File Descriptor Table and Open File Description for offsets, then Linux Page Cache XArray for source pages. After that, use epoll Interest and Ready Lists, io_uring Submission and Completion Rings, and Backpressure and Flow Control to understand how the transfer loop is driven.',
       ],
     },
   ],

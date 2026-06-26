@@ -242,77 +242,54 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt:'Server racks in a datacenter showing dense cabling and cooling infrastructure', caption:'Server racks in a datacenter. An AI rack is not just GPUs — it is a shared physical machine where fabric topology, power feeds, cooling loops, and failure domains all constrain what the scheduler can safely place. Source: Wikimedia Commons, Victor Grigas, CC BY-SA 3.0'},
-        {type:'callout', text:'Free GPU count is an unsafe placement proxy. A rack can have idle accelerators and still be wrong for a tensor-parallel group because the best NVLink path is degraded, wrong for a replica set because every replica would share one PDU, or wrong for bursty prefill because thermal headroom is already consumed. Placement needs physical constraints, not slot counts.'},
-        'A rack-scale AI system is not only a pile of accelerators. It is a shared physical machine made from GPU trays, NVLink or Ethernet fabrics, scale-out NICs, PDUs, breakers, power shelves, liquid loops, CDUs, fans, switches, maintenance zones, tenant boundaries, and failure domains. A scheduler that sees only healthy nodes sees only a thin slice of the system that will actually carry the workload.',
-        'The ledger exists because free GPU count is an unsafe proxy. A rack can have idle accelerators and still be the wrong place for a tensor-parallel group because the best fabric path is degraded. It can be the wrong place for a replica set because every replica would share one PDU or coolant loop. It can be the wrong place for bursty prefill because thermal headroom is already gone. Placement needs a record of physical constraints, not a count of empty slots.',
-      ],
-    },
-    {
-      heading: 'The naive approach',
-      paragraphs: [
-        'The naive scheduler asks for N GPUs on nodes that pass a health check. If there are enough devices, it launches the job. That can work in a small homogeneous cluster where jobs are loose and any GPU is close enough to any other GPU. It fails when a model depends on high-bandwidth local collectives, balanced scale-out rails, predictable power draw, or strict blast-radius separation.',
-        'The next naive version adds a few labels: node type, GPU model, and maybe rack ID. That is still too shallow. Tensor parallelism cares about the fastest local fabric. MoE all-to-all cares about bisection and rail balance. Prefill-heavy serving can create sharp power and thermal spikes. Decode-heavy serving can be latency-sensitive but less bandwidth-heavy. Batch embedding can fill background capacity without needing the same locality. One label cannot capture these different shapes.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'The core insight is to treat the rack as a graph plus a set of ledgers. The graph says what is connected, powered, cooled, colocated, isolated, allowed, or under maintenance. The ledgers say how much capacity, headroom, derate, risk, and observed stress each object currently carries. A placement decision is then a query over typed relationships rather than a guess based on node names.',
-        'The output must be explainable. A candidate should not only receive a score. It should show why it passed or failed: fabric fit, rail balance, PDU headroom, breaker margin, thermal headroom, CDU state, maintenance window, tenant policy, replica spread, and fallback reason. This turns scheduling into a shared contract between facilities, platform, networking, and model-serving teams.',
-      ],
-    },
-    {
-      heading: 'How the ledger works',
-      paragraphs: [
-        'Model the rack as typed nodes: GPU, host, tray, switch, NIC, port, PDU, breaker, power shelf, CDU, cooling loop, rack, row, site, tenant boundary, and maintenance window. Then add typed edges: connected-to, near, powered-by, cooled-by, shares-failure-domain-with, depends-on, allowed-for-tenant, under-maintenance, and observed-degraded. Each edge has a meaning that a placement rule can test.',
-        'The ledger stores live and planned state against those objects. Fabric state includes link health, expected bandwidth, oversubscription, rail membership, and route cost. Power state includes draw, cap, breaker margin, PDU feed, redundancy mode, and derate. Thermal state includes supply temperature, return temperature, coolant flow, CDU capacity, fan state, and local hot spots. Policy state includes tenant placement rules, maintenance freezes, reserved capacity, and incident overrides.',
-        'A placement request brings its own shape. It can ask for a tensor-parallel island, data-parallel replicas, expert-parallel exchange, inference prefill pool, decode pool, embedding batch pool, or mixed reservation. The scorer translates that shape into required edges. Tensor-parallel ranks need strong local GPU fabric. Data-parallel replicas need fault spread and scale-out bandwidth. Serving replicas need policy separation and enough thermal margin for bursts. The same rack can score high for one request and low for another.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The topology-ledger view is proving that the same physical object has several operational meanings. A GPU tray is not only compute. It is attached to fabric routes, fed by power paths, cooled by a loop, and grouped into failure domains. When the overlay changes from fabric to power to thermal to blast radius, the object does not move. The question changes. This is the central point: correct placement needs all overlays at once.',
-        'The placement-score view is proving that a score without reasons is not usable. A candidate that fails thermal headroom should look different from one that fails NIC locality. A spill caused by maintenance policy should look different from one caused by low PDU margin. Operators need the reason because the fix belongs to different teams. Networking can repair a rail. Facilities can inspect a CDU. Platform can change policy. Serving can choose a less demanding workload shape.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The ledger works because many rack incidents are constraint mismatches, not pure compute shortages. A scheduler can avoid bad placements when it knows that two groups share a PDU, that a switch tray is degraded, that a coolant loop is near derate, or that a maintenance window makes a high-priority reservation risky. The system can also choose a good fallback instead of merely saying no.',
-        'It also works because it gives each team a common language. Facilities telemetry is often measured in power, flow, and temperature. Network telemetry is measured in links, counters, drops, marks, and rail health. Model-serving telemetry is measured in latency, throughput, queue depth, and replica health. The ledger binds these facts to the same rack objects, so an incident can be traced from SLO failure to physical cause.',
-      ],
-    },
-    {
-      heading: 'Real uses',
-      paragraphs: [
-        'The first real use is admission control. Before launching a large training run, the platform checks that the requested rank groups fit the intended GPU fabric, that scale-out rails have capacity, that power draw will stay inside policy, and that cooling can absorb the expected load. The launch can fail before it creates a slow or unsafe job. That is better than discovering the problem after a long warmup or during a customer incident.',
-        'The second use is serving placement. A router can steer prefill-heavy requests away from a hot rack, keep decode replicas spread across power domains, and place background batch work where fabric locality is less valuable. The third use is maintenance. When a PDU, CDU, or switch tray enters maintenance, the ledger tells which reservations are affected and which workloads can safely remain. The fourth use is post-incident analysis: every placement and spill has a trace.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The ledger has real cost. It needs accurate inventory, fresh telemetry, stable object identity, and a clear ownership model. Bad data can be worse than missing data because it gives the scheduler false confidence. If power readings lag, thermal derates are hidden, or topology edges are stale after repair work, the scorer can choose placements that look safe on paper and fail in production.',
-        'There is also a control-plane tradeoff. A rich scorer can become hard to understand, especially if every team adds its own rule. Keep the model typed and inspectable. Separate hard constraints from soft preferences. Version policy changes. Store the evidence used for each decision. Accept that the best placement for a single job may not be best for fleet efficiency, and make that priority explicit.',
-      ],
-    },
-    {
-      heading: 'Failure modes and limits',
-      paragraphs: [
-        'The most dangerous failure mode is hiding shared fate. Replicas can appear spread across hosts while sharing one PDU, coolant loop, row event, or switch tray. Another failure is generic health. A node can be healthy while the route that matters to a collective is slow. A rack can be under power cap while one feed has too little margin. A cooling loop can be nominal while one zone is already hot enough to trigger derate under burst.',
-        'The ledger cannot solve every problem. It cannot create capacity that does not exist. It cannot make an unsafe thermal state safe through clever placement. It cannot fix a bad model of workload power draw. It can be bypassed by emergency overrides, and those overrides must be logged because they change the risk profile. The limit is not the graph abstraction; the limit is the quality and timeliness of the physical evidence.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Study NVLink and NVSwitch fabric, multi-node NVLink rack systems, liquid cooling loops, CDU behavior, power capping, rack redundancy, Kubernetes scheduling, topology-aware placement, SLO-aware request routing, and collective communication. Then connect this topic to the GPU Collective Topology Placement Planner, NCCL Algorithm Protocol Selector, RoCE PFC ECN DCQCN, Liquid Cooling Rack Thermal Loop, RDMA Queue Pair and Work Request, and LLM Inference Cost Stack. The useful mental model is simple: a GPU placement is a physical promise, not only a software allocation.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the topology-ledger view as several graphs over the same rack. The same GPU belongs to fabric, power, cooling, failure-domain, and tenant-policy graphs.',
+      'Active nodes show the constraint under test, compare nodes show another physical constraint, and found nodes show the score passed to placement. Free GPUs are usable only when the relevant edges also pass.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/69/Wikimedia_Foundation_Servers-8055_35.jpg', alt:'Server racks in a datacenter showing dense cabling and cooling infrastructure', caption:'Server racks in a datacenter. An AI rack is not just GPUs â€” it is a shared physical machine where fabric topology, power feeds, cooling loops, and failure domains all constrain what the scheduler can safely place. Source: Wikimedia Commons, Victor Grigas, CC BY-SA 3.0'},
+      {type:'callout', text:'Free GPU count is an unsafe placement proxy. A rack can have idle accelerators and still be wrong for a tensor-parallel group because the best NVLink path is degraded, wrong for a replica set because every replica would share one PDU, or wrong for bursty prefill because thermal headroom is already consumed. Placement needs physical constraints, not slot counts.'},
+      'AI racks are shared physical machines. A scheduler that sees only healthy GPU devices misses the fabric path, power feed, coolant loop, failure domain, maintenance state, and tenant boundary that decide whether placement is safe.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious scheduler asks for N free GPUs of the right type. If enough devices pass health checks, it launches the job.',
+      'That works for loose workloads on homogeneous hardware. It fails for tensor-parallel, expert-parallel, low-latency serving, and replica placement because those workloads depend on physical relationships.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is shared fate. Two replicas can run on different hosts but still share one PDU, one coolant loop, one switch tray, or one maintenance window.',
+      'A rack can have 16 idle GPUs and still be a bad target if the NVLink path is degraded, PDU headroom is 6 kW, or coolant return temperature is near derate. Slot count does not encode those limits.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Represent the rack as typed objects and typed edges. Objects include GPUs, trays, switches, NICs, PDUs, breakers, CDUs, cooling loops, racks, rows, tenants, and maintenance windows.',
+      'The invariant is reasoned placement. Every placement or spill should be explainable by fabric fit, rail balance, power headroom, thermal headroom, failure-domain spread, policy, or maintenance state.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'The ledger stores identity and live state for each physical object. Fabric rows track link health and route cost, power rows track draw and margin, thermal rows track temperature and flow, and policy rows track tenant and maintenance restrictions.',
+      'A job brings a workload shape. Tensor parallelism needs tight local fabric, data-parallel replicas need fault spread, prefill needs burst power, and decode needs clean low-latency capacity.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is constraint satisfaction. If every required edge is checked against current state, the scheduler does not place a workload on a resource that violates a declared physical requirement.',
+      'The ledger also improves diagnosis. A latency incident can be traced from serving replica to rack score, then to degraded fabric, hot cooling zone, low power margin, or policy override.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The cost is inventory truth. A stale topology edge, hidden derate, missing PDU mapping, or lagging temperature reading can make the scorer confidently wrong.',
+      'Cost behaves like control-plane complexity. A richer scorer prevents more bad placements, but every rule must be inspectable, versioned, and separated into hard constraints and soft preferences.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'The ledger fits GPU training clusters, dense inference racks, multi-tenant AI clouds, and maintenance planning. It is strongest when workload performance depends on collective communication or thermal stability.',
+      'It also helps incident response. If a CDU enters maintenance or a switch rail degrades, the ledger can identify affected reservations and move elastic work before customers see latency.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'It fails when generic health is treated as enough. A node can be healthy while the route needed by a collective is slow, or while one power feed has too little margin.',
+      'It also fails under unlogged emergency bypass. Overrides may be necessary, but they must be recorded because they change the placement risk and future incident explanation.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A decode pool requests 8 GPUs with p99 latency below 45 ms. Rack A has 8 free GPUs but a hot zone at 82 percent thermal limit and 4 kW PDU headroom; Rack B has 10 free GPUs, 18 kW headroom, and clean fabric.',
+      'The scorer holds Rack A and places on Rack B even if Rack A has better locality. If Rack B later drops from score 86 to 52 after a rail fault, batch work can remain while interactive decode moves away.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Study NVLink and NVSwitch, InfiniBand or Ethernet fabrics, rack power distribution, liquid cooling CDUs, thermal derating, Kubernetes topology-aware scheduling, and collective communication libraries. Use hardware and platform docs for current constraints.',
+      'Next study GPU collective topology placement, NCCL protocol selection, RoCE congestion control, liquid cooling rack thermal loops, SLO-aware routing, and inference cost stacks.',
+    ] },
   ],
 };

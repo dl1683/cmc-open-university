@@ -176,102 +176,57 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Prometheus is excellent at local scraping and short-term querying, but many organizations need long-term retention, global querying, multi-tenant storage, or vendor ingestion. Remote write is the bridge from local scrape truth to a remote metrics backend.',
-        'The local TSDB still exists. Remote write tails the WAL, queues samples by shard, batches them, retries failures, and posts compressed protobuf requests to configured endpoints. The data-structure lesson is a durable log feeding bounded network buffers.',
+        'Read the WAL-to-remote view as a local durable path feeding a network export path. Active nodes show samples moving through the pipeline, compare nodes show work not yet accepted remotely, and found nodes show durable or successfully sent state. WAL means write-ahead log: a local append-only record that remote write can reread after transient failures.',
+        'The backpressure view shows the key inference. If one shard queue fills, reading from the WAL can stop for all shards, which protects memory but grows lag. Lag is the distance between local scrape time and the newest sample accepted by the remote backend.',
         {type:'callout', text:'Remote write is a bounded export pipeline from a durable local WAL to an unreliable network sink, so lag is the signal that matters.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/38/Prometheus_software_logo.svg', alt:'Prometheus flame logo in an orange circle.', caption:'Prometheus software logo by Alexander Schwartz (ahus1), via Wikimedia Commons, Apache License 2.0.'},
       ],
     },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The naive design is to send every scraped sample directly to the remote backend as it arrives. That couples scraping to the network and makes a slow remote endpoint threaten local collection.',
-        'Another naive design is to buffer forever in memory. That protects scraping for a while, but it turns an outage into unbounded memory growth and eventually a worse failure.',
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'Metrics traffic is bursty, high-cardinality, and unforgiving. A remote endpoint can be alive but slower than the incoming sample rate. If the sender keeps accepting work without bounds, memory grows. If it drops too early, long-term data becomes untrustworthy.',
-        'The system needs durability, parallelism, batching, retries, and a hard backpressure boundary. It also needs operators to notice lag before the remote store silently falls behind reality.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Remote write treats the WAL as the durable source and shard queues as bounded export buffers. Scraping appends locally first. The remote-write path then reads from the WAL, fans samples into shard queues, sends batches, and retries failures.',
-        'That means remote write is not a replacement for local ingestion. It is a conveyor from a durable local log to an unreliable network sink. Lag is the distance between local ingestion and remote acceptance.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        'The WAL-to-remote view shows a durable local append path feeding a best-effort network export path. The sample is safe locally before the remote endpoint accepts it. Remote write is downstream of scrape ingestion, not in front of it.',
-        'The backpressure view shows the real control loop. Shards, batch size, retry backoff, and queue capacity decide whether lag shrinks, grows, or turns into dropped data. The important question is not whether a request is in flight; it is how far remote storage has fallen behind local time.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'A scrape appends samples to the local TSDB head and WAL. The remote-write loop reads WAL records, maps samples into shard queues, and lets each shard send batches independently. Prometheus can adjust shard count based on sample rate, pending samples, and send latency.',
-        'When the endpoint fails, shards retry with backoff. When a shard fills, Prometheus can stop reading more WAL data into all shards. That boundary limits memory growth, but it also means remote-write lag can grow while local scraping continues.',
-        'Relabeling and write configuration decide which samples enter this path. A team can drop noisy metrics, route to different backends, or tune `max_samples_per_send`, queue capacity, and shard limits. Those settings are not cosmetic; they define the sender\'s memory, throughput, and failure behavior.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A Prometheus server scrapes 200,000 samples per second and remote-writes to a long-term backend. During normal operation, shard workers send compressed batches quickly enough that the highest sent timestamp stays close to wall-clock time. Dashboards backed by the remote store look current.',
-        'Now the backend slows down. HTTP requests still succeed, but each one takes longer. Queues fill, retries increase, and lag grows from seconds to minutes. Local Prometheus can still answer recent queries because scraping continues, while the remote backend presents stale data. That split is the core operational lesson.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The WAL gives the exporter something durable to read after a transient failure. Shards give the sender parallelism. Batches amortize network overhead. Backoff prevents tight retry loops. Bounded queues prevent remote write from becoming an infinite memory buffer.',
-        'The design is deliberately imperfect in favor of survival. It accepts lag as the price of protecting local scraping and process memory during remote slowness.',
-        'This works only because the local and remote responsibilities are separate. The local TSDB can keep scraping and alerting on recent data while the export path catches up. The remote backend can scale ingestion and retention independently, but it has to expose enough feedback for the sender to distinguish healthy throughput from slow acceptance.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'More shards can improve throughput, but they also increase memory use and pressure on the remote backend. Larger per-shard capacity can absorb bursts, but it can hide lag and consume RAM. Bigger batches improve throughput, but they increase latency and retry cost.',
-        'Remote write also does not make high cardinality cheap. It moves those samples into another system that still has to ingest, store, index, compact, and query them.',
-        'Compression and batching make the network path efficient, but they also make failures chunkier. Retrying a larger batch resends more data and keeps more pending work tied to one request. The best setting depends on sample rate, endpoint latency, backend limits, and how much lag the organization can tolerate.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Remote write is useful when Prometheus should remain a local scraper while another system handles long-term retention, cross-cluster querying, tenant isolation, or centralized storage. Mimir, Thanos Receive, Cortex-style systems, and vendor backends all fit this pattern.',
-        'It is also a strong teaching example because the important structure is not exotic. It is a WAL, bounded queues, shard workers, batches, retries, and backpressure arranged so local ingestion is not held hostage by the network.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Remote write is not an infinite reliable message bus. If the remote endpoint remains unavailable longer than the local WAL retention window, unsent data can be lost when WAL segments are compacted.',
-        'Another trap is watching only request success. A sender can receive 200 responses while lag grows. The important signals are queue occupancy, retries, send duration, samples dropped, samples pending, highest sent timestamp, and backend ingestion errors.',
-        'It also fails as a substitute for telemetry design. If every request id, user id, pod UID, or raw path becomes a label, remote write only exports the cardinality problem faster. The sender and receiver both need metric hygiene, limits, and clear ownership of dropped or rejected samples.',
-        'Loss boundaries should be explicit. Teams need to know whether data was never scraped, scraped locally but not yet sent, sent but rejected, accepted remotely but not queryable, or compacted away before export. Those states lead to different fixes and different trust in historical dashboards.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A Prometheus server scrapes 500,000 samples per second and remote-writes to a shared backend. The backend stays up but responses slow down. Shard queues fill, the WAL reader blocks, highest-sent timestamp falls behind wall-clock time, and dashboards that query remote storage look stale even though local Prometheus is still scraping.',
-        'The fix is not just more shards. More shards add memory and endpoint pressure. A serious response looks at remote capacity, relabeling or dropping high-cardinality metrics, tenant separation, max_samples_per_send, queue capacity, retry behavior, and whether the backend can ingest native histograms or high-cardinality series efficiently.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Prometheus remote write tuning at https://prometheus.io/docs/practices/remote_write/ and Prometheus remote write specification at https://prometheus.io/docs/specs/prw/remote_write_spec/.',
-        'Study Prometheus TSDB Case Study for the local storage path, Metric Label Cardinality Control for volume reduction, Backpressure & Flow Control for bounded buffering, Write-Ahead Log for durable replay, Mimir Distributor/Ingester Hash Ring for remote backend ingestion, and OpenTelemetry Collector Case Study for an alternative telemetry pipeline.',
-      ],
-    },
+    { heading: 'Why this exists', paragraphs: [
+      'Prometheus is strong as a local scraper and short-term query engine. Many organizations also need long-term retention, centralized query, multi-tenant storage, or a vendor backend. Remote write exports locally scraped samples to that external system.',
+      'The design must preserve local scraping when the network or remote endpoint is slow. Remote write therefore tails the local WAL, queues samples, batches requests, retries failures, and surfaces lag. It is an export pipeline, not the ingestion source of truth.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to send each scraped sample directly to the remote backend. That couples scraping to remote availability. A slow endpoint can then threaten local collection and alerting.',
+      'Another obvious approach is to buffer everything in memory until the remote backend recovers. That protects data briefly but turns a long outage into unbounded RAM growth. A monitoring system should not crash because its remote storage is slow.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'Metrics traffic is bursty and often high-cardinality. A remote endpoint can return HTTP 200 while still accepting samples slower than Prometheus creates them. Success rate alone can look healthy while the remote store falls minutes behind.',
+      'The system needs bounded memory, durable replay, parallel sending, and visible lag. If the outage lasts longer than local WAL retention, unsent samples can be compacted away. At that point the remote store cannot recover the missing history from Prometheus.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Use the WAL as the durable source and shard queues as bounded network buffers. Local scrape ingestion appends samples first. The remote-write loop reads WAL records, assigns samples to shard queues, sends compressed batches, and retries with backoff.',
+      'The invariant is separation of responsibilities. Local Prometheus must keep scraping and alerting on recent data even when export is delayed. Remote write may lag, but it must not become an infinite memory buffer.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'A scrape appends samples to the TSDB head and WAL. The remote-write reader tails WAL records and distributes samples across shard queues, usually by series identity. Each shard builds a batch, encodes the remote-write request, compresses it, and posts it to the endpoint.',
+      'Queue settings define behavior. More shards increase parallelism, capacity absorbs bursts, max samples per send controls batch size, and backoff controls retry pace. Relabeling decides which samples enter the path at all.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The WAL lets the exporter recover from short remote failures without asking scrape targets to resend old samples. Shards give parallelism, batches reduce request overhead, and retries handle transient network or backend errors. Bounded queues stop memory from growing without limit.',
+      'The design is correct as an at-least-export attempt over a finite local history, not as permanent guaranteed delivery. If data remains in the WAL and the remote backend eventually accepts it, the sender can catch up. If the WAL segment ages out before sending, the export loss is final.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'More shards can shrink lag when the endpoint has capacity, but they also increase memory and request pressure. Larger capacity can absorb bursts, but it hides problems and uses RAM. Bigger batches improve throughput, but a failed request ties up more samples for retry.',
+      'Cardinality still dominates cost. Remote write moves every retained series into another system that must ingest, store, compact, index, and query it. Dropping noisy labels often beats tuning queues because it reduces work at every stage.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Remote write is used to send Prometheus samples to long-term systems such as Mimir, Cortex-style backends, Thanos Receive, and managed observability platforms. It lets Prometheus stay close to scrape targets while another system owns retention and global query.',
+      'It is also a useful general systems pattern. A durable local log feeds bounded shard queues, which feed an unreliable service. The same shape appears in telemetry collectors, CDC exporters, and many replication pipelines.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'Remote write is not an infinite message bus. If the remote endpoint is unavailable longer than the local WAL retention window, unsent samples can be lost. Operators need to know where that boundary is before treating remote storage as complete history.',
+      'It also fails when teams watch only request success. A backend can accept batches slowly while lag grows. The important signals are pending samples, queue occupancy, retries, send duration, dropped samples, highest sent timestamp, and remote ingestion errors.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A Prometheus server scrapes 200,000 samples per second. The remote backend normally accepts 220,000 samples per second, so shard queues stay shallow and highest sent timestamp stays near wall-clock time. During an incident, the backend accepts only 120,000 samples per second.',
+      'Lag now grows by about 80,000 samples per second, or 4.8 million samples per minute. More shards help only if the backend has unused capacity. If the bottleneck is backend ingestion, the real fixes are scaling the receiver, dropping high-cardinality metrics, splitting traffic, or accepting a known loss window.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Prometheus remote write tuning at https://prometheus.io/docs/practices/remote_write/ and the Prometheus remote write specification at https://prometheus.io/docs/specs/prw/remote_write_spec/. Check current docs before changing production settings because queue behavior and protocol support can change across releases.',
+      'Study Prometheus TSDB, write-ahead logs, backpressure and flow control, metric label cardinality, Mimir distributor and ingester design, OpenTelemetry Collector pipelines, and native histogram support in remote write before operating this path at scale.',
+    ] },
   ],
 };

@@ -180,100 +180,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'NVMe exists because a modern SSD is not a slow peripheral that should be fed one request at a time. It is a parallel storage controller connected over PCIe, with many flash channels, internal schedulers, DMA engines, and enough media parallelism to keep dozens or hundreds of operations in flight. If the host sends one read, waits for it, then sends the next read, most of that device capacity sits idle.',
-        'The operating system also has a multicore problem. Many application threads can issue I/O at once, and a single global request queue would force them through one lock-heavy choke point. NVMe turns the host-device boundary into paired rings in host memory. The host posts submission queue entries, notifies the controller with a doorbell register, then later consumes completion queue entries that report status and command identity.',
+        'Read the queue-pair view as an ownership trace. The host writes submission queue entries, the controller reads them, the controller writes completion queue entries, and the host reads those completions. Active means the current side owns the slot and is allowed to update it. Visited means the slot has already crossed an ownership boundary.',
+        {type:'callout', text:'NVMe makes storage concurrency explicit by splitting host-produced command rings from controller-produced completion rings.'},
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/75/Samsung_980_PRO_PCIe_4.0_NVMe_SSD_1TB-top_PNr%C2%B00915.jpg', alt:'Top view of an M.2 NVMe solid-state drive.', caption:'Samsung 980 PRO M.2 NVMe SSD photo by D-Kuru/Wikimedia Commons, CC BY-SA 4.0.'},
+        'In the doorbell view, a doorbell is a memory-mapped register write that publishes a new queue head or tail to the device. A safe inference rule is this: a command is not visible to the controller until the entry is written and the submission tail doorbell is advanced.',
       ],
     },
     {
-      heading: 'Naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The simplest storage interface looks like a function call: submit a command to the disk, block until the answer comes back, return bytes or an error. That model is easy to reason about because request order, completion order, and caller state are almost the same thing. It also matches older mental models from spinning disks, where one mechanical head made a single ordered path feel natural.',
-        'A slightly better version uses one shared software queue and lets the driver issue multiple commands. That improves throughput, but it still makes every CPU contend for one dispatch point. It also hides an important distinction: the queue used by the operating system is not the same as the queue the hardware controller can fetch directly by DMA.',
-        {type:'callout', text:'NVMe makes storage concurrency explicit by splitting host-produced command rings from controller-produced completion rings.'},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/75/Samsung_980_PRO_PCIe_4.0_NVMe_SSD_1TB-top_PNr%C2%B00915.jpg', alt:'Top view of an M.2 NVMe solid-state drive.', caption:'Samsung 980 PRO M.2 NVMe SSD photo by D-Kuru/Wikimedia Commons, CC BY-SA 4.0.'},
+        'NVMe exists because solid-state drives can run many operations in parallel. A blocking disk call that sends one command and waits wastes flash channels, controller queues, DMA engines, and CPU cores. The device needs enough outstanding work to hide media latency.',
+        'The operating system also needs multicore submission. If every thread contends for one global lock before issuing I/O, the host becomes the bottleneck. NVMe exposes many queue pairs so CPUs and controllers coordinate through bounded rings in host memory.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious storage API is a function call: read this block, wait, and return bytes or an error. That model is easy to teach because request order and completion order look identical. It also matched older disk intuition where one mechanical path dominated service time.',
+        'A better first improvement is one shared asynchronous queue. The host can submit several requests before waiting. That helps throughput, but it still mixes CPU contention, command identity, completion ordering, and hardware publication into one crowded abstraction.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is queue depth and ownership. Queue depth 1 gives great simplicity but poor device utilization. A single shared queue gives some parallelism but causes CPU contention and makes NUMA locality worse. A storage stack also cannot assume completions arrive in the same order as submissions, because the controller may finish a cache hit, a short read, or a command from a less busy NAND path first.',
-        'The host therefore needs more than a list of pending requests. It needs bounded slots that can be reused safely, an identity for each command, a way to distinguish old entries from new entries after ring wrap, and a notification protocol that tells hardware when new work is ready without forcing a syscall-like handshake for every byte of metadata.',
+        'The wall is queue depth and completion order. Queue depth one underuses a fast SSD. A deep shared queue can keep the device busy but force CPUs through one hot point and make it unsafe to assume completions return in submission order.',
+        'A controller may finish command 18 before command 17 because their NAND paths, cache hits, or internal scheduling choices differ. The host needs command IDs, phase bits, and reusable slots. Without those pieces, ring wrap and out-of-order completion become data-corruption risks.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Use host-memory producer/consumer rings as the hardware contract. A submission queue is a ring of fixed-size command descriptors written by the host and read by the controller. A completion queue is a ring of fixed-size status descriptors written by the controller and read by the host. The pair separates the direction of ownership: host produces commands, controller produces completions.',
-        'The important data-structure ideas are command IDs, phase tags, and doorbells. A command ID maps a completion back to the software request state. A phase tag tells the host whether a completion slot belongs to the current pass through the ring or is stale data from the previous pass. A doorbell is an MMIO register update that publishes a new queue head or tail to the other side.',
+        'The core insight is to split the contract by direction of production. A submission queue is produced by the host and consumed by the controller. A completion queue is produced by the controller and consumed by the host. Each ring slot has one valid owner at a time.',
+        'Command IDs connect completions back to software requests. Phase bits distinguish a newly written completion from old bytes left in the same slot after wraparound. Doorbells publish index movement without turning every command into a synchronous handshake.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'A read begins in application code but quickly becomes a block-layer request. The driver allocates a tag or command identifier, maps the data buffer for DMA, fills an SQE with opcode, namespace, logical block address, transfer length, command ID, and physical or I/O virtual addresses, then writes that SQE into the next free submission queue slot.',
-        'After the SQE is visible in memory, the driver advances the submission tail doorbell. The controller observes the new tail, fetches SQEs from host memory, executes commands, and writes CQEs into the completion queue. Each CQE includes status, command ID, queue metadata, and a phase bit. The host can learn about CQEs by interrupt, by polling, or by hybrid schemes that poll briefly before sleeping.',
-        'Once the host consumes a valid CQE, it checks the command ID, completes the original request, releases any DMA mapping, frees the software tag, and advances the completion queue head doorbell. That final doorbell matters: it tells the controller which completion slots are free for reuse.',
+        'The driver allocates a request tag, maps the data buffer for DMA, and fills a submission queue entry with opcode, namespace, logical block address, length, command ID, and buffer pointers. DMA means the device can read or write host memory directly through addresses the I/O memory manager permits.',
+        'After the entry is visible in memory, the driver writes the submission tail doorbell. The controller fetches entries, executes them, and writes completion queue entries with status and command ID. The host sees completions by interrupt, polling, or a hybrid loop.',
+        'When the host accepts a completion, it uses the command ID to find the original request, completes the software operation, releases the DMA mapping, and advances the completion head doorbell. That last publication tells the controller which completion slots can be reused.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design works because each queue slot has a clear owner at each moment. The host owns free SQ slots until it publishes the tail. The controller owns submitted SQEs after it has seen that tail. The controller owns free CQ slots until it writes a completion. The host owns completed CQ slots until it advances the CQ head.',
-        'This ownership protocol avoids a lock across the PCIe boundary. The host and controller coordinate through memory, queue indices, phase bits, and doorbells. The ring gives O(1) insertion and consumption. The command ID gives O(1) lookup into request state. The phase bit turns a reused memory slot into a safe cyclic buffer rather than a guessing game.',
+        'The correctness argument is the queue ownership invariant. The host may write a submission slot only while that slot is free. The controller may execute it only after the tail is published. The host may consume a completion only when the phase bit says the controller wrote it for the current ring pass.',
+        'This invariant separates concurrency from identity. Commands may complete out of order, but command IDs map each completion to the right request. Slots may wrap, but phase bits prevent old memory from being accepted as new work.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Suppose a process reads block 9000 into a page cache buffer. The block layer gives the request tag 17. The NVMe driver writes an SQE at submission slot 5 with command ID 17, a read opcode, namespace 1, LBA 9000, a length, and a PRP or scatter-gather pointer to the DMA-visible buffer. The driver then rings the submission tail doorbell with value 6.',
-        'The controller later writes a CQE into completion slot 12 with command ID 17, success status, and the current phase bit. The host interrupt handler or polling loop sees the phase bit matches the expected phase for slot 12. It indexes request tag 17, marks the page cache buffer valid, wakes the waiting task, frees tag 17, and advances the completion head doorbell. Notice that slot 5 and slot 12 did not need to match; command ID 17 carried the identity.',
-        'Now imagine the queue wraps. Completion slot 12 already contains old bytes from a previous round. The phase bit prevents the host from treating that old memory as a new completion. Only when the controller writes the slot with the expected phase does the host accept it.',
+        'Enqueue and completion handling are O(1) per command because each operation writes or reads one ring slot and updates an index. The real cost is in constants: MMIO doorbell writes, memory barriers, DMA mapping, interrupts, polling time, and cache locality. Doubling the number of commands doubles queue traffic, but not the search cost per command.',
+        'Queue depth behaves like a latency-throughput knob. With depth 1 and 80 microsecond service time, one queue can finish at most about 12,500 operations per second. With enough independent depth to keep 64 operations in flight, the device can expose much more internal parallelism, but individual requests may wait longer in line.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The "queue pair" view emphasizes the split between request construction and device completion. Follow the command from app to block layer to SQE, then across the doorbell boundary into controller execution, and back through CQE, interrupt or polling, and request completion. The important transition is not a function return. It is a change in queue ownership.',
-        'The "doorbell lifecycle" view emphasizes publication. Writing an SQE prepares work, but ringing the submission doorbell publishes it. Reading a CQE observes completion, but ringing the completion head doorbell releases the slot. The throughput curve shows why queue depth matters: enough depth hides device latency and exposes parallelism, while excessive depth can turn a fast device into a long waiting room.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'The asymptotic cost of enqueueing and reaping is O(1), but storage performance is dominated by constants and batching choices. MMIO doorbell writes are more expensive than normal memory stores and may require ordering barriers. DMA mapping has setup cost and lifetime rules. Interrupts reduce CPU burn but add latency. Polling can reduce tail latency but spends CPU even when no completion is ready.',
-        'Queue depth is both a capacity knob and a latency risk. More depth lets the controller reorder and parallelize work, but it can also increase waiting time for each individual request. Deep queues are good for bulk throughput. Shallow or carefully managed queues are better for latency-sensitive work, fairness, and fast cancellation.',
-        'There is also memory and isolation cost. Each queue consumes host memory, controller resources, tags, and interrupt vectors. Multiple queues can reduce contention, but too many queues can waste scarce hardware state or make load balancing harder.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'NVMe queue pairs win on fast SSDs, high core counts, and software stacks that can keep many independent operations in flight. They fit Linux blk-mq hardware queues, user-space poll-mode drivers such as SPDK, database storage engines that batch asynchronous reads, and io_uring workloads that submit many operations before waiting.',
-        'They also make the storage system modular. A higher layer can reason about request batching, tags, priorities, and completion handling without pretending the SSD is a blocking function. The same queue vocabulary appears in other high-performance devices too: network cards, RDMA adapters, and GPUs all rely on bounded host-device work queues with explicit completion paths.',
+        'NVMe queue pairs fit operating-system block layers, databases, filesystems, and user-space storage stacks that issue many independent I/O operations. Linux blk-mq maps software work onto hardware queues. SPDK uses polling and user-space drivers to reduce kernel and interrupt overhead for low-latency storage.',
+        'The same pattern appears in network cards, RDMA adapters, and GPUs. A host writes work descriptors into a ring, rings a doorbell, and later consumes completions. The reusable idea is device coordination through bounded producer-consumer queues.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'NVMe queues do not solve ordering semantics for the caller. Filesystems still need flushes, barriers, journaling, and careful write ordering. Databases still need WAL discipline. Applications still need to know whether they require durable completion or merely device acceptance. A fast completion path can make consistency bugs happen faster.',
-        'The model also fails when buffer ownership is wrong. The controller reads and writes host memory by DMA, so the pointed-to buffers must remain valid until completion. Bugs in DMA mapping, IOMMU address lifetime, cache synchronization, command cancellation, or request reuse can corrupt data even if the ring indices are correct.',
-        'Another failure mode is interrupt and polling misconfiguration. Too many interrupts can dominate CPU time. Too much polling can waste cores. Poor queue-to-CPU affinity can bounce completions across cores and erase the benefit of multiple queues.',
+        'NVMe queues do not solve durability or application ordering. Filesystems still need journaling, barriers, flushes, and writeback discipline. Databases still need a write-ahead log and must know whether a completion means accepted by the controller or durable on media.',
+        'The model also fails when buffer ownership is wrong. If the host frees or reuses a DMA buffer before completion, the controller can write into memory now owned by another object. Bad queue affinity, interrupt storms, excessive polling, or stale phase handling can erase the benefit of the queue design.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Common implementation bugs are off-by-one queue-full checks, ringing the doorbell before the SQE is fully visible, forgetting to update the completion head, accepting a CQE with the wrong phase, reusing a command ID before the old request is complete, or freeing a DMA buffer while the controller can still write into it.',
-        'Operational failures include saturated queue depth, thermal throttling inside the SSD, slow media hiding behind large queues, controller reset, lost interrupts, unhealthy NAND causing long-tail completions, and firmware behavior that changes under mixed read/write pressure. A useful monitor separates host queueing delay, controller service time, retry counts, reset counts, and completion latency percentiles.',
+        'Suppose a process reads logical block address 9000 into a 16 KB page-cache buffer. The driver assigns command ID 17 and writes a submission entry at slot 5. It then rings the submission tail doorbell with value 6, so the controller knows slot 5 is ready.',
+        'The controller later writes a completion at slot 12 with command ID 17 and success status. The host checks that the phase bit matches the current pass, looks up request 17, marks the 16 KB buffer valid, wakes the waiting task, and advances the completion head. Slot 5 and slot 12 do not need to match because command ID 17 carries identity.',
+        'If the ring has 64 slots, slot 12 will be reused after wraparound. Old bytes may still be present before the controller writes a new completion. The phase bit is the one-bit proof that the memory belongs to the current round.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary references for deeper study are the NVM Express specifications page at https://nvmexpress.org/specifications/, the SPDK NVMe overview at https://spdk.io/doc/nvme.html, and operating-system material on Linux blk-mq, interrupt moderation, DMA mapping, and poll-mode I/O. Treat the specification as the authority for field layout and ordering rules, and treat kernel or SPDK code as examples of how the contract is implemented.',
-        'Inside this curriculum, study Ring Buffer for wrap mechanics, Queue for producer/consumer basics, io_uring Submission and Completion Rings for user/kernel queueing, Linux blk-mq Tag and Hardware Queue for dispatch, DMA/IOMMU IOVA Mapping for device-visible memory, Readahead and Dirty Writeback for demand shaping, and Filesystem Extent Tree and Delayed Allocation for filesystem-level planning.',
+        'Start with the NVM Express specifications at https://nvmexpress.org/specifications/ and the SPDK NVMe documentation at https://spdk.io/doc/nvme.html. Use the specification for field layout and ordering rules, then use kernel or SPDK code to see how drivers implement the contract.',
+        'Next, study ring buffers, producer-consumer queues, DMA and IOMMU address mapping, Linux blk-mq tags, interrupts, polling, io_uring, and write-ahead logging. The reusable lesson is that hardware concurrency needs explicit ownership transfer, not just a larger list of requests.',
       ],
     },
   ],

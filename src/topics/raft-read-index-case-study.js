@@ -173,94 +173,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A replicated state machine has many copies of the same logical data. Reads are tempting because they do not change the log, but a local copy can be stale. A linearizable read must behave as if it happened at one instant after every write that completed before it began.',
-        'ReadIndex is the Raft pattern for serving that kind of read without appending a log entry for every request. It gives the application a log boundary and says: answer locally only after leadership has been confirmed and local apply has reached this boundary.',
+        'Read the animation as a safety chain for a replicated state machine. A replicated state machine is several servers applying the same ordered log so they end with the same state. Active nodes are the client, leader, quorum, read index, apply loop, and local state as the read moves through them.',
+        'The safe inference rule is simple: a node may answer locally only after it has proved current leadership and applied through the read index. The stale leader view shows the opposite case. If the leader cannot hear from a majority, the read stops even if the local key-value map is still reachable.',
         {type:'callout', text:'ReadIndex avoids writing every read by first proving current leadership, then waiting until local state reaches the proven log boundary.'},
       ],
     },
     {
-      heading: 'The naive choices are both costly',
+      heading: 'Why this exists',
       paragraphs: [
-        'The simplest safe read is to write the read through the Raft log, or append a no-op first and then read after it applies. That creates a clear position in the replicated history, but read-heavy workloads start paying write-path disk, replication, and commit costs for operations that only wanted data.',
-        'The simplest fast read is to trust the leader local state machine. That is unsafe after partitions and leadership changes. An old leader can still have memory, sockets, and clients while a majority has elected a new leader and committed newer writes elsewhere.',
+        'Raft is a consensus algorithm: it keeps several machines in one agreed log order despite failures. A write already has a log entry, so later reads must see it if the read starts after the write completes. A local read from one server is fast, but it can be stale after a partition or leadership change.',
+        'ReadIndex exists for read-heavy systems that still need linearizability. Linearizability means each operation behaves as if it took effect at one instant between call and response. ReadIndex gives the read a safe position in the committed log without appending a new log entry for the read itself.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A linearizable read needs a point in the log timeline. It does not always need its own log entry. ReadIndex obtains a safe read boundary, then waits until the local state machine has applied through that boundary.',
-        'Two guards make the boundary meaningful. The leader must confirm with a quorum that it is still current, and the application must wait until applied index >= read index. The quorum guard prevents stale leaders. The apply guard prevents reading a state machine that is behind the committed log.',
+        'The obvious safe approach is to put every read through the Raft log. The leader appends a read marker or no-op entry, replicates it to a majority, commits it, applies it, and then reads local state. That is easy to reason about because the read has an exact place in the history.',
+        'The obvious fast approach is to trust the leader and read its state machine immediately. That often works in a quiet cluster. It is also the path a developer reaches for when the data is already in memory and the request does not change anything.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'In the read index path, follow the arrows as a safety chain rather than a request pipeline. The client asks the leader. The leader reaches a quorum. The read index marks the commit boundary. The apply node waits until local state catches up. Only then does the key-value state answer.',
-        'In the stale leader guard view, focus on the missing quorum. A partitioned old leader may still accept a client request, but the highlighted follower acknowledgements are the proof it needs and cannot fake. Without that proof, the local read must stop.',
-        'The commit index and applied index are intentionally separate in the picture. Commit means Raft has agreed on the log entry. Applied means the application state machine has actually incorporated it. A read from local state only sees applied work.',
+        'Writing every read turns a read-heavy workload into a write-heavy workload. With 20,000 reads per second, the cluster now asks the disk, network, and commit path to process 20,000 extra log entries per second. The read did not change state, but it paid most of the write cost.',
+        'Trusting local leader state breaks under split brain timing. An old leader can keep serving clients while a majority has elected a new leader and committed newer writes. The local state machine may be internally consistent and still be too old for a linearizable answer.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'The core insight',
       paragraphs: [
-        'A leader receives a linearizable read request and starts a ReadIndex request. In the safe mode used by etcd raft, the leader communicates with a quorum, often through heartbeat-style messages, to confirm that no newer leader has displaced it.',
-        'After that confirmation, the leader returns or records a read state containing a read index. The application queues the client read behind that index. When its applied index advances far enough, it evaluates the read on local state and sends the response.',
-        'Real implementations batch this path. Several reads can share a leadership confirmation and then wait for the same or nearby apply boundary. Batching reduces traffic without changing the rule that every served read must be behind a confirmed read index.',
+        'A linearizable read needs a proven position in the log; it does not always need its own log entry. ReadIndex asks the leader to prove it is still current with a quorum and then records the current committed index as the read boundary. The application waits until the local applied index reaches that boundary.',
+        'Two counters matter. The commit index is the highest log entry Raft knows is committed by a majority. The applied index is the highest committed entry the local application state machine has actually executed. ReadIndex is safe only when leadership is current and applied index is at least the read index.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'How it works',
       paragraphs: [
-        'Suppose a write to key /config commits at log index 120. A client then asks for a linearizable read. The leader confirms current leadership with a quorum and gives the read index 120 or later.',
-        'If the local state machine has applied only through index 118, it cannot answer yet. The log is committed, but the key-value map in memory has not incorporated the last two entries. Once apply reaches 120, the read can return from local state without appending a new read entry.',
-        'If the same node has been partitioned away from the majority, the process stops earlier. It cannot complete the quorum check in its current term, so it cannot prove that its local state is fresh enough for a linearizable response.',
+        'A client sends a linearizable read to the leader. The leader runs a read-only protocol that confirms with a quorum that this leader has not been displaced. In common safe-mode implementations, this confirmation is carried by heartbeat-style messages and acknowledgements.',
+        'After the quorum check, the leader returns a read state containing a read index. The application queues the read until its apply loop reaches that index. When applied index catches up, the server reads local state and responds without appending a read entry.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Raft commits entries only through a quorum. A leader that can still communicate with a quorum in the relevant term has evidence that no different leader has already taken over with a newer committed history. That is the leadership side of the proof.',
-        'The read index gives the read a place in the committed log order. Waiting for applied index >= read index guarantees that every earlier committed write is visible in the local state machine before the read runs.',
-        'Production implementations also need the normal Raft startup guard: a leader must establish authority for its current term, commonly by committing an entry in that term, before relying on its commit index for read-only requests. ReadIndex is a read optimization, not a shortcut around Raft term safety.',
+        'Raft commits entries through majorities, and two majorities must overlap. If the leader can contact a majority in the relevant term, that proof blocks the stale-leader case where a different leader has already taken control with a separate committed future. This is the leadership side of the correctness argument.',
+        'The apply wait supplies the state-machine side. Every write that committed at or before the read index has been executed locally before the read runs. The read therefore observes all earlier completed writes that Raft has placed before that boundary.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'ReadIndex removes the disk and log-entry cost of appending every read, but it is not a free local read. In the safe mode, it still waits on quorum communication unless leadership freshness has already been established by the implementation path.',
-        'Read latency has two main pieces: quorum wait and apply wait. Quorum wait grows with network delay and slow majority members. Apply wait grows when the state machine falls behind commit, often because snapshots, large writes, compaction, or application work are blocking the apply loop.',
-        'Serializable member-local reads are cheaper and more available, but they may be stale. Lease reads can be faster than ReadIndex, but they rely on timing assumptions such as bounded clock drift and pauses. ReadIndex pays more coordination to avoid those timing assumptions.',
+        'ReadIndex removes the log append, disk write, and replicated read entry. It still pays for quorum communication and for waiting behind the apply loop. If a round trip to the majority is 2 ms and the state machine is 3 entries behind at 1,000 applied entries per second, the apply wait adds about 3 ms.',
+        'When read volume doubles, the cost depends on batching. If 100 reads share one quorum confirmation, network cost grows slowly while queue management grows with the number of waiting reads. If every read forces its own quorum check, read latency and majority traffic grow with request rate.',
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Real-world uses',
       paragraphs: [
-        'ReadIndex fits control planes, metadata stores, configuration systems, and coordination services where clients need fresh reads but the workload is read-heavy. etcd is the standard example: range requests are linearizable by default, while serializable reads trade freshness for lower latency and higher availability.',
-        'A Kubernetes API server reading from etcd may need current state before making an update, scheduling, or leadership decision. ReadIndex lets the serving member avoid appending a read entry while still proving that local state includes the committed writes that matter.',
+        'ReadIndex fits metadata systems where reads are common and stale answers are dangerous. etcd uses this pattern for linearizable reads, which matters because Kubernetes and other control planes make decisions from stored cluster state. Configuration stores, lock services, and leader-election systems have the same access pattern.',
+        'The fit is strongest when most reads can be answered from local state after a small coordination step. If the system has a healthy leader and a fast apply loop, ReadIndex saves repeated log writes while preserving the same read freshness contract clients expect from consensus.',
       ],
     },
     {
-      heading: 'Where it is not the right tool',
+      heading: 'Where it fails',
       paragraphs: [
-        'If the application accepts stale reads, a serializable or follower-local read can be cheaper. If the cluster cannot reach quorum, ReadIndex correctly refuses to provide linearizable reads, so it does not improve availability during a majority failure.',
-        'If the state machine apply loop is the bottleneck, ReadIndex will expose that bottleneck rather than hide it. The read can be safe and still slow because safety requires applied state, not merely committed log entries.',
+        'ReadIndex does not improve availability when no majority is reachable. It correctly refuses to serve a linearizable read, because no server can prove it is still the current leader. A follower-local or serializable read may answer during that time, but it may be stale.',
+        'It also fails as an optimization when the apply loop is the real bottleneck. A server can know the committed index and still wait because the application has not applied those entries. Confusing committed with applied is the bug that makes a safe-looking read stale.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'The dangerous bug is treating committed index and applied index as the same thing. A system can replicate an entry and still serve stale local state if the application has not applied it.',
-        'Another failure mode is lost or unretired read requests. The etcd raft API notes that a ReadIndex request can be lost, so callers must handle retry and correlation with the request context. A read waiting forever behind a missing read state is an availability bug, not a Raft proof.',
-        'Lease-based variants fail differently: unbounded clock drift, long pauses, or bad CheckQuorum handling can let a leader believe a lease is valid for too long. That is why lease reads need a separate safety discussion.',
+        'Suppose key x is updated to 7 at log index 120, and the write commits on three of five nodes. A client then sends a read for x to the leader. The leader confirms with a majority and records read index 120.',
+        'If the local applied index is 118, the server cannot answer yet. At 500 applied entries per second, entries 119 and 120 take about 4 ms to apply. Once applied index reaches 120, the local map must include x = 7, so the read can return without writing a new log entry.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study Raft Log Replication for the commit rule, Raft Election for term and leadership safety, Raft Leader Lease Read Safety for the timing-based alternative, Write-Ahead Log for durability boundaries, and etcd Raft Case Study for the production API shape.',
-        'Sources: the Raft paper at https://raft.github.io/raft.pdf, etcd raft ReadIndex and ReadOnlyOption documentation at https://pkg.go.dev/go.etcd.io/etcd/raft/v3, and etcd API/performance notes on linearizable versus serializable reads at https://etcd.io/docs/v3.7/learning/api/ and https://etcd.io/docs/v3.5/op-guide/performance/.',
+        'Primary sources: the Raft paper at https://raft.github.io/raft.pdf and the etcd raft ReadIndex documentation at https://pkg.go.dev/go.etcd.io/etcd/raft/v3. The etcd API docs explain the product distinction between linearizable and serializable reads at https://etcd.io/docs/v3.7/learning/api/.',
+        'Study Raft log replication next for the commit rule, then Raft elections for term safety. After that, compare ReadIndex with leader leases, write-ahead logs, and state-machine apply loops so the boundary between consensus and application state is clear.',
       ],
     },
   ],

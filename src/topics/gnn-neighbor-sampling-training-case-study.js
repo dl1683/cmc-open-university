@@ -220,78 +220,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Neighbor sampling is the training trick that makes Graph Neural Networks practical on graphs too large for full-batch message passing. Instead of updating every node over every edge in one step, the loader chooses seed nodes, samples bounded neighborhoods, gathers features, and trains on the resulting computation graph. This turns a graph-scale problem into a sequence of subgraph mini-batches.',
-        'GraphSAGE introduced the core inductive idea: learn an aggregation function that samples and aggregates local neighborhoods so embeddings can be generated for unseen nodes: https://arxiv.org/abs/1706.02216. That idea connects Graph Neural Networks to ordinary mini-batch training while preserving graph structure.',
+        'Read the animation as a mini-batch being built from a graph. A graph neural network, or GNN, updates node representations by aggregating neighbor information, and neighbor sampling chooses a bounded subset of neighbors for training. Active nodes are being expanded, visited nodes are already in the sampled computation graph, and found seed nodes contribute loss.',
+        'The safe inference rule is dependency depth. A two-layer GNN prediction for a seed node needs sampled one-hop neighbors and sampled two-hop sources, but it does not need the entire graph in every batch.',
         {type:'callout', text:'Neighbor sampling makes the loader part of the model by bounding each batch while preserving the dependency cone that message passing needs.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/98/Network-graph.png', alt:'Colorful graph visualization with clustered nodes and edges.', caption:'Network graph visualization by Savionasc, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'The obvious approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious way to train a GNN is full-batch message passing: load the graph, aggregate every node from every neighbor, compute loss, and update weights. That is clean on citation-network toy datasets, but it collapses on production graphs with millions or billions of nodes and edges.',
-        'A second tempting approach is to sample ordinary nodes like tabular rows and ignore the rest of the graph. That breaks the model, because a seed node prediction depends on neighbors and neighbors-of-neighbors across the number of GNN layers. Neighbor sampling keeps the dependency cone while bounding it.',
+        'GNNs are useful because a node often depends on its neighborhood. A fraud account, product, paper, molecule atom, or social profile can be better understood by aggregating nearby attributes and edges.',
+        'Full-batch training does not fit large graphs. A production graph can have millions or billions of nodes and edges, while one GPU batch needs bounded memory and predictable feature reads.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core insight is that a k-layer message-passing model only needs a k-hop computation graph for the seed nodes in the current batch. If each layer samples a bounded fanout, memory scales with batch size and fanout rather than the whole graph. The sampled batch is a real graph: remapped node IDs, edge lists or CSR slices, feature rows, labels, and masks.',
-        'This makes the data loader part of the learning algorithm. Different sampling policies change which messages the model sees, how noisy gradients are, and whether high-degree or rare neighborhoods are represented. GraphSAGE, PinSage, Cluster-GCN, and modern PyG loaders are not interchangeable wrappers; they encode different assumptions about graph locality and training distribution.',
+        'The obvious approach is full-neighbor message passing. Load the graph, aggregate from every neighbor for every layer, compute loss, and update the model.',
+        'That approach is clean on small citation graphs. It also matches the mathematical layer definition, so it is the right starting point for understanding correctness before scaling.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is neighborhood explosion. If each node has 100 neighbors, then a two-layer full-neighbor expansion for one seed can reach about 10,000 second-hop nodes before overlaps.',
+        'A second wall is data movement. The model may spend less time on matrix multiplication than on sampling adjacency, fetching feature rows, remapping node ids, and transferring tensors to the GPU.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A k-layer GNN only needs a k-hop computation graph for the current seed batch. If the loader samples a fixed fanout per layer, batch size is controlled by seed count and fanout instead of whole-graph degree.',
+        'The loader becomes part of the algorithm. Different sampling policies change training distribution, gradient noise, representation quality, feature-cache behavior, and the meaning of validation metrics.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For a two-layer GNN, one seed prediction depends on sampled one-hop neighbors and sampled two-hop neighbors. If fanout is 10 and 10, each seed pulls at most about 100 second-hop sources before overlaps. A full-neighbor batch has no such bound: one high-degree node can explode memory. The sampled subgraph contains local node ids, edge indices or CSR slices, feature tensors, labels, and masks that say which seed nodes contribute loss.',
-        'PinSage applies graph convolutions at web scale for recommendations by combining random walks with graph convolution and a training strategy for hard examples: https://arxiv.org/abs/1806.01973. Cluster-GCN takes another path: cluster the graph, then sample dense graph blocks so training keeps locality and reduces memory: https://arxiv.org/abs/1905.07953.',
-        'The loader usually samples backward from the seed nodes. For layer two it samples source nodes needed to compute layer-one embeddings for layer-one neighbors. For layer one it samples the immediate messages needed for the seed predictions. That reverse construction is why a mini-batch contains nodes that do not themselves contribute loss; they are context for the seeds.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The fanout-explosion view is proving why naive expansion fails. Every additional GNN layer expands the dependency cone. On high-degree graphs, a small seed batch can pull in a huge fraction of the graph if every neighbor is included. Fixed fanout makes the computation graph predictable enough for GPU training.',
-        'The sampling-loader view shows the systems boundary. The model receives a compact subgraph, but the loader had to read adjacency, sample neighbors, gather feature rows, remap IDs, and preserve labels. The statistical tradeoff is inseparable from the IO path: a cheap sampler can become the bottleneck if feature gathering is slow or biased.',
+        'Choose a seed batch of target nodes. For the last GNN layer, sample a bounded number of one-hop neighbors needed to compute seed embeddings.',
+        'For earlier layers, sample neighbors of those sampled neighbors, continuing backward until the computation graph covers the required depth. The loader gathers features, remaps global node ids to batch-local ids, builds edge indices or compressed sparse row slices, and marks which seeds contribute loss.',
+        'Training then runs message passing on the sampled subgraph. Over many batches, different sampled neighborhoods expose the model to enough local evidence to learn useful aggregation weights.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Neighbor sampling works when local neighborhoods contain enough signal that a sampled subset can estimate the full aggregation. In social, recommendation, citation, and knowledge graphs, nearby nodes often carry useful labels, attributes, or behavioral similarity. The model does not need every edge on every step if the sampled messages point in roughly the right direction over many batches.',
-        'Cluster-based methods work for a related reason. If communities have dense internal edges, a sampled cluster preserves locality better than independent neighbor draws. Random-walk methods such as PinSage bias toward important neighbors for recommendations. The best sampler depends on the graph, not on a universal rule.',
+        'The computation graph is correct for the sampled estimator because every message used by the batch has its required source features and edges. The model is not pretending the sampled graph is the whole graph; it is training on a bounded estimate of the full aggregation.',
+        'The method works when sampled neighbors preserve enough signal over repeated batches. If important neighbors have a nonzero chance of being sampled and gradients are averaged across many seeds, the model can learn from local structure without materializing the whole graph each step.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is shaped by seed batch size, fanout per layer, feature width, number of layers, edge density, sampling algorithm, and feature locality. Sampling lowers memory but introduces variance and bias. It can also move the bottleneck from matrix multiplication to data loading. If feature rows are fetched from CPU memory, SSD, or a remote feature store, the sampler and cache become part of the training system.',
-        'Compressed Sparse Row Graph is the natural adjacency layout for many samplers because neighbor lists are contiguous slices. PyTorch Geometric NeighborLoader exposes fanout-based sampling for large graphs and heterogeneous graphs: https://pytorch-geometric.readthedocs.io/en/2.5.2/tutorial/neighbor_loader.html. The loader abstraction is important because model code should not be hard-wired to one sampling strategy.',
-        'Distributed training adds another layer. Partitions should keep common neighborhoods close when possible, but the sampler still crosses partition boundaries. Feature caching, pinned memory, prefetching, and worker scheduling can decide whether GPUs are training or waiting. In large deployments, the sampler is often a performance-critical service in its own right.',
+        'With seed batch B and fanouts 15 and 10 for a two-layer model, the upper bound before overlap is B times 15 times 10 second-hop sources plus intermediate nodes. For B = 512, that is at most 76,800 second-hop samples before deduplication.',
+        'Cost grows with fanout, layer count, feature width, and feature locality. Doubling fanout can more than double loader time because it increases neighbor sampling, feature fetches, edge tensors, and GPU transfer size.',
       ],
     },
     {
-      heading: 'Case studies and uses',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Pinterest PinSage is the canonical production case: recommendations over a graph with billions of nodes and edges require sampling, random walks, distributed inference, and offline embedding refresh. Fraud detection, recommender systems, citation graphs, supply-chain risk, code graphs, molecular graphs, and knowledge graphs face the same training pressure whenever full-batch message passing is too large.',
-        'For a fraud graph, the sampler might need time-aware edges so the model cannot train on future behavior. For recommendations, it may need hard negatives and popularity controls so the model does not learn only the largest hubs. For molecules, the whole graph may be small enough that neighbor sampling is unnecessary. The graph domain changes the right sampler.',
+        'Neighbor sampling is used in recommendation graphs, fraud graphs, citation graphs, knowledge graphs, code graphs, and large social or marketplace graphs. It is strongest when local neighborhoods contain useful signal but the full graph is too large for full-batch training.',
+        'GraphSAGE, PinSage, Cluster-GCN, and library loaders such as PyTorch Geometric NeighborLoader are different points in this design space. They vary in whether they sample neighbors, random walks, clusters, or typed graph neighborhoods.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
-        'Sampling is not free accuracy. Uniform sampling can miss rare but important neighbors. Random node splits can leak neighborhood information that would not exist at deployment time. High-degree nodes can still dominate batches if fanout and seed selection are careless. Stale graph snapshots can make embeddings lag reality. Evaluate by slices: degree buckets, time windows, cold-start nodes, edge types, and online metrics when possible.',
-        'The common teaching mistake is to focus only on the GNN layer equation. At scale, the training job is often a graph data pipeline: adjacency layout, feature-store reads, negative sampling, distributed workers, cache locality, and split discipline. A correct layer with a bad sampler can produce impressive offline numbers and poor deployed behavior.',
-        'Sampler evaluation should include more than validation loss. Track sampled-neighbor coverage, high-degree node exposure, rare-edge exposure, feature-cache hit rate, loader throughput, GPU idle time, and accuracy by degree bucket. If those measurements are missing, it is hard to know whether a model improved because the architecture improved or because the sampler changed the training distribution.',
+        'Uniform sampling can miss rare but important neighbors. High-degree hubs can dominate exposure, while cold-start or low-degree nodes may receive weak context.',
+        'Evaluation can also fail. Random splits may leak future or neighboring information, stale graph snapshots can hide drift, and offline accuracy can improve while online recommendation or fraud metrics get worse.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a two-layer GNN trains on 256 seed nodes with fanout 10 then 5. Before overlap, the loader samples up to 2,560 first-hop nodes and 12,800 second-hop source nodes, plus edges and feature rows for all sampled nodes.',
+        'Full-neighbor expansion on the same graph might see average degree 80. The same 256 seeds could reach about 20,480 first-hop nodes and 1,638,400 second-hop paths before overlap, which can exceed memory and make the GPU wait on data loading.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary and official sources: GraphSAGE at https://arxiv.org/abs/1706.02216, PinSage at https://arxiv.org/abs/1806.01973, Cluster-GCN at https://arxiv.org/abs/1905.07953, PyTorch Geometric NeighborLoader docs at https://pytorch-geometric.readthedocs.io/en/2.5.2/tutorial/neighbor_loader.html, and PyG sampler docs at https://pytorch-geometric.readthedocs.io/en/2.5.1/modules/sampler.html. Study Graph Neural Networks, Compressed Sparse Row Graph, Graph BFS, PageRank, Embeddings & Similarity, Data Leakage & Contamination, and GPU All-Reduce next.',
-        'A useful exercise is to train the same model with two fanout schedules and compare accuracy, GPU idle time, and sampled-neighbor coverage. The result makes clear that "the GNN" includes the loader, not only the neural layers.',
+        'Read GraphSAGE, PinSage, Cluster-GCN, PyTorch Geometric NeighborLoader documentation, and sampler documentation for the systems view. Study compressed sparse row graphs, message passing neural networks, PageRank, random walks, and embeddings next.',
+        'Then study data leakage in graph splits, feature stores, GPU input pipelines, negative sampling, and distributed graph training. At scale, the sampler is not plumbing; it is part of the model and part of the performance profile.',
       ],
     },
   ],

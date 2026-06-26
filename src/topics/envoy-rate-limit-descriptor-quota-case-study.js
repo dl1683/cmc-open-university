@@ -191,75 +191,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: "Why this exists",
+      heading: 'How to read the animation',
       paragraphs: [
-        "Rate limiting exists because shared services need a way to say no before overload turns into an outage. A gateway may sit in front of login, payments, search, inference, or internal APIs where one caller can consume capacity that belongs to everyone else. The rate limiter turns a product or reliability rule into a per-request decision: allow this request now, slow it down, or reject it with a clear retry signal.",
-        "Envoy is a natural enforcement point because traffic already crosses it. But the important lesson is not that Envoy can return 429. The important lesson is that rate limiting is a data-modeling problem. Before a counter can be checked, the proxy has to decide what kind of traffic this request represents and which fairness boundary it should spend from.",
-        {type:"callout", text:"Envoy rate limiting is a classification problem before it is a counter problem: the descriptor vector defines the fairness boundary that quota should spend from."},
+        'Read the descriptor path as request classification before counting. Active means Envoy is extracting a request fact or spending quota, visited means a descriptor element has been matched, and found means the limiter has selected the budget that decides allow or reject.',
+        'The safe inference rule is boundary fit. A counter protects the resource named by its descriptor, not the resource the operator meant in prose. If the descriptor groups traffic poorly, the limiter enforces the wrong fairness rule quickly.',
+        {type:'callout', text:'Envoy rate limiting is a classification problem before it is a counter problem: the descriptor vector defines the fairness boundary that quota should spend from.'},
       ],
     },
     {
-      heading: "The naive approach",
+      heading: 'Why this exists',
       paragraphs: [
-        "The first naive design is one counter per route. That is easy to configure, but it treats a free test account, an enterprise tenant, a background batch job, and an attacker as the same population. It protects the origin from total load while saying almost nothing about who is using the budget.",
-        "The second naive design is one counter per IP address. That is useful at an unauthenticated edge, but it breaks quickly. A corporate office, mobile carrier, school, or NAT gateway can put many legitimate users behind one address. Attackers can rotate addresses. Raw URL keys are another trap because they can explode cardinality and move hot state into millions of one-off counters.",
+        'Rate limiting is a control that rejects or delays requests before shared capacity is exhausted. Envoy is a proxy that already sees inbound requests, route matches, headers, peer information, and response behavior. That makes it a natural enforcement point.',
+        'The hard part is not returning HTTP 429. The hard part is deciding which budget a request should spend. A login attempt, refund call, inference request, and batch job can all have different cost and fairness boundaries.',
       ],
     },
     {
-      heading: "The core insight",
+      heading: 'The obvious approach',
       paragraphs: [
-        "The core insight is the descriptor vector. Envoy route actions extract request facts such as route name, tenant, API key, authenticated subject, request header, method, path class, or remote address. Those facts are assembled into a structured vector. The vector is the key that the limiter reads.",
-        "A descriptor is not just a prettier counter name. It encodes the fairness boundary. A payments refund call might spend from a tenant budget, a method budget, and a route-class budget. An LLM request might include tenant, model tier, API key, and estimated token cost. The limiter works only as well as that descriptor matches the real resource contract.",
+        'The obvious approach is one counter per route. It is easy to configure and protects an origin from total route load. It also treats a free account, enterprise tenant, internal batch job, and attacker as one population.',
+        'Another approach is one counter per IP address. That helps at an unauthenticated edge, but it punishes many users behind one NAT and misses attackers who rotate addresses. Raw path keys can also create millions of one-off counters.',
       ],
     },
     {
-      heading: "How the mechanism works",
+      heading: 'The wall',
       paragraphs: [
-        "Local rate limiting keeps the decision inside the proxy. Envoy can maintain token buckets for broad limits such as a maximum burst per listener, route, or connection. This is fast and resilient because no external service is needed on the hot path. The cost is that each proxy has a local view unless a higher layer coordinates state.",
-        "Global rate limiting sends the descriptor vector to an external rate-limit service, often over gRPC. The service matches descriptor hierarchies against policy, updates counters or token buckets in a backing store such as Redis, and returns OK or over limit. Envoy then forwards the request or returns a rate-limit response, usually with headers that tell clients how to back off.",
-        "Quota mode changes the loop again. Instead of asking the central service on every request, Envoy receives an allocation, spends it locally, and reports usage back. The allocator can rebalance future quota across proxies or tenants. That improves hot-path speed, but it turns rate limiting into a distributed counter problem with skew, stale reports, and burst windows.",
+        'The wall is unfair aggregation. A broad descriptor lets one caller spend budget that should belong to another. A narrow descriptor can explode cardinality and move memory, metrics, and store load into unbounded key space.',
+        'The distributed wall appears when many Envoy proxies enforce one global policy. If every request synchronously calls a central service, latency and dependency risk rise. If proxies spend locally, reports lag and temporary overspend becomes possible.',
       ],
     },
     {
-      heading: "What the visual is proving",
+      heading: 'The core insight',
       paragraphs: [
-        "The descriptor-tree view proves that rate limiting starts before storage. The request enters Envoy, route actions classify it, and the descriptor node becomes the compact representation of the policy question. The RLS and Redis nodes are downstream. If the descriptor is too broad, too narrow, or too easy to evade, the rest of the system faithfully enforces the wrong rule.",
-        "The quota-loop view proves a different point: performance is bought by moving work from synchronous checking to allocation and reporting. The proxy can answer locally while the allocator catches up. The visual is not saying quota mode is weaker by default. It is showing where the new correctness burden lives: report intervals, smoothing, conservative release, and failure behavior.",
+        'The descriptor vector is the data model. Envoy route actions extract facts such as tenant, API key, route class, method, remote address, model tier, or token estimate. The ordered vector becomes the key that the limiter evaluates.',
+        'A descriptor encodes a fairness boundary. A payments API might spend tenant plus route-class budget. An AI gateway might spend tenant plus model-family plus estimated-token budget. The limiter is only as accurate as that boundary.',
       ],
     },
     {
-      heading: "Why it works",
+      heading: 'How it works',
       paragraphs: [
-        "The design works because it separates classification, policy, and enforcement. Envoy is good at seeing the request and applying the result. A rate-limit service is better at holding global policy and shared counters. A store is better at durable, cross-proxy state. The descriptor is the contract between those pieces.",
-        "Layering also works. A cheap local bucket can absorb obvious floods before they hit the global service. A global descriptor check can enforce tenant or plan fairness across the fleet. Quota allocation can reduce central calls on very hot paths. Good systems use these modes together instead of treating one limiter as a universal answer.",
+        'Local rate limiting keeps token buckets inside Envoy. A token bucket allows a burst up to its capacity and refills at a configured rate. This is fast and resilient, but each proxy has only a local view.',
+        'Global rate limiting sends the descriptor vector to an external rate-limit service. The service matches policy, updates counters or buckets in a backing store, and returns OK or over limit. Envoy forwards the request or returns a limit response.',
+        'Quota mode allocates a block of budget to each proxy. The proxy spends locally and reports usage back to the allocator. This reduces hot-path calls, but correctness now depends on allocation size, report interval, skew, and failure behavior.',
       ],
     },
     {
-      heading: "Costs and tradeoffs",
+      heading: 'Why it works',
       paragraphs: [
-        "Global checks add latency and a dependency. If the rate-limit service or its store is unhealthy, the gateway needs a fail policy. Fail-open preserves availability but can allow abuse or cost leakage. Fail-closed protects capacity but can reject valid traffic during a limiter outage. Shadow mode is useful because it records would-have-limited decisions before enforcement changes user traffic.",
-        "Descriptor design has its own cost. High-cardinality keys consume memory and can create hot shards or noisy metrics. Low-cardinality keys are cheaper but unfair. Quota mode reduces central traffic but allows temporary overspend when reports lag. Rate-limit headers and client SDK behavior matter because a rejected request that retries immediately is just overload in a new shape.",
+        'The design works because classification, policy, and enforcement are separated. Envoy is close to the request, the rate-limit service owns shared policy, and the backing store owns cross-proxy state. The descriptor is the contract between those parts.',
+        'Layering works because cheap local rules can absorb obvious floods, global checks can enforce fleet-wide fairness, and quota allocation can reduce central calls on hot paths. The correct mix depends on latency budget, abuse risk, and how expensive the protected action is.',
       ],
     },
     {
-      heading: "Real uses",
+      heading: 'Cost and complexity',
       paragraphs: [
-        "API gateways use descriptor limits to enforce plan tiers, protect expensive routes, and keep one tenant from starving another. Login systems combine IP, username, device, and risk signals to slow credential stuffing without punishing an entire office network. Scraping defenses may use route class, ASN, user agent, and authentication state while still leaving room for legitimate crawlers.",
-        "AI gateways make the descriptor lesson especially clear. A single request can have wildly different cost depending on model, context length, output length, tool use, and tenant plan. A useful descriptor might include tenant, API key, model family, route class, and estimated token cost. The limiter then protects dollars and GPUs, not just request count.",
+        'A global check adds a network hop and a dependency to the request path. If it adds 2 ms to a 20 ms API, that is a 10 percent latency tax before store contention. Fail-open preserves availability but can leak capacity; fail-closed protects capacity but can reject valid traffic.',
+        'Descriptor cardinality is the main data cost. A tenant route key for 1,000 tenants and 20 route classes creates up to 20,000 counters. Adding raw user id with 10,000,000 users can create a store and metrics problem if most keys are cold.',
       ],
     },
     {
-      heading: "Failure modes and limits",
+      heading: 'Real-world uses',
       paragraphs: [
-        "Rate limiting is not abuse detection. It is a resource budget. Attackers can rotate accounts, addresses, tenants, or routes if the descriptor is naive. Legitimate users can also look abusive if many of them share one address or if a batch workflow suddenly becomes popular. The limiter should be paired with authentication, anomaly signals, tracing, and product-specific recourse.",
-        "The hardest failures are silent modeling failures. A path descriptor that includes raw IDs can create unbounded counter growth. A tenant descriptor that ignores sub-accounts can let one team spend another team's quota. A quota allocator that overreacts to delayed reports can oscillate. A fail policy that is never rehearsed can turn a limiter outage into either a customer outage or an uncontrolled traffic surge.",
+        'API gateways use descriptor limits for plan tiers, expensive routes, login attempts, scraping defenses, and tenant fairness. The access pattern is per-request classification followed by a small state update.',
+        'AI gateways make the model clear. A request for 200 input tokens to a small model is not the same as a request for 120,000 input tokens to a large model. Useful descriptors include tenant, key, model family, route class, and estimated token cost.',
       ],
     },
     {
-      heading: "Study next",
+      heading: 'Where it fails',
       paragraphs: [
-        "Primary sources: Envoy global rate limiting at https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/other_features/global_rate_limiting, Envoy local rate limit filter docs at https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/local_rate_limit_filter, Envoy HTTP rate limit proto docs at https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ratelimit/v3/rate_limit.proto, and the reference service at https://github.com/envoyproxy/ratelimit.",
-        "Study Rate Limiter for token-bucket mechanics, Hash Table for keyed counters, gRPC HTTP/2 Stream Multiplexing for the external service call, Load Balancer and CDN Request Flow for placement, Backpressure and Circuit Breakers for overload behavior, OPA Rego Policy Decision Graph for policy separation, and Distributed Tracing for quota observability.",
+        'Rate limiting is not abuse detection. Attackers can rotate accounts, addresses, user agents, or routes if descriptors are weak. Legitimate users can also look abusive when many share an address or run a scheduled batch.',
+        'It also fails when failure policy is not rehearsed. A limiter outage can become either customer outage or uncontrolled traffic surge. Shadow mode, staged rollout, client backoff behavior, and clear headers are part of the system.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose tenant acme has a global limit of 1,000 requests per minute for route class search. Two Envoy proxies each see 600 requests in one minute. Local-only 1,000-per-proxy buckets would allow 1,200 total requests and violate the tenant budget.',
+        'With a global descriptor [tenant=acme, route=search], both proxies spend from one shared counter and the extra 200 requests are rejected or delayed. With quota mode, the allocator might give each proxy 500 tokens for the minute. If one proxy needs 700 and the other needs 300, rebalancing speed decides whether valid traffic is rejected or overspend occurs.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Envoy global rate limiting at https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/other_features/global_rate_limiting, Envoy local rate limit filter at https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/local_rate_limit_filter, Envoy HTTP rate limit proto at https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ratelimit/v3/rate_limit.proto, and reference service at https://github.com/envoyproxy/ratelimit. Use the docs for filter behavior and the reference service for descriptor matching.',
+        'Study Rate Limiter for token-bucket mechanics, Hash Table for keyed counters, gRPC HTTP/2 Stream Multiplexing for service calls, Backpressure and Circuit Breakers for overload behavior, OPA Rego Policy Decision Graph for policy separation, and Distributed Tracing for quota observability. The next step is to connect quota decisions to user-visible retry behavior.',
       ],
     },
   ],

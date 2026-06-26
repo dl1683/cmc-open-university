@@ -195,100 +195,20 @@ export function* run(input) {
   else throw new InputError('Pick a savepoint view.');
 }
 
+
 export const article = {
   sections: [
-    {
-      heading: 'Why savepoints exist',
-      paragraphs: [
-        `A transaction gives one outer promise: either the whole unit commits or the whole unit aborts. That promise is useful, but it is too coarse for many application workflows. A loader may need to keep the valid rows in a batch while skipping one malformed optional row. A migration may need to test a risky statement after setup work has already run. A library may need to recover from a local statement failure while leaving the caller in charge of the transaction.`,
-        `A savepoint gives a smaller undo scope inside the same transaction. It marks a transaction state that the application can return to without committing earlier work. The outer transaction still controls durability. The savepoint only decides how much of the in-progress work should survive after a local error.`,
-        {type:'callout', text:`Savepoints turn one transaction into a stack of local undo scopes while leaving the outer commit boundary intact.`},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        `One reasonable approach is to split the work into many small transactions. Insert a row, commit it, try the next row, and commit again. Local failure is easy because each row stands alone. The cost is that the batch no longer has one atomic outcome. If the final business rule fails, some earlier rows may already be durable.`,
-        `The opposite approach is one large transaction with no internal markers. That preserves the outer promise, but it gives the application no recovery point inside the transaction. A statement error can force the application to abandon work that was otherwise correct.`,
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        `The hard case needs both properties at once: one final commit decision and local recovery before that decision. Plain transactions give the first property. Many tiny transactions give the second. Neither gives both.`,
-        `The missing structure is a boundary inside the transaction log. The database must know which effects happened before the local risk and which effects happened after it. Without that boundary, "undo the bad part" is not a well-defined command.`,
-      ],
-    },
-    {
-      heading: 'The core idea',
-      paragraphs: [
-        `A savepoint turns one transaction into a stack of local rollback scopes. SAVEPOINT pushes a marker. ROLLBACK TO SAVEPOINT rewinds effects after that marker and removes newer markers. RELEASE SAVEPOINT removes the marker while keeping the work that followed it. COMMIT or outer ROLLBACK still decides the fate of everything that remains.`,
-        `The important distinction is that a savepoint is not a nested commit. It does not make data durable, and it does not escape the outer transaction. It only records a place the transaction can return to before the final commit decision.`,
-      ],
-    },
-    {
-      heading: 'How the mechanics work',
-      paragraphs: [
-        `Create the marker before the risky work. Run the risky statements. If they succeed, either keep the marker for a later rollback or release it to simplify the stack. If they fail and the application can continue, roll back to the marker. The rollback removes commands after the marker, but the marker itself remains valid and can be used again.`,
-        `PostgreSQL also allows the same savepoint name to be reused. A newer same-named savepoint hides the older one until the newer marker is released. This is why the stack model matters more than the string name: a rollback or release targets the newest visible frame with that name.`,
-        `RELEASE SAVEPOINT is easy to misread. It does not undo work. It destroys the marker and keeps the effects that happened after it, moving those effects into the surrounding transaction context. The final COMMIT is still the point where data becomes durable.`,
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        `In the stack-mechanics view, watch which nodes sit before the marker and which nodes sit after it. Work before the marker is outside the local undo region. Work after the marker is the only work at risk when the rollback arrow returns to the savepoint. The command table is a compact ledger: SAVEPOINT pushes, ROLLBACK TO rewinds, RELEASE pops while keeping work, and COMMIT clears the whole transaction stack.`,
-        `The name-reuse frame is not a naming trivia point. It shows that the newest same-named marker shadows the older marker. Releasing the newer marker makes the older one visible again. In the partial-rollback view, the lock row matters because rollback can release locks acquired after the marker, not just data changes.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `The invariant is a boundary invariant. Every effect in the open transaction is either before the savepoint, after the savepoint, or inside a newer nested scope. ROLLBACK TO restores the transaction state at the marker, so the after-region disappears and earlier effects survive.`,
-        `PostgreSQL documents two details that make the stack precise. ROLLBACK TO leaves the named savepoint valid but destroys savepoints created after it. RELEASE destroys the marker without discarding later effects. Lock behavior follows the same rollback principle: locks acquired after a savepoint are released if rolling back to that savepoint cancels the acquisition.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Consider an order import. The application opens one transaction, inserts the order header, then creates a savepoint before each optional line item. If a line item references a missing SKU, the application rolls back to the line savepoint, records a warning, and continues. If the next line is valid, it can release that line savepoint and keep the work.`,
-        `At the end, the application still has one final decision. If the order as a whole passes validation, COMMIT makes the header and valid lines durable. If the header violates a later rule, outer ROLLBACK discards everything. The savepoints only handled local line failures; they did not weaken the final transaction boundary.`,
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `Savepoints add bookkeeping for subtransaction state. A small number around risky operations is ordinary. A savepoint around every row in a huge long-running transaction can add overhead, lengthen the transaction lifetime, keep old MVCC versions visible, and hold snapshots or locks longer than the system wants.`,
-        `The main operational cost is that the outer transaction stays open. Savepoints shrink the local undo region, but they do not make a long transaction short. If the real problem is transaction duration, lock contention, or vacuum pressure, savepoints can make the code easier to write while leaving the system problem in place.`,
-      ],
-    },
-    {
-      heading: 'Where it fits',
-      paragraphs: [
-        `Savepoints fit batch imports, optional writes, migration probes, retryable substeps, and library code that must recover from a statement-level error without stealing control of the caller transaction. The common access pattern is clear: the local failure scope is smaller than the business transaction scope.`,
-        `They are also useful when an application wants to test whether a database operation is legal before deciding whether the larger unit should proceed. The savepoint gives the test a cleanup boundary.`,
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        `A savepoint cannot roll back work outside the database transaction. It cannot undo a message already consumed by another service, a payment already sent, or a file already delivered to a client. Cross-service workflows need sagas, outboxes, idempotency keys, and compensation logic.`,
-        `Savepoints also do not replace validation. If a bad row can be rejected before the transaction starts, do that first. Use savepoints when the database itself is the authority on whether a local operation is valid, or when the cost of prechecking is worse than trying the operation and rolling back the local scope.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `The common mistake is believing RELEASE commits the nested work. It does not. A later outer rollback still removes it. Another mistake is ignoring name shadowing: in PostgreSQL, rolling back to a reused name targets the newest visible savepoint, not the oldest one with that name.`,
-        `Cursor behavior is a boundary case. PostgreSQL documents that cursor motion caused inside a savepoint is not fully rolled back like ordinary data effects. Treat savepoints as transaction-state tools, then check database-specific documentation for side effects such as cursors, temporary objects, and exception blocks.`,
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        `Primary sources: PostgreSQL SAVEPOINT at https://www.postgresql.org/docs/current/sql-savepoint.html, ROLLBACK TO SAVEPOINT at https://www.postgresql.org/docs/current/sql-rollback-to.html, RELEASE SAVEPOINT at https://www.postgresql.org/docs/current/sql-release-savepoint.html, and explicit locking behavior at https://www.postgresql.org/docs/current/explicit-locking.html.`,
-        `Study Transaction Isolation Levels for visibility rules, MVCC Internals and VACUUM for long-transaction costs, PostgreSQL Lock Manager and Deadlock Detector for wait queues and lock release, Write-Ahead Log for crash safety, PostgreSQL Advisory Lock Keyspace for application-defined transaction locks, and Saga Pattern for cross-service compensation.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read the graph as one open transaction with local undo markers inside it. Active nodes show commands, found nodes show work that survives, and removed nodes show work or markers discarded by rollback.', 'A transaction commits or aborts as one unit. A savepoint is a named marker inside that unit. Rolling back to it removes later effects without committing or discarding earlier effects.', {type:'callout', text:`Savepoints turn one transaction into a stack of local undo scopes while leaving the outer commit boundary intact.`}]},
+    { heading: 'Why this exists', paragraphs: ['A transaction has one outer decision, but many workflows need local recovery before that decision. Imports, migrations, and library calls often need to drop one risky substep while keeping earlier work pending.']},
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is many small transactions. That makes local failure easy but loses the outer atomic promise when later validation fails.']},
+    { heading: 'The wall', paragraphs: ['One large transaction has the opposite problem. It preserves final atomicity but has no internal boundary for undoing only the bad part.']},
+    { heading: 'The core insight', paragraphs: ['A savepoint stack records nested rollback scopes. SAVEPOINT pushes a marker, ROLLBACK TO rewinds to it, RELEASE removes it while keeping later work, and COMMIT decides everything left.']},
+    { heading: 'How it works', paragraphs: ['Create the marker before risky work. On success, release it or keep it available; on recoverable failure, roll back to it. ROLLBACK TO removes later commands and newer savepoints while leaving the named marker valid.']},
+    { heading: 'Why it works', paragraphs: ['The invariant is transaction-log order. Every effect is before the marker, after it, or inside a newer nested scope, so restoring the marker removes after-effects and preserves before-effects.']},
+    { heading: 'Cost and complexity', paragraphs: ['A few savepoints are ordinary, but one per row in a 1,000,000-row import creates 1,000,000 subtransaction boundaries. The bigger cost is that the outer transaction remains open with snapshots, locks, and MVCC pressure.']},
+    { heading: 'Real-world uses', paragraphs: ['Savepoints fit batch imports, optional writes, migration probes, retryable substeps, and library code that must recover without stealing control of the caller transaction.']},
+    { heading: 'Where it fails', paragraphs: ['Savepoints cannot undo effects outside the database, such as sent email, consumed queue messages, payment calls, or files written to clients. They also do not make long transactions short.']},
+    { heading: 'Worked example', paragraphs: ['An order import inserts header H1, creates SAVEPOINT line_1, inserts SKU A12 quantity 3, and releases it. It creates line_2, the SKU Z99 insert fails, and ROLLBACK TO line_2 removes only that line attempt while H1 and line 1 remain pending.']},
+    { heading: 'Sources and study next', paragraphs: ['Read PostgreSQL SAVEPOINT, ROLLBACK TO SAVEPOINT, RELEASE SAVEPOINT, and explicit locking documentation. Study Transaction Isolation Levels, MVCC Internals, Write-Ahead Log, Lock Manager, Deadlock Detector, and Saga Pattern next.']},
   ],
 };

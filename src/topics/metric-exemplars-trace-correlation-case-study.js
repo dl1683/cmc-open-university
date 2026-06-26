@@ -214,99 +214,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Metrics are excellent at telling you that something changed. A latency histogram can show that checkout p99 jumped. It cannot, by itself, show which request caused one of those slow observations or what happened inside that request.',
-        'Traces are excellent at explaining one request. They are too expensive and too detailed to replace aggregate metrics. Metric exemplars exist to connect the two: keep the metric aggregated, but attach a bounded pointer from an interesting observation to one concrete trace or span.',
+        'The histogram-link view follows one request as it creates a trace span and a latency measurement. A trace is a tree of spans for one request, while a metric is an aggregate time series. Active nodes are recording the observation, found nodes hold stored aggregate state, and compare nodes show the join from a bucket back to one trace.',
+        'The storage-limits view shows what is deliberately not stored. An exemplar is a small sample attached to one metric observation, not a new time series label. The safe inference is that a trace id in an exemplar can open one request path without multiplying the metric cardinality by every request.',
         {type:'callout', text:'Exemplars preserve one trace join key at metric observation time, giving aggregate histograms a bounded path back to concrete requests.'},
       ],
     },
     {
-      heading: 'The Obvious Approach and the Wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious incident workflow is metric first, then manual search. An alert fires, an engineer opens a dashboard, guesses a time window, searches traces and logs, filters by service, filters by route, and hopes one of the remaining traces represents the bad bucket.',
-        'That breaks during real incidents. The slow bucket may contain thousands of requests, tracing may be sampled, clocks may be imperfect, and the most useful trace may be hard to find by search. The metric knows which observations were slow, but it normally throws away their identities when it aggregates counts.',
+        'Metrics are good at telling a team that a rate, count, or latency distribution changed. A histogram can show that checkout latency has a new tail, but it does not explain what one slow request did internally. The aggregate has already discarded individual request identity.',
+        'Traces are good at explaining one request through services, spans, and timing. They are too detailed and expensive to replace metrics for alerting and dashboards. Exemplars exist to keep the metric aggregate while saving a bounded pointer to a representative trace.',
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'An exemplar is a sample attached to a metric observation, not a new metric dimension. For a histogram, the bucket count still aggregates many observations. The exemplar stores a small record for one selected observation: value, timestamp, and labels such as trace_id and span_id.',
-        'That distinction is the whole design. Trace ids are dangerous as metric labels because they create huge cardinality. As exemplar labels, they remain bounded samples. The metric store gets a clickable bridge without becoming a trace database.',
+        'The obvious incident workflow is metric first and manual trace search second. An alert fires, an engineer opens the latency chart, guesses a time window, filters by service and route, then hunts for a trace that looks like the spike. This can work when traffic is low and traces are easy to search.',
+        'Another tempting approach is to put trace_id directly into metric labels. That makes every request groupable in the metric store. It also turns the metric database into a per-request index, which is the wrong storage model.',
       ],
     },
     {
-      heading: 'What the views teach',
+      heading: 'The wall',
       paragraphs: [
-        'In the histogram link view, follow one request as it produces both span context and a latency observation. The latency increments a histogram bucket. The active span supplies the trace and span identifiers. The exemplar connects the bucket to the trace backend through those ids.',
-        'In the storage limits view, watch what is intentionally not stored. The exemplar should carry enough to open the trace, not user data, arbitrary baggage, raw payloads, or a label set that grows with every request. The budget is what keeps the pattern safe.',
-        'The useful mental model is a join between two observability tables. The metric side has time, labels, bucket, and count. The tracing side has a span tree. The exemplar is the small join key stored at the moment the observation is recorded, so the dashboard can move from rate and percentile shape to one request path without a blind search.',
+        'The manual-search wall is loss of identity. The histogram knows that 450 observations landed in the 1.2 second bucket, but it normally does not keep the identities of those requests. The trace store may contain useful traces, but sampling and imperfect filters can hide the one that explains the bucket.',
+        'The trace-id-label wall is cardinality. A time series is the metric name plus its label values, so a new trace_id per request creates a new series per request. A dashboard query that should read one histogram now fans out across thousands or millions of almost-empty series.',
       ],
     },
     {
-      heading: 'How It Works',
+      heading: 'The core insight',
       paragraphs: [
-        'A service handles a request while a trace span is active. It records a latency measurement into a histogram. At exemplar selection time, the metrics library can attach the current trace context to that specific observation. The histogram bucket count increases as usual, and the exemplar is stored as a small side record.',
-        'The dashboard later renders the histogram and marks buckets or points that have exemplars. When an engineer clicks one, the UI uses trace_id and span_id to open the trace backend. Prometheus-style exemplars and OpenTelemetry compatibility rules commonly use trace_id and span_id as the bridge labels.',
-        'Sampling policy decides which observations get exemplar records. Some systems attach exemplars to rare or slow observations. Others sample periodically. The right policy depends on the question the dashboard should answer.',
-        'Instrumentation placement matters. If middleware records latency after the active span has ended, the metric may have no trace context to attach. If the trace context is not propagated across services, the exemplar may open only a partial path. The metric call, span lifecycle, and propagation layer have to agree on the request identity.',
+        'An exemplar stores one selected observation beside the aggregate. For a histogram, the bucket count still aggregates many requests, while the exemplar stores value, timestamp, trace_id, and span_id for one request. The trace id is a join key, not an aggregate dimension.',
+        'That separation preserves both systems. Metrics keep bounded labels such as route and status class. Traces keep request detail. The exemplar is the small bridge captured at observation time, when both the metric value and active span context are available.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'How it works',
       paragraphs: [
-        'Metrics and traces have complementary failure modes. Metrics are cheap and stable but abstract. Traces are concrete but sparse and high volume. Exemplars work because they preserve one join key at the exact moment an observation enters the aggregate.',
-        'The bounded side record avoids the cardinality trap. A histogram labeled with trace_id would create a new series for almost every request. A histogram with exemplars still has the same normal labels and buckets; only a limited number of observations carry trace references.',
+        'A service handles a request while a tracing span is active. When instrumentation records latency into a histogram, the metrics library can read the current trace context. If the exemplar policy selects that observation, it stores the trace and span identifiers with the bucket sample.',
+        'A dashboard later renders the histogram and marks buckets or points that have exemplars. Clicking the marker sends the trace_id and span_id to the trace backend. The user moves from aggregate symptom to one concrete span tree without searching from scratch.',
       ],
     },
     {
-      heading: 'Worked Example',
+      heading: 'Why it works',
       paragraphs: [
-        'Checkout latency p99 rises above the SLO. The on-call opens the request-duration histogram and sees exemplar dots in the 900 ms and 1.2 s buckets. One dot carries trace_id and span_id. Clicking it opens the trace for a slow checkout request, where the payment span waits on a fraud-check service.',
-        'The team moves from aggregate symptom to concrete path in one click. The metric still answers how often the problem happens and whether it burns the SLO. The trace answers what one representative slow request did. Logs can still help, but they are no longer the first search surface.',
+        'Correctness here means preserving a valid join without changing the metric meaning. The histogram count is still computed from all observations that match the normal labels. The exemplar adds a side record for one observation, so the aggregate result is not redefined by the trace id.',
+        'The boundedness argument is the key safety property. If only a limited number of observations carry exemplar records, request identity does not explode the number of metric series. The link is useful because it is stored as a sample, not because every request became a dimension.',
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Exemplars add storage and UI complexity, but the main cost is policy. The platform has to decide which metrics support exemplars, which observations are worth sampling, how long exemplar links should live, and whether trace retention overlaps metric retention.',
-        'Label discipline is non-negotiable. trace_id and span_id are useful because they join to another system. User ids, emails, tokens, request bodies, and arbitrary baggage values are not exemplar labels. They create privacy risk, cardinality risk, and dashboard clutter.',
-        'The choice of sampling target changes what engineers see. Sampling only the slowest observations gives better p99 debugging but may miss typical traces. Uniform sampling gives a fairer shape but may waste the small exemplar budget on uninteresting requests. Many teams use different policies for latency, error, saturation, and business-flow dashboards.',
+        'The main cost is side-record storage and retention coordination. If a service records 10,000 latency observations per second but keeps exemplars for 1 percent, the exemplar path stores about 100 trace links per second rather than 10,000 new metric series. Doubling request traffic doubles candidate observations, but the exemplar policy can cap stored links.',
+        'The operational cost is consistency between systems. Trace identifiers must propagate, dashboards must know how to open the trace backend, and trace retention must outlive the incident review window. A link to a deleted trace is a broken proof path.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Exemplars win for latency histograms, SLO dashboards, p99 and p999 investigations, queue delay, database query duration, RPC duration, and any aggregate symptom where one concrete trace can quickly expose the path shape.',
-        'They are strongest when trace context is reliably propagated, the trace backend can resolve ids from the dashboard, and sampling policy prefers interesting observations such as slow, failed, or rare requests.',
+        'Exemplars are useful for latency histograms, error dashboards, queue delay charts, RPC duration, database query timing, and SLO burn investigations. The access pattern is aggregate first, then one concrete request path that can explain a bucket. They are especially useful when slow or failed requests are rare enough that blind trace search wastes time.',
+        'Prometheus, OpenMetrics, Grafana, and OpenTelemetry all treat exemplars as a bridge between metrics and traces. The useful deployment has reliable context propagation and a sampling policy that favors observations worth inspecting. Slow, failed, or rare requests usually deserve the small exemplar budget more than routine fast requests.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Where it fails',
       paragraphs: [
-        'They fail when the trace is gone. If metrics retain exemplar references longer than the tracing backend retains the corresponding spans, dashboard links turn into dead ends. Retention windows and sampling policy have to be designed together.',
-        'They also fail when teams confuse exemplars with full causality. One trace is an example, not a proof of the whole incident. The metric still has to quantify blast radius, and multiple exemplars may be needed to show that a bucket contains more than one failure mode.',
-        'They can mislead when sampling is biased. A slow exemplar from one customer path may look like the reason for the whole p99 spike even if most slow requests took a different path. Treat exemplars as entry points, then compare several traces, metric labels, logs, and recent deploys before calling the cause.',
+        'Exemplars fail when the trace is gone or inaccessible. A metric system may retain data for weeks while the trace backend keeps spans for days. After that boundary, the exemplar still marks an observation but cannot open the detailed path.',
+        'They also fail when one trace is treated as the cause of the whole incident. An exemplar is an example, not a population proof. Engineers still need the metric distribution, labels, logs, deploy history, and multiple traces before assigning the cause of a spike.',
       ],
     },
     {
-      heading: 'Operational Guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'Start with request-duration histograms on service boundaries, queue wait time, database calls, and outbound RPC clients. Add exemplars where a concrete trace is likely to answer the next question. Do not turn on exemplar storage everywhere before the dashboard and trace-backend links are tested.',
-        'Run a privacy review on exemplar labels just as you would for normal metric labels. Confirm that dashboards hide or restrict trace identifiers when needed, that trace links respect access control, and that trace retention is long enough for the alert review window. A useful exemplar system is boring during incidents: dots appear, links open, and stale references are rare.',
+        'Checkout serves 20,000 requests in five minutes. The latency histogram shows 600 requests above 900 ms, and exemplar sampling keeps 30 links from those slow buckets. One exemplar has value 1,240 ms, trace_id t-84, and span_id s-12.',
+        'Clicking t-84 opens a trace where the payment span takes 910 ms because a fraud-check RPC waited on a queue. The metric still says the problem affected 600 requests, not just one. The trace gives the first concrete path to inspect, while the aggregate tells whether that path explains enough of the tail.',
       ],
     },
     {
-      heading: 'Common Misconceptions',
+      heading: 'Sources and study next',
       paragraphs: [
-        'An exemplar is not a log line. It should not duplicate request payload or human-readable context. It is a pointer to where that detail lives. An exemplar is also not a replacement for tracing. If no trace exists, the link has nowhere to go.',
-        'It is not a fix for bad metric labels either. Route, method, status class, and service labels still need normal cardinality control. Exemplars solve the jump from aggregate bucket to concrete request, not the design of the metric itself.',
-      ],
-    },
-    {
-      heading: 'Sources and Study Next',
-      paragraphs: [
-        'Primary sources: Prometheus exemplar feature documentation at https://prometheus.io/docs/prometheus/latest/feature_flags/, Grafana exemplars at https://grafana.com/docs/grafana/latest/fundamentals/exemplars/, and OpenTelemetry Prometheus/OpenMetrics compatibility at https://opentelemetry.io/docs/specs/otel/compatibility/prometheus_and_openmetrics/. Study Distributed Tracing, OpenTelemetry Tail Sampling Policy, Metric Label Cardinality Control, Prometheus TSDB Case Study, DDSketch Relative-Error Quantiles, and SLO Error Budget Burn Rate Alert next.',
+        'Primary sources are Prometheus exemplar documentation at https://prometheus.io/docs/prometheus/latest/feature_flags/, Grafana exemplar documentation at https://grafana.com/docs/grafana/latest/fundamentals/exemplars/, and OpenTelemetry Prometheus/OpenMetrics compatibility at https://opentelemetry.io/docs/specs/otel/compatibility/prometheus_and_openmetrics/. Use these sources for mechanism claims before relying on secondary summaries.',
+        'Study Distributed Tracing, OpenTelemetry Tail Sampling Policy, Metric Label Cardinality Control, Prometheus TSDB, DDSketch Relative-Error Quantiles, and SLO Error Budget Burn Rate Alert next. Start with the topic that explains the data shape, then move to the production system.',
       ],
     },
   ],

@@ -199,82 +199,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read a lock tag as the identity of a protected resource, such as a relation, row, transaction id, or advisory key. A lock mode says what kind of access is requested, and the compatibility matrix decides whether the request can be granted.',
+        'In the deadlock-cycle view, an arrow means one backend is waiting for another backend to release a conflicting lock. A cycle is proof that waiting alone cannot make progress.',
+        {type:'callout', text:'Deadlock detection becomes simple once every blocked backend is turned into an edge in a wait-for graph.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'MVCC lets readers and writers avoid blocking each other in many common cases, but a database still needs locks. Schema changes, row updates, foreign-key checks, advisory coordination, vacuum work, and transaction-id waits all need a shared place to decide who may proceed and who must wait.',
-        'The PostgreSQL lock manager is that place. It turns resource identity into lock-table entries, records granted holders, queues incompatible waiters, and gives the deadlock detector enough structure to distinguish normal waiting from impossible waiting.',
-        {type:'callout', text:'Deadlock detection becomes simple once every blocked backend is turned into an edge in a wait-for graph.'},
-        'Without this shared structure, a production incident would look like vague slowness: one session stuck, another apparently idle, a migration half-running, and no reliable way to explain who is blocking whom.',
+        'MVCC lets many reads and writes overlap, but PostgreSQL still needs locks for row updates, schema changes, foreign-key checks, advisory coordination, vacuum interactions, and transaction-id waits. The lock manager is the shared data structure that records who holds what and who must wait.',
       ],
     },
     {
-      heading: 'The naive baseline and the wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive baseline is a per-resource mutex: if the object is free, take it; otherwise wait until the holder releases it. That works for a single exclusive resource, and it even works for many ordinary database waits.',
-        'PostgreSQL has a harder problem. Locks have modes, modes have compatibility rules, one transaction can hold many locks, and one SQL statement can wait on a row, relation, transaction id, or advisory key. A single busy flag cannot describe that state.',
-        'The wall appears when waiting is cyclic. If transaction A waits for B while B waits for A, more patience only preserves the deadlock. The system needs a wait-for graph, not just queues.',
+        'The obvious approach is a per-resource mutex. If the resource is free, take it; if it is busy, wait until the holder releases it.',
       ],
     },
     {
-      heading: 'The core invariant',
+      heading: 'The wall',
       paragraphs: [
-        'A lock request has two identities: the resource tag and the requested mode. The tag says what is being protected: relation, tuple, transaction id, advisory key, or another resource. The mode says what kind of access is needed. Compatibility between modes decides whether the request joins the granted set or the wait queue.',
-        'The invariant is: a backend may proceed only when its requested mode is compatible with every already granted holder for that lock tag. If not, the backend becomes a concrete waiter behind concrete blockers.',
-        'Once a backend waits, the database can draw a wait-for edge from the waiter to the holder that blocks it. Deadlock detection is cycle detection on those edges. The detector does not need to understand SQL intent or business logic; the graph is enough.',
+        'The wall is cyclic waiting. If transaction A waits for B while B waits for A, patience preserves the deadlock instead of resolving it.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        'In the wait-queues view, follow the path from transaction to manager to lock tag. The important move is the split between the granted holder set and the wait queue. When the matrix appears, read each row as a reminder that PostgreSQL is not deciding lock or no lock; it is deciding compatibility between named modes.',
-        'In the deadlock-cycle view, ignore SQL text and follow only who waits for whom. A single arrow is normal blocking. A closed loop is the proof that no transaction in the loop can move first. The abort node is not a failure of detection; it is the recovery action that removes edges by releasing one participant\'s locks.',
+        'Turn incompatible lock waits into graph edges. A backend may proceed only when its requested mode is compatible with every granted holder on the same lock tag.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'A backend requests a lock by naming a lock tag and mode. PostgreSQL hashes the tag to find the shared lock-table entry. If the mode is compatible with current holders, the lock is granted and the backend continues. If it conflicts, the backend is placed in the wait queue for that tag.',
-        'The waiting backend is not just sleeping. Its wait is observable through pg_locks, pg_stat_activity, and blocker helper functions. That observability matters because lock incidents are usually solved by identifying the holder, the waiter, the mode, and the statement that kept the lock open.',
-        'After a wait lasts long enough, the deadlock detector builds the relevant wait-for graph. A chain is normal: C waits for B, B waits for A, and A may eventually finish. A cycle is different: every participant is waiting for another participant in the same cycle. PostgreSQL breaks the cycle by aborting one transaction with a deadlock error.',
+        'A backend requests a lock by naming a tag and a mode. PostgreSQL checks current holders, grants the lock when compatible, or queues the backend as a waiter and later searches the wait-for graph for cycles.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is graph-based. If the wait-for graph has no cycle, at least one transaction in each finite wait chain is not waiting on a later member of that same chain. Progress is possible when holders finish. If the graph has a cycle, every transaction in the cycle needs another transaction in the cycle to move first. None can be the first mover.',
-        'Aborting one participant releases its locks. That removes edges from the graph and lets another transaction continue. The abort is safe at the database level because the victim transaction is rolled back rather than partially committed.',
-        'This is why application code must treat deadlock errors as retryable only when the surrounding operation is safe to retry. The database can preserve transactional consistency; the application still owns idempotency and user-visible semantics.',
+        'In an acyclic finite wait-for graph, at least one chain has a holder that is not waiting on a later member of the same chain. In a cycle, every participant waits for another participant in the same cycle, so aborting one transaction is the safe way to remove edges.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Lock management is usually cheap compared with the work protected by the lock, but blocking cost can dominate production latency. One transaction holding a strong lock can turn into a queue of idle backends, connection-pool exhaustion, and cascading timeouts.',
-        'Deadlock detection is not free, so PostgreSQL does not run it for every tiny wait immediately. That is why deadlocks appear after a delay rather than at the first conflicting lock request. The practical fix is still application-level: acquire resources in a consistent order, keep transactions short, and retry deadlock errors safely.',
-        'Stronger locks also buy stronger guarantees at the price of concurrency. An AccessExclusiveLock makes DDL simple and safe, but it can block readers and writers. Row-level locking allows finer-grained concurrency, but it can still deadlock when transactions visit rows in inconsistent order.',
+        'Normal lock-table operations are small compared with the statements they protect, but blocking cost can dominate production latency. One long transaction can create 200 waiting sessions, exhaust a connection pool, and push timeouts into unrelated requests.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'The lock manager protects row updates, table-level DDL, transaction-id waits, advisory locks, and internal coordination points. Application teams use the same model to acquire rows in a consistent order and keep transactions short.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It cannot fix bad transaction design. Long transactions, inconsistent row order, DDL on hot paths, missing foreign-key indexes, and service calls made while a transaction stays open can still create painful blocking.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose transaction A updates account 1 and then account 2. At the same time, transaction B updates account 2 and then account 1. A holds the row lock for account 1. B holds the row lock for account 2. When A asks for account 2, it waits for B. When B asks for account 1, it waits for A.',
-        'The wait-for graph now has A -> B and B -> A. There is no schedule in which both continue by waiting. PostgreSQL aborts one transaction, releases its locks, and returns SQLSTATE 40P01 to that client. The other transaction can then finish.',
-        'The durable fix is not to hope the detector is faster. Make both code paths lock accounts in the same order, such as by account id. Then the second transaction waits before holding the conflicting second resource, so the wait graph stays acyclic.',
-      ],
-    },
-    {
-      heading: 'Where it wins and fails',
-      paragraphs: [
-        'The lock manager is the right primitive for protecting database resources that PostgreSQL understands and for exposing wait state through pg_locks and related views. It gives operators a real object to inspect instead of a vague complaint that the database is slow.',
-        'It wins especially well when the conflict is inside PostgreSQL: row updates, relation locks, transaction-id waits, advisory locks, and DDL coordination. It is less helpful when the real dependency is outside the database, such as a service call made while a transaction remains open.',
-        'It does not make a bad transaction design good. Long transactions, inconsistent row order, missing indexes on foreign-key checks, and DDL mixed into hot paths can still create painful blocking. The lock manager can detect and break deadlocks; it cannot decide your business ordering for you.',
+        'Transaction A updates account 1, then tries account 2. Transaction B updates account 2, then tries account 1, so the graph has A -> B and B -> A; PostgreSQL aborts one transaction with SQLSTATE 40P01.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: PostgreSQL explicit locking at https://www.postgresql.org/docs/current/explicit-locking.html and pg_locks at https://www.postgresql.org/docs/current/view-pg-locks.html.',
-        'Study Transaction Isolation Levels for the anomaly model, MVCC Internals & VACUUM for versioned reads, Futex Wait Queue Case Study for another address-keyed wait queue, Distributed Locks for cross-process promises, Idempotency & Exactly-Once Delivery for safe retries, PostgreSQL Advisory Lock Keyspace for application-defined locks, and Transaction Savepoint Stack for partial rollback and lock release.',
+        'Primary sources: PostgreSQL explicit locking at https://www.postgresql.org/docs/current/explicit-locking.html and pg_locks at https://www.postgresql.org/docs/current/view-pg-locks.html. Study Transaction Isolation Levels, MVCC Internals and VACUUM, Futex Wait Queue Case Study, Distributed Locks, Idempotency and Exactly-Once Delivery, PostgreSQL Advisory Lock Keyspace, and Transaction Savepoint Stack next.',
       ],
     },
   ],

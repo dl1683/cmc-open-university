@@ -362,167 +362,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for GenAI Trace Token Cost Ledger. A GenAI observability case study: span trees, model/version fields, token usage, cache hits, tool calls, evaluations, safety verdicts, cost, redaction, and tail sampling..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Read the animation as one request moving through a causal trace. A span is a timed operation inside a trace, a token is a model input or output unit used for billing and context length, and a ledger is the durable row that joins tokens, cost, model choice, cache behavior, tools, and policy decisions.',
+        'Active spans are running now, visited spans have already produced evidence, and found rows are facts that can be queried after the incident. The safe inference rule is that every field used to route, cache, judge, or bill the request must be recorded in a bounded form that can explain the behavior later.',
         {type:"callout", text:"A GenAI incident becomes debuggable only when model routing, retrieval, tools, safety, evaluation, tokens, and cost are captured as one causal trace."},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A normal web trace can say that POST /chat took 1.1 seconds. That is not enough for a GenAI incident. The request may have routed across models, expanded a prompt with retrieval, missed a prompt cache, called tools, retried a tool, streamed an answer, run a judge, passed through safety policy, and produced a billable token row. One opaque HTTP span cannot explain that path.',
-        'A GenAI trace token-cost ledger exists to make the request explainable without replaying production. It should answer why a request was slow, expensive, unsafe, low quality, cache-missed, or routed to the wrong model. It should also do that without dumping private prompts and outputs into telemetry by default.',
+        'A normal web trace might say that POST /chat took 1.1 seconds. That does not explain whether the request used the intended model, missed a prompt cache, called a tool twice, retrieved too many chunks, ran an evaluator, or crossed a safety policy.',
+        'A GenAI trace token-cost ledger exists so teams can debug quality, latency, safety, and spend without replaying production traffic. It turns an opaque model call into a request history with causal order and cost attribution.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first reasonable design is ordinary distributed tracing plus application logs. The gateway span records latency. The model client logs the provider response id and total tokens. The billing system records cost later. The evaluator writes scores to a separate table. Cache behavior may live in model-server logs or not be recorded at all.',
-        'This works while incidents are simple. It breaks when cost, quality, safety, and routing interact. A model rollout changes output length. A prompt template change misses cache. A retrieval expansion increases input tokens. A tool loop causes both latency and spend. If those facts are split across unjoined systems, the team spends the incident reconstructing the request instead of fixing it.',
+        'The obvious approach is ordinary distributed tracing plus a few logs. The gateway records latency, the model client logs a provider id and token total, billing records cost later, and evaluators write scores somewhere else.',
+        'That is enough while incidents are simple. It breaks when a prompt change causes a cache miss, retrieval expands context, a tool retry adds latency, and the judge path adds cost in the same request.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The wall',
       paragraphs: [
-        'A single token total hides the economics. Input tokens, cached input tokens, output tokens, reasoning tokens where exposed, tool schemas, retrieval chunks, and judge calls can have different latency and cost behavior. A total of 8,000 tokens does not say whether the problem was a long prompt, a verbose answer, a cache miss, or a tool loop.',
-        'Raw logging creates the opposite problem. Full prompts, full outputs, tool arguments, tenant identifiers, and evaluator rationales may contain private or regulated data. They are also poor metric labels because they create extreme cardinality. Bad GenAI observability can be both unsafe and hard to query.',
-        'Sampling can hide the traces that matter most. Head sampling decides early, before the system knows whether the request became slow, costly, unsafe, or important to a canary rollout. GenAI failures often live in the tail, so random early dropping can remove the evidence needed for debugging.',
+        'The wall is join failure. If route id, prompt version, model version, cache status, tool calls, safety verdict, evaluator score, and cost live in separate systems, the team reconstructs the request during the incident instead of fixing it.',
+        'Raw content logging creates the opposite failure. Full prompts, tool arguments, outputs, tenant identifiers, and evaluator rationales can leak private data and explode metric cardinality, making telemetry risky and hard to query.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core data structure is a span tree plus a joinable token-cost row. The span tree preserves causality: gateway, router, retrieval, model call, tool call, evaluator, safety policy, cost accounting, and export. The token-cost row preserves economics: model, price id, input tokens, cached input tokens, output tokens, tool overhead, evaluator spend, latency, and accepted-answer state.',
-        'The key invariant is that fields used to change behavior must also be fields used to explain behavior. If the router reads tenant tier, model policy, prompt version, or cache state, the trace should expose a bounded representation of those fields. If a rollout gate can send traffic to model v2, the trace must say which model was requested and which model was served.',
+        'The core data structure is a span tree joined to a token-cost ledger row. The span tree preserves causality, while the ledger row makes economics queryable by model, route, prompt, cache, tool, evaluator, and accepted-answer state.',
+        'The invariant is bounded explainability. Record identifiers, versions, hashes, buckets, and counts that explain behavior; do not make raw private content the default index of the system.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The trace begins at the gateway with a trace id and request class. A routing span records the requested model, served model, route id, policy version, tenant tier, and fallback decision. Retrieval spans record document collection, query hash, chunk count, and retrieval latency. Model spans record provider, model version, prompt hash, input tokens, cached tokens, output tokens, time to first chunk, finish reason, and provider response id where safe.',
-        'Tool spans record tool name, schema version, argument shape, result status, retry count, and latency. Evaluation spans record evaluator version, score bucket, rubric id, and action. Safety spans record policy version, verdict, reason bucket, and enforcement action. A cost span or row joins those pieces into a billable and debuggable record.',
-        'OpenTelemetry GenAI semantic conventions provide a common direction for this telemetry. The registry includes fields for providers, requested and response models, token counts, cached input tokens, time to first token or chunk, and evaluation-related attributes. The conventions also warn that message content can be sensitive. That warning is central, not incidental.',
+        'The gateway creates a trace id and records request class, tenant tier bucket, route id, and release version. A router span records requested model, served model, policy version, fallback reason, and cache-key version.',
+        'Retrieval spans record collection id, query hash, chunk count, and latency. Model spans record provider, model version, prompt-template version, input tokens, cached input tokens, output tokens, time to first token, finish reason, and safe provider response identifiers.',
+        'Tool, safety, evaluation, and cost spans attach to the same trace. The exported ledger row normalizes prices, sums token classes, records cache savings, and keeps redaction and retention policy attached to the evidence.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'A span tree preserves order and parentage. If retrieval expanded the prompt before the model call, the trace shows that. If a tool retry happened after the first model call and before a second judge pass, the trace shows that too. This matters because GenAI incidents are often path-dependent. The answer may be wrong because the wrong document was retrieved, not because the model decoded poorly.',
-        'The token-cost row makes the economics queryable. A team can ask whether cost rose because output length increased, cache hit rate fell, retrieval expanded prompts, or evaluators ran more often. It can compare model versions by cost per accepted answer instead of raw latency alone. It can also connect billing disputes to specific request classes and policy versions.',
-        'Bounded fields make aggregation safe enough to use. Prompt hashes, prompt-template versions, cache-key versions, tenant tiers, model versions, route ids, evaluator versions, and score buckets preserve explainability without turning raw content into high-cardinality labels or privacy leaks.',
+        'The span tree works because parent-child order preserves causality. If retrieval expanded the prompt before the model call, or a tool retry caused a second generation, the trace shows the path that produced the output.',
+        'The ledger works because cost is not one number. Input tokens, cached input tokens, output tokens, tool overhead, and evaluator calls can move independently, so separating them lets the team identify which behavior changed.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Detailed GenAI tracing costs storage, collector CPU, schema work, privacy review, and developer discipline. It can also slow incident response if every service invents its own field names. The answer is not to record everything. The answer is to record the fields that explain behavior in bounded, documented forms.',
-        'The hardest tradeoff is content. Full prompts and outputs are useful during debugging, but they may contain personal data, secrets, customer records, or regulated information. Many systems should store hashes, ids, redacted snippets, or sampled content under policy rather than raw text by default. Content capture should have an owner, a retention rule, and an access model.',
-        'Cardinality is the other tradeoff. Raw tenant ids, prompt text, free-form model strings, tool arguments, and evaluator rationales can make metrics expensive and hard to query. Bucket, hash, normalize, or move those fields into controlled logs instead of high-cardinality span attributes.',
+        'The cost is storage, collector CPU, schema discipline, privacy review, and query design. If one million requests per day each emit 12 spans, the system stores 12 million span records before sampling or retention rules reduce them.',
+        'Cost behaves with cardinality. Adding a bounded model_version field is cheap to aggregate, while adding raw prompt text as a metric label can make queries expensive and unsafe. Tail sampling keeps high-latency, high-token, error, canary, and safety-denied traces while sampling ordinary successes lightly.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'This pattern wins for agent cost spikes, model rollout regressions, cache misses, tool-call loops, safety denies, evaluator drift, tenant policy disputes, and billing investigations. It is strongest when product teams need to join quality, latency, cost, and release state for the same request.',
-        'A coding assistant example shows the value. The ordinary trace says the request took 1.1 seconds. The GenAI ledger says model v2 was selected by a canary route, the prompt hash missed cache because the tool schema version changed, retrieval returned 18 chunks, the formatter tool retried once, the judge ran twice, and the final answer was accepted. The fix points to prompt-layout and tool-schema rollout, not a vague complaint about model speed.',
-        'A support bot example is similar. A cost spike appears after a policy update. The ledger shows that output tokens did not increase, but safety denials triggered a second generation for a specific customer tier. The relevant owner is the safety policy rollout, not the model-serving team.',
+        'This pattern fits model rollout regressions, agent cost spikes, prompt-cache misses, tool loops, safety denials, evaluator drift, tenant disputes, and billing investigations. It is strongest when the same request needs to be understood across product, model, infrastructure, and finance boundaries.',
+        'It also supports release discipline. A canary route can be compared against control traffic by cost per accepted answer, cache-hit rate, safety action rate, and evaluator score bucket rather than by average latency alone.',
       ],
     },
     {
-      heading: 'Where it fails (2)',
+      heading: 'Where it fails',
       paragraphs: [
-        'The pattern fails when teams dump full prompts and outputs into always-on spans, use raw tenant ids or prompt text as labels, aggregate cost without model and cache context, or let evaluator rationales and tool arguments bypass redaction. Those choices create risk without reliable insight.',
-        'It also fails when the trace schema is not tied to behavior. Recording a model name is not enough if the route id, prompt version, cache-key version, and policy version are missing. Recording token totals is not enough if cached tokens and evaluator spend are invisible. The ledger must match the decisions the system actually makes.',
-        'Finally, it fails when sampling policy drops every rare failure. Random samples are useful for baseline traffic, but expensive GenAI incidents often live in long prompts, canaries, safety denies, tool loops, and high-cost agents. Tail sampling or policy sampling is necessary to keep those traces whole.',
-      ],
-    },
-    {
-      heading: 'Tail sampling and retention',
-      paragraphs: [
-        'Tail sampling waits until the trace has enough shape to decide whether to keep it. A policy can retain traces with high latency, high token count, errors, safety denies, low evaluator scores, canary model versions, or expensive tool loops. Ordinary successful traces can be sampled lightly. This preserves debugging value without storing everything.',
-        'Retention should follow risk and utility. A high-level token-cost row may be kept longer for billing and trend analysis. Redacted spans may be kept for operational debugging. Raw content, if captured at all, should have stricter access and shorter retention. The goal is to keep evidence, not to build an accidental prompt warehouse.',
+        'The pattern fails when teams log everything as raw text. That creates privacy risk, retention risk, high-cardinality metrics, and noisy traces that are hard to search during an incident.',
+        'It also fails when the schema does not match behavior. Recording a model name is not enough if route id, prompt version, cache-key version, retrieval chunk count, tool retry count, and evaluator spend are missing.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Imagine an agentic research product with a sudden cost increase. The old dashboard shows request count is stable and median latency is only slightly higher. Without a ledger, the team argues about whether the model got slower, users submitted longer prompts, or retrieval expanded context.',
-        'The GenAI trace ledger answers the question directly. It shows that a canary route moved 20 percent of traffic to a larger model, prompt cache hit rate dropped because the system prompt version changed, and evaluator retries doubled for one task class. Output tokens stayed mostly flat, but cached input savings disappeared and judge spend rose. The incident is a rollout and cache-key problem, not organic usage growth.',
-        'The fix is also measurable. The team reverts the prompt version for that route, restores cache-key compatibility, and tightens the evaluator retry policy. The next ledger slice shows recovered cache hits, lower judge calls, lower p99, and stable quality scores. That is what the trace token-cost ledger is for: turning a vague AI cost story into a queryable system diagnosis.',
+        'Suppose a support agent handles 10,000 requests per day and average cost jumps from 0.8 cents to 1.4 cents. Request count is flat, so the old dashboard cannot tell whether users asked longer questions or the system changed.',
+        'The ledger shows input tokens rose from 2,000 to 3,200, cached input tokens fell from 1,400 to 200, output tokens stayed near 500, and judge calls rose from 1.0 to 1.6 per request. The cause is a prompt-template version that broke cache compatibility plus an evaluator retry policy, not organic demand growth.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary references include the OpenTelemetry GenAI semantic-convention registry at https://github.com/open-telemetry/semantic-conventions/blob/main/docs/registry/attributes/gen-ai.md and the OpenTelemetry GenAI events documentation at https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-events/. Use them as a schema starting point, then adapt field retention and redaction to the product risk model.',
-        'Study distributed tracing, trace context propagation, the OpenTelemetry Collector, tail sampling, metric exemplars, PII redaction pipelines, model rollout ledgers, prompt cache-key canonicalization, response-cache safety, serving admission control, LLM unit economics, and AI audit evidence packets. The larger lesson is that AI observability is not separate from systems observability. It is distributed tracing with model, token, cache, evaluation, safety, and cost fields made first-class.',
+        'Study OpenTelemetry tracing, trace context propagation, semantic conventions for GenAI telemetry, collector processors, tail sampling, and metric exemplars. Use official OpenTelemetry documentation as the schema starting point, then apply local privacy and retention rules.',
+        'Next study prompt-cache key design, model rollout ledgers, redaction pipelines, LLM unit economics, evaluator reliability, and audit evidence packets. The larger lesson is that AI observability is distributed tracing with model, token, cache, tool, safety, evaluation, and cost fields made first-class.',
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why GenAI Trace Token Cost Ledger moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

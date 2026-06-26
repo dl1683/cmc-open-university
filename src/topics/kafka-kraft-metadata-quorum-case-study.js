@@ -197,75 +197,42 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why KRaft exists',
-      paragraphs: [
-        'Kafka began with a split control plane. User records lived in Kafka logs on brokers, but cluster metadata lived in ZooKeeper. ZooKeeper tracked brokers, topics, partition leadership, configs, and coordination state. This worked for many years, but it meant operators had to run two distributed systems with different data models, tooling, scaling limits, and failure modes. Kafka could be healthy while ZooKeeper was unhealthy, and ZooKeeper problems could still stop Kafka control-plane progress.',
-        'KRaft exists to bring Kafka metadata into Kafka itself. In KRaft mode, a self-managed controller quorum stores cluster metadata in a replicated log. That shift removes the external ZooKeeper dependency and makes metadata follow Kafka-style principles: append records, replicate them, commit them through a quorum, replay them into an image, and use snapshots to bound recovery. The important lesson is not only that one dependency disappears. The deeper lesson is that the control plane becomes a log-structured distributed system.',
-        {type:'callout', text:'KRaft turns Kafka metadata into an ordered replicated log so every controller and broker can rebuild the same cluster image from committed records.'},
-      ],
-    },
-    {
-      heading: 'The naive approach and why it fails',
-      paragraphs: [
-        'The naive approach is to let each broker maintain cluster metadata locally and exchange updates directly. That fails because metadata needs a single ordered history. Topic creation, partition reassignment, ISR changes, broker fencing, and config updates cannot be applied in different orders by different brokers. If two controllers or brokers make conflicting decisions, clients may route to stale leaders, partitions may appear with different assignments, and failure recovery becomes guesswork.',
-        'Another naive approach is to keep using an external coordination store forever. That solves ordering, but it leaves Kafka dependent on a second system for its own identity and routing. Operators must scale, secure, back up, monitor, and upgrade ZooKeeper separately. Kafka features also have to bridge two models: Kafka logs for data and ZooKeeper znodes and watches for metadata. KRaft replaces that split with one internal metadata log and a controller quorum responsible for ordering.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'The core insight is that metadata is data. A topic creation request, broker registration, config change, partition leadership update, ISR change, or fencing decision can be represented as a record. Those records can be placed in one ordered metadata log. The active controller appends records. Controller voters replicate them. Once a record is committed, it becomes part of the authoritative cluster image. Brokers then consume the metadata log and apply the records locally.',
-        'This makes the metadata plane resemble the data plane. Kafka already depends on ordered logs, replication, offsets, high watermarks, and replay. KRaft applies the same shape to the cluster brain. The metadata log is not a user topic in the normal sense, but it has the same conceptual discipline: append-only history, quorum durability, local replay, and snapshots for compaction. That gives Kafka a native way to reason about controller failover and broker metadata consistency.',
-      ],
-    },
-    {
-      heading: 'How the system works',
-      paragraphs: [
-        'A KRaft cluster has controller voters. One controller is active at a time, and the others follow the metadata log. When an admin client creates a topic, changes a config, or when the cluster needs a partition leadership change, the active controller writes metadata records. Those records replicate to the controller quorum. The committed portion of the log is the source of truth. A standby controller that becomes leader must continue from committed metadata state, not from private local state.',
-        'Brokers fetch metadata records and apply them to a local metadata image. That image tells a broker which topics exist, which partitions it hosts, who the leaders are, which brokers are registered, which configs apply, and which epochs are current. Snapshots keep recovery bounded. Instead of replaying the entire metadata log from the beginning, a broker or controller can load a recent snapshot and replay only later records. This is the familiar checkpoint plus write-ahead-log pattern applied to Kafka metadata.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The metadata-log visual is proving that cluster state changes are serialized. The admin request goes to the active controller, but the durable object is the metadata log. Standby controllers do not invent their own state; they replicate the same log. Brokers do not depend on scattered watches; they fetch and apply records. The snapshot node proves that replay cost is managed by checkpoints rather than by trusting an unbounded log to stay cheap forever.',
-        'The controller-failover visual is proving the safety rule. Only one controller should act as the active controller for a given epoch, and it must have quorum authority. The failover timeline shows why this matters: after a leader disappears, the cluster must elect a new controller that can continue from committed state. If a controller cannot prove quorum authority, it must not create metadata. That is how KRaft avoids split-brain control-plane decisions.',
-      ],
-    },
-    {
-      heading: 'Why the design works',
-      paragraphs: [
-        'The design works because an ordered log is a good fit for metadata evolution. Most cluster metadata changes are small, discrete events. They need ordering more than raw throughput. If every broker applies the same committed records in the same order, brokers can build compatible local views. That does not mean every broker is caught up at every instant, but it gives the system a clear source of truth and a clear way to catch up.',
-        'Quorum replication gives the active controller durability and failover safety. A metadata update is not authoritative merely because one process wrote it to disk. It becomes authoritative when the quorum commits it. That matters during controller crashes and network partitions. The new controller can use the committed log and epochs to decide what state is valid. Snapshots make the design practical by reducing startup and catch-up time.',
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        'KRaft removes ZooKeeper operations, but it does not remove control-plane operations. Controller voter count, disk latency, network health, log replication lag, high watermark progress, snapshot generation, and process roles now matter inside Kafka. A slow metadata quorum can block topic creation, partition reassignment, broker registration, leader election, and failover. The metadata log is smaller than user data logs, but its blast radius is larger because every broker depends on it.',
-        'There is also a placement tradeoff. Combined broker-controller nodes are simpler for small clusters, but data-plane load and control-plane health can affect the same machines. Dedicated controllers reduce that coupling, but they add nodes and require their own monitoring. Migration from ZooKeeper mode is another cost: operators need a careful plan for metadata migration, rollback rules, client compatibility, and observability during the transition.',
-      ],
-    },
-    {
-      heading: 'Real uses',
-      paragraphs: [
-        'Consider topic creation. An admin creates orders.v2 with a replication factor and partition count. The active controller appends records for the topic id, partition assignments, configs, and initial leaders. The controller quorum replicates and commits those records. Brokers fetch the new metadata, update local images, and begin serving the partitions they own. Clients refresh metadata and route produce or fetch requests to the correct leaders. The cluster changed because the metadata log changed.',
-        'Now consider broker failure. The controller observes that a broker is gone or fenced. It appends records that update partition leadership and in-sync replica state. Brokers apply those records, and clients eventually refresh their routing. The same pattern handles config changes, partition reassignments, broker registrations, and fencing. The practical benefit is one authoritative control-plane history instead of a mix of ZooKeeper watches, broker-local state, and controller memory.',
-      ],
-    },
-    {
-      heading: 'Failure modes and limits',
-      paragraphs: [
-        'The main failure mode is quorum unavailability. If too many controller voters are down or partitioned, the cluster may keep serving some existing data paths, but metadata changes cannot safely commit. That can block new topics, reassignments, leadership changes, and recovery actions. Another failure mode is controller lag. A standby that is far behind may take longer to become useful after failover, and brokers that lag in applying metadata may have stale local images.',
-        'KRaft also does not eliminate bad operations. Misconfigured roles, underprovisioned controller disks, slow snapshots, unstable networks, and careless migration planning can still break the cluster. The phrase Kafka without ZooKeeper is accurate but incomplete. The real operating question is whether the metadata quorum is healthy, whether committed state is progressing, whether snapshots bound replay, and whether brokers are applying metadata promptly.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Read the Apache Kafka KRaft documentation, KIP-500, and Kafka monitoring guidance for KRaft controller metrics. Then study Kafka Log Case Study, Raft Log Replication, Quorums, Write-Ahead Log, ZooKeeper Zab Case Study, Leader Election, Snapshot Compaction, Kafka Transactions and Exactly-Once Case Study, and Control Plane versus Data Plane. The durable lesson is that a distributed system usually has two data problems: user data and the metadata that tells every node what that user data means.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read metadata-log as the cluster brain becoming an ordered log. The active controller writes metadata records, controller voters replicate them, brokers fetch them, and each broker builds a local metadata image. Snapshots are checkpoints that bound replay work.',
+      {type:'callout', text:'KRaft turns Kafka metadata into an ordered replicated log so every controller and broker can rebuild the same cluster image from committed records.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Kafka originally stored user records in broker logs but stored cluster metadata in ZooKeeper. Metadata means broker registrations, topic ids, partition leaders, replica sets, in-sync replicas, and configs. KRaft exists to move that metadata into Kafka-native replicated-log machinery.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to let each broker keep local metadata and exchange updates. That fails because metadata needs one ordered history. If brokers apply topic creation and leadership changes in different orders, they build incompatible clusters.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is conflicting authority during failure. Two controllers must not both decide partition leadership. A new controller must continue from committed state, not private memory. That requires a quorum-backed metadata log.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Metadata is data. Topic creation, broker registration, partition reassignment, config updates, and fencing decisions can be records in one ordered log. Controllers commit those records through a quorum, and brokers replay them into the same cluster image.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'A KRaft cluster has controller voters and one active controller. The active controller appends metadata records, voters replicate them, and committed records become authoritative. Brokers and standby controllers fetch the log, apply records locally, and load snapshots to avoid replaying from the beginning.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'Correctness comes from ordered replay and quorum commitment. If nodes apply the same committed metadata records in the same order, they derive the same metadata image. A controller without quorum authority cannot safely invent cluster state, so split-brain metadata decisions are blocked.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'KRaft removes ZooKeeper but makes controller quorum health part of Kafka operations. With 3 controller voters, the cluster can lose 1 voter and still commit with a majority of 2. With 5 voters, it can lose 2, but each metadata change has a larger coordination path.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Topic creation records topic id, partition assignment, configs, and initial leaders in the metadata log. Broker failure records leadership and in-sync replica changes in the same history. Clients route correctly because brokers eventually apply the committed metadata image.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'KRaft fails when the controller quorum is unavailable. Existing data traffic may continue in some cases, but metadata changes such as topic creation, reassignments, and leader elections cannot safely commit. Slow controller disks, lagging voters, bad snapshots, and weak migration planning still matter.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A 3-voter quorum has C1 active, with C2 and C3 following. C1 appends record 120 to create topic orders, and C2 replicates it, so a majority commits it. If C1 then crashes after writing private record 121 only to itself, C2 can win leadership and continue from committed record 120, not from C1 private state.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Kafka KRaft docs at https://kafka.apache.org/documentation/#kraft, KIP-500 at https://cwiki.apache.org/confluence/display/KAFKA/KIP-500%3A+Replace+ZooKeeper+with+a+Self-Managed+Metadata+Quorum, Kafka design docs at https://kafka.apache.org/43/design/design/, and Raft at https://raft.github.io/raft.pdf. Study Kafka Log, Raft, Quorums, Leader Election, Snapshots, WAL, ZooKeeper Zab, and Control Plane versus Data Plane next.',
+    ] },
   ],
 };

@@ -248,114 +248,90 @@ const legacyArticle = {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a workflow over evidence, not as a chat transcript. Active nodes are the current research phase, found nodes are artifacts that survive inspection, and blocked nodes are claims that lack support or conflict with another source. A source is any document, page, dataset, or file that can support or weaken a claim.',
+        'The safe inference rule is claim first, prose second. A final sentence is trustworthy only when the system can point to the source record, extracted claim, freshness label, and contradiction state that produced it. If that path is missing, the sentence is unsupported no matter how fluent it sounds.',
+        {type:'callout', text:'A deep research agent is trustworthy only when claims, sources, contradictions, freshness, and synthesis state are first-class artifacts rather than hidden prompt context.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Deep research agents exist because serious research tasks are not one prompt and one answer. They involve source discovery, query reformulation, reading, extraction, contradiction tracking, synthesis, citation support, freshness checks, and final writing.',
-        'The architecture matters because a fluent answer can be wrong in many ways: weak sources, stale facts, unsupported claims, hidden contradictions, shallow search, or no audit trail. A research agent needs a workflow that makes evidence and uncertainty visible.',
-        {type:'callout', text:'A deep research agent is trustworthy only when claims, sources, contradictions, freshness, and synthesis state are first-class artifacts rather than hidden prompt context.'},
+        'A deep research agent handles tasks that require more than one answer pass. It must search, read, extract facts, compare sources, track uncertainty, run tools when needed, and write a synthesis. The hard part is not producing text; it is preserving the evidence path while the task changes.',
+        'A zero-background reader should separate retrieval from research. Retrieval finds candidate material. Research decides which sources are authoritative, which claims matter, which facts are stale, and where disagreement changes the answer.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is a single long prompt: ask the model to search, reason, and write. That can produce a good-looking report, but it collapses planning, retrieval, evidence review, and synthesis into one opaque step.',
-        'Another tempting approach is a fixed search checklist. Search five queries, read five pages, write a summary. That is more disciplined, but it still fails when the question changes during reading. Research needs adaptive branching based on what has been found.',
+        'The obvious approach is one large prompt. Ask the model to search, think, and write a report. This can work on simple tasks because the model can hold the question, a few facts, and the final prose in one context.',
+        'The next obvious approach is a fixed checklist. Search five queries, open five pages, summarize each, and write a conclusion. This adds discipline, but it still assumes the right questions are known before the reading starts.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'A deep research agent should be structured as a state machine over evidence. The unit of progress is not tokens written; it is claims supported, sources evaluated, contradictions resolved, and gaps identified.',
-        'The system should separate roles: planner, searcher, reader, extractor, verifier, synthesizer, and editor. These can be separate agents or separate phases, but the artifacts should be distinct so quality can be audited.',
+        'The wall is that research changes the question. A source introduces better terms, reveals a missing actor, contradicts an earlier premise, or shows that a number is stale. A fixed prompt or fixed checklist has no durable place to store that change and route the work back through the plan.',
+        'The second wall is auditability. A fluent report can hide weak sources, circular citations, missing files, and unsupported claims. If the evidence lives only in hidden prompt context, a reviewer cannot tell whether the answer came from research or from plausible synthesis.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Treat deep research as a state machine over evidence artifacts. The main states are planning, searching, reading, extracting, verifying, synthesizing, and editing. Progress means better claim support, not more tokens.',
+        'The architecture should store sources, claim cards, contradiction records, freshness labels, open questions, and synthesis notes separately. Those records can be owned by one agent or many agents. The important boundary is that final prose cannot outrun the evidence ledger.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The planner turns the user question into subquestions, expected evidence types, freshness requirements, and acceptance criteria. Search workers gather candidate sources. Readers extract claims, numbers, dates, definitions, methods, and caveats into structured notes.',
-        'A verifier checks whether important claims have support, whether sources disagree, whether dates are current, and whether the answer overstates evidence. The synthesizer then builds a narrative from supported claims rather than from raw search results.',
-        'The final editor removes scaffolding, repetition, and unsupported hedging. The best output reads like a clear article or report, but underneath it there should be a trace from each claim to evidence.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The pipeline view proves that research is not retrieval alone. Search finds candidates. Reading extracts evidence. Verification tests support. Synthesis organizes meaning. Each step has its own failure modes.',
-        'The evidence-board view proves why structured notes matter. A raw pile of links is not knowledge. The agent needs claim records, source records, contradiction records, freshness labels, and open questions to avoid losing important context.',
+        'The planner turns the user request into subquestions, expected evidence types, source constraints, freshness rules, and stopping conditions. Search workers gather candidate sources, but source discovery is provisional until reading verifies relevance and authority. Readers extract facts, numbers, dates, definitions, methods, and caveats into structured notes.',
+        'The verifier checks support coverage, source quality, contradictions, and stale facts. It can send the workflow back to search when an important claim is unsupported or disputed. The synthesizer then builds the answer from supported claim cards rather than from raw links.',
+        'The editor removes scaffolding and makes the report readable without deleting uncertainty. Good editing is part of the system because evidence that is technically present but buried in rambling prose still fails the user. The final answer should be clear, cited, and inspectable.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The architecture works because it makes intermediate uncertainty explicit. A weak source can be downgraded. A contradiction can be carried forward instead of smoothed over. A missing source can block a claim before it becomes polished prose.',
-        'It also works because research is iterative. Early sources reveal new terminology, important actors, better queries, and hidden assumptions. A stateful architecture can revise its plan as the evidence changes.',
+        'The correctness argument is an invariant. Every material claim in the final output must be backed by at least one source record or explicitly marked as inference. Every contradiction must be resolved, scoped, or preserved as uncertainty.',
+        'The workflow works because it creates feedback loops. Reading can update the plan, verification can reopen search, and synthesis can expose missing support. A single prompt tends to move one way from input to answer, while a research architecture can revise state as evidence changes.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Deep research is slower and more expensive than direct answering. It spends calls on search, reading, extraction, verification, and revision. That cost is justified only when accuracy, provenance, freshness, or depth matter.',
-        'The tradeoff is complexity. More agents can improve coverage but also create coordination overhead, duplicate reading, inconsistent notes, and synthesis drift. The architecture needs schemas and ownership boundaries, not just more parallelism.',
+        'Deep research spends more calls, latency, and tokens than direct answering. If a task reads 40 sources at 2,000 tokens each, extraction alone can consume about 80,000 input tokens before synthesis. The cost is justified when the answer depends on provenance, freshness, contradiction handling, or careful comparison.',
+        'More agents also create coordination cost. Parallel search can duplicate work, readers can extract inconsistent schemas, and a lead synthesizer can lose minority evidence. The system needs stable artifact schemas and ownership rules, not just more parallelism.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'This pattern wins for market reports, technical landscape reviews, policy analysis, literature surveys, due diligence, benchmark audits, legal research support, and any topic where the answer depends on current sources and careful synthesis.',
-        'It is also useful inside product teams. A research agent can map competitor features, summarize incident histories, compare architecture options, or build a curriculum if it preserves evidence and turns findings into teachable structure.',
+        'This architecture fits market reports, technical due diligence, policy analysis, literature surveys, benchmark audits, incident retrospectives, legal research support, and competitive intelligence. These tasks need current sources, source quality judgments, and a final argument that can be defended. The access pattern is broad search followed by selective deep reading.',
+        'It is also useful inside engineering teams. An agent can compare architecture options, review dependency risks, summarize incident histories, or build a curriculum. The output is valuable only if the team can inspect which evidence changed the recommendation.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first failure is source laundering. The final answer sounds confident, but the underlying sources are weak, circular, promotional, or stale. The fix is source grading and claim-level citation discipline.',
-        'The second failure is shallow breadth. An agent can visit many pages while learning little. Reading quality matters more than link count. Extracted notes should capture why a source matters, not only that it was opened.',
-        'A third failure is synthesis without contradiction handling. If two good sources disagree, the answer should explain the disagreement or scope the claim. Hiding conflicts makes the report easier to read and less trustworthy.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Store sources, claims, quotes, dates, and confidence separately. Require every important claim to point to source evidence. Track open questions explicitly so the agent can decide whether to search more or state a limitation.',
-        'Use freshness rules by domain. A math definition may be stable. A company pricing page, model leaderboard, legal rule, or API version may not be. The research plan should say which facts require current verification.',
-        'Evaluate the final output against the user question, source support, missed counterarguments, unnecessary length, and readability. A research agent is not done when it has gathered enough text; it is done when the answer teaches the issue clearly and defensibly.',
+        'The first failure is source laundering. Weak, promotional, circular, or stale sources get turned into confident prose. A source-grade field and claim-level citations reduce that failure but do not remove the need for review.',
+        'The second failure is breadth without reading. An agent can open many pages and extract almost nothing useful. The evidence ledger should show why each source matters, which claim it supports, and which claims it failed to support.',
+        'The third failure is synthesis drift. The final report can smooth over contradictions because conflict makes writing harder. A serious system keeps contradiction records visible until they are resolved or stated as limits.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'For a technical market report, the agent might begin with subquestions: market size, buyer pain, technical architecture, incumbent products, adoption barriers, pricing, regulation, and open questions. Each subquestion gets its own source needs and freshness threshold.',
-        'Search then produces candidate sources: company docs, standards, benchmark papers, customer case studies, financial filings, and independent analysis. The reader extracts claims into cards: who said it, when, what evidence supports it, and what it implies.',
-        'The final article should not simply summarize sources in order. It should teach the market structure: why the problem exists, why now, what changed technically, who benefits, what can fail, and which claims remain uncertain.',
+        'Suppose the user asks for a 2026 technical market report on accelerator portability. The planner creates subquestions for buyer pain, current hardware options, software stack risk, benchmark evidence, migration cost, and procurement constraints. It marks pricing and product support as freshness-sensitive because those facts can change quickly.',
+        'Search returns 60 candidate sources. The reader promotes 18 into the source ledger: 5 vendor docs, 4 framework docs, 3 benchmark reports, 3 customer case studies, and 3 independent analyses. The extractor creates 75 claim cards, including 12 cost claims, 18 compatibility claims, and 7 contradictions about performance portability.',
+        'The verifier finds that one key latency claim comes only from a vendor blog and asks for an independent source or a narrower wording. The final report states the supported claim, scopes the weak claim, and cites the artifact trail. The cost is higher than a quick answer, but the reader can inspect the chain.',
       ],
     },
     {
-      heading: 'How to judge quality',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A good research agent is measured by supported insight, not by volume. More citations do not help if they all support obvious claims. The agent should find the few sources that change the answer and explain why they matter.',
-        'The writing should also compress rather than sprawl. If the evidence is complex, the structure should make it easier for the reader: definitions before disputes, mechanisms before implications, and caveats near the claims they limit.',
-        'The strongest agents leave an audit trail that another person can inspect. They do not require blind trust in the final prose. Claims, source quality, and unresolved uncertainty remain visible behind the article.',
-      ],
-    },
-    {
-      heading: 'What to watch in production',
-      paragraphs: [
-        'The main production risk is silent degradation. A search API changes, a source disappears, a model becomes more verbose, or a scraper starts returning boilerplate. The final report may still look polished while the evidence pipeline has weakened.',
-        'Track source diversity, rejected-source reasons, claim coverage, unresolved contradictions, freshness debt, and how often a human reviewer changes the conclusion. These are better health signals than token volume or number of pages visited.',
-        'The writing system should be part of the architecture. If the agent collects evidence well but writes in stiff generic summaries, the user still loses. The final article should teach mechanisms, name uncertainty, and remove work for the reader without hiding the trail that produced the claim.',
-      ],
-    },
-    {
-      heading: 'Common misconception',
-      paragraphs: [
-        'The misconception is that deep research means longer answers. Length is only a side effect. The real product is a better map of the question: which terms matter, which mechanisms drive the answer, which sources are reliable, which claims are weak, and what a reader should do with the information.',
-        'This is why the architecture needs both retrieval discipline and editorial discipline. Without retrieval discipline, the article is unsupported. Without editorial discipline, the supported material still wastes the reader time.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Blackboard Architecture, Multi-Agent Orchestration Topologies, Claim Graph Source Ledger, RAG Evaluation, Cross-Encoder Reranker, Web Search Query Expansion, and Writing Simplicity. A useful exercise is to turn one research question into claim cards before writing any prose.',
+        'Study claim graphs, source ledgers, retrieval-augmented generation, cross-encoder reranking, query expansion, blackboard architecture, workflow engines, provenance DAGs, and writing systems for technical synthesis. For research-agent context, read WebGPT at https://arxiv.org/abs/2112.09332, STORM at https://arxiv.org/abs/2402.14207, and GAIA at https://arxiv.org/abs/2311.12983.',
       ],
     },
   ],

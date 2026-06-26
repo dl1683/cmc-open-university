@@ -183,101 +183,17 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A mobile robot does not navigate with point geometry. It has a footprint, localization error, controller lag, wheel slip, sensor delay, and physical inertia. A grid cell that is technically free may still be a bad place to drive if the robot body would scrape a wall, clip a table leg, or leave no margin for tracking error.',
-        'A planner that treats the world as only blocked or free can produce paths that pass one cell away from lethal obstacles. Those paths look legal in the occupancy grid and unsafe in the hallway. The costmap inflation layer exists to turn obstacle evidence into a clearance field so path search can prefer routes with usable space.',
-        {type:'callout', text:'Inflation turns obstacle evidence into a clearance cost field, so path search can prefer safer space before final collision checks.'},
-        'Nav2 costmaps are layered 2D grids used by planner and controller servers. Static maps, obstacle observations, voxel or range data, keepout filters, and inflation all contribute to the master costmap. Inflation is the layer that says how costly it should be to drive near cells already considered dangerous.',
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The reasonable first design is binary occupancy. A cell is free, unknown, or occupied. The planner avoids occupied cells and searches through free cells. This is enough to teach grid search, and it can work in open spaces where obstacles are far apart and the robot footprint is small relative to cell size.',
-        'The next reasonable improvement is to check the footprint only at candidate poses. If the pose is collision-free, keep it. If the footprint overlaps an obstacle, reject it. That catches direct collision and still lets the planner use an ordinary grid or lattice.',
-        'The wall is that collision checking alone does not encode preference. Two paths can both be collision-free while one leaves 2 centimeters of clearance and the other leaves 40 centimeters. The first path may fail under localization noise, controller overshoot, or a person moving slightly into the route. The planner needs a graded cost before the final collision check.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Inflation is not new obstacle evidence. It is policy around known obstacles. The obstacle layer says which cells are lethal. The inflation layer spreads a decaying cost outward from those cells so the planner pays more to travel close to danger and less to travel farther away.',
-        'That separation is the important data-structure boundary. Perception layers mark and clear evidence. Inflation transforms that evidence into a cost field. Planners and controllers then optimize over the master grid, where clearance is represented as cost instead of as a separate afterthought.',
-        'Nav2 documents the inflation layer as an exponential decay around obstacles, with lethal cost around obstacles within the robot fully inscribed radius. In practical terms, the footprint defines what is physically unsafe, the inflation radius defines how far clearance preference extends, and the cost scaling factor defines how quickly that preference fades.',
-      ],
-    },
-    {
-      heading: 'How the layer works',
-      paragraphs: [
-        'Obstacle sources mark lethal cells in the costmap. The inflation layer scans those lethal cells and assigns costs to neighboring cells within the configured inflation radius. Cells very near an obstacle receive high costs. Cells farther away receive lower costs until the cost decays back toward ordinary free space.',
-        'Implementations usually precompute distance-to-cost values for cell offsets inside the inflation radius. That avoids recomputing the same distance curve for every obstacle on every update. The layer can then propagate cached costs around lethal cells and merge them into the master grid according to the configured layer rules.',
-        'Global and local costmaps use the same idea with different operating constraints. A global costmap may cover the full map and update more slowly. A local costmap often rolls with the robot, incorporates live sensor clearing and marking, and must stay fresh enough for the controller. Both need the same footprint semantics or the global plan and local behavior will disagree.',
-        'Layer ordering matters. Static map walls, live obstacles, clearing rays, keepout zones, semantic filters, and inflation do different jobs. A later layer may overwrite, max-merge, or reinterpret earlier values depending on configuration. The final cell color is only the visible result; the debugging question is which layer produced it and when.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The inflation-field view shows distance becoming policy. The occupied cell is the obstacle evidence. The high-cost ring says the robot body or inscribed radius is too close for comfort. The lower-cost outer ring says the route is possible but still less attractive than a path with more clearance.',
-        'The decay curve shows why tuning is sensitive. A large inflation radius with a slow decay can make narrow corridors look expensive or blocked. A small radius with a fast decay can let paths hug walls. The parameters do not merely change a display; they change the objective that search algorithms optimize.',
-        'The layer-stack view shows provenance. A bad path may come from stale obstacle marks, a wrong frame transform, a static map error, a keepout filter, a footprint mismatch, or the inflation curve. Looking only at the final grid hides the cause. A replayable debug packet needs topics, timestamps, frames, layer settings, and the footprint used at the time.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Inflation works because graph search and trajectory scoring can trade distance against cost. A planner that minimizes path length plus cost will avoid inflated cells when a reasonable alternative exists. Clearance becomes part of route selection before the controller is asked to track the path.',
-        'The correctness argument is an engineering invariant, not a proof that every future motion is safe. If the costmap geometry is current, the robot footprint is accurate, and the planner respects costs, then cells near obstacles are consistently less attractive than cells farther away. The search process therefore has a local reason to prefer clearance.',
-        'The invariant depends on consistent frames and time. The obstacle observation, map frame, robot base frame, footprint, and costmap timestamp must describe the same world. If a lidar point is transformed with stale TF data or an old obstacle is not cleared, inflation will build a polished cost field around wrong evidence.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Inflation cost grows with the number of cells that must be updated and with the radius measured in cells. A 1 meter inflation radius is more expensive on a 2 centimeter grid than on a 10 centimeter grid because it covers many more offsets. Resolution is a hidden multiplier for both update work and planning work.',
-        'Obstacle density also matters. A map with many lethal cells creates many overlapping inflation neighborhoods. Caching distance and cost values helps, but the layer still has to update the affected region. Local rolling windows keep the active area smaller, but they update frequently and have tighter latency budgets.',
-        'Behavior changes are often nonlinear. Increasing inflation radius slightly may close a narrow doorway in the cost field. Lowering cost scaling may cause a planner to center itself in corridors. Raising it may make the robot more willing to squeeze through expensive cells. The correct setting depends on footprint, localization quality, controller tracking error, map resolution, and the planner cost model.',
-      ],
-    },
-    {
-      heading: 'Tuning and operations',
-      paragraphs: [
-        'Tune inflation with a concrete behavior target. If the robot hugs walls, check whether the inflation radius is too small, the cost decays too quickly, the planner underweights cost, or the footprint is smaller than the real robot. If the robot refuses a physically passable corridor, check whether the inflated fields overlap too strongly or whether map resolution has made the corridor narrower than reality.',
-        'Debug from evidence, not screenshots. Store the costmap topic, raw obstacle topics, TF frames, timestamps, footprint parameters, inflation parameters, planner settings, and local/global costmap windows. A screenshot of a final costmap can show the symptom, but it cannot tell whether the robot routed around a live person, a stale ghost, or an old static-map wall.',
-        'Treat clearing as part of inflation quality. A smooth gradient around an obstacle is only useful if the obstacle still exists. Sensor clearing rays, observation persistence, transform latency, and rolling-window bounds decide whether the inflation field represents the current world or a memory of a past scan.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Inflation is strong for classical navigation in offices, warehouses, hospitals, homes, labs, and other spaces where obstacles can be represented as grid costs and where clearance is a useful proxy for safety. It gives A*, Smac planners, DWB-style controllers, and other cost-aware components a shared language for obstacle proximity.',
-        'It also wins as a teaching and debugging surface. When a robot chooses the center of a corridor, hugs a shelf, rejects a doorway, jitters near a table, or routes around a sensor ghost, the inflated field often explains the behavior faster than planner code does.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Inflation fails when the underlying obstacle evidence is stale, misframed, or semantically incomplete. A doorway, a person, a chair, a glass wall, a temporary pallet, and a keepout zone may all appear as costs unless other layers add meaning. A social-navigation system may need different behavior around humans than around walls even when the geometry looks similar.',
-        'It also fails as the only safety mechanism. Inflation biases path search; it does not model dynamics, stopping distance, actuator limits, moving obstacles, or future human motion. Collision checking, velocity limits, controller constraints, recovery behavior, and fresh perception remain necessary.',
-        'Overtuning is a common failure. Teams sometimes lower inflation until the robot squeezes through a demo corridor, then discover that it clips corners in production. The right fix may be a footprint correction, a map correction, a controller limit, or a different planner weight rather than a smaller safety field.',
-      ],
-    },
-    {
-      heading: 'Worked case',
-      paragraphs: [
-        'A robot with a 0.45 meter footprint tries to pass through a 0.9 meter corridor. With a large inflation radius and gentle decay, the inflated fields from both walls overlap. The middle is physically passable but expensive enough that the global planner may avoid the corridor or report no attractive route.',
-        'Lowering the radius too far creates the opposite problem. The planner may route close to one wall because the cost field no longer expresses the margin needed for localization and tracking error. The robot looks decisive in simulation and fragile in the real corridor.',
-        'The operational fix is a structured check: confirm the real footprint, confirm map resolution, replay obstacle clearing, inspect local and global costmaps separately, check planner cost weights, and compare commanded path with controller tracking error. Inflation is where those assumptions meet in one grid.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Nav2 Costmap 2D docs at https://docs.nav2.org/configuration/packages/configuring-costmaps.html, Nav2 inflation layer docs at https://docs.nav2.org/configuration/packages/costmap-plugins/inflation.html, Nav2 obstacle layer docs at https://docs.nav2.org/configuration/packages/costmap-plugins/obstacle.html, and the Nav2 tuning guide at https://docs.nav2.org/tuning/index.html.',
-        'Study Occupancy Grid Log-Odds Mapping for obstacle evidence, A* Search for graph search over grids, Dijkstra and Potential Fields for cost propagation intuition, Quadtree Spatial Index for sparse maps, RRT* Motion Planning Tree for sampling-based planning, Pure Pursuit and Model Predictive Control for path tracking, and Finite State Machines for recovery behavior.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: ['Read the grid as a cost field. A costmap is a 2D grid where each cell stores how undesirable it is for the robot to occupy or cross that area.', 'The active obstacle cell is evidence from a map or sensor. The expanding rings are not new obstacles; they are policy costs that make nearby free cells less attractive to the planner.', {type:'callout', text:'Inflation turns obstacle evidence into a clearance cost field, so path search can prefer safer space before final collision checks.'}] },
+    { heading: 'Why this exists', paragraphs: ['A robot is not a point. It has width, localization error, controller lag, wheel slip, and stopping distance.', 'A binary grid that says free or occupied can still produce paths that scrape walls. The inflation layer adds a graded clearance preference before the final collision check.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is binary occupancy. A planner rejects occupied cells and searches through free cells, which is enough for toy grids and wide open spaces.', 'A second approach is footprint checking only at candidate poses. That catches direct collision, but it does not distinguish a path with 2 cm clearance from a path with 40 cm clearance.'] },
+    { heading: 'The wall', paragraphs: ['The wall is that safety margin is continuous while the grid is discrete. Two legal paths can both avoid occupied cells while one leaves no usable tolerance for tracking error.', 'Tuning also changes behavior in nonlinear ways. A small radius change can make a doorway expensive enough to avoid, and a small decay change can make a robot hug shelves.'] },
+    { heading: 'The core insight', paragraphs: ['Inflation separates obstacle evidence from navigation preference. Obstacle layers decide which cells are lethal, and the inflation layer transforms those cells into a distance-based cost field.', 'That field lets graph search trade path length against clearance. The planner does not need a separate warning that a wall is nearby because the cost is already in the grid it optimizes.'] },
+    { heading: 'How it works', paragraphs: ['The layer scans lethal cells and assigns costs to neighboring cells within the inflation radius. Cells inside the inscribed radius are treated as too close for the robot body, and farther cells receive lower costs by an exponential decay.', 'Implementations usually cache distance-to-cost values for cell offsets. That makes updates cheaper because many obstacles reuse the same radius geometry at the current map resolution.'] },
+    { heading: 'Why it works', paragraphs: ['The correctness argument is an invariant about monotone clearance cost. If obstacle evidence is current, the footprint is accurate, and the planner respects costs, then cells closer to obstacles are never cheaper than comparable cells farther away.', 'This does not prove future motion is safe. It proves that the route selection stage has a consistent reason to prefer clearance before a controller and collision checker execute the path.'] },
+    { heading: 'Cost and complexity', paragraphs: ['Inflation cost grows with updated cells and with radius measured in grid cells. A 1 m radius covers about 100 cells across on a 2 cm grid, but only 20 cells across on a 10 cm grid.', 'Resolution is the hidden multiplier. Doubling map resolution in both dimensions roughly quadruples grid cells and can make the same physical inflation radius much more expensive to update.'] },
+    { heading: 'Real-world uses', paragraphs: ['Inflation is used in office, warehouse, hospital, lab, and home robots that navigate with 2D costmaps. It gives A*, Smac planners, and local trajectory critics a shared language for obstacle proximity.', 'It is also a debugging tool. When a robot rejects a doorway or centers itself in a corridor, the inflated field often explains the choice before planner code does.'] },
+    { heading: 'Where it fails', paragraphs: ['Inflation fails when obstacle evidence is stale, misframed, or semantically wrong. A smooth cost field around a sensor ghost is still a wrong cost field.', 'It also fails as the only safety mechanism. Moving obstacles, stopping distance, actuator limits, and human behavior need controller constraints, perception updates, and recovery policy.'] },
+    { heading: 'Worked example', paragraphs: ['A robot is 0.45 m wide and drives through a 0.90 m corridor on a 5 cm grid. The centerline leaves 22.5 cm to each wall before error, so a 0.30 m inflation radius from both walls overlaps through the corridor.', 'If the cost scaling factor decays slowly, the center cells can remain expensive even though the corridor is physically passable. Reducing the radius to 0.20 m may open the route, but it also removes margin that localization error might need.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources are the Nav2 costmap configuration docs, the Nav2 inflation layer docs, the obstacle layer docs, and the Nav2 tuning guide. Read the footprint and resolution settings with the inflation parameters.', 'Study occupancy grid log-odds, A* search, Dijkstra cost propagation, local trajectory critics, pure pursuit, and model predictive control next. The practical lesson is that a cost field is a policy, not a decoration.'] },
   ],
 };

@@ -366,91 +366,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the routing-fabric view as a bandwidth budget. Raw lane rate is the advertised number before overhead, margin, repair, and derating. Usable bandwidth is what remains after the physical route, protocol, temperature, voltage, and spare-lane policy have taken their share.',
+        'Read the health-repair view as a history of link state. A lane is one parallel signaling path, and a repair lane is reserved capacity used when a normal lane is weak. The safe inference is that a link budget is valid only with its test evidence, thermal assumptions, and repair map.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `A chiplet link budget exists because package bandwidth is not a number you get by multiplying advertised lane rate by advertised lane count. A bit has to leave a transmit PHY, cross bumps, travel through redistribution layers, bridges, interposers, or organic traces, arrive at a receive PHY, satisfy timing and voltage margins, and keep doing that across temperature, process variation, aging, and field conditions. The link budget is the engineering ledger that says how much of the theoretical bandwidth survives that journey.`,
-        `Chiplet systems need this ledger because the package is now part of the computer architecture. When a compute die talks to HBM, an I/O chiplet, or another accelerator tile, the path is constrained by bump pitch, beachfront width, route density, power delivery, thermal behavior, test coverage, repair lanes, and supply-chain availability. A product can have excellent compute silicon and still miss its system target if the package fabric cannot deliver enough reliable payload bandwidth.`,
-        `This case study goes one layer deeper than a general chiplet interconnect overview. It treats the die-to-die link as a system with physical margin, protocol overhead, health telemetry, repair state, and decision history. That is the level at which architecture choices become shippable hardware rather than diagrams with arrows between dies.`,
+        'A chiplet link budget exists because package bandwidth is not lane count times advertised speed. A bit must leave a transmit PHY, cross bumps and package routes, survive loss and crosstalk, arrive at a receive PHY, and meet timing and voltage margin across process, temperature, aging, and field conditions. The budget records how much of the theoretical link survives that journey.',
+        'This matters because the package is part of the computer architecture. Compute, HBM, I/O, and accelerator tiles all depend on paths constrained by bump pitch, beachfront width, routing density, power delivery, test coverage, repair lanes, and heat. A product can have strong silicon and still miss its target if the package fabric cannot deliver reliable payload bandwidth.',
         {type:'callout', text:'The usable bandwidth of a chiplet link is the raw lane promise minus every physical, protocol, thermal, and repair margin the package must spend.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/b5/High_Bandwidth_Memory_schematic.svg', alt:'Schematic showing a GPU connected to stacked DRAM through a silicon interposer and package substrate', caption:'High Bandwidth Memory schematic showing the interposer, package substrate, DRAM stack, and solder-ball path that constrain link budgets. Source: Wikimedia Commons, ScotXW/Shmuel Csaba Otto Traian, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'Why the obvious approach hits a wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The tempting shortcut is to start with lane count times gigabits per second and call the result bandwidth. That calculation is useful for a napkin estimate because it tells you the maximum payload if every lane is usable, every lane runs at target speed, overhead is negligible, and the package channel behaves exactly as hoped.`,
-        `Those assumptions collapse in a real chiplet package. Some wires are not payload lanes because the link needs clocks, training, sideband, redundancy, control, or test access. Some lanes cannot run at nominal rate because the eye diagram is too small, crosstalk is too high, timing skew is too large, or power and heat force derating. Some lanes are intentionally held in reserve as spares because a product that fails when one bump or lane is weak is not a manufacturable product.`,
-        `The shortcut also hides topology. Two packages can have the same nominal aggregate bandwidth and very different risk. A short dense silicon bridge, a large organic substrate, and a custom fanout route spend margin in different places. Without a link budget, the team may discover too late that the advertised bandwidth only works on golden samples, at low temperature, with limited yield, or without enough repair capacity.`,
+        'The obvious approach is to multiply lanes by gigabits per second and call the result bandwidth. That is a useful first estimate because it gives the ceiling if every lane is payload, every lane runs at target speed, and the channel behaves perfectly. Early architecture sketches often start there.',
+        'A second shortcut is to compare package options by one headline number such as bandwidth per millimeter. That hides route length, energy per bit, equalization, temperature, supply availability, and repair. Two packages can share the same nominal bandwidth while having very different yield and field reliability.',
       ],
     },
     {
-      heading: 'Core insight: the budget is the architecture',
+      heading: 'The wall',
       paragraphs: [
-        `The core model is a layered path with a margin ledger. At the top, a protocol or memory interface describes what the communicating dies are trying to exchange. Below that, transaction and link layers may packetize, order, retry, or stream data. The PHY turns those bits into electrical signaling. The package route carries the signals across bumps, traces, redistribution layers, bridges, interposers, or organic fanout. The receiver samples, trains, deskews, detects errors, and reports health.`,
-        `The budget records the fields that decide whether the path works: bump pitch, beachfront width, lane count, lane rate, reach, insertion loss, crosstalk, skew, equalization, voltage swing, energy per bit, bit-error target, power delivery, thermal derate, repair lanes, test hooks, and manufacturing assumptions. The goal is not to collect numbers for documentation. The goal is to decide which constraint is binding and what tradeoff buys the most reliable payload bandwidth.`,
-        `The repair model is part of the same data structure. A link that can detect a weak lane, map traffic away from it, record the change, and keep operating has a different usable budget from a link that treats every lane as mandatory. Spare lanes, lane remapping, retraining, error counters, firmware versions, and qualification results belong in the budget because they define how the link behaves after first silicon, not just how it behaves in an ideal simulation.`,
+        'The wall is that real links spend margin. Some lanes carry clocks, training, sideband, redundancy, or test access instead of payload. Some lanes derate because the eye diagram is too small, crosstalk is too high, skew is too large, or heat and power noise close timing margin.',
+        'Repair creates another wall. A product that fails when one bump is weak is not manufacturable at volume. Spare lanes and remapping protect yield, but they reduce the raw capacity that can be promised as payload.',
       ],
     },
     {
-      heading: 'Core mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        `A design begins with a workload requirement: for example, a compute die needs a certain number of gigabytes per second to HBM or to another chiplet under a latency and power limit. The architecture team translates that into payload bandwidth, then the physical team translates payload bandwidth into lanes, pitch, placement, and package route. Every translation spends margin. Encoding, protocol overhead, retry policy, training, clocking, spares, and guard bands all reduce the portion of raw signaling that the workload can use.`,
-        `Signal integrity and power integrity then push back. A longer route may require stronger drive, more equalization, or lower speed. Stronger drive raises energy per bit and heat. Heat can shrink timing margin or force derating. Power noise can close the eye. Narrower bump pitch can increase density but may raise manufacturing and assembly risk. A link budget is the place where those couplings are made visible instead of being argued separately by different teams.`,
-        `Health repair closes the loop. During bring-up and production test, the system measures eye margin, lane failures, skew, error rates, temperature sensitivity, and training behavior. During operation, it can count errors, retrain, derate, remap to spares, or flag a part as unhealthy. The repair lane ledger records what happened and which map version or firmware decision owns the change. Without that record, field failures become anecdotes instead of diagnosable patterns.`,
+        'The core insight is that the link budget is the architecture, not a spreadsheet after the architecture. It records lane count, lane rate, overhead, reach, insertion loss, crosstalk, skew, energy per bit, bit-error target, power noise, thermal derate, spare lanes, and test coverage. Those fields decide whether the workload sees bandwidth or stalls.',
+        'The invariant is conservative usable bandwidth. A link is healthy only if the promised payload still holds after overhead, guard bands, failed-lane repair, and worst-case operating conditions. Raw bandwidth is a hope; usable bandwidth is a contract backed by evidence.',
       ],
     },
     {
-      heading: 'Uses across design and operations',
+      heading: 'How it works',
       paragraphs: [
-        `The link budget is used before package commit, during implementation, during silicon bring-up, in qualification, and in field operations. Before commit, it decides whether the topology can meet the workload target at acceptable cost and yield. During implementation, it coordinates package routing, PHY configuration, power delivery, thermal planning, and test access. During bring-up, it provides the expected values that lab measurements must confirm or falsify.`,
-        `Standards help by defining contracts, but they do not remove the budget. UCIe describes die-to-die physical layer, protocols, software stack, and compliance testing at https://www.uciexpress.org/specifications. The Open Compute Project BoW PHY page lists physical-interface concerns such as wire ordering, timing, electrical specifications, calibration, bump patterns, signal integrity, test, and conformance at https://www.opencompute.org/chiplets/26/bunch-of-wires-bow-phy-specification-20. Those contracts make interoperability and verification more tractable, but the product still has to prove its route, power, thermal, repair, and supply assumptions.`,
-        `The budget is also a communication object. Architects can see why adding compute may not help if memory bandwidth is capped. Package engineers can see which routes are critical. Firmware engineers can see which training and repair states must exist. Operations teams can see which telemetry values indicate an aging link rather than a software slowdown. The table prevents bandwidth from becoming an unowned promise.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Suppose an AI accelerator tile needs an HBM-class connection. The first estimate says 1024 lanes at a target lane rate can deliver enough raw bandwidth. The link budget immediately asks what portion of those lanes are payload, how much beachfront exists, whether the bump pitch fits, how far the signals must travel, what energy per bit is acceptable, and how many spare lanes are needed to protect yield. A design that looks sufficient on raw bandwidth may fail after control lanes, repair reservation, thermal derate, and signal-integrity guard bands are applied.`,
-        `Now compare package choices. A silicon interposer or bridge can offer fine routing and short local paths, which helps density and margin. It can also add cost, area limits, fragility, and supply constraints. Organic substrates can offer larger package area and better cost or supply flexibility, but they historically have less routing density. The question is not which substrate is universally best. The question is which substrate plus PHY plus repair plan meets the measured margin requirement for the system target.`,
-        `The local vendor example in this file is Eliyan. Eliyan frames NuLink-SP as a standard-organic-package path that aims to reach bandwidth, power, and latency similar to silicon-substrate implementations while saving cost and improving supply continuity: https://eliyan.com/technology/. Its 2023 first-silicon announcement reported 40 Gbps per bump, more than 2.2 Tbps/mm beachfront bandwidth at 130 um pitch on standard organic packaging, and a path toward 3 Tbps/mm at finer pitch: https://eliyan.com/press-release/eliyan-achieves-first-silicon-in-record-time/. Treat those as vendor claims, not independent proof. The transferable systems lesson is that PHY innovation can move the package frontier and therefore change architecture and supply-chain options.`,
+        'The process starts with a workload requirement, such as a compute tile needing 900 GB/s to local memory under a latency and power limit. Architecture translates that into payload bandwidth. Physical design translates payload bandwidth into lanes, pitch, placement, route class, equalization, and power. Each translation spends margin.',
+        'Bring-up and production test close the loop. The system measures eye margin, lane failures, skew, error rates, temperature sensitivity, and training behavior. Firmware can retrain, derate, remap to spares, or mark a part unhealthy. The repair ledger records which lane map and firmware decision produced the current link state.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `A link budget works because it separates raw capability from usable capability. Raw capability is the optimistic frontier: how many bits could move if the channel and implementation were ideal. Usable capability is the conservative promise after overhead, derating, variation, and repair. Hardware teams need the second number because shipped systems live in corners, not in typical-case marketing diagrams.`,
-        `It also works because it gives every failure a coordinate. If bit errors rise at high temperature, the ledger points to thermal derate, eye margin, equalization, or power noise. If a package lot has weak lanes, the ledger points to bump map, route class, spare use, and manufacturing data. If firmware remaps lanes differently across revisions, the repair ledger tells the team which decision changed. The budget turns a high-dimensional physical system into inspectable rows.`,
-        `Layering helps for the same reason. BoW describes protocol, transaction, link, and physical layers: protocol packets become transaction streams, transaction streams become a bitstream, and the physical layer transmits that stream across the BoW electrical interface: https://www.opencompute.org/chiplets/25/transaction-and-link-layer-specification-for-bunch-of-wires-bow-interfaces. The layer model lets teams assign contracts, but the margin ledger keeps those contracts honest against the physical package.`,
+        'A link budget works because it separates raw capability from usable capability. Raw capability assumes an ideal channel. Usable capability subtracts the physical and protocol taxes that shipped systems actually pay. Hardware teams need the second number because customers run corner cases, not typical simulations.',
+        'The correctness argument is traceability. If bit errors rise at high temperature, the budget points to thermal derate, eye margin, equalization, power noise, or lane health. If a lot has weak lanes, the repair ledger points to route class, spare use, bump map, and manufacturing data. Failures become diagnosable coordinates instead of anecdotes.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The common failure is counting nominal bandwidth twice and subtracting real-world cost zero times. Teams may budget payload using all lanes, forget sideband and spares, assume perfect training, omit thermal derating, and leave no margin for crosstalk or manufacturing variation. The result is a package that only meets target in simulation or only at a narrow operating point.`,
-        `Another failure is comparing package technologies without normalizing the route. Organic, bridge, and silicon options must be compared with pitch, reach, loss, energy, test access, repair policy, yield, volume supply, and total cost. A denser route that cannot be sourced at volume may be worse than a lower-density route with better availability. A cheaper route that needs too much PHY power may lose at the system level.`,
-        `A third failure is poor observability. If the link has no usable health counters, no way to distinguish bad lanes from protocol errors, no persisted remap history, or no field telemetry, repair becomes guesswork. That is especially dangerous for AI accelerators and memory-rich systems where a marginal package path can masquerade as software instability, workload variance, or random machine failure.`,
+        'Suppose a link has 1024 lanes at 32 Gb/s. Raw bandwidth is 32,768 Gb/s, or 4,096 GB/s before encoding and overhead. If protocol overhead consumes 10 percent, thermal derate removes 15 percent, and 3 percent of lanes are reserved as spares, usable payload is about 4,096 * 0.90 * 0.85 * 0.97 = 3,039 GB/s.',
+        'That 1,057 GB/s gap is not waste; it is the cost of shipping the link. Wider links consume edge length and bumps, stronger drive raises energy per bit and heat, and more repair lanes protect yield while reducing nominal payload. The budget makes those tradeoffs explicit before tapeout.',
       ],
     },
     {
-      heading: 'Operational and implementation guidance',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Keep the link budget as a versioned artifact, not a slide. It should identify the target workload bandwidth, protocol overhead, physical route, lane plan, repair reservation, thermal and voltage assumptions, BER target, test coverage, and the evidence behind each number. When a parameter changes, the artifact should say which system promise changed with it.`,
-        `Design repair from the beginning. Spare lanes are useful only if the package route, PHY, training sequence, firmware state machine, test flow, and telemetry schema can actually use them. A repair feature that is not visible in production logs will not help diagnose field failures. A repair feature that is not tied to qualification data may improve bring-up demos without improving shipped reliability.`,
-        `Make standards and proprietary tuning coexist deliberately. UCIe, BoW, memory interfaces, and custom links each create different contracts. Standard layers help reuse and interoperability; custom tuning may be needed for a particular package or performance point. In both cases, the implementation must still satisfy the physical budget and preserve enough telemetry for field operation.`,
+        'Link budgets matter in AI accelerators, chiplet CPUs, memory expansion packages, network processors, and mobile SoCs. They matter most when bandwidth demand, package area, and supply pressure rise together. In that regime, the interconnect is a first-order product constraint.',
+        'They are used before package commit, during implementation, during silicon bring-up, in qualification, and in field operations. Architects use the budget to see whether more compute will help, package engineers use it to prioritize routes, and firmware teams use it to own training and repair states. Operations teams use telemetry to separate aging links from software slowdowns.',
       ],
     },
     {
-      heading: 'Where it matters',
+      heading: 'Where it fails',
       paragraphs: [
-        `This pattern matters in AI accelerators, chiplet CPUs, memory expansion packages, network processors, mobile SoCs, and any system where multiple dies have to behave like one coherent product. It matters most when bandwidth demand, package area, and supply pressure rise together. In that regime, the interconnect is not a back-end detail; it is one of the main constraints on product shape.`,
-        `It also matters for cost. A product that can use a larger or more available package technology without missing bandwidth may avoid a scarce advanced-packaging bottleneck. A product that over-promises on organic routing and then compensates with excessive PHY power may lose the savings elsewhere. The budget is where those tradeoffs become explicit enough to decide.`,
+        'It fails when teams count nominal bandwidth and subtract real-world cost zero times. A plan that uses every lane for payload, assumes perfect training, ignores spares, and omits thermal derating may work only on golden samples. The first production lot then turns an architecture promise into a yield problem.',
+        'It also fails when observability is weak. If the link has no health counters, no persisted remap history, and no way to distinguish lane errors from protocol errors, repair becomes guesswork. A marginal package path can look like workload variance or random machine failure.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Primary and official sources: UCIe specifications at https://www.uciexpress.org/specifications, Open Compute Project BoW PHY Specification 2.0 at https://www.opencompute.org/chiplets/26/bunch-of-wires-bow-phy-specification-20, Open Compute Project BoW transaction and link layer specification at https://www.opencompute.org/chiplets/25/transaction-and-link-layer-specification-for-bunch-of-wires-bow-interfaces, Eliyan technology overview at https://eliyan.com/technology/, and Eliyan first-silicon announcement at https://eliyan.com/press-release/eliyan-achieves-first-silicon-in-record-time/.`,
-        `Study Chiplet Interconnect Case Study for the broader package topology, GPU All-Reduce and Tensor Parallelism for workloads that stress interconnects, Transformer Inference Roofline for bandwidth-bound accelerator reasoning, Heterogeneous AI Compute Workload Router for system placement, Accelerator Kernel Compatibility Matrix for hardware-software matching, Backpressure & Flow Control for link behavior under load, Distributed Tracing for cross-component diagnosis, and Feature Flag Control Plane for the operational pattern of controlled rollout and repair decisions.`,
+        'Suppose an accelerator needs at least 2.5 TB/s of usable die-to-die bandwidth. A proposed link has 768 lanes at 32 Gb/s, which is 24,576 Gb/s, or 3,072 GB/s raw. Subtract 8 percent packet overhead, 10 percent guard band, and 4 percent spare-lane reservation, and usable bandwidth is about 3,072 * 0.92 * 0.90 * 0.96 = 2,443 GB/s.',
+        'The design misses the 2.5 TB/s target by about 57 GB/s. The team can add lanes, raise lane rate, reduce overhead, accept less guard band, improve the package route, or change the workload placement. The budget turns a vague bandwidth concern into specific knobs and shows which choice spends area, power, yield, or reliability.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary and official sources include UCIe specifications at https://www.uciexpress.org/specifications, Open Compute Project BoW PHY Specification 2.0 at https://www.opencompute.org/chiplets/26/bunch-of-wires-bow-phy-specification-20, and Open Compute Project BoW transaction and link layer material at https://www.opencompute.org/chiplets/25/transaction-and-link-layer-specification-for-bunch-of-wires-bow-interfaces. Read these as interface and layer contracts, then map each claim back to the physical budget.',
+        'Study Chiplet Interconnect for package topology, Known-Good-Die Yield Ledger for manufacturing evidence, and Backpressure and Flow Control for link behavior under load. Then connect the idea to transformer inference rooflines, GPU all-reduce, distributed tracing, and feature-flag rollout patterns for operational repair decisions.',
       ],
     },
   ],

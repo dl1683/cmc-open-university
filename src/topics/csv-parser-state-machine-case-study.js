@@ -219,89 +219,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'CSV looks like the simplest format in the world until real data arrives. Names contain commas. Notes contain newlines. Quotes appear inside quoted fields. Export tools disagree about dialect details. A parser that works for clean demo rows can silently corrupt production data.',
-        'The important idea is that the same character can mean different things depending on parser state. A comma outside quotes ends a field. A comma inside quotes is data. A newline outside quotes ends a record. A newline inside quotes is data. A quote inside a quoted field may close the field, or it may be the first half of an escaped quote.',
-        'That makes CSV a practical finite-state machine. The states are small, but the consequences matter because CSV is used at the boundary between spreadsheets, databases, ETL jobs, uploads, analytics tools, and finance workflows.',
+        'Read the animation as a stream of bytes plus a small memory cell called state. State means the parser\'s current interpretation mode: field start, unquoted field, quoted field, or after quote. Active characters are the bytes being inspected, and found fields are values that have become safe to emit.',
+        'The safe inference rule is simple. A comma ends a field only when the state is not quoted field. The same comma inside quoted field is ordinary data, so the visual color change is the proof that delimiter meaning comes from state.',
         {type:'callout', text:'CSV parsing is a state problem: delimiters only become structure after the parser knows whether it is inside a quoted field.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9e/Turnstile_state_machine_colored.svg', alt:'State diagram with Locked and Unlocked states and coin and push transitions.', caption:'State-machine transition diagram. Source: Wikimedia Commons, Chetvorno, CC0 1.0.'},
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is line.split(","). It works for toy rows and fails on the first field like "Lovelace, A." or the first address split across lines. The failure can be silent: the row still has strings in it, just in the wrong columns.',
-        'A slightly less naive approach is to split lines first and then parse fields. That also fails because quoted fields can contain line breaks. The parser cannot decide where a record ends until it knows whether it is currently inside a quoted field.',
-        'The wall is delimiter meaning. Delimiters do not have fixed meaning by character alone. They get meaning from state. That is why a CSV parser should be designed as a state machine instead of a sequence of string splits.',
+        'CSV means comma-separated values, a plain text format where rows contain fields separated by delimiters. It survives because spreadsheets, databases, warehouses, finance systems, and upload widgets can all emit or accept it. The format looks small, but it sits on high-risk boundaries where one shifted column can corrupt money, inventory, or customer records.',
+        'The trap is that CSV is not just split-on-comma text. Quotes can protect commas and line breaks inside a field. A parser must remember whether it is inside quoted data before it can decide what a character means.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The obvious approach',
       paragraphs: [
-        'In the quoted-fields view, watch the parser state more than the characters. The comma after Ada emits a field because the parser is in plain mode. The comma inside "Lovelace, A." is appended because the parser is in quoted mode. The same byte gets a different interpretation because the state changed.',
-        'The quote-handling frames show the hardest edge. After a quote inside a quoted field, the parser must wait for the next character. Another quote means a literal quote. A comma means field end. A record separator means row end. Ordinary text means the input is malformed under strict CSV rules.',
-        'In the streaming-rows view, focus on what has to survive across chunk boundaries: current state, current field buffer, current row, and source position. That is enough to parse a giant file without reading it all into memory.',
+        'The obvious approach is to split the file into lines, then split each line on commas. That works for rows like Ada,Lovelace,42 because every comma is a delimiter and every newline is a record boundary. For clean exports, this solution feels honest because it matches what the eye sees.',
+        'The next step is usually a few patches. Trim whitespace, remove surrounding quotes, and handle empty fields. Those patches still assume that characters have fixed meaning without reading the surrounding state.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The wall',
       paragraphs: [
-        'At field start, the parser has not committed to a mode. A quote enters quoted mode. A comma emits an empty field. A row separator emits the row. Ordinary text starts an unquoted field.',
-        'In unquoted mode, ordinary characters are appended to the current field until a comma or row separator arrives. In quoted mode, almost everything is data, including commas and row separators. A quote moves to an after-quote state because the parser cannot yet tell whether the quote is an escape or the end of the quoted field.',
-        'The after-quote state resolves the ambiguity. A second quote appends one literal quote and returns to quoted mode. A comma emits the field and starts the next one. A record separator emits the field and row. End of file ends the final field. Anything else should usually be rejected rather than guessed.',
+        'The wall appears with a row where the name Lovelace, Ada is wrapped in quote characters between id 7 and notes. A comma inside the quoted name is data, while the commas outside quotes are structure. A line-first parser also fails when line one and line two sit inside one quoted field because that newline is data, not the end of the record.',
+        'The failure is silent when the row still produces strings. One bad split can move an amount into a name column or a comment into a date column. The parser must reject or preserve structure before later schema checks can mean anything.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'CSV has bounded memory in its grammar. There is no recursive nesting like JSON arrays inside arrays. The parser only needs the current mode, the current field, the row being built, and a position for useful error messages.',
-        'That bounded state is why streaming is natural. If a chunk ends in the middle of a quoted field, the parser simply keeps quoted mode and continues when the next chunk arrives. If a chunk ends after a single quote, the parser keeps the after-quote state until it can inspect the next byte.',
-        'The result is O(n) parsing with memory proportional to the current field and row, not the whole file.',
+        'CSV has a small grammar with bounded memory. The parser does not need a stack or a tree; it needs the current state, the current field buffer, the current row, and enough source position to report errors. That is why a finite-state machine fits the problem.',
+        'A finite-state machine is a program whose next action is determined by the current state and the next input symbol. In CSV, the transition table says whether a comma emits a field, appends a character, or triggers an error. Correct parsing comes from making those transitions explicit instead of hiding them inside string utilities.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'How it works',
       paragraphs: [
-        'Take the row Ada,"Lovelace, A.",42. The parser starts a plain field with Ada and emits it at the first comma. The opening quote moves into quoted mode. The text Lovelace, A. is appended exactly as data, including the comma. The closing quote moves to after-quote mode. The following comma confirms the quoted field is complete. The final 42 is read as the last field.',
-        'Now take "line one\nline two",ok. A line-first parser breaks this record in half. A state-machine parser keeps quoted mode across the newline, appends it to the field, and emits the row only after the closing quote and the following delimiter or row end.',
-        'For escaped quotes, "She said ""hi""" becomes She said "hi". The doubled quote is not a string terminator; it is an encoded literal quote because it occurs in quoted mode and is followed by another quote.',
+        'At field start, an opening quote enters quoted field state. A comma emits an empty field, a newline emits an empty field and row, and any ordinary character starts an unquoted field. End of file emits the final field only if the current state allows it.',
+        'In unquoted field state, ordinary characters append to the field until a comma or row separator arrives. In quoted field state, commas and row separators append as data. A quote moves to after quote state because the parser needs one more character to know whether the quote ended the field or encoded a literal quote.',
+        'After quote state resolves the ambiguity. A second quote appends one literal quote and returns to quoted field state. A comma emits the field, a row separator emits the row, and ordinary text should be treated as malformed input in a strict dialect.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The invariant is that the emitted fields are exactly the completed fields to the left of the current byte. The current buffer contains only the unfinished field, and the state records the only context needed to interpret the next byte. Each transition preserves that invariant.',
+        'When the parser is outside quotes, a delimiter is safe because no earlier unmatched quote can make it data. When the parser is inside quotes, a delimiter is unsafe to treat as structure because the quoted field has not closed. The after quote state prevents premature emission by delaying the decision until the next byte is known.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The transition logic is cheap: one pass over the input. The expensive parts in production are usually allocation, Unicode decoding, type conversion, validation, batching, schema enforcement, and moving rows into downstream systems.',
-        'A parser that emits one object per row may spend more time allocating than parsing. A high-throughput ingestion pipeline may batch rows, reuse buffers, or write into columnar builders. The state machine is still the correctness layer underneath those performance choices.',
+        'The parser reads each byte once, so the core time cost is O(n) for n input bytes. If a 100 MB file becomes 200 MB, the transition work roughly doubles. The machine does not need to revisit earlier bytes because state carries the needed context forward.',
+        'Space is O(w) for the current row and field width, not for the whole file, when the parser streams rows to a consumer. The real production costs are allocation, Unicode decoding, validation, type conversion, batching, and error reporting. A parser that creates a new object for every row may spend more time allocating than recognizing delimiters.',
       ],
     },
     {
-      heading: 'Dialect policy',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A production parser needs an explicit dialect contract. Decide the delimiter, quote character, escape rule, line ending policy, header behavior, empty-field meaning, trimming behavior, maximum field size, and whether malformed quotes are rejected or tolerated. Put those choices in configuration instead of scattering guesses through downstream import code.',
-        'That policy matters because CSV often crosses organizational boundaries. A finance export, spreadsheet upload, warehouse copy command, and browser import widget may all say CSV while accepting different edge cases. The parser should make the disagreement visible early, before a row is loaded into the wrong columns and treated as valid business data.',
-        'The same policy should be recorded with import jobs. Six months later, a team should be able to tell whether a file was parsed as strict RFC-style CSV, a spreadsheet-flavored dialect, or a partner-specific variant. Without that record, debugging a bad import turns into archaeology.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'A state-machine CSV parser wins for uploads, ETL, spreadsheet interchange, data migrations, and streaming ingestion. It is especially useful when the file can be large, rows can contain embedded newlines, and parsing must report precise errors instead of failing somewhere downstream.',
-        'It also wins as a teaching example because it shows the real value of finite-state machines. The theory is not abstract here; each state prevents a specific class of data corruption.',
+        'State-machine CSV parsing is useful for uploads, extract-transform-load jobs, spreadsheet imports, warehouse COPY commands, browser tools, and data migrations. These systems need to process large files while preserving row boundaries, field boundaries, and useful error positions. Streaming also lets a server reject a bad file before storing the whole upload.',
+        'The same state-machine pattern appears in log parsers, protocol decoders, lexical analyzers, and UTF-8 validators. The shared idea is that a byte stream becomes meaningful only after a small amount of context is tracked. CSV is a compact example because the states are few and the corruption risk is easy to see.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The parser does not solve schema. CSV gives fields and rows, not types, required columns, date formats, null policy, encoding guarantees, or semantic validation. Those checks belong above the parser.',
-        'CSV dialects also vary. Some systems use semicolons, some allow backslash escapes, some tolerate unquoted quotes, and some handle trailing delimiters differently. A serious parser should make dialect policy explicit instead of silently accepting everything.',
-        'If the input is hostile or untrusted, error behavior matters. A parser should cap field size, row size, and total bytes where appropriate, or one enormous quoted field can become a memory attack.',
+        'The parser does not solve schema. It returns rows and fields, not types, required columns, date formats, null policy, encoding certainty, or business validity. Those checks must run above the parser after structure is safe.',
+        'CSV also has dialect drift. Some files use semicolons, some allow backslash escapes, some trim spaces after delimiters, and some tolerate malformed quotes. A production parser needs a declared dialect, field-size limits, row-size limits, and clear reject behavior for hostile or ambiguous input.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Parse the bytes for three fields: Ada, then Lovelace, A. wrapped in quote characters, then 42. Ada starts an unquoted field, and the first comma emits field 1 as Ada. The quote enters quoted field state, so the comma in Lovelace, A. is appended as data instead of ending field 2.',
+        'The closing quote moves to after quote state, and the next comma proves that field 2 is complete. The parser emits Lovelace, A., then reads 42 as field 3 and emits it at end of file. The result has 3 fields, not 4, because one comma was interpreted under quoted state.',
+        'For escaped quotes, a field encoding the phrase She said hi with quote marks around hi uses doubled quote characters inside the quoted field. The doubled quotes each contribute one literal quote. A split-based parser cannot derive that result from delimiter positions alone.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: RFC 4180, Common Format and MIME Type for CSV Files, at https://www.rfc-editor.org/rfc/rfc4180. Study UTF-8 Decoder DFA, JSON Parser Stack, Parser Design Patterns Primer, Finite State Machines, Web Workers, DuckDB Vectorized Execution Case Study, Apache Arrow Columnar Memory Case Study, and Parquet Columnar Format Case Study next.',
+        'Read RFC 4180 at https://www.rfc-editor.org/rfc/rfc4180 for the common CSV format and MIME type. Then study finite-state machines, UTF-8 decoder deterministic finite automata, parser design, JSON tokenization, Web Workers for streaming parse work, Apache Arrow columnar memory, and DuckDB vectorized execution.',
       ],
     },
   ],

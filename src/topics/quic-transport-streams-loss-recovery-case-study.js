@@ -256,124 +256,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read PN as packet number, the transport identity used for acknowledgements and loss detection. Read stream offset as the application position inside one logical byte stream, so packet order and stream order are separate facts.',
+        'A missing packet number is not a command to resend that same packet. It is a pointer into the sent-packet ledger, and the repair packet carries the still-needed frame data with a new packet number.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Modern application traffic needs more than "deliver bytes in order." It needs encryption by default, multiplexed requests, loss recovery, flow control, congestion control, fast setup, and a way for mobile clients to survive network changes.',
-        'TCP plus TLS plus HTTP/2 solves many of those problems, but the transport still exposes one ordered byte stream. If one TCP segment is missing, later bytes cannot be delivered to the application even when those bytes belong to a different HTTP/2 stream.',
-        'QUIC is a UDP-based transport that moves the transport state into the endpoints. It integrates TLS 1.3, stream multiplexing, packet-number-based loss recovery, connection IDs, flow control, and migration into one protocol.',
+        'QUIC is a transport protocol, which means it decides how endpoints move application bytes across a network path. It exists because web traffic needs encryption, multiplexed requests, loss recovery, flow control, congestion control, and connection migration in one deployable protocol.',
+        'TCP gives one ordered byte stream. If byte 8000 is missing, byte 9000 cannot be delivered even when the later bytes belong to a different HTTP request, so HTTP/2 over TCP can still suffer connection-level head-of-line blocking.',
         {type:'callout', text:'QUIC separates packet recovery from stream ordering so loss repair does not turn the whole connection into one blocked byte stream.'},
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The conservative design is to keep TCP, put TLS above it, and multiplex requests above that. This is operationally familiar, works through most networks, and lets the operating system own congestion control and retransmission.',
-        'The other tempting design is to send application messages over UDP and retry lost messages yourself. That avoids kernel TCP limits, but it also means rebuilding security, congestion control, flow control, loss detection, anti-amplification defense, and path validation.',
-        'QUIC takes the harder middle path: use UDP as the carrier, but specify a complete reliable encrypted transport above it.',
+        'The obvious approach is to keep TCP, put TLS above it, and multiplex application streams above that. This works through most networks and lets the operating system handle retransmission and congestion control.',
+        'Another tempting approach is to send messages over UDP and retry missing messages in the application. That avoids some TCP limits, but it forces the application to rebuild security, congestion behavior, flow control, and replay protection.',
       ],
     },
     {
-      heading: 'Where that fails',
+      heading: 'The wall',
       paragraphs: [
-        'TCP cannot deliver byte 9000 until byte 8000 arrives. HTTP/2 can multiplex many logical streams, but it cannot make TCP deliver later bytes from stream A while an earlier TCP byte from stream B is missing.',
-        'TCP connection identity is also tied to the address tuple. When a phone moves from Wi-Fi to cellular, the tuple changes. Old TCP connections usually die or need help from higher layers.',
-        'A casual UDP design fails in the other direction. Without monotonically increasing packet numbers, ACK ranges, timers, congestion accounting, and flow-control credit, it can retransmit too aggressively, confuse old and new transmissions, or become a bad network citizen.',
+        'The wall is that the transport sees the wrong unit of ordering. TCP orders bytes for the whole connection, while the application may have many independent streams whose missing ranges should not block one another.',
+        'A casual UDP protocol fails on the opposite side. Without packet numbers, acknowledgement ranges, timers, congestion accounting, and receiver credit, it can retransmit too much, confuse old and new sends, or overload the path.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The core insight',
       paragraphs: [
-        'Separate packet recovery from stream ordering. QUIC packets have packet numbers and carry frames. STREAM frames have stream IDs and byte offsets. ACK frames report packet-number ranges. The receiver delivers each stream according to stream offsets, not according to packet arrival order.',
-        'That split removes retransmission ambiguity. If packet 11 is lost, the sender does not reuse packet number 11. It sends the lost frame data in a new packet with a new packet number. The receiver deduplicates by stream offset and protocol state.',
-        'Once that separation exists, QUIC can multiplex streams, recover lost information, and migrate paths without pretending that the whole connection is one ordered byte stream.',
+        'QUIC separates packet recovery from stream assembly. Packets have packet numbers for transport recovery, while STREAM frames carry a stream id and byte offset for application ordering.',
+        'That split removes retransmission ambiguity. Lost information can be sent again in a new packet number, and duplicate stream bytes can be ignored because the stream id and offset already identify the data range.',
       ],
     },
     {
-      heading: 'The state QUIC keeps',
+      heading: 'How it works',
       paragraphs: [
-        'A QUIC endpoint is mostly state tables. Connection IDs route packets to connection state even when addresses change. Packet-number spaces separate Initial, Handshake, and 1-RTT recovery state. Stream maps track offsets and delivery state. Flow-control windows bound how much data can be buffered.',
-        'The sent-packet ledger is the recovery backbone. For each ack-eliciting packet, the sender remembers the packet number, frames carried, bytes in flight, send time, and encryption level. ACK ranges update that ledger; timers and packet thresholds decide when missing packets are declared lost.',
-        'TLS is integrated rather than hidden below the transport. QUIC CRYPTO frames carry TLS handshake bytes, and the resulting keys protect QUIC packets at the relevant encryption level.',
-      ],
-    },
-    {
-      heading: 'How streams and packets work',
-      paragraphs: [
-        'A QUIC packet is a protected UDP datagram containing one or more frames. STREAM frames carry application bytes for a stream at a specific offset. ACK frames report received packet-number ranges. MAX_DATA and MAX_STREAM_DATA extend flow-control credit. PATH_CHALLENGE and PATH_RESPONSE validate a path.',
-        'Packet order and stream order are different. A packet number says when a packet was transmitted. A stream offset says where bytes belong inside one application stream. The receiver can keep stream A moving even if stream B is waiting for a missing offset.',
-        'This is not free parallelism. If one packet contains data from streams A and B and that packet is lost, both streams wait for the data in that packet. QUIC reduces cross-stream blocking; it does not make loss disappear.',
-      ],
-    },
-    {
-      heading: 'How loss recovery works',
-      paragraphs: [
-        'The receiver sends ACK ranges that describe packet numbers it has received. A range such as 10 and 12 but not 11 gives the sender a gap to evaluate. The sender combines ACK information with time thresholds, packet thresholds, and the probe timeout timer.',
-        'When a packet is declared lost, QUIC retransmits the information that still needs reliable delivery, not the packet identity. The repair packet gets a new packet number. That new number tells future ACKs exactly which transmission arrived.',
-        'Congestion control and recovery share accounting. Bytes in flight, congestion window, pacing, and flow-control credit decide whether repair data can be sent immediately or must wait.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A client sends packet 10 with stream A bytes at offset 0, packet 11 with stream B bytes at offset 0, and packet 12 with stream A bytes at offset 1024. The server receives 10 and 12 and sends an ACK range that leaves a gap at 11.',
-        'The client marks packet 10 and 12 acknowledged. Packet 11 remains in the sent ledger until the loss rule fires. When it is declared lost, the client takes the STREAM frame data for stream B offset 0 and sends it in packet 15.',
-        'The server does not care that stream B data now arrived in packet 15. It merges by stream ID and offset. If the original packet 11 later arrives, the duplicate stream bytes are ignored because offset 0 for stream B has already been received.',
-      ],
-    },
-    {
-      heading: 'How to read the visualization',
-      paragraphs: [
-        'In the streams-and-packets view, follow the split between PN and streams. PN is the packet-number machinery used for ACKs and loss; streams is the application-byte machinery used for ordered delivery.',
-        'The TLS and CRYPTO frame state matters because QUIC does not run TLS as an opaque byte stream under the transport. Handshake bytes are part of QUIC packetization, and packet-number spaces keep handshake recovery separate from application-data recovery.',
-        'In the loss-recovery view, the missing pn11 node is not a command to resend packet 11. It is a pointer into the sent-packet ledger. The repair node sends the lost frame data in a fresh packet, while the receiver merges by stream offset.',
-        'The cwnd and flow nodes are guardrails. A correct QUIC implementation repairs loss only while respecting congestion control and receiver credit.',
+        'A QUIC packet is an encrypted UDP datagram containing frames. ACK frames report received packet-number ranges, STREAM frames carry application bytes, and flow-control frames advertise how much more data the receiver will accept.',
+        'The sender keeps a sent-packet ledger with packet number, send time, frames, bytes in flight, and encryption level. When acknowledgements leave a gap or a time threshold expires, the sender marks the packet lost and schedules the frame data that still needs reliable delivery.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The main invariant is that packet numbers never repeat within a packet-number space. That makes every ACK unambiguous: it acknowledges a specific transmission, not a reused number that might refer to old or new bytes.',
-        'The second invariant is stream-offset idempotence. A STREAM frame says exactly which byte range it carries. Receiving the same range twice does not create new application data; it only confirms data already known.',
-        'Together, those invariants let QUIC repair lost information without corrupting ordered streams. Packet recovery decides which frame data must be sent again. Stream assembly decides when each stream has contiguous bytes ready for the application.',
+        'The first invariant is that packet numbers are never reused within a packet-number space. An ACK therefore names one transmission, not an ambiguous packet id that might have been recycled.',
+        'The second invariant is stream-offset idempotence. If stream B offset 0 through 999 arrives twice, the receiver stores it once, so repair can be aggressive without duplicating application bytes.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'QUIC moves transport work into user space. Implementations pay for timers, ACK range parsing, sent-packet logs, TLS integration, pacing, congestion control, anti-amplification limits, path validation, stream scheduling, and flow-control bookkeeping.',
-        'The memory cost scales with active streams, buffered out-of-order data, ACK ranges, connection IDs, paths, and sent packets still in flight. Doubling concurrent streams can double stream-state pressure even when the network path is unchanged.',
-        'The CPU cost can move from kernel TCP to application endpoints and load balancers. That is a good trade when deployment agility and multiplexing matter. It is a bad trade when CPU is already the bottleneck or UDP treatment on the path is poor.',
+        'QUIC moves transport work into endpoint code. The implementation pays for encrypted packet handling, ACK range parsing, timers, sent-packet logs, congestion control, flow-control windows, stream scheduling, path validation, and connection-id management.',
+        'If active streams double from 500 to 1000, stream state and out-of-order buffers can roughly double even when the network path is unchanged. If packets in flight double, the recovery ledger and ACK processing also grow, and the dominant cost may shift from network RTT to CPU and memory bookkeeping.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'QUIC is a strong fit for HTTP/3, mobile apps, long-lived connections that move between networks, request multiplexing, and systems that need transport evolution without waiting for every operating-system TCP stack to change.',
-        'It helps most when independent streams matter. If stream A has all its bytes, it should not wait for a lost packet that only carried stream B. QUIC gives the transport enough structure to make that distinction.',
-        'Connection IDs also help large deployments route packets to the right connection state across NAT rebinding and migration, as long as the implementation manages connection-ID privacy and lifecycle correctly.',
+        'QUIC is the transport under HTTP/3. It fits browsers, mobile apps, APIs, media delivery, and long-lived client connections that benefit from encrypted setup, stream multiplexing, and migration across changing network addresses.',
+        'It is especially useful when independent streams matter. A lost packet carrying stream B should not stop stream A if stream A already has the contiguous bytes it needs.',
       ],
     },
     {
-      heading: 'Where it is the wrong tool',
+      heading: 'Where it fails',
       paragraphs: [
-        'QUIC is not automatically faster. A single large ordered response on a stable low-loss path may not benefit much from stream independence. If UDP is blocked, shaped, or poorly load-balanced, TCP can be more reliable operationally.',
-        'QUIC does not remove application-level head-of-line blocking inside one stream. If the application serializes all work into one stream or waits on one database call before producing any response, the transport cannot create independence that the application did not expose.',
-        'It is also a poor choice for simple local protocols where TCP already works and the extra security, migration, and multiplexing machinery is not needed.',
+        'QUIC is not automatically faster than TCP. A single large ordered response on a clean stable path may not benefit from stream independence, and poor UDP treatment by middleboxes can make operations worse.',
+        'It also cannot remove blocking inside one application stream. If the application serializes all work into one stream or waits on one database call before producing output, the transport cannot create independence that the application did not expose.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Loss recovery bugs are easy to hide in happy-path tests. Reusing packet numbers, dropping sent-packet ledger state too early, mishandling ACK ranges, or retransmitting old packet identities can produce spurious loss, stuck streams, or duplicate delivery.',
-        'Flow-control bugs become memory bugs. If the sender ignores credit, the receiver can be forced to buffer too much data. If the receiver fails to grant credit when the application drains buffers, streams stall.',
-        'Migration and connection-ID bugs become routing and privacy bugs. A connection ID that is reused across paths can make clients linkable. A server that accepts path changes without validation can be abused for amplification.',
+        'A client sends packet 10 with stream A bytes 0 through 999, packet 11 with stream B bytes 0 through 999, and packet 12 with stream A bytes 1000 through 1999. The server receives 10 and 12, so its ACK range proves 11 is missing while stream A can still assemble bytes 0 through 1999.',
+        'After a packet-threshold loss rule fires, the client sends stream B bytes 0 through 999 again in packet 15. If packet 11 later arrives, the server ignores the duplicate stream range because packet recovery is separate from stream assembly.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RFC 9000, QUIC Transport, at https://www.rfc-editor.org/rfc/rfc9000; RFC 9001, Using TLS to Secure QUIC, at https://www.rfc-editor.org/rfc/rfc9001; and RFC 9002, QUIC Loss Detection and Congestion Control, at https://www.rfc-editor.org/rfc/rfc9002.',
-        'Study TLS 1.3 Handshake for key setup, TCP Reassembly & SACK Scoreboard for the contrast with TCP recovery, TCP: Handshake & Congestion Control for the older transport model, Sliding Window for flow and congestion basics, Backpressure & Flow Control for receiver credit, HTTP/3 over QUIC for the application layer, and QPACK Dynamic Table HTTP/3 for header compression under QUIC streams.',
+        'Primary sources: RFC 9000 for QUIC transport, RFC 9001 for TLS in QUIC, and RFC 9002 for QUIC loss detection and congestion control. These define packet numbers, frames, connection ids, loss timers, acknowledgements, and congestion accounting.',
+        'Study TCP reassembly and SACK scoreboard for the older recovery model, sliding window for credit control, HTTP/3 over QUIC for the application layer, and QPACK for header compression under QUIC streams.',
       ],
     },
   ],

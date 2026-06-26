@@ -254,94 +254,86 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a boundary between connection state and stream state. Active stream segments are the bytes currently being delivered, visited segments have arrived but may still be waiting for an earlier byte in the same stream, and found segments are safe to pass to HTTP. The safe inference is that packet loss can block a stream range without blocking unrelated streams whose ordered ranges are complete.',
+        {type:'callout', text:'HTTP/3 fixes multiplexing by giving each request stream independent ordered delivery while sharing one encrypted transport connection.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `A modern page is not one request. It is a burst of HTML, CSS, JavaScript, images, fonts, API calls, analytics beacons, and later refreshes from the same origin. The browser wants those requests to share one secure connection, but it does not want one missing packet for a large image to freeze an unrelated API response.`,
-        `HTTP/3 exists because HTTP/2 solved the wrong layer of the problem. HTTP/2 multiplexed many HTTP streams over one TCP connection, which removed most of the old HTTP/1.1 connection pileup. But TCP still exposes one ordered byte stream. If one TCP segment is lost, the operating system cannot deliver later bytes to HTTP/2, even when those later bytes belong to other streams. HTTP/3 moves multiplexing into QUIC so each request stream has its own ordered delivery state.`,
-        {type:`callout`, text:`HTTP/3 fixes multiplexing by giving each request stream independent ordered delivery while sharing one encrypted transport connection.`},
+        'A web page opens many logical requests, but opening many separate secure transport connections is expensive. HTTP/2 put many streams on one TCP connection, which saved handshakes and allowed concurrent requests. The remaining problem was TCP head-of-line blocking: TCP exposes one ordered byte stream, so a missing segment delays all later bytes even when those later bytes belong to a different HTTP response.',
+        'HTTP/3 exists to move multiplexing below HTTP and above UDP through QUIC. QUIC is a reliable encrypted transport with independent streams, packet recovery, flow control, and congestion control. It keeps one connection while avoiding the false global byte order that TCP imposes on multiplexed HTTP/2.',
       ],
     },
     {
-      heading: 'The older approaches',
+      heading: 'The obvious approach',
       paragraphs: [
-        `HTTP/1.1 handled concurrency by opening several TCP connections. That let a browser fetch more than one object at a time, but it also multiplied handshakes, TLS sessions, congestion controllers, server sockets, and queues. It made prioritization weak because each connection saw only part of the page.`,
-        `HTTP/2 was a better design. It put many logical streams on one encrypted TCP connection and gave HTTP a framing layer. The browser could send request A, request B, and request C without waiting for A to finish. The wall was below HTTP. TCP's single byte order meant a packet gap blocked all later bytes on the connection, not just the HTTP/2 stream that needed the missing bytes.`,
+        'The older HTTP/1.1 approach is to open several TCP connections so multiple objects can download at once. That works around some blocking, but it multiplies TLS handshakes, congestion controllers, kernel queues, sockets, and server memory. It also makes prioritization harder because each connection sees only part of the page.',
+        'HTTP/2 is the more reasonable first attempt. It frames many HTTP streams over one TLS-over-TCP connection, so requests can be interleaved and share one congestion controller. The design is cleaner than connection sharding, but it inherits TCP delivery rules that HTTP cannot change.',
       ],
     },
     {
-      heading: 'Core model',
+      heading: 'The wall',
       paragraphs: [
-        `HTTP does not need one total byte order for the whole connection. It needs ordered bytes inside one request and response. It also needs shared connection state for settings, compression, flow control, and cancellation. QUIC gives HTTP that layout: many independent ordered streams inside one encrypted transport connection.`,
-        `The data structure is a connection-level table of stream state. Each stream has an identifier, byte offsets, receive buffers, send buffers, reset state, and flow-control credit. The connection has congestion control, packet numbers, keys, connection IDs, and global credit. A missing packet can block one stream's missing range without making already-arrived ranges from unrelated streams unavailable to the HTTP layer.`,
+        'The wall is a layer mismatch. HTTP/2 knows which bytes belong to which stream, but TCP only knows byte offset 1, byte offset 2, and so on for the whole connection. If byte offset 1,000 is missing, the operating system cannot deliver byte offset 2,000 to HTTP/2 even if byte offset 2,000 contains a complete response for another stream.',
+        'Loss is not the only cause of delay, but it exposes the design bug. One image packet lost on a mobile path can hold back a small API response that already arrived. The application sees a stall that was created by the transport byte order, not by an HTTP dependency.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'The core insight',
       paragraphs: [
-        `The request-streams view shows the mapping. ALPN selects h3, a QUIC connection carries HTTP/3 streams, the control stream carries SETTINGS, request streams carry HEADERS and DATA, and QPACK uses encoder and decoder streams for compression state. The important point is that HTTP semantics are still there. The transport under them changed.`,
-        `The head-of-line view shows the reason for the redesign. Loss still hurts, but the harm is scoped. If bytes for stream B are missing, stream B waits. If streams A and C have complete ordered ranges, they can move upward to HTTP. The animation is about the boundary between connection-level packet recovery and stream-level delivery.`,
+        'HTTP requires ordered bytes inside each message, not one total order across all messages. QUIC keeps per-stream order and reliability while sharing encryption, congestion control, connection ids, and path state at the connection level. That is the essential split: global connection resources, independent stream delivery.',
+        'The data structure is a connection table plus stream records. The connection tracks packet numbers, keys, acknowledgments, congestion window, and global flow credit. Each stream tracks offsets, receive buffers, send buffers, reset state, and stream-level flow credit.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `A client first discovers or negotiates that the server supports HTTP/3, usually through Alt-Svc from an earlier response, HTTPS records, or direct configuration. During the QUIC handshake, TLS is integrated into the transport and ALPN selects h3. After that, HTTP/3 runs as an application mapping over QUIC streams.`,
-        `Each endpoint opens a unidirectional control stream and sends SETTINGS. A normal request uses a bidirectional stream. The client sends request HEADERS, then optional DATA. The server sends response HEADERS, then response DATA, then optional trailers. Stream order still matters inside that request. A body byte cannot be delivered before earlier bytes in the same body.`,
-        `QUIC handles jobs that HTTP/2 had to handle or inherit from TCP: loss recovery, stream reset, connection and stream flow control, path validation, connection migration, packet encryption, and packet acknowledgment. HTTP/3 therefore removes some HTTP/2 frames or remaps them. WINDOW_UPDATE disappears because credit belongs to QUIC. PING belongs to the transport path. SETTINGS moves to the control stream.`,
-        `Header compression also changes. HTTP/2 used HPACK, which relied on strict TCP ordering. HTTP/3 uses QPACK, which lets header blocks reference dynamic-table entries without forcing every stream to wait on one connection-wide byte order. A header block can still block if it references an entry the decoder has not received, but that is an explicit QPACK dependency with limits, not accidental TCP head-of-line blocking.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Suppose a browser asks a CDN for index.html, app.js, hero.jpg, style.css, and /api/session. Over HTTP/2, those logical streams can share one TCP connection. If a TCP segment carrying part of hero.jpg is lost, later TCP bytes cannot be delivered to HTTP/2 until the gap is recovered. The API response may be sitting in the kernel buffer, but the application cannot receive it yet because it appears after the gap in TCP's byte stream.`,
-        `Over HTTP/3, the same page uses one QUIC connection. index.html is one stream, app.js is another, hero.jpg is another, and /api/session is another. QUIC packet loss recovery still retransmits or repairs missing data, but stream delivery is independent. If the lost data belongs to hero.jpg, the browser can still receive completed bytes for /api/session and style.css.`,
-        `This is why the change matters most on lossy or variable paths. It is not because HTTP/3 makes packets immortal. It is because the system stops treating all application streams as if they were one byte queue.`,
+        'A client negotiates HTTP/3 through QUIC, usually after discovery through Alt-Svc, HTTPS records, or direct configuration. During the QUIC handshake, TLS 1.3 is integrated into the transport and ALPN selects h3. HTTP/3 then opens a control stream for SETTINGS and bidirectional streams for requests and responses.',
+        'Packets carry frames, and stream frames carry stream id, offset, and bytes. If a packet is lost, QUIC retransmits the missing stream data or repairs it with new frames, but the loss is mapped to the affected stream offsets. Other streams with complete contiguous ranges can continue delivering to HTTP.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `The correctness argument is simple. HTTP requires ordered interpretation of one message, not a global order across all messages. QUIC preserves per-stream order. Therefore a request body, response body, header section, trailers section, and stream reset still mean what HTTP says they mean. The connection no longer invents a false dependency between unrelated request streams.`,
-        `The performance argument is about blast radius. In TCP, one missing segment blocks delivery of later bytes for the entire connection. In QUIC, packet loss blocks only the streams that are missing ranges from that packet. Congestion control is still connection-wide, so all streams share path capacity, but delivery into the application is no longer held behind one byte gap.`,
+        'The correctness argument follows from the HTTP message contract. A response body must preserve order within that response, and QUIC does preserve per-stream order. HTTP does not require an image response and an API response to share one delivery order, so QUIC is free to expose the API bytes while the image stream waits for its missing range.',
+        'The performance argument is blast radius. TCP loss blocks all later bytes on the connection because TCP has one receive sequence. QUIC loss blocks only streams with missing ranges from that loss, while congestion control still slows the whole connection when the path is unhealthy.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `HTTP/3 reduces transport head-of-line blocking, but it does not make loss free. Lost packets still consume congestion window, trigger recovery, and delay any stream whose bytes are missing. If a large response and a small response share the same congested link, they still compete for bandwidth.`,
-        `The deployment cost is real. QUIC runs over UDP. Operators need UDP reachability through firewalls, load balancers, NATs, and middleboxes. They need transport metrics that are different from TCP metrics. They need h2 or h1 fallback because some networks still block or degrade UDP. They need tuning for stream counts, flow-control windows, QPACK blocked streams, idle timeouts, retry behavior, and connection migration.`,
-        `There is also CPU and implementation cost. QUIC encrypts most transport metadata and is often implemented in user space rather than in the operating system's mature TCP stack. That can improve rollout speed and feature control, but it can also make packet processing, observability, and kernel bypass decisions more important for high-volume edges.`,
+        'HTTP/3 does not make loss free. Lost bytes still consume congestion window, trigger acknowledgments and retransmission logic, and delay the streams that need those bytes. If the link capacity is 5 Mbps, independent streams still share that 5 Mbps.',
+        'The operational cost is UDP reachability, user-space transport work, new metrics, and fallback behavior. QUIC implementations need flow-control tuning, QPACK blocked-stream limits, idle timeouts, connection migration handling, packet pacing, and observability that differs from mature TCP tooling. For a low-loss internal service with few concurrent responses, HTTP/2 may be simpler and fast enough.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `HTTP/3 wins when a client makes many independent requests over a path with loss, jitter, handoff, or variable radio quality. Mobile browsers, CDN edges, image-heavy pages, font-heavy pages, and API-heavy web apps all fit that shape. The user-visible gain is often smoother progress, not a magic drop in every median latency number.`,
-        `It also wins when connection continuity matters. QUIC connection IDs let a connection survive some path changes, such as a phone moving from Wi-Fi to cellular, without rebuilding every request from scratch. That does not guarantee no interruption, but it gives the transport a tool TCP does not have in the same form.`,
-        `HTTP/3 is especially natural at CDN and reverse-proxy edges. The edge can terminate QUIC near the user, absorb network variability, and talk to origins over a different protocol when that is operationally simpler. The public internet path gets the QUIC benefits while the internal path can remain tuned for the data center.`,
+        'HTTP/3 wins on paths with loss, jitter, and handoff, especially mobile networks and long public internet routes. Image-heavy pages, font-heavy pages, and API-heavy apps benefit because unrelated streams can continue making progress. The gain often appears as smoother tail behavior rather than a large median speedup.',
+        'It also fits CDN edges. The edge terminates QUIC close to users, absorbs last-mile variability, and can talk to origins over HTTP/2 or another internal protocol if that is simpler. QUIC connection ids also help connections survive some address changes, such as a phone moving between Wi-Fi and cellular.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `HTTP/3 cannot remove dependencies above the transport. A request can still wait on server CPU, database locks, cache fills, origin shielding, rate limits, application-level ordering, or poor prioritization. If the bottleneck is the origin database, QUIC streams will not fix it.`,
-        `It can also lose to a mature HTTP/2 deployment when the path is clean, the object count is low, UDP is unreliable, or CPU overhead dominates. A small internal service on a stable network may see little benefit and more operational work. The right comparison is not HTTP/3 against an imaginary bad HTTP/2 stack. It is HTTP/3 against the current bottleneck.`,
-        `QPACK has its own failure modes. If an encoder references dynamic-table entries too aggressively, header blocks can wait for decoder state. Good implementations bound blocked streams and choose conservative compression behavior when latency matters more than marginal header savings.`,
+        'HTTP/3 cannot remove dependencies above transport. A response can still wait on server CPU, database locks, cache fills, rate limits, QPACK dynamic entries, application ordering, or bad priority. If the bottleneck is a database connection pool, independent QUIC streams do not fix it.',
+        'It can also lose when UDP is blocked or degraded, when CPU overhead dominates, or when the object count is small. Some networks still treat UDP poorly, so production deployments need HTTP/2 fallback and measurements by network type. A good rollout compares the current bottleneck, not HTTP/3 against a weak imaginary baseline.',
       ],
     },
     {
-      heading: 'Common misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        `One misconception is that HTTP/3 is simply HTTP over UDP. It is HTTP over QUIC, and QUIC is a full transport with reliability, congestion control, encryption, streams, flow control, loss recovery, and connection IDs. UDP is the substrate that lets QUIC be deployed without changing operating-system TCP stacks.`,
-        `Another misconception is that HTTP/3 removes all head-of-line blocking. It removes TCP-level head-of-line blocking between independent streams. It does not remove per-stream ordering, QPACK dependencies, congestion, server queues, application dependencies, or bad prioritization.`,
+        'Suppose a page fetches HTML, CSS, an 80 KB image, and a 2 KB session API response over one HTTP/2 connection. A TCP segment carrying image bytes is lost at connection byte offset 60,000, while later bytes containing the complete API response arrive at the client. TCP cannot deliver those later bytes to HTTP/2 until the gap is repaired, so the small API response waits behind the image loss.',
+        'With HTTP/3, the image is stream 12 and the API response is stream 16. If the lost packet contains stream 12 offsets 40,000 through 41,459, stream 12 waits for that range, but stream 16 can deliver its complete 2 KB if its offsets are contiguous. The network still lost a packet, but the application no longer treats every response as one byte queue.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `Primary sources: RFC 9114 HTTP/3 at https://datatracker.ietf.org/doc/html/rfc9114 and RFC 9000 QUIC Transport at https://datatracker.ietf.org/doc/html/rfc9000. Those two documents define the HTTP mapping and the transport invariant this topic depends on.`,
-        `Study next: QUIC Transport Streams & Loss Recovery for packet recovery and stream delivery, QPACK Dynamic Table HTTP/3 for header compression state, HTTP/3 Priority Urgency Scheduler for request scheduling, HPACK Dynamic Table HTTP/2 Case Study for the older compression model, CDN Request Flow for edge deployment, Backpressure & Flow Control for memory bounds, and TLS 1.3 Handshake for the integrated security layer.`,
+        'Primary sources are RFC 9114 for HTTP/3 and RFC 9000 for QUIC transport. Study RFC 9204 for QPACK, RFC 9218 for HTTP priority, and browser waterfall traces to connect stream delivery with visible page progress. Then compare this with TCP congestion control and HTTP/2 framing so the layer change is concrete rather than described as HTTP over UDP.',
       ],
     },
   ],

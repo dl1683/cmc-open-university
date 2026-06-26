@@ -205,97 +205,90 @@ export function* run(input) {
 }
 
 export const article = {
-  references: [
-    { title: 'Autoware Pure Pursuit Controller', url: 'https://autowarefoundation.github.io/autoware_universe/main/control/autoware_pure_pursuit/' },
-    { title: 'Nav2 Regulated Pure Pursuit Controller', url: 'https://docs.nav2.org/configuration/packages/configuring-regulated-pp.html' },
-    { title: 'Implementation of the Pure Pursuit Path Tracking Algorithm', url: 'https://publications.ri.cmu.edu/storage/publications/pub_files/pub3/coulter_r_craig_1992_1/coulter_r_craig_1992_1.pdf' },
-  ],
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Pure pursuit is a geometric path-tracking controller. It chooses a target point ahead of the robot on the reference path, transforms that point into the robot frame, and computes the curvature of an arc that would drive the robot toward it.',
-        'The appeal is that the runtime state is small and inspectable: current pose, path, nearest path index, lookahead distance, target point, curvature command, speed command, and timing. That makes it useful in robots, autonomous vehicles, warehouse platforms, and teaching systems where a controller should be easy to debug under motion.',
+        'Read the lookahead view as a geometry pipeline. Pose means the vehicle position and heading; a path is an ordered curve the vehicle should follow; lookahead distance is how far forward along that path the controller chooses a target. Active nodes show target selection and command computation.',
+        'In the tracking-errors view, watch cross-track error, heading error, lookahead, curvature, and speed cap together. Curvature is how sharply the vehicle should turn. A stable controller is not the one with the smallest instant error; it is the one whose target and curvature change smoothly enough for the vehicle to execute.',
         {type:'callout', text:'Pure pursuit compresses path tracking into one auditable geometry decision: choose a forward target, then command the arc that reaches it.'},
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A planner can produce a path, but a robot still needs steering commands at every control tick. The controller must translate a geometric path into motion while localization noise, sparse waypoints, timing delays, and actuator limits are present.',
+        'Pure pursuit exists as a simple path-tracking controller. It chooses a point ahead on the path and computes the circular arc that would reach it from the current pose. The method is popular because its state is small enough to debug during motion.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious path-following approach is to point the robot at the nearest waypoint or at the next waypoint in the list. That feels reasonable until the path is sparse, noisy, or curved. A robot that chases the nearest point can oscillate because the nearest point moves sideways as the robot crosses the path.',
-        'The other obvious approach is to optimize a full future trajectory at every control tick. That can be powerful, but it asks for a model, constraints, obstacle costs, and more compute. Pure pursuit sits between those extremes. It keeps the geometry simple, but it looks far enough ahead to produce a smooth steering target.',
+        'The obvious approach is to steer toward the nearest waypoint. That looks natural on a drawing because the nearest point measures current error. In motion, it can oscillate because the nearest point moves sideways as the robot crosses the path.',
+        'Another obvious approach is to optimize a full future trajectory at every tick. Model predictive control can do that, but it needs a model, constraints, costs, and more compute. Pure pursuit keeps the runtime problem local and geometric.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is to turn tracking into one local geometry problem. Instead of asking where the whole future trajectory should go, ask which point on the path lies one lookahead distance ahead and what circular arc reaches that point from the current pose.',
-        'Lookahead is the main design knob. A longer lookahead smooths commands and makes the robot less sensitive to small path noise, but it can cut corners. A shorter lookahead follows tightly, but it can oscillate or overreact. Real systems often adapt lookahead by speed, curvature, and lateral error.',
+        'Nearest-point chasing reacts to error instead of creating a forward goal. On a curve, the nearest point can sit beside or behind the vehicle, so steering toward it may create sharp corrections that the vehicle cannot execute cleanly.',
+        'Full optimization has the opposite wall. It can be better, but it is harder to tune, harder to explain, and more expensive. Many warehouse robots, small autonomous vehicles, and teaching systems need a controller whose bad decisions can be inspected from a few numbers.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        'Inspect pure pursuit as a chain of decisions: find the nearest path position, walk forward by lookahead distance, transform the target into the robot frame, compute curvature, apply speed or steering limits, and emit the command. If the robot behaves badly, locate which step produced the wrong state.',
-        'The target point is the compressed control problem. If it jumps, the command jumps. If it is behind the robot because of a frame error, the command becomes nonsense. If it lies around a sharp corner at high speed, the robot may cut the corner even though the math is internally consistent.',
+        'The controller should pursue a point ahead of the vehicle, not the nearest point. If the target is forward by a chosen lookahead distance, the vehicle can steer along an arc that reduces tracking error while maintaining motion.',
+        'Lookahead is the design knob. Longer lookahead smooths steering but cuts corners. Shorter lookahead follows tightly but can oscillate. Real systems often adapt lookahead using speed, curvature, and lateral error.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The controller stores the path as an ordered sequence of poses with arc length. At each tick, it starts near the previous nearest index, finds the closest path location, then advances along path distance until it reaches the lookahead point. This avoids searching the whole path from scratch and reduces backward jumps.',
-        'After selecting the target, the controller transforms it into the robot coordinate frame. In the common bicycle-model form, curvature is proportional to the lateral offset divided by squared lookahead distance. The command is then converted into steering angle or angular velocity depending on the vehicle model.',
-        'Autoware describes a pure pursuit controller that computes steering angle for a desired trajectory and exposes lookahead parameters based on velocity, lateral error, and curvature: https://autowarefoundation.github.io/autoware_universe/main/control/autoware_pure_pursuit/. Nav2 Regulated Pure Pursuit adds practical speed regulation around obstacles, curvature, and approach behavior: https://docs.nav2.org/configuration/packages/configuring-regulated-pp.html.',
-      ],
-    },
-    {
-      heading: 'Data structures',
-      paragraphs: [
-        'The path should not be only an array of x-y points. A useful controller path stores pose, heading, cumulative arc length, curvature, speed target, frame id, timestamp, and optional lane or route metadata. Those fields let the controller select a target by distance and diagnose whether geometry is stale or in the wrong frame.',
-        'The controller state should include the last nearest index, selected target index, lookahead distance, cross-track error, heading error, curvature command, speed cap, transform age, and command timestamp. Keeping this ledger makes failures replayable. A path-tracking bug is often not in the formula; it is in stale transforms, sparse waypoints, or a target selection jump.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A warehouse robot approaches a ninety-degree aisle turn. With fixed long lookahead, the selected target lies around the corner while the robot is still on the straight approach. The resulting arc is smooth, but it cuts inside the turn and risks clipping a shelf.',
-        'A better configuration shortens lookahead as curvature and lateral error rise, caps speed before the turn, and lengthens lookahead again after the robot exits onto the straight segment. The debug record shows nearest index, lookahead distance, target point, curvature, speed cap, cross-track error, heading error, and transform age at each tick.',
-        'This is why pure pursuit is useful for education. Students can see how one number, the lookahead distance, changes behavior. They can also see that a mathematically simple controller still needs serious engineering around frames, timing, path density, and speed policy.',
+        'The controller stores the path with cumulative arc length. At each tick, it finds the nearest path location, advances by the lookahead distance, and selects the target point. Starting the search near the previous nearest index avoids scanning the whole path from scratch.',
+        'The target is transformed into the vehicle frame. In a common bicycle-model form, curvature is about 2*y / L^2, where y is the target lateral offset and L is lookahead distance. The system then converts curvature into steering angle or angular velocity and applies speed limits.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Pure pursuit works because it uses geometry that matches the motion primitive. A wheeled robot cannot usually teleport sideways; it follows arcs and constrained turns. Choosing a forward point and fitting an arc gives the robot a reachable local goal rather than a raw error vector.',
-        'The method also stabilizes tracking by not chasing the nearest path point. The lookahead point moves ahead of the robot, so small lateral errors do not immediately flip the command. That is the same reason too much lookahead can be dangerous: smoothing and corner-cutting are two sides of the same mechanism.',
+        'The correctness argument is geometric. A wheeled vehicle cannot move sideways; it follows arcs under steering limits. Choosing a reachable forward point and commanding the arc toward it makes the local target compatible with the vehicle motion primitive.',
+        'The method is stable within its assumptions because the target moves ahead rather than jumping across the nearest lateral error. The same mechanism explains the tax: too much smoothing lets the arc cut inside corners, while too little smoothing makes the controller chase noise.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Pure pursuit wins when the path is already planned, the vehicle model is simple enough for curvature control, and the platform needs a fast and explainable tracker. It is common in mobile robotics, warehouse vehicles, low-speed autonomous driving, teaching simulators, and systems where a full optimizer is unnecessary or too expensive.',
-        'It is especially good as a baseline. If a robot cannot follow a clean path with pure pursuit under mild conditions, the team should inspect localization, transforms, path density, controller timing, and actuator limits before blaming a more advanced planner.',
+        'The computation per tick is small. With a remembered nearest index, target search is usually proportional to the number of path segments advanced, not the whole path. Curvature computation is constant time once the target is selected.',
+        'The real cost is behavior tuning. At 2 m/s, a 1 m lookahead gives about 0.5 seconds of forward target horizon; a 6 m lookahead gives 3 seconds. The first can twitch on noisy paths, while the second can cut a tight aisle turn before the robot reaches it.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Pure pursuit is used in mobile robots, warehouse vehicles, low-speed autonomous driving stacks, agricultural robots, and teaching simulators. It fits systems with a planned path, reliable localization, and a vehicle model that can follow curvature commands.',
+        'It is also a strong baseline. If pure pursuit cannot follow a clean path at low speed, the team should inspect transforms, localization, path density, timing, and actuator limits before adding a more complex controller.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Pure pursuit is not a full trajectory optimizer. It does not reason over obstacle cost, dynamic constraints, multi-step feasibility, reverse maneuvers, or future curvature the way MPC can. It also assumes the selected path is valid and that following it locally is safe.',
-        'Common failures are predictable: long lookahead cuts corners, short lookahead oscillates, sparse paths create target jumps, stale transforms point to the wrong target, high speed overwhelms curvature limits, and reversed motion changes the sign convention. Each failure needs a different fix, so the controller should log the state that produced the command.',
+        'It fails when local geometry is not enough. Obstacles, dynamic constraints, reverse maneuvers, tire limits, and future curvature may require a trajectory optimizer. Pure pursuit assumes the path is already safe and locally followable.',
+        'Common failures are long-lookahead corner cutting, short-lookahead oscillation, sparse waypoint jumps, stale transforms, high speed over curvature limits, and sign errors during reverse motion. The fix depends on which state field produced the command, so logging is part of the controller.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Track cross-track error, heading error, lookahead distance, curvature command, speed cap reason, target-index jump size, transform age, command age, actuator saturation, and path-density gaps. Those metrics reveal whether the controller is failing because of geometry, timing, vehicle limits, or upstream planning.',
-        'A rollout should include replay traces for cornering, straight tracking, start/stop, reverse if supported, sparse paths, localization noise, and stale transforms. The controller is simple enough that unexplained behavior is a process failure, not an acceptable mystery.',
+        'A warehouse robot drives at 1.5 m/s toward a 90-degree aisle turn. With lookahead L = 4 m, the selected target lands around the corner while the robot is still on the straight segment. If the target lateral offset in the robot frame is y = 1.2 m, curvature is 2*1.2/16 = 0.15 1/m, a smooth turn that may cut inside the shelf corner.',
+        'When curvature ahead rises, the controller shortens lookahead to L = 2 m and caps speed at 0.8 m/s. If y = 0.9 m, curvature becomes 2*0.9/4 = 0.45 1/m, a tighter command at lower speed. The behavior change is not magic; it is the cost of trading smoothness for corner accuracy.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study DWB Velocity Lattice Trajectory Critic for sampled velocity scoring, MPC Receding Horizon Trajectory Controller for horizon optimization, Nav2 Costmap Inflation Layer for obstacle-aware cost fields, Kalman Filter Sensor Fusion for pose estimates, A* Search for global route planning, and RRT* Motion Planning Tree for sampling-based planning.',
-        'In a course, place pure pursuit after coordinate frames and before MPC. It shows how far a compact geometric data structure can go, and it prepares students to understand why more expensive controllers add constraints, costs, and horizons.',
+        'Primary sources: Coulter 1992 on pure pursuit, Autoware pure pursuit controller documentation, and Nav2 Regulated Pure Pursuit controller documentation. Check current robotics-stack documentation before relying on parameter names because controller packages change.',
+        'Study coordinate frames, bicycle models, path interpolation, Kalman filtering, A* route planning, dynamic window approaches, and model predictive control next. Pure pursuit is the bridge between planned geometry and executable steering.',
       ],
     },
   ],

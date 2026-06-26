@@ -1,4 +1,4 @@
-// Apache DataFusion query-engine case study: logical plans, optimizer rules,
+﻿// Apache DataFusion query-engine case study: logical plans, optimizer rules,
 // physical plans, Arrow batches, and extension points for embedded analytics.
 
 import { graphState, matrixState, InputError } from '../core/state.js';
@@ -221,87 +221,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The animation shows a query becoming executable Arrow batch streams. A LogicalPlan says what the query should do; a physical plan says how operators will produce results. Active nodes are the current plan stage, and found nodes are the Arrow RecordBatches that leave the engine.',
+        'In the extension view, each plugin has a narrow contract. A table provider supplies schema and scan behavior. A function supplies type and null behavior. An execution operator must emit valid Arrow batches.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
         {type:'callout', text:'DataFusion is library-shaped query execution. The hard part is not parsing SELECT — it is making queries correct, fast, extensible, explainable, and resource-aware. DataFusion packages those query-engine pieces as a Rust library around Apache Arrow, giving products scanning, filtering, joins, aggregates, optimization, and execution without building a planner and executor from scratch.'},
-        'Apache DataFusion exists because many products need query-engine behavior without wanting to build a full database from scratch. Observability tools, lakehouse systems, dataframe libraries, embedded analytics products, and domain-specific storage engines all need scanning, filtering, joins, aggregates, expressions, optimization, and execution.',
-        'The hard part is not parsing SELECT. The hard part is making queries correct, fast, extensible, explainable, and resource-aware. Users quickly want projection pushdown, filter pushdown, statistics, custom functions, partitions, joins, aggregations, explain plans, and predictable execution.',
-        'DataFusion packages those query-engine pieces as a Rust library built around Apache Arrow. Arrow gives a concrete columnar batch format, and DataFusion supplies the logical planning, optimization, physical execution, and extension contracts around it.',
+        'DataFusion exists because many products need query execution as a component, not as a hosted database. Observability tools, dataframe systems, lakehouse services, and custom storage engines need scans, filters, joins, aggregates, expressions, and explain plans. They should not each rebuild a query engine from zero.',
+        'DataFusion packages the core as a Rust library around Apache Arrow. Arrow supplies the columnar batch format. DataFusion supplies logical planning, optimization, physical execution, and extension points.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to bolt SQL onto a product by parsing queries and scanning files manually. That may work for a demo, but it breaks once users ask why a query reads all columns, why filters do not prune files, why joins explode, or why custom functions behave inconsistently.',
-        'Another shortcut is to return row objects everywhere. Rows are simple to understand but poor for analytical execution. Columnar batches let operators process many values at once, skip unused columns, reuse Arrow kernels, and interoperate with other analytics tools.',
-        'A third mistake is to let extensions bypass planning. A custom source or operator that skips the optimizer may be fast for one query and invisible to projection pushdown, filter pushdown, repartitioning, explain plans, and resource control.',
+        'The obvious approach is to parse SQL and manually scan files or custom tables. That works until users ask why filters do not prune files, why only needed columns are not read, or why joins run out of memory. The product has crossed from parsing into query-engine behavior.',
+        'Another shortcut is to return row objects everywhere. Rows are convenient for application code, but analytical operators want columns. Arrow RecordBatches let operators process many values at once and avoid converting through row-shaped containers.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is library-shaped query execution. DataFusion is not only a SQL engine; it is an embeddable planner and execution engine with extension points for catalogs, table providers, file formats, user-defined functions, optimizer rules, logical nodes, and physical operators.',
-        'SQL or DataFrame calls build a LogicalPlan. The optimizer rewrites that plan with rules such as projection pushdown, filter pushdown, simplification, and join improvements. The physical planner lowers the optimized logical plan into ExecutionPlan operators.',
-        'Execution operators produce Arrow RecordBatches, often across partitions. That makes the data-plane contract concrete: operators consume and emit columnar batches with known schemas rather than ad hoc row objects.',
+        'The wall is shared execution complexity. A real engine needs optimizer rules, catalogs, statistics, partitioning, memory limits, spill paths, expression kernels, and explainability. Each feature affects the others.',
+        'The second wall is extension safety. If a custom source bypasses planning, projection pushdown and filter pushdown disappear. If a custom function hides null behavior, correctness changes by entry point. Extensions need contracts or the engine fragments.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is embeddable, Arrow-native query execution. SQL and DataFrame APIs both build LogicalPlans. Optimizer rules rewrite those plans. Physical planning lowers them into ExecutionPlan operators that consume and emit Arrow RecordBatches.',
+        'The same pipeline handles built-in and custom logic. A domain table, a user-defined function, or a custom operator should enter through a planned interface. That keeps pushdown, repartitioning, explain plans, and metrics available.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A query starts as SQL or a DataFrame expression. DataFusion turns it into a logical plan: scan this table, project these columns, filter these predicates, join these inputs, aggregate these groups. The optimizer rewrites that logical plan while preserving semantics.',
-        'The physical planner chooses execution operators. A scan operator reads Arrow batches from a source. Filter and projection operators transform batches. Join and aggregate operators maintain hash state. Partitioning and repartitioning decide how work spreads across execution tasks.',
-        'Extensions enter through narrow contracts. A table provider reports schema and statistics. A user-defined function binds types and null behavior. An optimizer rule must preserve semantics. A custom execution operator must emit valid Arrow batches.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The query-pipeline view proves that SQL is only the surface. The important chain is SQL or DataFrame call, catalog lookup, logical plan, optimizer, physical plan, partitions, Arrow batches, and output.',
-        'The highlighted catalog edge matters because schema and statistics shape both correctness and optimization. Without types and statistics, pushdown and planning become guesswork.',
-        'The extension view proves that extensibility is useful only when each plugin has a narrow, testable contract. Custom logic should flow through the same plan pipeline so pushdown, repartitioning, explainability, and Arrow batch validation still work.',
-        'The partition and batch nodes prove why query engines are execution systems, not just parsers. Once data is split across partitions, every operator must preserve schema, ordering assumptions, memory limits, and cancellation behavior while still emitting valid Arrow batches.',
+        'A query starts at the SQL or DataFrame API, resolves tables through a catalog, and becomes a LogicalPlan. Optimizer rules remove unused columns, push predicates toward scans, simplify expressions, prune partitions, and improve joins where metadata allows.',
+        'The physical planner chooses concrete operators. Scans read batches, filters and projections transform batches, joins and aggregates maintain hash state, and repartitioning spreads work. The result is a stream of Arrow RecordBatches with a known schema.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because Arrow gives the engine a stable in-memory representation. Sources, operators, and outputs can agree on arrays and RecordBatches, reducing conversion cost and making the engine interoperable with Parquet, Arrow Flight, Python, Rust, and other analytics tooling.',
-        'Rule-based optimization works because many query improvements are semantic rewrites: read fewer columns, push filters closer to scans, simplify expressions, prune partitions, and avoid unnecessary work. Those rewrites are difficult to recover if every extension is a one-off code path.',
-        'Embedding works because products can keep their domain model while reusing the query core. An observability product can register log tables and custom functions. A storage engine can provide its own table provider. A dataframe library can expose familiar APIs while using DataFusion underneath.',
+        'It works because Arrow gives every operator the same data-plane contract. Operators do not have to agree on language objects or custom row structs. They agree on typed arrays, validity bitmaps, offsets, and RecordBatch schemas.',
+        'Correctness depends on plan semantics and batch validity. Optimizer rules must preserve query meaning, and physical operators must preserve schema, null behavior, ordering assumptions where required, and cancellation behavior. A malformed batch can poison every downstream operator.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'DataFusion gives a query-engine library, not a complete hosted database. Distributed scheduling, multi-tenant governance, billing, user management, durable catalog service, and operational control planes may still belong to the embedding product.',
-        'Extensions carry correctness risk. A table provider with inaccurate schema or statistics can mislead planning. A user-defined function with unclear null behavior can produce wrong answers. A custom operator that emits malformed batches can poison downstream execution.',
-        'Performance risk often appears at boundaries: missing statistics, poor partitioning, skewed joins, unbounded aggregation state, expensive conversion into or out of Arrow, and no visibility into operator timing or spill behavior.',
-        'The tradeoff for embedders is reuse versus ownership. DataFusion can remove years of query-engine work, but the product still owns its data model, security policy, resource limits, extension review, and user-facing failure messages.',
+        'DataFusion reduces build cost for an embedding product, but it is not a complete managed warehouse. The product still owns security, tenancy, durable catalogs, cluster scheduling, billing, resource policy, and user-facing errors. DataFusion is the query core, not the whole platform.',
+        'Runtime cost behaves by operator. Scans are I/O and pruning problems, filters are expression-kernel problems, joins are hash-state and skew problems, and aggregates are state and spill problems. A good embedding exposes operator timing and memory so users can see which behavior dominates.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'DataFusion is useful when query processing is a component inside another product rather than a standalone database service. Observability systems, lakehouse tools, custom storage engines, dataframe systems, and embedded analytics products can reuse its planner and Arrow-native executor.',
-        'It is also useful for domain-specific query layers. A product can expose SQL over logs, metrics, traces, geospatial data, or custom files without inventing a planner, expression engine, and batch executor from scratch.',
-        'It is especially strong when the embedding wants Arrow as the interchange format. Returning RecordBatches lets downstream code stay in the same columnar representation instead of paying row conversion costs at every boundary between libraries.',
-        'It is less useful when the main problem is cluster orchestration, transactional storage, or a complete managed SQL service. In those cases DataFusion may still be a data-plane component, but not the whole architecture.',
+        'DataFusion fits embedded analytics, log query systems, custom lakehouse engines, dataframe libraries, observability products, and domain-specific SQL layers. It is especially useful when the product wants Arrow as the interchange format.',
+        'It can also be a component inside larger systems. A distributed platform may use DataFusion for local execution while owning scheduling and storage itself. That division works when the boundary is explicit.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first failure is treating extensibility as permission to bypass contracts. If a source ignores projection pushdown, a function hides type behavior, or a custom operator bypasses batch validation, the engine becomes harder to optimize and debug.',
-        'The second failure is hiding explain plans. Users need to see how a query was planned, which filters pushed down, how partitions were used, and which operators dominated runtime. Without explainability, an embedded engine feels like a black box.',
-        'The third failure is underestimating resources. Joins and aggregations can grow hash state quickly. Mature embeddings need memory limits, spill paths, cancellation, metrics, and operator-level timing.',
-        'A fourth failure is semantic drift between SQL, DataFrame, and extension APIs. If the same expression has different null, cast, or timestamp behavior depending on entry point, users cannot reason about correctness.',
-        'A fifth failure is treating Arrow as automatic performance. Arrow helps only when operators preserve columnar flow and avoid repeated conversion into row objects or language-specific containers.',
+        'It fails when extensions bypass contracts. A source that ignores projection pushdown, a function with unclear null behavior, or an operator that emits invalid batches makes the engine harder to optimize and trust. Extensibility without validation becomes fragmentation.',
+        'It also fails when users expect a full database. Transactions, multi-tenant governance, durable catalog operations, and cluster orchestration are not solved just because a query can run. The embedding product must own those layers.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: DataFusion documentation at https://datafusion.apache.org/, logical plan documentation at https://datafusion.apache.org/library-user-guide/building-logical-plans.html, and the DataFusion Rust crate documentation at https://docs.rs/datafusion/latest/datafusion/. Study Apache Arrow Columnar Memory Case Study for the batch format, DuckDB Vectorized Execution Case Study for vectorized operators, Velox Unified Execution Engine Case Study for reusable execution components, Apache Calcite Planner and Adapter Case Study for planner framework design, Parquet Columnar Format Case Study, and SQL Join Algorithms Primer next.',
+        'Suppose a log product runs SELECT service, count(*) FROM logs WHERE status >= 500 GROUP BY service over 100 million rows. If the table has 20 columns but the query needs only service and status, projection pushdown can avoid reading 18 columns. If each column averages 8 bytes, the scan drops from about 16 GB to about 1.6 GB before compression and encoding effects.',
+        'Filter pushdown then keeps only error rows. If 2 percent of rows have status >= 500, the aggregate sees about 2 million rows instead of 100 million. Correctness still requires status comparison, null handling, and service grouping to mean the same thing in the scan and aggregate operators.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: DataFusion documentation, the library user guide, and the Rust crate docs. Study Apache Arrow columnar memory, query planning, vectorized execution, hash joins, Parquet scanning, and Apache Calcite next.',
+        'The exercise is to implement a tiny table provider that reports schema, statistics, and projection pushdown. Run one query before and after pushdown and compare bytes read. That makes the planner contract concrete.',
       ],
     },
   ],

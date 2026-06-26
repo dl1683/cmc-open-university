@@ -1,4 +1,4 @@
-﻿// LongRoPE: non-uniform RoPE rescaling and progressive context extension.
+// LongRoPE: non-uniform RoPE rescaling and progressive context extension.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
 
@@ -323,41 +323,87 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for LongRoPE Non-Uniform RoPE Scaling Case Study. LongRoPE extends context by searching non-uniform RoPE rescaling factors, progressively stretching context, and readjusting short-context behavior..",
+        'Read the animation as a search over position-encoding behavior. Active cells are candidate scale choices, visited cells are choices already tested or ruled out, and found cells are settings that survive both long-context and short-context checks.',
+        'RoPE means rotary position embedding: the model represents position by rotating query and key dimensions by position-dependent angles. A safe inference is that changing the scale changes the geometry the attention layer sees; it does not create new knowledge by itself.',
         {type:"callout", text:"LongRoPE treats context length as a searched position-encoding table, not a single multiplier or product knob."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
       ],
     },
     {
-      heading: 'Why LongRoPE exists',
+      heading: 'Why this exists',
       paragraphs: [
-        'Long context is useful because many real tasks do not fit inside a small prompt. Codebase review, legal discovery, long conversation memory, repository migration, multi-document research, and video or log analysis can require hundreds of thousands of tokens. A short-window model can still solve those tasks with retrieval, chunking, and summarization, but those systems introduce their own failure modes. They may retrieve the wrong chunk, hide global structure, or lose exact ordering. A longer native context window gives the model a larger working surface.',
-        'LongRoPE exists because extending a RoPE-based transformer is not the same as raising a maximum length constant. Rotary position embeddings encode token position by rotating query and key dimensions with position-dependent angles. The model learns to use those rotations inside the training window. Far outside that window, the same frequency ladder can produce angles the model has not learned to interpret. The result can be unstable attention, bad local ordering, weak retrieval, or impressive input length with poor use of the middle.',
+        'LongRoPE exists because many transformer models were trained with a shorter context window than users later want. A model trained around 4k or 8k tokens may be asked to read 128k tokens, but its position encoding was not learned for that range.',
+        'Long context is useful for codebase review, legal discovery, long chats, log analysis, and multi-document research. The difficulty is that accepting the tokens is not the same as using them accurately across the whole window.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The simplest idea is uniform interpolation: compress every new position into the old position range with one scale factor. If an 8k model must accept 128k tokens, divide positions by a constant so the rotations stay closer to the original range. This is appealing because it is cheap and easy to explain. It also fails in a predictable way. All RoPE dimensions are not used in the same way. Low-frequency bands carry long-range information, while high-frequency bands help preserve nearby order. Stretching every band equally can damage local precision while still not giving enough useful long-range structure.',
-        'Another naive idea is to train on a few long examples and assume the model will adapt. Long data is expensive, sparse, and often repetitive. Dense attention and KV cache memory become serious costs. Evaluation is also difficult because a model can pass shallow long-context tests while failing retrieval from the middle or confusing repeated facts. LongRoPE treats context extension as a position-encoding and adaptation problem, not as a benchmark headline.',
+        'The obvious approach is uniform interpolation. If an 8k model must handle 128k tokens, divide positions by 16 so the new positions map back into the old range.',
+        'That approach is cheap and easy to deploy because it changes the position math rather than the whole model. It is a reasonable first attempt, especially when the team cannot afford full long-context pretraining.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that RoPE dimensions do different jobs. High-frequency dimensions help distinguish nearby positions, while low-frequency dimensions carry slower changes over long spans.',
+        'One uniform scale can protect one behavior while damaging another. Compress too much and local ordering gets blurry; compress too little and far positions leave the range the model learned.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is non-uniformity. LongRoPE does not use one global stretch factor for the whole RoPE system. It searches a table of scaling factors across RoPE dimensions and positions. Different frequency bands can be stretched by different amounts. Different position regions can also be handled differently, especially the new tail beyond the original context window. This gives the method more degrees of freedom than simple interpolation while keeping the change focused on position encoding rather than redesigning the whole transformer.',
-        'The table matters because RoPE is a frequency ladder. A high-frequency dimension changes quickly with position and helps distinguish nearby tokens. A low-frequency dimension changes slowly and can represent longer spans. If every dimension is stretched equally, the model can lose the short-distance cues that make ordinary prompts work. Non-uniform scaling lets long-range bands absorb more of the extension while local bands are protected. The method is still constrained by the original model, but it gives the search procedure a better set of knobs.',
+        'The core insight is non-uniform scaling. LongRoPE searches different scaling factors across RoPE dimensions and position regions instead of using one global multiplier.',
+        'That turns context extension into a small optimization problem over the frequency ladder. Some dimensions can stretch more to support distance, while others stay closer to the original behavior to preserve short-range precision.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'LongRoPE starts with a RoPE-based model and searches candidate scaling factors. The search objective is to find a non-uniform rescaling that keeps rotations useful across the target window. The paper describes scaling along dimensions and positions, then evaluating candidate choices before fine-tuning. The searched table becomes the initialization for extension. Instead of relying on a hand-picked constant, the method asks which bands and ranges should stretch more and which should remain closer to the original behavior.',
-        'The extension is progressive. First, the model is adapted to a large intermediate context, such as a hundreds-of-thousands-token window. After that adaptation, another interpolation step stretches toward a much larger target. This staged path is important because it avoids shocking the model with the final length in one move. The method also includes short-context readjustment. That step matters because most production prompts are still short. A context extension that ruins normal 2k, 4k, or 8k behavior is not a usable upgrade.',
+        'Start with the original RoPE-based model and a target context length. The method searches candidate rescaling factors, evaluates them, adapts the model, and then performs a short-context readjustment so normal prompts do not degrade.',
+        'The extension is staged rather than a single jump. A model can first adapt to a large intermediate window and then stretch farther, which gives the training process a smoother path than moving directly from 8k to a million-token target.',
       ],
-    }
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is preservation of useful angle relationships. RoPE makes attention depend on relative angular differences, so scaling is acceptable only when those differences remain interpretable for both nearby and distant tokens.',
+        'Non-uniform search works better than one multiplier because it preserves more constraints at once. The method is trustworthy only when evaluation shows long-position retrieval, middle-position use, and short-context quality at the same time.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The scaling table is small compared with model weights, so the direct memory cost is minor. The real cost is search, fine-tuning, and evaluation across many positions and tasks.',
+        'Serving cost does not disappear. If the model uses full attention over 128k tokens, KV-cache memory and prefill work still grow with context length, even though the position encoding can represent the longer range.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'LongRoPE fits long-document assistants, code tools, research systems, and agents that need a native long window without replacing the base model. It is most useful when the team wants to preserve an existing model family and extend its position behavior.',
+        'It is also a useful baseline against retrieval systems. Retrieval can foreground evidence and reduce serving cost, while LongRoPE tries to make the model itself tolerate a larger native prompt.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when a benchmark only proves that tokens fit into memory. The hard test is whether facts at different positions are used with stable accuracy under distractors and ordinary short prompts.',
+        'It also fails when long-context serving economics are ignored. A position-scaling method can make a 128k prompt legal while the prefill latency, cache memory, and batch interference make it unattractive in production.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose an 8k RoPE model is extended to 128k. Uniform interpolation uses a scale of 16, so position 128,000 is treated like position 8,000 in the old range.',
+        'Now split the frequency bands conceptually. A high-frequency band might use a smaller effective stretch to preserve local order over nearby tokens, while a low-frequency band stretches more to represent long distance. The release test then checks a fact at 2k, 64k, and 120k, plus a normal 4k prompt, because all four cases can fail differently.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: LongRoPE at https://arxiv.org/abs/2402.13753. Study the project materials and compare against RoPE interpolation, YaRN, NTK-aware scaling, LongLoRA, Lost in the Middle, and KV Cache.',
+        'Study next by role: RoPE for the position geometry, Attention Mechanism for why query-key angles matter, LongLoRA for training-time sparsity, FlashAttention for prefill cost, and RAG Context Packing Token Budget for an alternative that reduces the prompt instead of stretching it.',
+      ],
+    },
   ],
 };
-

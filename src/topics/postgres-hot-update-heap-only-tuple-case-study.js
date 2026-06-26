@@ -332,96 +332,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read a heap page as PostgreSQL row storage and a line pointer as the stable slot an index can target. A HOT successor is a newer row version stored on the same page behind the root line pointer.',
+        'In the HOT-chain view, the secondary index still points to the root. Readers follow the on-page chain to the visible version, and the index does not receive a new entry for every heap-only version.',
+        {type:'callout', text:'HOT works by keeping logical row identity stable in the index while same-page heap versions absorb update churn.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'PostgreSQL uses MVCC, so an UPDATE normally creates a new tuple version rather than overwriting the old row in place. If every update also adds fresh entries to every secondary index, a high-update table pays write amplification twice: once in the heap and again across its indexes.',
-        'A HOT update is PostgreSQLs page-local escape hatch. When an UPDATE does not change columns referenced by ordinary indexes and the new tuple version fits on the same heap page, PostgreSQL can avoid adding new secondary index entries. The index keeps pointing at the root heap line pointer, and readers follow the on-page version chain to the visible tuple.',
-        {type:'callout', text:'HOT works by keeping logical row identity stable in the index while same-page heap versions absorb update churn.'},
-        'PostgreSQL documents HOT directly: it is possible when indexed columns are unchanged and there is enough free space on the page containing the old row. The same page-locality rule is the data-structure heart of the feature: https://www.postgresql.org/docs/current/storage-hot.html.',
+        'PostgreSQL MVCC updates create a new tuple version instead of overwriting the old version in place. HOT means heap-only tuple, and it exists to let some updates stay local to the heap page when indexed columns do not change.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Separate logical identity from tuple version storage. The secondary index entry points to a stable root line pointer. New versions that do not affect indexed values can live behind that root inside the same heap page. The heap page carries the version chain; the index does not need to know every version.',
-        'That is why HOT has two hard gates. If an indexed value changes, the old index entry no longer represents the new row and a new index entry is required. If the new tuple cannot fit on the same page, the stable root pointer cannot reach it through a local chain.',
+        'The obvious approach is to update every index whenever a row is updated. That is simple because each index entry can point directly to the current physical tuple version.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'In the HOT-chain view, follow the index pointer to the root line pointer, then follow the tuple chain on the heap page. The important fact is that no secondary index points directly at the heap-only successor.',
-        'In the free-space and index-bloat views, read the page as the constraint. Fillfactor leaves room for future tuple versions. If that room exists and indexed columns stay unchanged, PostgreSQL can keep index fanout stable while the heap page handles version churn.',
+        'The wall is write amplification. Frequent updates to non-indexed fields should not force every secondary index to learn about a new tuple version.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The core insight',
       paragraphs: [
-        'The heap page matters. PostgreSQL page layout uses item identifiers, also called line pointers, that remain stable long enough to act as CTID targets; a CTID is page number plus item identifier. Tuple bytes can move within the page while the item identifier remains the reference point: https://www.postgresql.org/docs/current/storage-page-layout.html.',
-        'HOT turns that stability into an update chain. The secondary index points to the root line pointer. The old tuple links to the heap-only successor through its tuple id. Because no index points directly at the successor, page pruning can later reclaim dead heap-only versions locally.',
-        'Snapshot visibility still decides which version a reader sees. HOT does not weaken MVCC. It changes the physical route from an index entry to the visible version, keeping the chain local enough that PostgreSQL can prune dead versions without cleaning secondary index entries for every update.',
+        'Separate logical row identity from physical tuple versions. The secondary index points to a stable root line pointer, and same-page heap versions form a chain behind that root.',
       ],
     },
     {
-      heading: 'Free space and fillfactor',
+      heading: 'How it works',
       paragraphs: [
-        'HOT needs room on the old page. PostgreSQL CREATE TABLE fillfactor reserves page space for updates when set below 100, making same-page updates more likely: https://www.postgresql.org/docs/current/sql-createtable.html. The tradeoff is density: lower fillfactor can improve update locality but increases table size and cache footprint.',
-        'The Free Space Map records available space per heap or index page in a tree-like side structure, so PostgreSQL can find pages with room: https://www.postgresql.org/docs/current/storage-fsm.html. HOT tuning should watch observed HOT ratio and dead tuples, not rely on a universal fillfactor.',
+        'When an update qualifies, PostgreSQL writes the new tuple version on the same heap page and marks it as heap-only. The old tuple links forward, and readers use MVCC visibility rules to choose the version their snapshot can see.',
       ],
     },
     {
-      heading: 'Complete case study: high-update orders table',
+      heading: 'Why it works',
       paragraphs: [
-        'An orders table has indexes on order_id and customer_id. The application updates status and retry_count frequently. If status and retry_count are not indexed and the table uses a fillfactor that leaves same-page room, many updates can be HOT. Secondary indexes stop receiving a new entry for every status change.',
-        'A dashboard request proposes an index on status. That index may make the dashboard faster but can turn every status update cold, multiplying index writes, index vacuum work, WAL volume, and page churn. The right decision is workload-specific: measure the dashboard gain against the lost HOT ratio.',
+        'Correctness depends on unchanged indexed values. If the indexed key is the same, the existing index entry still identifies the same logical row candidate and can lead to the visible heap version through the chain.',
       ],
     },
     {
-      heading: 'Visibility and index-only scans',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Updates clear visibility-map certainty for changed heap pages. PostgreSQL index-only scans consult the visibility map; if a page is all-visible, the scan can return index data without visiting the heap, and if not, it must visit the heap to check visibility: https://www.postgresql.org/docs/current/indexes-index-only-scans.html.',
-        'This creates a second-order effect. A high-update table may have the right covering index but still perform heap fetches because recent updates keep clearing all-visible bits. Vacuum and pruning restore page facts only after the page becomes provably safe.',
+        'HOT reduces secondary-index writes, index bloat, WAL, and future vacuum work when updates qualify. If a table performs 1 million status updates per hour and has four secondary indexes, preserving HOT can avoid millions of index-entry writes.',
       ],
     },
     {
-      heading: 'Observe and tune',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The main counters live in PostgreSQL cumulative statistics. pg_stat_all_tables and pg_stat_user_tables expose table activity, including update and HOT-update counters in the table statistics view: https://www.postgresql.org/docs/current/monitoring-stats.html. pageinspect can inspect heap pages directly for educational debugging: https://www.postgresql.org/docs/current/pageinspect.html.',
-        'The release gate is concrete: HOT update percentage rises, secondary index writes flatten, n_dead_tup stays within autovacuum capacity, index-only scan heap fetches remain acceptable, and latency does not trade one bottleneck for another.',
+        'HOT wins on high-update tables where volatile columns are not indexed. Status flags, retry counters, heartbeat fields, progress markers, and denormalized payload fields are common examples.',
       ],
     },
     {
-      heading: 'Where it wins and where it fails',
+      heading: 'Where it fails',
       paragraphs: [
-        'HOT wins for high-update tables where frequently changed columns are not indexed: status fields, retry counters, heartbeat metadata, or denormalized payload columns. It lowers secondary-index churn, reduces index bloat pressure, and gives page pruning a local cleanup path.',
-        'It fails when the updated column is indexed, when the row grows and cannot fit on the same heap page, when fillfactor leaves no headroom, or when autovacuum cannot keep up with dead tuple cleanup. It can also conflict with a well-intentioned new dashboard index: indexing a volatile column may quietly destroy HOT eligibility.',
-      ],
-    },
-    {
-      heading: 'Operational checklist',
-      paragraphs: [
-        'Before adding an index to a volatile column, check whether that column participates in frequent updates and whether those updates are currently HOT. A new index can look harmless in a read-only query plan and still increase write amplification, WAL, vacuum work, and bloat on the write path.',
-        'For HOT tuning, record table fillfactor, HOT update ratio, dead tuple count, autovacuum cadence, index-only scan heap fetches, and the list of indexed columns that change during common updates. Those facts keep the discussion concrete: either the schema preserves page-local updates, or it does not.',
-      ],
-    },
-    {
-      heading: 'Schema design rule',
-      paragraphs: [
-        'The practical rule is to keep high-churn attributes away from ordinary secondary indexes unless the read path clearly earns the write cost. Status flags, retry counters, last_seen timestamps, and progress fields often change far more often than they are searched. Indexing them can turn a page-local update into an index-maintenance event across the whole table.',
-        'When a read feature needs one of those columns, consider alternatives before adding the direct index: a partial index for the narrow hot query, a separate append-only event table, a materialized reporting path, or a denormalized summary updated at a lower frequency. HOT is not the only concern, but it is a useful pressure test for whether the schema respects the write workload.',
+        'HOT fails when an updated column is indexed. It also fails when the new tuple cannot fit on the same page, which makes fillfactor, row growth, dead-tuple cleanup, and autovacuum cadence part of the behavior.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'An orders table has indexes on order_id and customer_id. The application updates retry_count many times while processing payment callbacks. If retry_count is not indexed and the heap page has free space, those updates can form a HOT chain behind the same root line pointer.',
-        'Now add an index on retry_count for a rare admin report. Every retry_count update changes an indexed value, so HOT is no longer available for that update. The admin report may speed up, but the write path now pays secondary-index maintenance on a high-frequency field. This is why schema design and update behavior have to be evaluated together.',
+        'An orders table has 10 million rows and indexes on order_id and customer_id. If retry_count changes five times per order and is not indexed, 50 million updates can form HOT chains; adding an index on retry_count turns those updates into index-maintenance work.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Study MVCC Internals & VACUUM, PostgreSQL Autovacuum Freeze & Wraparound, PostgreSQL Buffer Pool Clock Sweep, Database Indexing, B-Trees, B+ Tree Leaf Sibling Scan Case Study, Hot Rows & Append-and-Aggregate, and PostgreSQL WAL Checkpoint & Recovery next.',
+        'Primary sources: PostgreSQL HOT storage at https://www.postgresql.org/docs/current/storage-hot.html, page layout at https://www.postgresql.org/docs/current/storage-page-layout.html, CREATE TABLE fillfactor at https://www.postgresql.org/docs/current/sql-createtable.html, free space map at https://www.postgresql.org/docs/current/storage-fsm.html, index-only scans at https://www.postgresql.org/docs/current/indexes-index-only-scans.html, monitoring statistics at https://www.postgresql.org/docs/current/monitoring-stats.html, and pageinspect at https://www.postgresql.org/docs/current/pageinspect.html. Study MVCC Internals and VACUUM, PostgreSQL Autovacuum Freeze and Wraparound, PostgreSQL Buffer Pool Clock Sweep, Database Indexing, B-Trees, Hot Rows and Append-and-Aggregate, and PostgreSQL WAL Checkpoint and Recovery next.',
       ],
     },
   ],

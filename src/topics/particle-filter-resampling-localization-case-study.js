@@ -303,257 +303,86 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The animation has two views. "Weighted particles" traces the full filtering loop: prior particles, motion prediction, sensor likelihood scoring, weight normalization, ESS check, and state estimation. "Resampling collapse" focuses on what happens when the filter decides to resample and what goes wrong when it resamples too aggressively.',
-        {
-          type: 'table',
-          headers: ['Marker', 'Meaning in this animation'],
-          rows: [
-            ['Active (highlighted)', 'Current stage of the predict-update-resample cycle or the particle under inspection'],
-            ['Found (green)', 'The estimated pose or a particle cluster confirmed by sensor evidence'],
-            ['Compare (dimmed)', 'Low-weight particles about to be deleted, or resampling artifacts that reduce diversity'],
-          ],
-        },
-        'In the weighted-particles view, watch the plot frame where sensor evidence splits particles into high-weight and low-weight groups. The separation is not arbitrary -- it reflects how well each hypothesis explains the lidar scan. In the resampling-collapse view, watch the ESS-gated curve stay higher than the always-resample curve. That gap is the diversity cost of unnecessary resampling.',
+        'Read each particle as one possible robot pose. Active particles are being predicted, weighted, or copied; found particles are the high-likelihood region; compare or removed particles are hypotheses that current evidence makes less useful.',
+        'ESS means effective sample size, a number that estimates how many useful weighted particles remain. The safe inference rule is that resampling should wait until weights collapse enough that many particles are statistically dead.',
         {type:'callout', text:'A particle filter represents belief as weighted hypotheses, then resamples only when weight collapse threatens the diversity needed for future evidence.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/b/bb/Particle2dmotion.svg', alt:'Particle cloud spreading around a robot motion path.', caption:'Particle motion belief distribution, by Daniel Lu, CC BY-SA 3.0, via Wikimedia Commons.'},
-        {
-          type: 'note',
-          text: 'One safe inference rule: if ESS is above the threshold, the weighted cloud is still diverse enough to carry the posterior. Resampling at that point would delete minority hypotheses that might matter after the next observation.',
-        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A robot wants to know its pose -- position and heading -- but it never receives the pose directly. It receives wheel encoder ticks that drift, inertial readings that integrate noise, lidar scans that see walls but not labels, and camera frames that match features but not coordinates. Each observation is partial. Odometry accumulates error at roughly 2-5% of distance traveled. Walls repeat. Doorways look alike. Two identical aisles in a warehouse produce identical sensor returns.',
-        {
-          type: 'quote',
-          text: 'The problem of determining the pose of a robot relative to a given map of the environment is called localization, and is often referred to as the most fundamental problem in mobile robotics.',
-          attribution: 'Thrun, Burgard, and Fox, "Probabilistic Robotics" (2005), Chapter 7',
-        },
-        'A single confident coordinate can be worse than ignorance when the evidence still supports several places at once. The robot might be in aisle 3 or aisle 7 -- both have 4-meter walls spaced 2.5 meters apart. Reporting the average of those two locations places the robot inside a shelf rack between them. The number is precise but the belief is false.',
-        'A particle filter represents belief as a population of weighted hypotheses. Each particle is one possible state: "the robot might be here, facing this way." The weight says how well that hypothesis explains the observations so far. Instead of forcing belief into one mean and one covariance, the filter keeps a sampled approximation of the whole posterior distribution -- lumpy, multimodal, and shaped by the actual evidence.',
+        'A robot does not observe its pose directly. Wheel motion drifts, lidar sees walls without labels, and two warehouse aisles can produce nearly identical sensor readings.',
+        'A single coordinate is dangerous when two places are plausible. A particle filter represents uncertainty as many weighted hypotheses, so the belief can have several separated clusters until evidence rules them out.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The natural first attempt is a single state estimate. Keep one (x, y, theta) coordinate, move it forward with odometry, correct it when a sensor reading arrives, and report that coordinate to the path planner. This is cheap, easy to reason about, and correct when the robot always knows roughly where it is.',
-        'The stronger classical approach is the Kalman filter family. A Kalman filter maintains a mean vector and covariance matrix, propagates them through a linear motion model, and updates them with a linear measurement model and Gaussian noise. The Extended Kalman Filter linearizes nonlinear models around the current estimate. The Unscented Kalman Filter uses sigma points to capture nonlinearity without explicit Jacobians.',
-        {
-          type: 'table',
-          headers: ['Approach', 'What it stores', 'Assumption', 'Breaks when'],
-          rows: [
-            ['Single estimate', '(x, y, theta)', 'One best guess is enough', 'Two places are equally plausible'],
-            ['Kalman filter', 'mean + covariance', 'Posterior is unimodal Gaussian', 'Corridors repeat; dynamics are nonlinear'],
-            ['Extended Kalman', 'mean + linearized covariance', 'Linearization is close enough', 'Sensor model is sharply nonlinear or multimodal'],
-            ['Grid filter', 'probability at every cell', 'State space is discretizable', 'Dimensions exceed 3; memory explodes'],
-          ],
-        },
-        'Each approach works in its regime. The Kalman filter is optimal for linear-Gaussian problems and excellent when the posterior stays roughly bell-shaped. Grid-based filters can represent any shape but their memory grows exponentially with state dimension: a 3D grid at 5cm resolution over a 100m x 100m floor with 360 headings needs over 50 billion cells.',
+        'The obvious approach is one best estimate: keep x, y, and heading, move it with odometry, and correct it with sensors. That is cheap and works when the robot is already near the truth.',
+        'A stronger approach is a Kalman filter, which stores a mean and covariance. It is excellent for linear systems with Gaussian noise and for beliefs shaped like one blob.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall appears when the posterior is not one blob. Four concrete situations break the unimodal assumption:',
-        {
-          type: 'bullets',
-          items: [
-            'Symmetric environments: a warehouse with 20 identical aisles produces 20 equally plausible location hypotheses. Averaging them produces a point inside a shelf.',
-            'Kidnapped robot: someone picks the robot up and places it somewhere new. The old estimate is confident and wrong. A Kalman filter has no mechanism to teleport its mean to a distant region.',
-            'Bearing-only tracking: a sensor that measures angle but not range constrains the target to a curve, not a point. The posterior is banana-shaped, not elliptical.',
-            'Nonlinear dynamics with bifurcation: a mobile robot at a T-intersection may have turned left or right. The posterior splits into two separated clusters.',
-          ],
-        },
-        'A Gaussian summary erases multimodal structure by construction. The mean and covariance matrix encode one ellipsoid. Two separated clusters, a curved band, or a ring of plausible poses cannot be represented faithfully. The Kalman filter does not fail loudly -- it reports a mean that happens to lie in impossible territory and a covariance that covers the wrong region.',
-        {
-          type: 'note',
-          text: 'The failure is representational, not algorithmic. The Kalman update equations are correct for their model class. The problem is that real localization posteriors regularly leave that class.',
-        },
-        'Grid filters handle arbitrary shapes but pay exponential memory cost. A particle filter occupies the space between: it represents arbitrary posterior shapes using a finite, adaptive sample, and it concentrates computation where the posterior mass actually lives.',
+        'The wall is multimodal belief. If a robot might be in aisle 3 or aisle 7, the average position can land inside a shelf, which is precise but false.',
+        'The second wall is nonlinear evidence. Bearing-only sensors, repeated corridors, and map ambiguities can create curved or separated posterior shapes that one Gaussian cannot represent.',
       ],
-    },
-    {
+    },    {
       heading: 'The core insight',
       paragraphs: [
-        'Use samples as the representation of belief. At time t, the filter stores N particles {x_i, w_i} where x_i is a hypothesized state and w_i is its normalized importance weight. The particles say where probability mass currently lives. The weights say how much each hypothesis should matter. This trades a closed-form distribution for a finite weighted table that can be updated with ordinary simulation and likelihood scoring.',
-        {
-          type: 'diagram',
-          label: 'The particle filter loop',
-          text: 'For each time step:\n\n  1. PREDICT:  For each particle x_i, sample x_i\' ~ p(x_t | x_{t-1} = x_i, u_t)\n               (propagate through motion model with noise)\n\n  2. UPDATE:   For each particle x_i\', compute w_i = p(z_t | x_i\')\n               (score against sensor observation)\n\n  3. NORMALIZE: w_i = w_i / sum(w_j)\n               (weights sum to 1)\n\n  4. RESAMPLE?: If ESS = 1/sum(w_i^2) < threshold,\n               draw N new particles from the weighted set\n               and reset all weights to 1/N\n\n  5. ESTIMATE: Output weighted mean, MAP particle, or cluster summary',
-        },
-        'The important invariant is recursive Bayesian filtering: prediction uses the transition model, correction uses the observation likelihood, and the resulting weighted cloud approximates the posterior at every time step. The filter never enumerates all possible states. It only needs enough particles in the regions that matter and a likelihood model that rewards the right hypotheses.',
-        {
-          type: 'quote',
-          text: 'A key advantage of particle filters over Kalman filters is their ability to represent arbitrary probability distributions, including multimodal and non-Gaussian posteriors.',
-          attribution: 'Arulampalam, Maskell, Gordon, and Clapp, "A Tutorial on Particle Filters" (2002)',
-        },
+        'Approximate the posterior distribution with samples. Each particle stores a state and a weight; the state says where the robot might be, and the weight says how well that state explains the latest observations.',
+        'Prediction moves every particle through the motion model. Correction multiplies weights by sensor likelihood, normalization makes weights sum to 1, and resampling copies high-weight particles when the cloud becomes statistically concentrated.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The core data structure is an array of particle records. A minimal row stores state and weight. A production row adds log weight, likelihood components, timestamp, map version, proposal id, random seed, and lineage (which parent particle it was copied from during resampling). That metadata is not decorative -- localization failures are hard to debug without replay of which observation reweighted which hypotheses.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Minimal particle filter data structure\nconst particles = Array.from({ length: N }, () => ({\n  x: 0, y: 0, theta: 0,   // state: pose hypothesis\n  logWeight: -Math.log(N),  // log importance weight\n  likelihood: 0,            // latest sensor score\n  parentId: -1,             // lineage for debugging\n}));\n\n// Predict: propagate each particle through motion model\nfor (const p of particles) {\n  p.x += (v + noise()) * Math.cos(p.theta) * dt;\n  p.y += (v + noise()) * Math.sin(p.theta) * dt;\n  p.theta += (omega + noise()) * dt;\n}\n\n// Update: score each particle against sensor observation\nfor (const p of particles) {\n  const expected = simulateScan(map, p.x, p.y, p.theta);\n  p.likelihood = scanMatchScore(expected, actualScan);\n  p.logWeight += Math.log(p.likelihood + 1e-300);\n}\n\n// Normalize using log-sum-exp for numerical stability\nconst maxLogW = Math.max(...particles.map(p => p.logWeight));\nconst logSumExp = maxLogW + Math.log(\n  particles.reduce((s, p) => s + Math.exp(p.logWeight - maxLogW), 0)\n);\nfor (const p of particles) p.logWeight -= logSumExp;',
-        },
-        'Weights are handled in log space because likelihoods multiply across time and underflow quickly. A single observation might assign likelihood 0.001 to a particle. After 50 observations, that particle has accumulated likelihood 0.001^50, which is roughly 10^{-150} -- below the smallest representable double. Log-sum-exp normalization prevents this: subtract the maximum log weight before exponentiating, sum, take the log, and add the max back.',
-        'Effective sample size (ESS) is the main diversity diagnostic. For normalized weights w_i, ESS = 1 / sum(w_i^2). If all N particles have equal weight 1/N, ESS equals N. If one particle carries weight 0.99 and the rest share 0.01, ESS is approximately 1.02. A cloud of 10,000 particles can statistically behave like two useful hypotheses after a sharp sensor update.',
-        {
-          type: 'table',
-          headers: ['ESS value', 'Interpretation', 'Action'],
-          rows: [
-            ['ESS = N', 'All particles equally weighted; no evidence arrived or evidence is flat', 'No resampling needed'],
-            ['ESS > N/2', 'Weights moderately spread; cloud is healthy', 'Continue without resampling'],
-            ['ESS ~ N/3', 'Some particles dominate; threshold region', 'Resample if below configured gate'],
-            ['ESS ~ 1', 'One particle carries nearly all weight; the rest are dead weight', 'Resample immediately; consider proposal improvement'],
-          ],
-        },
-        'Resampling converts a weighted population into an equally weighted one. Systematic resampling lays one random offset plus N evenly spaced pointers across the cumulative weight line. A particle with weight 0.40 owns 40% of the line and receives roughly 0.40 * N copies. A particle with weight 0.001 almost certainly vanishes. After resampling, all weights reset to 1/N.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Systematic resampling\nfunction systematicResample(particles) {\n  const N = particles.length;\n  const weights = particles.map(p => Math.exp(p.logWeight));\n  const cumulative = [];\n  let sum = 0;\n  for (const w of weights) { sum += w; cumulative.push(sum); }\n\n  const u0 = Math.random() / N;  // one random offset\n  const newParticles = [];\n  let j = 0;\n  for (let i = 0; i < N; i++) {\n    const u = u0 + i / N;        // evenly spaced pointers\n    while (cumulative[j] < u) j++;\n    newParticles.push({\n      ...structuredClone(particles[j]),\n      logWeight: -Math.log(N),   // reset to uniform\n      parentId: j,               // track lineage\n    });\n  }\n  return newParticles;\n}',
-        },
+        'At time t, the filter samples a new state for each particle from the motion model. A lidar or camera likelihood then scores how well that state predicts the actual sensor reading.',
+        'The filter normalizes weights and computes ESS = 1 / sum(w_i squared). If ESS falls below a threshold such as N / 2, systematic resampling lays evenly spaced pointers across the cumulative weight line and copies particles in proportion to weight.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Particle filters work because importance sampling can approximate an expectation under a difficult distribution using weighted samples from a distribution we can generate. The transition model serves as the proposal: it generates plausible next states. The observation likelihood serves as the importance weight correction: it reweights each proposed state according to how well it explains the actual sensor reading.',
-        {
-          type: 'diagram',
-          label: 'Importance sampling identity',
-          text: 'Goal: compute E_posterior[ f(x) ]\n\nDirect sampling from the posterior is intractable.\n\nInstead:\n  1. Sample x_i from a proposal q(x)       (here: the motion model)\n  2. Assign weight w_i = p(z|x_i) * p(x_i|x_{i-1}) / q(x_i)\n     When q = transition model, this simplifies to w_i = p(z|x_i)\n  3. Estimate = sum( w_i * f(x_i) ) / sum( w_j )\n\nThe weights correct for the mismatch between proposal and posterior.\nMore particles in high-posterior regions => lower variance.',
-        },
-        'The approximation improves when particles cover the high-probability regions and the likelihood model is calibrated. More particles reduce Monte Carlo error at rate 1/sqrt(N) -- doubling particles cuts the standard error by about 30%. But more particles cannot rescue a proposal that never samples the true state or a sensor model that assigns high likelihood to the wrong places.',
-        'Resampling is justified by the same importance-sampling theory. When ESS collapses, most particles carry near-zero weight and contribute nothing to the estimate. Replacing them with copies of high-weight particles concentrates computation where the posterior mass is. The danger is that copying is not exploration: duplicating a particle does not create a new hypothesis, only a copy of an existing one. Without motion noise or roughening, repeated resampling reduces the particle set to clones of a few ancestors.',
-        {
-          type: 'note',
-          text: 'The convergence guarantee is asymptotic: as N approaches infinity, the particle approximation converges to the true posterior. For finite N, the quality depends on proposal overlap with the posterior, likelihood model accuracy, and resampling frequency. Production systems validate with ground-truth comparisons, not with theory alone.',
-        },
+        'The correctness argument comes from importance sampling. The motion model proposes possible next states, and the observation likelihood corrects their weights so weighted averages approximate expectations under the posterior.',
+        'Resampling is safe as a variance-control step when weights collapse. It does not create new information; it reallocates future computation toward hypotheses that current evidence supports, while motion noise or recovery injection restores exploration.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Each time step costs O(N) for prediction and O(N * S) for sensor scoring, where N is the particle count and S is the cost of evaluating one particle against the sensor model. Resampling is O(N) with systematic or stratified methods. The total per-step cost is dominated by sensor scoring.',
-        {
-          type: 'table',
-          headers: ['Operation', 'Cost', 'What doubles when N doubles', 'Practical bottleneck'],
-          rows: [
-            ['Motion prediction', 'O(N)', 'CPU time for noise sampling', 'Rarely the bottleneck'],
-            ['Sensor scoring', 'O(N * S)', 'Number of scan-match evaluations', 'S can be 100-1000 ray casts per particle'],
-            ['Normalization', 'O(N)', 'Sum and divide', 'Negligible'],
-            ['ESS computation', 'O(N)', 'Sum of squared weights', 'Negligible'],
-            ['Systematic resample', 'O(N)', 'Pointer walk + copy', 'Memory allocation for new set'],
-            ['Estimate extraction', 'O(N) or O(N log N)', 'Weighted mean or clustering', 'Clustering for multimodal output'],
-          ],
-        },
-        'For lidar-based localization, the scan-match cost S is the dominant term. Comparing a simulated 360-point lidar scan against the map for each of 5,000 particles means 1.8 million ray casts per update. At 10 Hz sensor rate, that is 18 million ray casts per second. Optimizations include KD-tree or grid-based ray casting, likelihood field models that precompute per-cell match scores, and GPU-parallel scan matching.',
-        'Doubling the particle count halves the Monte Carlo standard error but doubles the compute budget. The alternative is a better proposal distribution -- one that samples where the sensor evidence is strong rather than blindly propagating from the motion model. The optimal proposal (using the current observation to guide sampling) can reduce variance enough that 500 well-placed particles outperform 10,000 blind ones.',
-        {
-          type: 'note',
-          text: 'Memory is rarely the bottleneck. 10,000 particles at 64 bytes each (3 doubles for pose, 1 for weight, metadata) occupy about 640 KB. The cost is compute, not storage.',
-        },
+        'Per time step, prediction is O(N), normalization and ESS are O(N), and systematic resampling is O(N), where N is particle count. Sensor scoring usually dominates because each particle may need ray casts, map lookups, or feature matching.',
+        'If 5,000 particles each compare a 360-beam lidar scan, one update evaluates 1,800,000 beam scores. At 10 Hz, that is 18,000,000 beam scores per second, so better likelihood fields or GPU work often matter more than saving a few bytes per particle.',
       ],
-    },
-    {
+    },    {
       heading: 'Real-world uses',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Robot localization (AMCL): the Adaptive Monte Carlo Localization algorithm in ROS spreads particles across the map at startup, scores them against a 2D lidar likelihood field, and adapts the particle count based on KLD-sampling to use more particles when uncertain and fewer when converged.',
-            'Target tracking: radar or sonar observes bearing and range with noise. The target may maneuver unpredictably. Particles represent hypothesized target states and are reweighted by measurement likelihood. Multiple targets require multi-hypothesis extensions (particle-PHD filters).',
-            'Simultaneous localization and mapping (FastSLAM): each particle carries its own map estimate. The particle represents the robot trajectory; conditioned on that trajectory, map features are updated with per-particle Kalman filters. This decomposes a joint high-dimensional problem into N low-dimensional ones.',
-            'Financial volatility estimation: stochastic volatility models have nonlinear, non-Gaussian dynamics. Particle filters estimate the latent volatility path given observed returns. The state is low-dimensional (1-3 variables), making particles efficient.',
-            'Fault diagnosis in industrial systems: particles represent possible fault modes and hidden degradation states. Sensor readings from vibration, temperature, or pressure score each hypothesis. The posterior over fault modes drives maintenance decisions.',
-          ],
-        },
-        'Particle filters are especially powerful for global localization and recovery. If a robot starts with no prior knowledge, particles can be spread uniformly across the map. As observations arrive, inconsistent regions lose weight and plausible regions survive. If the robot is kidnapped, augmented MCL injects random particles proportional to the average sensor likelihood, letting the filter recover from confident-but-wrong states.',
-        {
-          type: 'quote',
-          text: 'Monte Carlo localization can solve the global localization problem and can recover from robot kidnapping.',
-          attribution: 'Thrun, Burgard, and Fox, "Probabilistic Robotics" (2005), Chapter 8',
-        },
+        'Particle filters fit mobile-robot localization, target tracking, fault diagnosis, stochastic volatility models, and nonlinear sensor fusion. The access pattern is recursive Bayesian filtering where the state distribution cannot be trusted to stay Gaussian.',
+        'They are especially useful for global localization. A robot can start with particles spread across the map, then let sensor evidence delete impossible regions while preserving several plausible clusters.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The biggest failure is sample impoverishment in high-dimensional state spaces. Particles are finite. As state dimension grows, a fixed number of samples covers exponentially less of the relevant volume. A 3D robot pose (x, y, theta) needs perhaps 1,000-10,000 particles. A 6D pose (x, y, z, roll, pitch, yaw) might need 100,000. A 12D state (pose plus velocity plus accelerometer biases) starts requiring millions, which is impractical at real-time rates.',
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Cause', 'Symptom', 'Mitigation'],
-          rows: [
-            ['Sample impoverishment', 'Too few particles for state dimension', 'ESS stays near 1; filter locks onto wrong pose', 'Better proposal; Rao-Blackwellization; reduce effective dimension'],
-            ['Bad likelihood model', 'Stale map, wrong calibration, timing error', 'Correct particles get low scores and die', 'Validate sensor model against ground truth; check time sync'],
-            ['Overconfident collapse', 'Resample too often; no roughening or recovery', 'All particles are clones of one ancestor', 'ESS-gated resampling; inject random particles; add jitter'],
-            ['Likelihood too flat', 'Sensor model does not discriminate poses', 'Weights stay near uniform; no convergence', 'Sharpen likelihood model; add more informative sensors'],
-            ['Particle deprivation', 'True state was never sampled', 'Filter cannot recover even with good data', 'Global recovery injection; wider initial spread; mixture proposal'],
-          ],
-        },
-        'The second common failure is a bad likelihood model. If the map is stale (a new wall was built, a door was opened), the sensor calibration is wrong (lidar range offset of 5cm), or the likelihood function is too sharp (Gaussian with sigma = 1cm when the true noise is 5cm), the filter deletes correct hypotheses. If the likelihood is too flat, the filter never concentrates. Sensor timing errors produce the same symptoms: a lidar scan matched to the wrong odometry timestamp punishes particles for a synchronization bug rather than for their state.',
-        {
-          type: 'note',
-          text: 'The most dangerous failure is not divergence but false confidence. A collapsed particle cloud that reports low uncertainty at the wrong location will cause the planner to execute a trajectory that does not match reality. Monitoring distinct-particle count and ESS over time is essential.',
-        },
+        'It fails in high-dimensional spaces because finite samples cover less of the relevant volume as dimensions grow. A 3D pose may work with 5,000 particles, while a 12D state can need so many particles that real-time scoring becomes impossible.',
+        'It also fails with a bad likelihood model. A stale map, wrong lidar calibration, timing error, or overconfident noise setting can kill the true particles and leave the filter confidently wrong.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A warehouse robot reboots after power loss. It has a map but does not know which aisle it occupies. The filter initializes with N = 5,000 particles spread uniformly across navigable space.',
-        {
-          type: 'table',
-          headers: ['Step', 'Action', 'State after'],
-          rows: [
-            ['1. Initialize', 'Spread 5,000 particles uniformly on map; all weights = 1/5000', 'ESS = 5000. Particles cover all 20 aisles (~250 per aisle)'],
-            ['2. Drive forward 1m', 'Motion model: each particle moves forward ~1m with Gaussian noise (sigma=0.05m, sigma_theta=0.02 rad)', 'Particles spread slightly within each aisle. ESS unchanged (no observation yet)'],
-            ['3. Lidar scan arrives', 'For each particle, simulate expected scan from that pose; score against actual 360-point scan', 'Particles inside walls or in wrong-width aisles get likelihood ~0.001. Particles in matching aisles get likelihood ~0.8'],
-            ['4. Normalize weights', 'Log-sum-exp normalization across all 5,000 particles', 'Weight concentrates on 4 aisles with matching geometry (~1,000 particles). ESS drops from 5,000 to ~900'],
-            ['5. ESS check', 'ESS = 900 > threshold (2,500). Do not resample', 'Preserve all 4 plausible aisles. Minority hypotheses still alive'],
-            ['6. Drive to intersection', 'Motion model propagates all particles forward another 3m', 'Particles approach a T-intersection visible in aisles 3, 7, 12, 18'],
-            ['7. Second scan at intersection', 'Intersection geometry differs across the 4 remaining aisles. Aisle 7 has a unique column', 'Aisle 7 particles get likelihood ~0.9. Other aisles drop to ~0.1. ESS drops to ~380'],
-            ['8. ESS check', 'ESS = 380 < threshold (2,500). Resample', 'Systematic resampling produces ~4,500 copies of aisle-7 particles, ~400 from aisle 3, ~100 others. Weights reset to 1/5000'],
-            ['9. Continue', 'Subsequent scans confirm aisle 7. Cloud tightens around true pose', 'After 3 more updates, 95% of particles within 0.2m of true pose'],
-          ],
-        },
-        'The critical moment is step 5: the filter correctly does not resample when four aisles are still plausible. Resampling at that point would have deleted aisles with 50-100 particles each, possibly including the true location. The filter waits until step 7, when distinctive geometry narrows the posterior to one dominant cluster.',
-        {
-          type: 'note',
-          text: 'If the robot had been in aisle 3 instead, step 7 would have concentrated weight on aisle 3. The filter does not "choose" aisle 7 -- the sensor evidence does. The filter is a bookkeeping mechanism for tracking which hypotheses survive the evidence.',
-        },
+        'A warehouse robot initializes 5,000 particles over 20 aisles, so each aisle starts with about 250 particles and weight 1/5000. After moving 1 meter, no sensor has arrived, so ESS remains 5,000.',
+        'A lidar scan matches 4 aisles and rejects 16. After normalization, the surviving 4 aisles hold most of the weight and ESS drops to about 900. Because the global-localization gate is set to 500, the filter does not resample yet and keeps all 4 plausible aisles alive.',
+        'At a distinctive intersection, the second scan drives ESS to 380. The filter now resamples, copies the particles in the best aisle many times, keeps a small number from weaker aisles, and resets all weights to 1/5000 for the next motion step.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Source', 'What it covers'],
-          rows: [
-            ['Gordon, Salmond, and Smith, "Novel approach to nonlinear/non-Gaussian Bayesian state estimation" (1993)', 'The bootstrap particle filter -- the foundational paper that introduced sampling-based recursive Bayesian estimation'],
-            ['Arulampalam, Maskell, Gordon, and Clapp, "A Tutorial on Particle Filters" (2002), IEEE Trans. Signal Processing', 'Comprehensive tutorial covering SIS, SIR, regularized PF, auxiliary PF, and Rao-Blackwellized PF with convergence analysis'],
-            ['Thrun, Burgard, and Fox, "Probabilistic Robotics" (2005), Chapters 4 and 8', 'Particle filter localization (MCL), augmented MCL for kidnap recovery, and KLD-sampling for adaptive particle counts'],
-            ['Doucet, de Freitas, and Gordon (eds.), "Sequential Monte Carlo Methods in Practice" (2001)', 'The reference volume on SMC theory, convergence, resampling schemes, and applications across engineering domains'],
-            ['ROS AMCL package documentation (wiki.ros.org/amcl)', 'Production implementation of adaptive Monte Carlo localization with likelihood field sensor model and KLD-sampling'],
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Importance Sampling and Off-Policy Estimation -- particle weights are importance weights reused recursively over time. Understand the weight correction before studying the sequential version.',
-            'Prerequisite: Kalman Filter Sensor Fusion Case Study -- the Gaussian alternative. Understanding why Kalman is optimal for linear-Gaussian problems clarifies exactly what particle filters give up and what they gain.',
-            'Extension: Rao-Blackwellized Particle Filters (FastSLAM) -- factor the state into a sampled part and an analytically tractable part. Particles carry the trajectory; conditioned on each trajectory, map features update with Kalman filters.',
-            'Contrast: Hidden Markov Models -- discrete-state sequential Bayesian filtering with exact forward-backward inference. When the state space is small and discrete, HMMs are exact where particle filters are approximate.',
-            'Production case: ROS Navigation Stack -- see how AMCL integrates with costmaps, path planning, and recovery behaviors in a real robot software stack.',
-          ],
-        },
+        'Study Gordon, Salmond, and Smith on the bootstrap particle filter, Arulampalam et al. on particle-filter tutorials, and Thrun, Burgard, and Fox in Probabilistic Robotics. Read them for sequential importance sampling, resampling, Monte Carlo localization, and recovery from a wrong pose estimate.',
+        'Next, study Importance Sampling and Off-Policy Estimation, Kalman Filter Sensor Fusion Case Study, Hidden Markov Models, Rao-Blackwellized Particle Filters, FastSLAM, and Robot Navigation Stack. These topics show the exact, Gaussian, and sampled versions of recursive belief tracking.',
       ],
     },
   ],

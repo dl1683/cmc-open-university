@@ -220,63 +220,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'OpenAPI exists because an HTTP API is more than server code. It is a contract between callers, servers, documentation, generated clients, test suites, gateways, and operators. A path, method, request body, response schema, status code, authentication rule, and example all shape what clients believe they can send and receive. If that contract lives only in prose or in scattered handler code, every consumer has to infer behavior from implementation details.',
-        'A good OpenAPI document makes the contract machine-readable. It describes paths, operations, parameters, request bodies, responses, schemas, security, examples, callbacks, and reusable components. Tools can then generate SDKs, render docs, validate requests, build mocks, run contract tests, and check compatibility before a release. The practical reason is simple: once many clients depend on an API, changing a field is a migration problem, not just a code change.',
+        'The animation treats an OpenAPI document as a contract graph. A contract is a machine-readable promise about paths, methods, parameters, request bodies, response shapes, status codes, examples, and security rules. A graph means those objects point to one another through references.',
+        'Active nodes are contract nodes being compared between old and new versions. Compare nodes are shared schemas or operations whose compatibility is being checked. Found nodes are safe additive changes. Removed nodes are client-visible breaks that must be blocked or versioned.',
+        'The safe inference rule is directional. Adding an optional response field is usually safe for old clients because they can ignore it. Removing a response field or making an old optional request field required is unsafe because deployed clients can still depend on the old shape.',
         {type:'callout', text:'An OpenAPI contract is a dependency graph where schema edits must be diffed by client-visible compatibility rather than by line changes.'},
       ],
     },
     {
-      heading: 'The tempting wrong answer',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive approach is to treat the API contract as documentation written after implementation. Engineers ship server behavior, then update a page when they remember. This fails because generated clients, mobile applications, partner integrations, and internal services need a stable contract before humans read release notes. A pretty documentation page can be stale. A handler that passes server tests can still break old clients.',
-        'Another naive approach is to version only by URL and ignore compatibility inside a version. A team may keep `/v1` but remove a response field, make an optional request field required, or narrow an enum. From the server view, the change may look clean. From the client view, a parser breaks, a generated type no longer matches, or an exhaustive switch falls into an error path. Compatibility is about deployed consumers, not only about whether the new server compiles.',
+        'OpenAPI exists because an HTTP API is not only server code. It is a public or internal contract used by clients, SDK generators, documentation, gateways, mocks, tests, and monitoring. If the contract is hidden in handler code, every consumer must infer behavior by trial and error.',
+        'A schema is the part of the contract that describes data shape. It says which fields exist, which are required, which types are allowed, and which values are valid. Once clients generate code from that schema, changing a field becomes a migration problem.',
+        'The practical need is release safety. A server can compile after a field rename while old mobile clients still parse the old field. Contract evolution asks which existing clients can observe the change, not whether the new server is internally tidy.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to write API documentation after implementation. Engineers change handlers, update examples when they remember, and rely on humans to notice risky edits in review. That can work for one team and one client.',
+        'Another obvious approach is URL versioning alone. A team keeps /v1 stable in name but changes a response, narrows an enum, or adds a required request field. The URL did not change, but the generated client contract did.',
+        'Both approaches confuse documentation with compatibility. A nice page can be stale. A green server test can still break a parser, an exhaustive switch, a gateway validator, or a partner integration.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is shared dependency. One component schema can be referenced by many operations. A small edit to Customer may change checkout, refund, search, export, and webhook payloads at once.',
+        'Text diff is the wrong unit. YAML formatting, key order, and comments can change without affecting clients. A one-line schema edit can be a breaking change if it removes a required response field or changes amount from integer cents to decimal dollars.',
+        'Compatibility is also consumer-specific. Adding an enum value is often safe for a loose JSON client but risky for a generated TypeScript or Java client with an exhaustive switch. Public APIs, mobile apps, and partner integrations need slower migration than controlled internal services.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to read an OpenAPI file as a graph. The root document points to paths. Each path points to operations such as GET, POST, or DELETE. Each operation points to parameters, request bodies, response objects, security rules, examples, and schemas. Components create reusable schema nodes, and `$ref` edges connect those nodes to many operations. This graph structure is why one schema edit can affect several client surfaces at once.',
-        'Schema evolution is a graph diff problem. The safe question is not "what lines changed?" It is "which published contract nodes changed, which consumers can observe those changes, and are the changes compatible with existing clients?" Adding an optional response field is usually safe because old clients can ignore it. Removing a response field is risky because old clients may read it. Making a request field required is risky because old clients will omit it. Changing a type is almost always a breaking change.',
+        'Read the OpenAPI file as a graph of observable contract nodes. Paths point to operations. Operations point to parameters, request bodies, responses, security rules, examples, and schemas. $ref edges connect shared components to many operations.',
+        'Schema evolution is graph diff plus policy. The diff finds which nodes changed. The policy classifies each change as safe, breaking, or review-required from the old client point of view. The release gate acts on that classification before the server ships.',
+        'The strongest workflow treats the compatibility report as a build artifact. It should name the changed path or component, the old and new shape, the rule that allowed or blocked the change, and the migration action if needed.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
-        'A contract workflow starts with a canonical spec in the repository or contract registry. CI parses it, resolves references, validates schemas, checks examples, and compares the proposed spec with the last published spec. The diff should be structural, not text-only. YAML formatting changes do not matter. Removing a path, changing a response schema, adding a required parameter, changing auth requirements, or altering a shared component can matter a lot.',
-        'The compatibility gate classifies each diff under policy. It can allow additive response fields, new optional request fields, new endpoints, and additional examples. It can block removed fields, removed endpoints, type changes, newly required inputs, response status removals, and unexpected enum narrowing. It can mark some changes as review-only, such as authentication changes, rate-limit headers, or new enum values that may break clients with strict switches.',
-        'A useful gate then exercises the artifacts that depend on the graph. It regenerates typed SDKs, validates that examples match schemas, runs contract tests against a mock or staging server, checks gateway rules, and publishes a compatibility report. The report should say what changed, why it is allowed or blocked, and which paths or components are affected. This makes API evolution a build artifact instead of a meeting debate.',
-        'Runtime evidence closes the loop. Gateways and services can log operation ids, status codes, validation failures, and client versions. That data tells maintainers which endpoints are still used, which clients send deprecated shapes, and whether a planned removal is safe. Without usage evidence, deprecation windows are guesses. With usage evidence, the contract graph can be tied to real consumers.',
+        'A canonical OpenAPI document lives in the repository or contract registry. CI parses it, resolves references, validates schemas and examples, then compares the proposed document with the last published document. The comparison is structural, not line-based.',
+        'The gate allows changes such as new endpoints, new optional request fields, new optional response fields, and additional examples. It blocks or requires versioning for removed endpoints, removed response fields, newly required inputs, type changes, response status removals, and stricter authentication.',
+        'After the diff, the pipeline regenerates SDKs, runs contract tests, validates examples, and checks gateway rules. Runtime telemetry such as operation id, client version, validation failures, and status code can show whether deprecated shapes are still used.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why it works',
       paragraphs: [
-        'The contract-graph view proves that a path and method do not stand alone. They depend on input schemas, output schemas, response codes, examples, security, and reusable components. The same component can be referenced by many operations, which is efficient until a careless edit changes every operation that uses it. The data-structure lesson is reference management: reuse creates dependency edges, and dependency edges create migration risk.',
-        'The evolution-gate view proves that compatibility is directional. Old spec and new spec feed a diff. The diff feeds rules. The rules feed a gate that either allows the release, blocks it, or forces a versioned migration plan. This is stronger than a human skim because it applies the same policy every time and produces a report that downstream teams can inspect.',
+        'The correctness argument is preservation of old-client behavior. If every old request that was valid remains accepted, and every old response field that clients could read remains present with compatible type, then deployed clients keep working under the new server.',
+        'Additive changes work because old clients ignore what they do not know, as long as they are tolerant readers. Breaking changes fail because old clients cannot send newly required data, parse changed types, or read removed fields.',
+        'The graph view prevents hidden blast radius. If a shared component changes, the diff follows references to every affected operation. Reviewers see the consumer surface, not only the component file.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'OpenAPI does not guarantee truth by existing. If handlers drift from the spec, generated clients distribute wrong assumptions faster. If examples are not validated, docs can teach impossible requests. If a gateway enforces one schema and the service accepts another, the contract is split across systems. Contract-first work requires a feedback loop: tests should prove that implementation behavior still matches the published spec.',
-        'Compatibility rules also need domain knowledge. Adding an enum value may be legal for the server but dangerous for clients that switch over known values. Removing a field from an error response can break retry logic. Tightening a string format can break callers even when JSON Schema accepts the new rule. Different consumers have different tolerance. A public partner API, a mobile app with slow upgrade cycles, and an internal service controlled by one team do not carry the same migration risk.',
+        'The cost is process. Engineers must maintain schemas, operation ids, error envelopes, examples, compatibility policy, generated clients, and deprecation windows. That feels heavier than changing a handler directly.',
+        'The behavior changes once the API has many clients. A blocked contract diff costs minutes in CI. A broken mobile release can cost weeks because old app versions remain installed. Contract discipline is a small fixed cost that prevents large recovery costs.',
+        'Tooling cost grows with graph size. If 40 operations share 12 component schemas, a component edit may require a full affected-operation report. That cost is useful because it is the exact dependency structure clients already experience.',
       ],
     },
     {
-      heading: 'Real uses and failure modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A payment API shows the pattern. The current contract is used by web, mobile, partners, and internal services. A proposed change adds `payment_method.display_name` to a response, removes `status_text`, and makes `customer_id` required on refund creation. The gate allows the additive response field, blocks the removed response field, and blocks the new required input for the current major version. The release plan becomes concrete: keep `status_text` deprecated, accept missing `customer_id` for old clients, regenerate SDKs, update examples, and publish a deprecation window.',
-        'Failure modes cluster around drift and ownership. A team can change implementation without updating the spec. Another team can update the spec without proving the server implements it. A shared component can change more operations than intended. Generated SDKs can lag behind the published contract. A compatibility gate can be bypassed for urgent releases and then become ceremonial. The defense is to make the spec, generated artifacts, compatibility report, examples, and contract tests part of the same release pipeline.',
+        'Public payment APIs use this pattern because partners and mobile clients cannot upgrade on the server team schedule. A compatibility gate can block a removed status_text field while allowing a new optional display_name field.',
+        'Internal platform APIs also benefit when generated SDKs are common. The contract report can tell service owners whether a proposed change requires a major version, a dual-write period, a client migration, or only regenerated docs.',
+        'Gateways use OpenAPI contracts for validation, routing, authentication, and documentation. When the spec and gateway drift apart, callers see behavior that neither docs nor server tests explain.',
       ],
     },
     {
-      heading: 'Costs, tradeoffs, and next study',
+      heading: 'Where it fails',
       paragraphs: [
-        'The cost of OpenAPI discipline is process and tooling. Engineers must maintain schemas, examples, operation ids, error shapes, version policy, and generated artifacts. Spec reviews can feel slower than changing handlers directly. The payoff arrives when the API has multiple clients: fewer surprise breaks, safer SDK generation, clearer docs, better gateway validation, and a repeatable way to tell additive change from breaking change.',
-        'The tradeoff is also cultural. Teams must agree that the published contract is a product surface, not a side file. That means naming operation ids carefully, documenting error envelopes, preserving old behavior during deprecation windows, and treating compatibility failures as real release blockers. The discipline is heavier than informal HTTP, but it is lighter than repairing broken clients after release.',
-        'Study JSON Parser Stack Case Study for parsing, Schema Registry Case Study for versioned schema governance, Protobuf Wire Format for a binary contract style, JSON Schema Constrained Decoding Token Mask for schema enforcement, Contract Net Agent Task Allocation for explicit task contracts, and Distributed Tracing for connecting contract operations to runtime evidence. Primary external references are the OpenAPI Specification, OpenAPI Initiative materials, and Swagger documentation for paths, operations, schemas, and reusable components.',
+        'It fails when the spec is not tested against the implementation. A contract can be perfectly written and still false if the server accepts different fields or returns undocumented errors. Contract tests must compare real behavior with the published document.',
+        'It fails when examples are not validated. Broken examples teach impossible requests and can be copied into SDK tests, docs, and partner code. Examples are part of the contract surface.',
+        'It fails when policy is too generic. Enum additions, auth changes, rate-limit headers, error shapes, and stricter string formats can be safe in one domain and breaking in another. The gate needs domain rules, not only JSON Schema rules.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A payments API has 4,000 active mobile clients on /v1/refunds. The proposed spec adds payment_method.display_name to the refund response, removes status_text, and makes customer_id required in the refund request.',
+        'The graph diff finds three changed nodes. The new response field is additive, so it passes. Removing status_text is blocked because old clients may display it. Making customer_id required is blocked because old clients send requests without it.',
+        'The release plan becomes concrete. Keep status_text for 90 days, accept missing customer_id for old client versions, emit deprecation telemetry, regenerate SDKs, and publish a migration note. The gate turned a vague review debate into three client-visible decisions.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources are the OpenAPI Specification, JSON Schema documentation, Swagger tooling docs, and compatibility guidance from API design systems. Use the specification for object meanings and tooling docs for examples, validation, and generated-client behavior.',
+        'Study JSON Schema for data contracts, Schema Registry for versioned compatibility policy, Protobuf Wire Format for binary evolution, Distributed Tracing for operation-level runtime evidence, and Backward Compatibility for migration design.',
       ],
     },
   ],

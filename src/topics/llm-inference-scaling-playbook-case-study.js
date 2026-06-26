@@ -298,89 +298,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Training creates a model, but serving buys every answer one request at a time. Each answer spends accelerator memory, memory bandwidth, scheduler capacity, network hops, cache state, and sometimes verifier calls. LLM inference scaling is the work of getting more accepted answers per dollar and second without breaking quality.`,
-        `This playbook exists because LLM serving is not one bottleneck. A chat product, code assistant, RAG workflow, and batch summarizer can fail for different reasons. The useful habit is to profile the request mix, pick the lowest tier that attacks the current wall, and exit only when latency, quality, and cost improve together.`,
+        'Read the animation as the state machine for LLM inference scaling playbook. Active items are the current decision point, found items are committed results, and removed items are paths ruled out by the invariant. The first safe inference is to name what state changed and why that move is legal.',
         {type: `callout`, text: `A scaling playbook works by spending the lowest effective tier of serving complexity and exiting only when quality, latency, and cost improve together.`},
+        'This topic is a case study, so the visual is not decoration. It shows which records, counters, queues, maps, or gates must agree before the system can return a trustworthy result.',
       ],
     },
     {
-      heading: 'The Obvious Approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The obvious approach is to buy more GPUs and add every optimization that sounds relevant: bigger batches, quantization, KV cache tricks, speculative decoding, model routing, semantic caching, and verifier search. Some of those tools are valuable, but stacking them blindly makes the system harder to explain.`,
-        `Another obvious approach is to maximize throughput. Tokens per second is easy to graph, so teams often treat it as the goal. That misses the product constraint. A change can raise throughput while p99 latency gets worse, invalid outputs rise, output length grows, or cache hits become unsafe.`,
+        'LLM inference scaling playbook exists because a simple implementation works on a small example but fails when scale, latency, privacy, or correctness constraints arrive. The system needs a data structure that keeps the useful fast path without hiding the boundary conditions.',
+        'The practical problem is not only speed. Cost, auditability, rollback, freshness, and slice-level behavior all affect whether the design is usable in production.',
       ],
     },
     {
-      heading: 'The Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        `LLM inference has two very different phases. Prefill processes the prompt and builds KV state. Decode then generates output token by token, repeatedly reading model weights and KV state. Long prompts, long outputs, and many concurrent users stress different parts of the system.`,
-        `The wall appears when one lever improves one metric and damages another. Larger batches can raise utilization while hurting tail latency. More verifier search can improve quality while multiplying cost. Aggressive cache reuse can cut latency while serving stale or cross-user answers. A playbook is needed because local wins can move the bottleneck rather than solve it.`,
+        'The obvious approach is to keep one global rule, one score, one cache, one dashboard, or one list. That is easy to build and easy to explain. It often works until traffic shape or correctness requirements become more specific.',
+        'The next obvious approach is to add capacity or widen the search. That may improve the average case, but it usually fails to encode the rule that decides which work is allowed, fresh, fair, or safe.',
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        `The invariant is simple: do not spend on a higher tier before measuring the lower-tier bottleneck. Tier 1 is utilization and state: batching, KV allocation, cache reuse, quantization, and phase scheduling. Tier 2 reduces decode work per accepted token. Tier 3 decides which requests deserve extra model, cache, verifier, or topology budget.`,
-        `Each tier needs an exit metric. Batching should improve utilization without p99 damage. KV work should raise concurrency or hit rate without unsafe reuse. Multi-token decoding should reduce time per accepted output token. Verifiers and routers should lower cost per accepted answer, not just add more calls.`,
+        'The wall is the missing boundary. A system can look correct globally while a narrow slice is wrong, stale, unfair, or too expensive. Once the boundary is missing, more throughput can make the failure faster.',
+        'The concrete failure is usually visible as mixed state: one version reads another version cache, one user receives another user answer, one queue loses priority, or one metric hides a failing slice. The design needs an invariant that prevents that mixture.',
       ],
     },
     {
-      heading: 'Tier 1: Utilization And State',
+      heading: 'The core insight',
       paragraphs: [
-        `Tier 1 asks whether the serving engine is wasting hardware or memory. Orca's iteration-level scheduling is the classic lesson: schedule generation at token-iteration granularity so requests can enter and leave batches dynamically. That attacks idle work caused by request-level batching.`,
-        `KV state is the other Tier 1 pressure. PagedAttention and vLLM treat KV cache memory more like paged memory, reducing fragmentation and enabling larger effective batches. Prefill/decode disaggregation, as in DistServe, separates phases with different resource profiles so time to first token and time per output token can be optimized under separate constraints.`,
+        'The core insight is to make the boundary a first-class data structure in LLM inference scaling playbook. Keys, clocks, queues, ledgers, folds, or gates are not metadata; they are the mechanism that preserves correctness.',
+        'The invariant should be checkable from stored state. If an operator cannot reconstruct why a result was allowed, denied, filled, scored, or rolled back, the system is relying on memory instead of design.',
       ],
     },
     {
-      heading: 'Tier 2: Fewer Decode Steps',
+      heading: 'How it works',
       paragraphs: [
-        `Tier 2 attacks the autoregressive loop. A normal decoder produces one token, feeds it back, and repeats. That loop is hard to parallelize because each token depends on previous tokens. Reducing the number of expensive target-model passes can cut latency when acceptance is high enough.`,
-        `Speculative decoding uses a cheaper draft path and verifies proposed tokens with the target model. Medusa adds extra decoding heads and tree attention to propose multiple future tokens. Lookahead decoding explores exact parallel decoding without a separate draft model. LayerSkip-style self-speculation uses earlier layers for draft behavior and later layers for verification. These methods are not interchangeable; each has training, acceptance, batching, and quality constraints.`,
+        'The mechanism starts by normalizing the input into records with stable identities. It then routes those records through the smallest structure that can answer the current decision: a map lookup, ordered queue, version gate, slice table, or witness search.',
+        'Each step writes enough state for the next step to be local. Local means a cancel finds one order id, a cache gate checks one record, a rollout query joins one packet id, or a checker advances one legal candidate. That locality is what turns a broad problem into an executable workflow.',
       ],
     },
     {
-      heading: 'Tier 3: Routing And Verification',
+      heading: 'Why it works',
       paragraphs: [
-        `Tier 3 treats inference as a budget router. A repeated low-risk request may deserve a cache hit. A short easy task may deserve a small local model. A high-risk answer may deserve a stronger model, retrieval, verifier search, or human escalation. The decision should be explicit and logged.`,
-        `Verifiers are inference-scaling tools because they decide which branches deserve more generation. They can terminate bad paths, rerank candidates, trigger repair, or escalate. They can also amplify their own mistakes. A weak verifier inside a wide search can make the system confidently prefer bad answers.`,
+        'The correctness argument is preservation. Before a step, the invariant names which records may interact. The step reads only allowed state, writes the result, and leaves the invariant true for the next step.',
+        'This is stronger than a dashboard claim. A dashboard can show an average after the fact; the invariant prevents an illegal result from being served in the first place. When the invariant fails, the system should produce a denial, rollback, miss, or counterexample instead of a quiet answer.',
       ],
     },
     {
-      heading: 'What The Visual Proves',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The tier ladder proves ordering. The request is profiled before a lever is selected. The tiers feed into topology and metrics before the system exits. The metrics node is not decorative; it is the gate that prevents a throughput win from hiding a quality or p99 loss.`,
-        `The budget-router view proves that scaling is a control-plane problem, not only a kernel problem. Repeated, easy, hard, risky, and long-context requests should not all spend the same budget. Route reason, model version, cache key, verifier use, and rollback path are part of the serving state.`,
+        'The main cost is extra state. Maps, ledgers, clocks, slice tags, fold maps, queues, and audit rows consume memory and engineering time. The payoff is that expensive work becomes targeted instead of global.',
+        'Cost behaves with the number of records, versions, slices, or live candidates. Doubling traffic does not only double compute; it can double cache pressure, queue length, audit rows, or search width. The dominant operation is the one on the hot path for the real workload.',
       ],
     },
     {
-      heading: 'Why The Playbook Works',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Tiering works because it matches interventions to the phase that is actually constrained. If the GPU is idle, decode tricks are premature. If KV memory is the limiter, more scheduler cleverness may not help. If the product wastes output tokens on bad paths, kernels alone will not lower accepted-answer cost.`,
-        `The playbook also keeps the feedback loop honest. Every tier asks for a before-and-after metric tied to the bottleneck. That does not guarantee success, but it prevents the common failure where a team celebrates one graph while the user-visible system gets slower, more expensive, or less reliable.`,
+        'LLM inference scaling playbook fits systems where correctness is operational, not just mathematical. Fraud models, retrieval systems, matching engines, model-serving stacks, evaluation gates, and rollout systems all need stored evidence for why one result was chosen.',
+        'The access pattern determines fit. Repeated decisions benefit from maps and caches, ordered fairness needs queues and sequence numbers, release safety needs ledgers, and concurrent correctness needs histories that can be searched.',
       ],
     },
     {
-      heading: 'Cost And Tradeoffs',
+      heading: 'Where it fails',
       paragraphs: [
-        `Tier 1 often gives the cleanest wins, but it can add scheduler complexity and sharper p99 tradeoffs. Better batching increases utilization, yet large or unfair batches can delay small requests. KV cache reuse saves memory and compute, yet unsafe reuse can leak freshness, tenant, or prompt-boundary bugs.`,
-        `Tier 2 can reduce decode latency, but it depends on acceptance rate and integration cost. A draft path that is cheap but rarely accepted wastes work. Extra heads or early exits may require training changes. Tier 3 can improve cost and quality, but a router or verifier becomes another production system with logs, tests, rollbacks, and failure policies.`,
+        'It fails when the boundary is chosen for convenience instead of the product promise. Random folds fail for time-forward prediction, global canaries fail for slice-specific regressions, and similarity search fails when authorization is the real question.',
+        'It also fails when evidence is not versioned. A stale record can be more dangerous than a miss because it looks supported. The design needs no-store, deny, rollback, or human-review paths for cases outside the invariant.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Worked example',
       paragraphs: [
-        `The playbook wins in products with mixed request shapes. A support bot has repeated questions, long-context escalations, easy classification tasks, and high-risk policy answers. Treating those requests identically wastes budget. Routing lets the product spend where marginal quality is worth the latency and cost.`,
-        `It also wins in platform teams that must explain capacity. A tiered map turns vague "make inference cheaper" work into measurable levers: GPU utilization, KV hit rate, time to first token, time per output token, accepted tokens per pass, p99 by route, and cost per accepted answer.`,
+        'A platform serves 100000 requests per hour at $300 per hour, so baseline cost is $0.003 per request. Profiling shows 35% of time in queue, 25% in prefill, 30% in decode, and 10% in retrieval and postprocessing. The first wall is utilization and queueing, not model quality.',
+        'Tier 1 continuous batching raises useful throughput by 25% while p99 stays below 2 seconds. Cost falls to $300 / 125000 = $0.0024 per request. Tier 2 speculation is tested next; acceptance averages only 1.2 tokens per verification step and overhead erases the gain, so the lever is rejected.',
+        'Tier 3 routing moves 30% of low-risk classification requests to a smaller model at half the cost with no quality drop on that slice. The global average improves because the route was measured separately. The system needed the right tier order, not every trick.',
       ],
     },
     {
-      heading: 'Failure Modes And Study Next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `The main failure mode is optimizing the wrong metric. A change is not done if invalid outputs rise, cache hit rate is fake, p99 worsens on protected slices, output tokens per task grow, or cost per accepted answer does not fall. A clever decoder that fights continuous batching may be a benchmark win and a serving loss.`,
-        `Another failure is applying every technique at once. Continuous batching, prefix caching, speculative decoding, routing, and verifier loops interact. Roll them out behind route-level measurements so a gain in one traffic class does not quietly damage another.`,
-        `Study LLM Continuous Batching, PagedAttention, Prefill/Decode Disaggregation, Speculative Decoding, Multi-Token Decoding, Early-Exit Transformer Layer Skipping, Semantic Cache for LLMs, Verifier-Guided Inference Control Plane, and Heterogeneous AI Compute Workload Router. Primary sources used here include Orca at https://www.usenix.org/conference/osdi22/presentation/yu, PagedAttention at https://arxiv.org/abs/2309.06180, DistServe at https://arxiv.org/abs/2401.09670, Medusa at https://arxiv.org/abs/2401.10774, Lookahead Decoding at https://arxiv.org/abs/2402.02057, LayerSkip at https://aclanthology.org/2024.acl-long.681/, and TensorRT-LLM docs at https://nvidia.github.io/TensorRT-LLM/.`,
+        'Primary sources include Orca at https://www.usenix.org/conference/osdi22/presentation/yu, PagedAttention at https://arxiv.org/abs/2309.06180, DistServe at https://arxiv.org/abs/2401.09670, Medusa at https://arxiv.org/abs/2401.10774, Lookahead Decoding at https://arxiv.org/abs/2402.02057, LayerSkip at https://aclanthology.org/2024.acl-long.681/, and TensorRT-LLM docs at https://nvidia.github.io/TensorRT-LLM/. Study Continuous Batching, PagedAttention, Speculative Decoding, Multi-Token Decoding, Semantic Cache for LLMs, and Verifier-Guided Inference Control Plane next.',
       ],
     },
   ],

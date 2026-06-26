@@ -209,111 +209,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Many business processes last longer than one process, one request, or one deploy. An order may wait for payment, fraud review, inventory, shipment, and customer email. An infrastructure job may wait for cloud APIs, retries, approvals, and timeouts. If that logic is spread across queues, cron jobs, status rows, and repair scripts, the system becomes hard to reason about after a crash.',
-        'Temporal exists to make long-running logic durable. It records workflow progress as an event history. Workers can crash, restart, scale down, or be replaced because the workflow state is reconstructed from history rather than from live process memory.',
-        'The hard problem is not just running code later. It is preserving the boundary between decisions already made, side effects already completed, timers already fired, signals already received, and work that still needs to happen.',
+        'Read the Temporal service as the owner of durable workflow history, not as a worker process. A workflow is long-running application logic whose progress is recorded as events, while workers are replaceable interpreters that replay history and produce the next commands.',
+        'The safe inference rule is that replay must make the same decisions from the same history. Activity results, timers, signals, and failures are recorded so a crash loses process memory but not workflow progress.',
         {type:'callout', text:'Temporal makes workflow state recoverable by treating event history as the durable program boundary and workers as replaceable interpreters.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/a/af/BPMN-AProcessWithNormalFlow.svg', alt:'BPMN process diagram with start event, timer, task, gateway, message task, and data object.', caption:'BPMN normal-flow process diagram as a visual proxy for workflow orchestration. Image: Mikelo Skarabo, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'The naive baseline and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is a status column plus a queue. A worker reads a row, performs the next step, writes a new status, and enqueues the next job. For small flows, this works well enough and is easy to debug at first.',
-        'The wall appears as soon as the flow needs durable timers, retries, cancellation, human approval, visibility, and repair. The status column grows into a hidden state machine. Each service invents its own retry rules. Operators need scripts to find stuck rows and guess whether side effects already happened.',
-        'Crash recovery is the sharp edge. If a worker charged a card and died before writing the next status, the system must know whether to charge again, ship, refund, wait, or ask for review. Plain code with direct network calls, time reads, randomness, and partial database writes cannot safely reconstruct that boundary.',
+        'Many business processes last longer than one HTTP request or one worker process. An order may reserve inventory, charge a card, wait for fraud review, ship later, and send email after external systems respond.',
+        'Temporal exists to make that progress durable. It stores event history so a workflow can recover after worker crashes, deploys, retries, timers, and human delays.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core idea is durable execution through replay. Workflow code describes decisions. Activities perform side effects. The Temporal service records the events that make those decisions recoverable: starts, activity completions, failures, timers, signals, cancellations, retries, and workflow completions.',
-        'The invariant is strict: workflow code must derive the same commands from the same event history. Anything that would make replay diverge, such as direct wall-clock reads, random numbers, sleeps, process-local state, or unrecorded network calls, must use workflow-safe APIs or move into activities.',
-        'The event history becomes the source of truth. A worker is not the owner of workflow state. It is a replaceable interpreter of a durable history.',
+        'The obvious approach is a status column plus a queue. A worker reads a row, performs the next step, writes the next status, and enqueues another job.',
+        'That design is simple for short flows. It also gives teams direct control over database rows, queue messages, and repair scripts.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'The durable-execution view points attention away from the worker process. The service owns history and task queues. Workers poll, run code, emit commands, and can disappear. The workflow survives because its history survives.',
-        'The order-fulfillment matrix shows why results must become events. Charging a card, reserving inventory, and sending email are not pure decisions that can be replayed by calling the world again. Their activity results become replay inputs.',
-        'The replay-and-activities view shows the main boundary. Workflow code decides what should happen next. Activity code touches external systems. Replay stays safe only when the workflow side is deterministic and the activity side is idempotent or otherwise duplicate-safe.',
+        'The wall appears when the flow needs durable timers, retries, cancellation, human approval, visibility, and safe recovery after partial side effects. The status column becomes a hidden state machine spread across services.',
+        'Crash recovery is the hardest case. If a worker charged a card and died before writing the next status, the system must know whether to charge again, ship, refund, or wait for a human.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'The core insight',
       paragraphs: [
-        'A client starts a workflow execution. The Temporal service appends start events to history and schedules workflow tasks on a task queue. A worker polls the queue, replays the history, runs workflow code, and produces commands such as schedule activity, start timer, wait for signal, request cancellation, or complete workflow.',
-        'Commands become events when the service accepts them. An activity task is scheduled, a worker runs the activity, and the result or failure is recorded in history. On replay, workflow code does not call the activity again for a completed result. It reads the recorded event.',
-        'Timers are history-backed. A workflow can wait for minutes, months, or years without holding a process thread. When the timer fires, the service records the timer event and schedules another workflow task.',
-        'Signals and updates are also events. They let external callers interact with a running workflow without reaching into process memory. The workflow consumes those events during replay and continues with deterministic code.',
+        'Temporal separates deterministic workflow decisions from side-effecting activities. Workflow code decides what should happen next, while activities call external systems and record their result or failure in history.',
+        'The invariant is replay determinism. Given the same event history, workflow code must issue the same commands, so direct wall-clock reads, random numbers, unrecorded I/O, and process-local decisions do not belong in workflow code.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'How it works',
       paragraphs: [
-        'Replay works because the same history should lead workflow code to the same commands. If a previous activity result is already in history, replay reads that result. If a timer already fired, replay sees the timer event. If a signal arrived, replay sees the signal payload in order.',
-        'This gives a strong recovery story for workflow progress. A crash loses volatile worker memory, not the workflow state. Another worker can replay history, reconstruct local workflow state, and continue from the next unresolved command.',
-        'Correctness still depends on external side-effect design. An activity may be retried after a timeout even if the remote system eventually performed the operation. Payment, email, shipping, and database activities need idempotency keys, conditional writes, dedupe tables, or other duplicate-suppression mechanisms.',
-        'Code changes are part of correctness. Old histories may replay under new code after a deploy. Versioning and patching patterns keep old histories compatible while new runs move to the new behavior.',
+        'A client starts a workflow execution, and the Temporal service appends start events to history. The service schedules workflow tasks on task queues, and workers poll those queues for work.',
+        'A worker replays the event history, runs workflow code, and emits commands such as schedule activity, start timer, wait for signal, request cancellation, or complete workflow. When the service accepts a command, it records the resulting event.',
+        'Activities perform side effects such as payment calls, database writes, emails, or cloud API requests. On replay, a completed activity is not called again; workflow code reads the recorded ActivityCompleted event.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Why it works',
       paragraphs: [
-        'Temporal replaces handwritten reliability code, but it adds a platform and a programming model. Workflow code must be deterministic. Activities must be safe under retries. Histories can grow, so long workflows need continue-as-new, child workflows, batching, or bounded signal and update patterns.',
-        'Teams must operate or buy the service, manage namespaces and retention, size task queues, monitor workers, tune retry policies, define timeout budgets, and inspect workflow histories during incidents.',
-        'The tradeoff is centralization. Instead of many services each inventing partial workflow state, Temporal becomes the durable source of workflow truth. That improves recovery and visibility, but it also makes workflow design and platform health shared concerns.',
+        'Replay works because history is the source of truth. If a timer fired, a signal arrived, or an activity completed before a crash, that fact is already in the event log and another worker can reconstruct local workflow state.',
+        'The guarantee is about workflow progress, not magic exactly-once side effects. Activities can run more than once under retries or timeouts, so external calls need idempotency keys, conditional writes, dedupe tables, or compensation logic.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Temporal replaces handwritten recovery code with a platform and discipline. Teams must operate or buy the service, manage namespaces, tune task queues, set retry policies, monitor histories, and keep workflow code replay-compatible across deploys.',
+        'History size is a real cost. A workflow that records 50,000 events will replay more slowly than one with 500 events, so long-lived flows need continue-as-new, child workflows, batching, bounded signals, and payload limits.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Temporal fits payments, subscriptions, order fulfillment, claims processing, onboarding, infrastructure provisioning, ML job orchestration, data pipelines, and human approval flows. These processes need durable timers and retries more than raw low-latency execution.',
+        'It also improves incident review. Instead of reconstructing state from queue messages, cron logs, database rows, and scripts, operators can inspect one workflow history for the platform view of what happened.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Temporal is too heavy for a single stateless background job or an ultra-low-latency hot path where event-history round trips and worker polling overhead are unacceptable. A queue or direct service call may be simpler.',
+        'It also fails when teams ignore replay discipline. Non-deterministic workflow code, unversioned branch changes, oversized payloads, and non-idempotent activities can recreate the same reliability problems inside a more advanced platform.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider an order workflow: reserve inventory, charge the card, wait for fraud review if needed, ship the package, and send a confirmation email. In ordinary service code, a crash after the charge can leave the system unsure whether to charge again, ship, refund, or wait for a human.',
-        'With Temporal, reserve inventory and charge card are activities. Their completions are recorded in history. If the worker crashes after the charge activity completes, replay sees the recorded charge result and moves to the next decision instead of charging again from workflow replay.',
-        'If fraud review takes three days, the workflow waits on a timer or signal. No worker has to stay alive for those three days. When the signal arrives, history records it, a workflow task is scheduled, and any available worker can continue.',
-        'The charge activity still needs an order-specific payment idempotency key. The payment processor may receive a retry after a timeout. Temporal can avoid replaying a completed activity result, but it cannot make an external payment API exactly-once by itself.',
+        'Suppose an order workflow reserves inventory, charges 49.99 dollars, waits up to 72 hours for fraud review, ships the package, and emails the customer. In plain service code, a crash after charging but before writing status can leave the next worker unsure whether to charge again.',
+        'With Temporal, the charge is an activity and its completion is recorded in history. If the worker crashes afterward, replay sees the charge result and moves to the fraud-review timer or signal; the payment activity still needs an order-specific idempotency key in case the payment processor saw a timed-out retry.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Temporal fits order fulfillment, payments, onboarding, subscriptions, claims processing, infrastructure provisioning, ML training orchestration, human approval flows, data pipelines, and any process that can run for seconds, days, or years.',
-        'It is especially useful when product logic wants sequential-looking code but the system needs durable timers, retries, cancellation, signals, visibility, and recovery. The workflow can read like a program while the platform stores progress as history.',
-        'It also helps incident response. Instead of asking which queue message, cron run, status row, and retry script touched an order, operators can inspect the workflow history and see what the platform believes happened.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'Temporal is not just a message queue. A queue stores work items. Temporal stores workflow history and replays deterministic code. If the problem is a single stateless background job, a queue may be simpler and cheaper.',
-        'Temporal is not magic exactly-once side effects. Activities can run more than once. A timeout can hide a remote success. Workers can crash after making a call. External systems need idempotency, conditional writes, or compensation logic.',
-        'Temporal is not a fit for ultra-low-latency hot paths where event-history round trips and worker polling overhead are too expensive. It is also a poor fit for teams that cannot follow replay discipline, code-versioning rules, or operational ownership of the service.',
-        'History growth is a real limit. A workflow that loops forever, receives unbounded signals, or records huge payloads can become slow to replay or hit service limits. Design long-lived workflows with continue-as-new, child workflows, payload limits, and compaction points.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Keep workflow code deterministic. Use workflow APIs for time, sleep, randomness, cancellation, and async behavior. Move network calls, database writes, file I/O, and other side effects into activities.',
-        'Design every activity with retry behavior in mind. Give payment calls idempotency keys, make email sending dedupe-safe where possible, use conditional writes for databases, and record external operation identifiers so a retry can query rather than blindly repeat.',
-        'Set explicit timeouts and retry policies. Schedule-to-start, start-to-close, heartbeat, and overall retry settings are part of the business contract. A workflow that waits forever without a clear timeout is just a stuck row with better tooling.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Monitor task queues, worker pollers, workflow failure rates, activity latency, retry counts, timeout rates, history size, and replay latency. Durable execution moves state into the platform, so platform visibility becomes part of application health.',
-        'Plan deployments around replay compatibility. New code may replay old histories. Use versioning patterns when a workflow decision branch changes, and keep old workers or compatibility code long enough for old runs to finish or continue as new.',
-        'Treat histories as audit data. They are useful during incidents, but they can contain business payloads. Configure retention, payload codecs, encryption, and search attributes with data handling rules in mind.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Temporal workflow execution, Temporal event history, activities, retries, timers, signals, updates, continue-as-new, workflow versioning, the saga pattern, idempotency, transactional outbox, write-ahead logs, message queues, and distributed tracing. These topics explain the line between durable orchestration and the external systems it coordinates.',
+        'Primary sources are Temporal documentation on workflows, event histories, activities, retries, timers, signals, updates, continue-as-new, and versioning at https://docs.temporal.io/. Study durable execution, sagas, idempotency, transactional outbox, write-ahead logs, message queues, distributed tracing, and workflow versioning next.',
       ],
     },
   ],

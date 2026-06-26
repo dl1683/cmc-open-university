@@ -212,92 +212,66 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Regular expressions often sit on service boundaries: log filters, routing rules, validation checks, search boxes, security policies, and data pipelines. The input may be large, messy, or controlled by someone trying to waste your CPU.',
-        'A Thompson NFA engine exists because a matcher should not turn a small ambiguous pattern into an exponential search. It compiles the pattern into a graph and scans the input with a bounded frontier of active states.',
+    { heading: 'How to read the animation', paragraphs: [
+        'Read the regex as a graph, not as a recursive program. Active states are NFA nodes reachable after the input prefix already consumed, and epsilon edges are moves that cost no input character.',
+        'NFA means nondeterministic finite automaton, a graph that can have several possible next states. The safe inference rule is that after k input characters, the active set must contain exactly the states reachable by consuming those k characters and any number of epsilon moves.',
         {type:'callout', text:'A Thompson engine avoids catastrophic guessing by turning regex ambiguity into a bounded frontier of active graph states.'},
       ],
     },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The intuitive engine is recursive backtracking. For alternation, try the first branch and rewind if it fails. For `*`, take another repetition and later give one back if the suffix does not match. This maps directly to a recursive parser and is easy to extend with captures and look-around.',
-        'The wall is repeated uncertainty. Ambiguous repetitions can make the engine revisit the same input position and pattern position through many different guess histories. A regex that looks small can create a search tree whose size grows exponentially with the input.',
+    { heading: 'Why this exists', paragraphs: [
+        'Regular expressions sit on service boundaries: log filters, routing rules, validation checks, search boxes, security policies, and data pipelines. Inputs may be large, messy, or controlled by a user trying to waste CPU.',
+        'A Thompson NFA engine exists because a small ambiguous pattern should not create an exponential runtime surprise. It compiles regular syntax into a graph and scans input with a bounded frontier of active states.',
       ],
     },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Do not guess one path. Keep all possible paths at once. Thompson construction turns regular syntax into an NFA whose split states represent choices, and the matcher carries a set of every state reachable after the input prefix read so far.',
-        'A split is not a recursive call. It is two graph states in the same frontier. That one representation change turns backtracking search into repeated set update: close over eps edges, consume one character, close again.',
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious engine is recursive backtracking. For alternation, try the first branch and rewind if it fails; for star, take another repetition and later give one back if the suffix does not match.',
+        'This approach is easy to implement and easy to extend with captures, backreferences, and look-around. It also matches how many people mentally read a regex, which is one possible path at a time.',
       ],
     },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In fragment construction, watch the compiler build small start-plus-outs fragments. The important state change is patching: dangling exits are wired into later fragments so concatenation and repetition become graph edges instead of runtime string surgery.',
-        'In epsilon-closure simulation, watch the active set, not a single highlighted path. When the set grows, the engine has kept alternatives alive. When duplicate paths meet at the same state, they collapse to one entry, which is why the matcher does not retry the same state history later.',
-        'The useful comparison is with a backtracking trace. Backtracking remembers a stack of guesses. Thompson simulation remembers a set of reachable states. When two guesses reach the same state after the same input prefix, the set representation merges them. That merge is the educational point because it explains both the safety bound and the loss of backreference-style features.',
+    { heading: 'The wall', paragraphs: [
+        'The wall is repeated uncertainty. Ambiguous repetitions can make a backtracking engine revisit the same input position and pattern position through many different histories.',
+        'A pattern such as (a?){20}a{20} on twenty a characters creates a large tree of choices about whether each optional a was used. The engine keeps guessing histories even though many histories reach the same state after the same input prefix.',
       ],
     },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'Compilation reduces each operator to a fragment. A literal creates a character-consuming state with a dangling exit. Concatenation patches the left fragment\'s outs to the right fragment\'s start. Alternation creates a split to two starts. Star creates a split that can enter the body or exit, then patches the body outs back to the split.',
-        'Matching starts with the eps closure of the start state: every state reachable without consuming input. For each input character, the engine follows matching labeled edges from the current active set, then computes eps closure again. A state id appears at most once in a frontier.',
+    { heading: 'The core insight', paragraphs: [
+        'The core insight is to keep all regular alternatives at once instead of guessing one path. Thompson construction turns regex operators into graph fragments, and the matcher carries a set of reachable graph states.',
+        'A split state is not a recursive call. It adds two states to the frontier, and when two paths reach the same state after the same prefix, the set representation merges them into one entry.',
       ],
     },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The invariant is prefix reachability. After k characters, the active set contains exactly the NFA states reachable by consuming those k characters and any number of eps edges. The empty prefix starts with the eps closure of the start state.',
-        'The step case follows every labeled edge that matches the next character, then closes over eps edges. That is exactly the transition rule for an NFA, so the simulation loses no valid path and invents no impossible one. Acceptance is simple: after the whole input, the match state is active.',
+    { heading: 'How it works', paragraphs: [
+        'Compilation reduces each regex operator to a fragment. A literal creates a character-consuming state, concatenation patches one fragment into the next, alternation creates a split, and star creates a split that can enter the body or exit.',
+        'Matching starts with the epsilon closure of the start state, which means every state reachable without consuming input. For each character, the engine follows matching labeled edges from the current active set, computes epsilon closure again, and suppresses duplicate state ids.',
       ],
     },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'For `(ab|a)*c` on `abc`, the start closure reaches the repetition split, the alternation split, both `a` states, and the exit-to-`c` state. Before reading input, the engine is already prepared for the long branch `ab`, the short branch `a`, or zero repetitions followed by `c`.',
-        'After reading `a`, the long branch waits for `b`, while the short branch loops back to the repetition split and reopens the same choices. After `b`, the long branch also loops back. The final `c` reaches match. No branch is guessed and regretted; all live branches move together.',
+    { heading: 'Why it works', paragraphs: [
+        'The correctness argument is the prefix-reachability invariant. Before reading input, epsilon closure gives exactly the states reachable after consuming zero characters.',
+        'For the next character, the engine follows exactly the labeled transitions that match and then adds every no-input transition reachable afterward. That is the NFA transition rule, so the simulation loses no valid path and invents no impossible path.',
       ],
     },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'For a pattern with m NFA states and input length n, straightforward Thompson simulation is O(mn). Each input character can scan a bounded frontier and traverse eps edges. Space is O(m) for the compiled graph plus current and next frontiers.',
-        'The cost is steady rather than speculative. Backtracking can be faster on friendly cases and supports nonregular extensions, but its worst case can explode. A DFA can match in O(n), but full subset construction can create too many states, so production engines often use lazy DFA caches or hybrid strategies.',
-        'Implementation quality still matters. Frontier sets should use generation counters, sparse sets, or bitsets so duplicate suppression is cheap. Epsilon closure should avoid revisiting the same state in one step. Character-class matching should be compiled into compact predicates or tables. The algorithm gives the bound, but the representation decides whether the bound is fast enough.',
+    { heading: 'Cost and complexity', paragraphs: [
+        'For m NFA states and n input characters, straightforward Thompson simulation costs O(mn) time. Each character can examine a bounded frontier and traverse epsilon edges, while memory is O(m) for the graph plus current and next frontier sets.',
+        'The cost is steady instead of speculative. Backtracking may be faster on friendly inputs and supports nonregular extensions, but its worst case can explode; a DFA can match in O(n), but building all DFA states can itself become too large.',
       ],
     },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Thompson simulation wins when predictable resource use matters more than supporting every regex feature. User-supplied filters, service routing, policy matching, and log processing need a bound that survives adversarial input.',
-        'It also gives a clean data-structure split. Fragments belong to compilation. Graph edges belong to the automaton. Active-state lists belong to execution. Keeping those roles separate makes the engine easier to test and reason about.',
-        'For course design, this topic belongs after finite-state machines and before ReDoS. Students should first see that regex syntax becomes a graph, then see why active-state simulation keeps all regular alternatives without exponential guessing. Only then should they compare the features that safety-first engines reject.',
+    { heading: 'Real-world uses', paragraphs: [
+        'Thompson simulation fits user-supplied filters, service routing, policy matching, search tools, and log processing where predictable resource use matters. RE2 is the production reference point for this safety-first design.',
+        'The data-structure split is also useful in teaching and implementation. Parser, compiler fragments, NFA graph, frontier sets, and matcher loop each have a separate responsibility, which makes correctness easier to test.',
       ],
     },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'The Thompson core handles regular constructs. Backreferences and general look-around depend on captured text or future context in ways that do not fit the same NFA simulation. Safety-first engines such as RE2 reject constructs that require backtracking.',
-        'The O(mn) bound can still be too much for very large patterns, huge alphabets, or hot loops where a compact DFA table would fit. Captures, Unicode character classes, anchors, word boundaries, and submatch reporting add engineering work even when the core matching idea stays the same.',
+    { heading: 'Where it fails', paragraphs: [
+        'The Thompson core handles regular constructs. Backreferences and general look-around depend on captured text or future context in ways that do not fit the same finite-state simulation.',
+        'The O(mn) bound can still be too much for huge patterns, hot loops, or large Unicode character-class machinery. Production engines need compact state sets, efficient epsilon closure, and careful character predicates to make the theoretical bound fast in practice.',
       ],
     },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'Forgetting eps closure is the common correctness bug. The engine will miss matches because it sees only character-consuming states and ignores choices that cost no input. Letting duplicate states accumulate is the common performance bug; the active frontier becomes a bag of histories instead of a set of states.',
-        'A second failure is mixing parser, compiler, and matcher responsibilities. If runtime matching reparses pattern structure or mutates fragment wiring, it becomes hard to preserve the prefix-reachability invariant and hard to enforce resource limits.',
+    { heading: 'Worked example', paragraphs: [
+        'Use pattern (ab|a)*c on input abc. Before reading input, epsilon closure reaches the star split, the alternation split, both a states, and the exit path to c, so the active set already represents zero repetitions, the short branch, and the long branch.',
+        'After reading a, the long branch is waiting for b while the short branch loops back to the star split. After reading b, the long branch also loops back, reopening the same choices without duplicating the state already in the set.',
+        'After reading c, the match state becomes active. If the NFA has 8 states and the input has 3 characters, a simple simulator performs at most about 24 state checks plus epsilon traversal, not a tree of guessed histories.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Russ Cox, "Regular Expression Matching Can Be Simple And Fast" at https://swtch.com/~rsc/regexp/regexp1.html and the RE2 README at https://github.com/google/re2. RE2 documents the safety tradeoff: alternatives are evaluated in parallel, and features that require backtracking, including backreferences and look-around assertions, are not supported.',
-        'Study finite state machines first, then subset construction from NFA to DFA. Study Regex Backtracking & ReDoS Case Study for the failure mode, UTF-8 Decoder DFA Case Study for table-driven deterministic matching, CSV Parser State Machine Case Study for parser boundaries, and Graph BFS for the frontier-set pattern.',
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary sources: Russ Cox, Regular Expression Matching Can Be Simple And Fast at https://swtch.com/~rsc/regexp/regexp1.html and the RE2 README at https://github.com/google/re2. RE2 documents the safety tradeoff: it avoids features that require backtracking, including backreferences and look-around assertions.',
+        'Study finite-state machines first, then NFA to DFA subset construction, regex backtracking and ReDoS, UTF-8 decoder DFAs, parser state machines, and graph BFS. The shared idea is frontier simulation under an invariant.',
       ],
     },
   ],

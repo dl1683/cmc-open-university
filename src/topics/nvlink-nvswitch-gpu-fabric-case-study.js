@@ -187,86 +187,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the fabric view as a graph. A GPU is a node, an NVLink is an edge, and an NVSwitch is a switching node that lets traffic choose a path instead of staying inside one direct cable. Active marks the edge or switch currently carrying a message. Visited marks links already used by this collective step.',
+        {type:'callout', text:'A GPU fabric is a graph resource: collective performance depends on route shape, link health, and where tightly coupled ranks are placed.'},
+        'In the collective-route view, each rank is one participant in a group operation such as all-reduce. A safe inference rule is this: if two ranks exchange large tensors every step, placing them across a weaker path turns communication into the training bottleneck even when each GPU is fast alone.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'NVLink and NVSwitch exist because large GPU jobs often wait on communication, not arithmetic. A model-parallel training step may need all-reduce for gradients, all-gather for tensor-parallel activations, all-to-all for expert routing, or fast peer memory movement for inference state. If that traffic falls back to a weak fabric, expensive GPUs idle.',
-        'The topic is easy to misunderstand because procurement language usually counts GPUs and peak bandwidth. Real workloads care about topology, bisection, collective shape, tail latency, degraded links, and whether the scheduler places tightly coupled ranks near each other.',
-        'The data-structure view is a graph. GPUs are vertices, switch chips and switch trays are routing vertices, and links carry bandwidth, error, health, temperature, and policy metadata. A scheduler that ignores that graph treats a rack-scale accelerator like a loose pile of GPUs.',
-        {type:'callout', text:'A GPU fabric is a graph resource: collective performance depends on route shape, link health, and where tightly coupled ranks are placed.'},
+        'A GPU fabric exists because modern training and inference jobs are not independent GPU jobs. Tensor parallelism, pipeline parallelism, expert parallelism, and collective operations move large buffers between accelerators. PCIe can connect devices, but high-end GPU systems need lower latency and higher bandwidth paths between GPUs.',
+        'NVLink is NVIDIA high-speed GPU interconnect. NVSwitch extends that idea from a few direct links into a switched fabric where many GPUs can communicate through routing hardware. The data-structure idea is a weighted graph whose edges have bandwidth, latency, congestion, and failure state.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to count accelerators and assume eight, sixteen, or seventy-two GPUs are just that many times stronger than one GPU. That is the arithmetic-only view of scale-up computing.',
-        'The next shortcut is to quote one bandwidth number. Peak link bandwidth is useful, but it is not a workload guarantee. All-reduce, all-gather, all-to-all, multicast, and remote memory access do not stress the same routes. One workload may be link-local while another pounds a weak bisection.',
-        'A third mistake is to schedule by free GPU count alone. If a tensor-parallel group is split across a slow or degraded path, the entire group pays for the slowest repeated communication step. Placement must know the fabric graph.',
+        'The obvious approach is to attach every GPU to the host over PCIe and let software copy through host memory when needed. That is simple and portable. It also works for workloads where each GPU mostly runs its own batch and only returns final results.',
+        'Another reasonable approach is direct peer-to-peer links between nearby GPUs. Direct links are easy to picture and good for small groups. The problem starts when a job needs all GPUs to exchange data repeatedly and evenly.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is that GPU communication is a workload-shaped routing problem. The fabric is not passive plumbing. It is a graph with capacity, health, and sometimes in-network collective support.',
-        'NVLink provides high-bandwidth GPU-to-GPU paths. NVSwitch adds a switching layer so more GPU pairs can communicate through a fabric rather than only through direct local links or host-mediated paths. In larger systems, the fabric becomes a scale-up network for tightly coupled accelerators.',
-        'The invariant is topology-aware placement. Tightly coupled ranks should stay inside the fast fabric when the collective needs it. The runtime should track route costs, errors, switch occupancy, rack locality, and health state so a damaged path changes placement instead of becoming a mystery p99 spike.',
+        'The wall is collective communication. In an all-reduce, every GPU contributes part of a tensor and every GPU needs the reduced result. If eight GPUs exchange a 1 GB gradient buffer every training step, a weak link or bad route can add tens of milliseconds to every step.',
+        'The second wall is topology. Two placements can use the same number of GPUs but expose different paths. A tightly coupled tensor-parallel group placed across a slow crossing link pays that cost at every layer, while a better placement keeps heavy exchange inside the faster part of the fabric.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is that communication cost is a property of the route, not just the endpoint. A scheduler must reason about link bandwidth, switch hops, current congestion, and which ranks talk most often. The fabric is a graph resource that should be allocated like memory or compute.',
+        'NVSwitch helps because it creates more route choices and a more uniform communication domain. It does not make data movement free. It changes the optimization problem from avoiding communication to placing and routing communication where the graph can carry it.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A training or inference runtime first maps model parallelism onto ranks. Tensor parallelism often groups ranks that repeatedly exchange activations or reductions. Pipeline parallelism communicates at stage boundaries. MoE routes token activations to experts and often creates all-to-all traffic.',
-        'The scheduler then places those ranks onto a physical topology. It should prefer fast local fabric for the most communication-heavy groups, avoid degraded links, and consider whether all-to-all traffic will cross a weak bisection. The placement problem is a graph problem with performance consequences.',
-        'Modern fabrics can also accelerate collective patterns. In-network reduction and multicast features can change the cost model because part of the collective can happen inside the switch fabric rather than only at endpoints.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The scale-up-fabric view proves that GPU boxes are not the whole resource. Switches and links are part of the compute substrate. Their bandwidth, health, power, cooling, firmware, and serviceability shape job behavior.',
-        'The collective-routes view proves that different parallelism strategies ask different questions of the same fabric. Tensor parallelism often wants all-reduce or all-gather among a tight group. MoE wants all-to-all token movement. Memory sharing can create asymmetric read and write pressure.',
-        'The degraded-link frame proves why topology health must feed scheduling. A slow, hot, disabled, or error-prone link should change placement. Otherwise the system mislabels a fabric issue as a model, kernel, or batch-size problem.',
-        'The fabric-state ledger is the actual operational data structure. It should connect topology, link counters, collective traces, rank placement, memory maps, and failure state. Without that ledger, the scheduler cannot distinguish a bad placement from a bad kernel.',
+        'Each GPU exposes NVLink ports. In a switched system, those ports connect to NVSwitch chips, and the switches forward packets between GPUs. Communication libraries such as NCCL discover the topology and choose rings, trees, or other collective schedules that use available paths.',
+        'A ring all-reduce splits a buffer into chunks and streams those chunks around a cycle of GPUs. A tree collective sends data up and down a branching structure. The best schedule depends on message size, topology, link balance, and whether the operation is bandwidth-bound or latency-bound.',
+        'The animation separates physical fabric from logical route. The physical fabric says what paths exist. The logical route says which paths this collective actually uses. Performance follows the logical route under current load, not the marketing bandwidth of one link.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because scale-up fabrics reduce the penalty for splitting one model across multiple accelerators. When the fabric is fast enough, the model can use more memory and compute than one GPU provides while keeping communication inside a tightly coupled domain.',
-        'It also works because collective libraries can exploit known topology. A ring, tree, hierarchical all-reduce, multicast, or in-network reduction plan can use the fabric differently. The best collective is the one whose traffic shape matches the hardware graph.',
-        'The performance win is strongest when communication repeats. A one-time transfer matters less than a collective that runs every layer, every token group, or every training step. Repeated communication turns small topology mistakes into large job-time losses.',
+        'The correctness argument comes from conservation of contribution. In an all-reduce, every rank starts with one local value and must end with the same reduced value. A valid schedule partitions, moves, combines, and broadcasts chunks without dropping or duplicating any contribution.',
+        'The fabric does not change the algebra. It changes how quickly the required messages arrive. If the route preserves chunk identity and every reduction operation is applied once per contribution, the result is correct even when packets take different switch paths.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is hardware complexity. Switch trays, cables or package links, firmware, diagnostics, cooling, and service procedures become part of the accelerator system. A fast fabric is not free, and it is not invisible to operations.',
-        'There is also a scheduling tradeoff. Packing a job tightly inside the best fabric may improve performance but reduce cluster flexibility. Spreading jobs can improve utilization but create slower communication. Good schedulers need policies for both performance and fairness.',
-        'Observability is nonnegotiable. Operators need per-link health, error counters, retry behavior, switch occupancy, collective latency, rank placement, and job-level tail metrics. Without those, teams debug distributed training blind.',
-        'The tradeoff is clearest at the rack boundary. Scale-up fabrics make a local GPU island powerful, but crossing out of that island usually changes latency and bandwidth sharply. Cluster schedulers must know where the island ends.',
+        'Communication time behaves like bytes divided by effective bandwidth plus per-hop and software overhead. Moving 1 GB over an effective 200 GB/s path takes about 5 ms before protocol overhead. If congestion cuts the path to 50 GB/s, the same transfer takes about 20 ms.',
+        'Complexity comes from topology discovery, route selection, collective algorithm choice, and failure handling. A fabric also consumes expensive board area, switch silicon, power, cooling, and validation effort. More links help only when software maps communication onto them well.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The obvious use is large-model training, where GPU All-Reduce and Tensor Parallelism depend on fast collective communication. In inference, the same fabric matters for test-time reasoning, long-context serving, model-parallel decode, and MoE exchange.',
-        'It is especially valuable when the model does not fit comfortably on one GPU or when latency-sensitive collective traffic repeats often enough that PCIe or host-mediated paths become the bottleneck.',
-        'It also matters for cluster economics. A faster fabric can let one rack behave like a larger shared accelerator, but only if jobs are shaped and placed to use that shared fabric efficiently under real load.',
-        'NVIDIA describes NVLink and NVLink Switch as a scale-up networking fabric for high-bandwidth GPU-to-GPU communication across AI training, inference, and rack-scale workloads: https://www.nvidia.com/en-us/data-center/nvlink/. The NVIDIA Multi-Node NVLink user guide describes an NVL72-style rack as compute trays with Grace CPUs and Blackwell GPUs plus NVLink switch trays: https://docs.nvidia.com/multi-node-nvlink-systems/mnnvl-user-guide/overview.html.',
+        'NVLink and NVSwitch matter in dense training servers, multi-GPU inference nodes, high-performance computing, and systems with tensor-parallel models. These workloads repeatedly move activations, gradients, expert traffic, or key-value cache between GPUs. The useful access pattern is frequent large transfers among a known group of accelerators.',
+        'They also matter for placement. A cluster scheduler can keep one model shard group inside one high-bandwidth domain and place looser data-parallel replicas across weaker links. The same number of GPUs can produce different throughput when the topology matches the communication pattern.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first trap is treating bandwidth as one scalar. Direction, fanout, bisection, switch occupancy, multicast or reduction support, congestion, and degraded paths matter. A fabric can be excellent for one traffic shape and disappointing for another.',
-        'The second trap is assuming a faster fabric removes software scheduling. It does the opposite. Once the fabric is powerful, placement choices become more valuable because the difference between a good route and a bad route is large.',
-        'A third failure is hiding fabric health from users. If a job sees only slow step time and no link evidence, it may waste days tuning batch size or kernels while the real problem is a damaged route. The fabric ledger should be visible enough to explain performance.',
-        'Finally, do not treat the scale-up fabric as a substitute for scale-out design. Once a job crosses rack or pod boundaries, different networks, failure domains, and collective algorithms take over.',
+        'A GPU fabric does not fix compute-bound kernels. If matrix multiplication dominates and communication is small, extra fabric bandwidth sits unused. It also does not fix poor batching, memory fragmentation, or model-parallel layouts that communicate more than the model can hide.',
+        'The fabric can fail operationally through link degradation, bad route choices, thermal limits, or noisy neighbors. It can also mislead benchmarks. A result from one node topology may not transfer to another node with different switch layout, firmware, or collective library version.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: NVIDIA NVLink and NVLink Switch overview at https://www.nvidia.com/en-us/data-center/nvlink/ and NVIDIA Multi-Node NVLink user guide at https://docs.nvidia.com/multi-node-nvlink-systems/mnnvl-user-guide/overview.html. Study GPU All-Reduce, Tensor Parallelism, MoE Expert Capacity and All-To-All Routing Ledger, Chiplet Interconnect Case Study, KV Cache Transfer Fabric Case Study, and Heterogeneous AI Compute Workload Router next.',
+        'Suppose eight GPUs run data-parallel training and each step needs a 1.6 GB gradient all-reduce. A simple estimate divides bytes by effective bandwidth. At 400 GB/s effective fabric bandwidth, the exposed transfer time is about 4 ms, before reduction and scheduling overhead.',
+        'If the same job crosses a path that gives only 100 GB/s, the exposed time rises to about 16 ms. With 1,000 training steps, that difference is 12 seconds of extra communication. With 100,000 steps, it becomes about 20 minutes before any other overhead is counted.',
+        'Now place a tensor-parallel group that exchanges activations every layer on the weak path. The penalty repeats inside each forward and backward pass, not only once per step. That is why topology-aware placement can matter more than adding one more idle GPU.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Start with NVIDIA material on NVLink, NVSwitch, DGX and HGX system architecture, and NCCL documentation at https://developer.nvidia.com/nvlink and https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/. Treat exact bandwidth numbers as product-specific and verify them against the current platform datasheet.',
+        'Next, study graph routing, ring buffers, all-reduce algorithms, NCCL topology files, CUDA peer access, RDMA, and cluster schedulers. The next mental model is that a GPU server is a small network whose job graph must fit its physical graph.',
       ],
     },
   ],

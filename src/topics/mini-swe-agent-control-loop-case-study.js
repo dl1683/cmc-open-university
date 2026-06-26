@@ -205,94 +205,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What this case study is really about',
+      heading: 'How to read the animation',
       paragraphs: [
-        'mini-SWE-agent is valuable because it strips a coding agent down to the loop that actually changes the world: build context, ask the model for an action, execute that action, record the observation, update the budget, and repeat until a verifier or stop condition ends the run.',
-        'That makes it a good teaching object. Many agent systems bury the same loop under planners, memories, reflection prompts, dashboards, and routing layers. Those extras may help, but this case study asks a sharper question: which contracts must exist before any of those extras matter?',
-        'The answer is not "just call the model." A small agent still needs a tool grammar, an environment boundary, a transcript, a current-diff record, a cost counter, a stop rule, and a verifier. Without those pieces, the agent cannot be debugged, compared, or trusted.',
+        'The minimal-loop view follows one coding-agent turn: context enters the model, the model emits an action, the scaffold executes it, and the observation returns to the transcript. A scaffold is the code around the model that parses actions, runs tools, records state, and enforces limits. Active nodes are running now, found nodes are durable evidence, and compare nodes check whether a contract was satisfied.',
+        'The scaffold-ledger view shows the pieces that make the loop debuggable. The transcript is the central record: messages, tool calls, command results, file changes, budget, and verifier outcome. The safe inference is that an agent run is only auditable if every world-changing action and observation is recorded in order.',
         {type:'callout', text:'A small coding agent works when the transcript, tool grammar, environment boundary, budget, and verifier are explicit contracts.'},
       ],
     },
     {
-      heading: 'The obvious approaches and why both fail',
+      heading: 'Why this exists',
       paragraphs: [
-        'One naive approach is to build a large agent scaffold immediately: planner, critic, retriever, memory store, summarizer, task router, patch repair loop, and custom dashboard. The system may improve, but you no longer know which part caused the improvement. The architecture becomes a fog machine.',
-        'The opposite naive approach is a single model call that writes a patch from the issue text. That is too weak for real software work because code repair is not static completion. The agent needs to inspect files, run commands, observe failures, and revise its hypothesis.',
-        'The practical wall is boundary discipline. If the tool output is inconsistent, if malformed actions are accepted, if the working directory is implicit, if failed commands are summarized away, or if the final verifier is vague, the model may appear irrational when the scaffold is the part losing state.',
+        'Coding agents are easy to describe poorly as a model that writes patches. Real software repair is an interaction with a repository, tests, shell commands, errors, and changing hypotheses. The useful unit is the control loop that lets the model act, observe, and revise.',
+        'mini-SWE-agent is valuable because it strips that system down. It asks which contracts are necessary before planners, memories, critics, and dashboards are added. A small loop can teach more than a large opaque system when its state is visible.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first obvious approach is one model call that reads an issue and writes a patch. It is cheap and simple, but it treats repair as static completion. The model cannot search the repository, run the failing test, or learn from compiler output.',
+        'The opposite approach is to build a large agent platform immediately. It may include planning, retrieval, memory, reflection, routing, dashboards, and many tool adapters. That can help, but it also makes failure hard to attribute because every component can hide or distort evidence.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is boundary discipline. If the action grammar is loose, malformed tool calls slip through. If command output is summarized badly, the next model turn loses the one error line it needed. If the environment boundary is implicit, the agent may appear confused when the scaffold changed the world invisibly.',
+        'Verification is another wall. A final answer is not evidence that the patch works. Without a declared verifier, such as a focused test command or benchmark check, the run can end with a plausible diff and no proof that the issue is fixed.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A minimal loop can be strong when the contracts are explicit. The model proposes the next action, but the scaffold owns the boundary conditions: parsing, rejection of invalid actions, safe execution, observation capture, budget accounting, and final proof.',
-        'The transcript is the central data structure. It is not just chat history. It should record messages, tool calls, working directory, command output, file reads, patch state, errors, cost, stop reason, and verifier result. That trace is what lets a human or benchmark replay the run and diagnose what happened.',
-        'This is why "minimal" is not the same as "underspecified." A small loop with a clean transcript is often more educational than a large agent with hidden state.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the minimal-loop view, follow the cycle from issue to prompt to model to action to environment to observation and back into the prompt. The important move is not the arrow into the model. It is the arrow back from the environment. That feedback is what turns a language model into an agent that can repair a mistaken hypothesis.',
-        'In the scaffold-ledger view, read each table row as a contract the scaffold must keep even when the model is confused. The parser rejects malformed actions. The executor controls the environment. The observation normalizer returns usable evidence. The limiter prevents runaway spend. The scorer proves whether the final patch actually works.',
-        'The animation is showing where responsibility belongs. The model chooses; the scaffold checks, records, and constrains.',
+        'A minimal loop can be strong if the contracts are explicit. The model chooses the next action, but the scaffold owns parsing, execution, observation capture, budget accounting, stop rules, and verifier proof. The loop stays small while the boundary remains strict.',
+        'The transcript is the main data structure. It records what the agent knew, what it tried, what the environment returned, and why it stopped. That record lets humans compare runs, debug failures, and decide whether a larger scaffold actually improved anything.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A run begins with a task and an environment. The scaffold builds a prompt from instructions, current state, and the transcript. The model emits one action in a known grammar. The scaffold parses that action, executes it in the environment, captures stdout, stderr, exit status, file changes, and policy errors, then appends the observation to the transcript.',
-        'On the next turn, the model sees the new evidence. If a test fails, the failure becomes part of the next hypothesis. If a file read disproves the guessed API shape, the model can adjust. If the patch is complete, the model submits and the verifier runs.',
-        'The stop condition matters. A good loop can stop because tests pass, because a maximum turn or cost budget was reached, because the model submitted a final answer, or because the environment produced an unrecoverable error. Each stop reason means something different when evaluating the agent.',
+        'A run begins with a task, instructions, and an environment such as a checkout of a repository. The scaffold builds a prompt from the current transcript, asks the model for one action in a known grammar, parses it, and either rejects it or executes it. Execution can read files, run commands, or apply edits depending on the tool set.',
+        'The observation is appended to the transcript with stdout, stderr, exit status, policy errors, and file-change evidence. The next turn uses that evidence to choose another action. The run stops when the model submits, the verifier passes or fails, the budget is exhausted, or the environment hits an unrecoverable condition.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because software tasks expose evidence. The repository can be searched. Files can be read. Tests can be run. Diffs can be inspected. A minimal loop lets the model use those evidence channels without requiring a complex planning system.',
-        'It also works as a baseline. If a larger agent beats the small loop, the comparison becomes meaningful only when the loop is clean. Then you can ask what the added component contributed: better retrieval, better edit grammar, better search over patches, better memory, better verifier feedback, or better budget allocation.',
-        'The hidden lesson is measurement. A minimal agent with a faithful trace is easier to benchmark than a sprawling one. You can count turns, tool calls, token cost, failure mode, final patch size, and verifier result.',
+        'The correctness argument is not that the model is always right. It is that each turn preserves an evidence loop: action, environment result, transcript update, and next decision. If the transcript is faithful, the agent can use repository facts instead of only prior guesses.',
+        'The verifier closes the loop. A patch is accepted only when the declared check supports it, such as a passing regression test or benchmark scorer. A failure remains useful because the trace says whether the model misunderstood code, the scaffold lost evidence, the tool failed, or the budget ended too early.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Imagine a bug report says a parser crashes on empty input. A weak one-shot system guesses the fix from the issue title. A looped agent searches for the parser, reads the input path, runs the failing test, sees the stack trace, edits the guard condition, reruns the focused test, then submits the diff.',
-        'The transcript is the proof object. It shows which files were read, which command failed, which patch was applied, and which verifier passed afterward. If the run fails, the trace can show whether the model misunderstood the code, the tool grammar hid the failure, the test command was wrong, or the budget cut the repair short.',
+        'Cost is behavior because budget controls search. A loop limited to 4 turns might read one file, patch once, and run one test. A loop with 20 turns can inspect callers, reproduce the bug, try a narrower patch, and run regression checks, but it spends more tokens and wall time.',
+        'The complexity cost is in the contracts, not the model call. Tool grammars, timeouts, sandboxing, output truncation, patch application, stop rules, and verifier selection all change outcomes. A benchmark comparison that omits those details is not reproducible.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The cost of a minimal loop is that every boundary has to be good. Bad observation compression can remove the one error line the next turn needs. A loose edit grammar can create patches that do not apply. Missing verifier proof can make a wrong final answer look successful. Unclear stop rules can waste money or stop one turn before the fix.',
-        'Budget is not an accounting afterthought. It changes behavior. A loop that can afford one read, one patch, and one test behaves differently from a loop that can explore three hypotheses. Serious comparisons should name the model, environment, tools, max turns, cost cap, verifier, and benchmark split.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'The minimal loop wins as a baseline, teaching tool, and debugging benchmark runner. It is the right first system when you want to understand whether a benchmark is being solved by model ability, environment access, test feedback, tool grammar, or scaffolding.',
-        'It also helps portability work. If the same loop succeeds in one environment and fails in another, the smaller surface makes it easier to find the changed contract: shell behavior, file visibility, patch application, timeout policy, or test command.',
+        'A minimal coding-agent loop is useful as a baseline for software-repair benchmarks, repository automation, and scaffold debugging. It fits tasks where the repository itself can provide evidence through search, tests, type checks, and diffs. The access pattern is iterative: inspect, act, observe, and repair.',
+        'It is also useful when evaluating larger agents. If a planner, retriever, memory store, or critic improves performance, the clean baseline helps isolate why. Without that baseline, a large scaffold can win for accidental reasons such as privileged tests or benchmark-specific prompts.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when the task requires long-horizon planning, wide repository search, persistent project memory, multiple independent hypotheses, human approval, or coordination across several services. A short loop can only represent so much state before the transcript becomes too large or too noisy.',
-        'It also fails as a benchmark claim if the surrounding system is not named. Small source code can hide a large external surface: curated prompts, powerful shell access, privileged tests, benchmark-specific hints, replayed demonstrations, or manual cleanup. The article-worthy lesson is to audit the whole control plane, not just the loop body.',
+        'The minimal loop fails on tasks that require long-horizon project memory, broad design negotiation, multiple independent hypotheses, human approval, or coordination across services. The transcript can become too large or noisy for the next turn to use well. At that point, extra structure may be justified.',
+        'It also fails when the environment cannot provide a trustworthy verifier. Some product changes require visual checks, manual review, or production-like data. A small loop can still edit files, but it cannot prove correctness if the proof surface is absent.',
       ],
     },
     {
-      heading: 'What to build after the minimal loop',
+      heading: 'Worked example',
       paragraphs: [
-        'Add architecture only when the trace shows the need. If the loop keeps reading the wrong files, add retrieval or repository maps. If it repeats failed edits, add patch history and rejection memory. If it cannot choose among hypotheses, add search or a critic. If it submits unverified work, strengthen the verifier gate.',
-        'This keeps the system honest. Each added component should answer a failure found in the minimal loop, not decorate the agent with a fashionable pattern.',
+        'A bug report says a parser crashes on empty input. Turn 1 searches for the parser and finds parseValue in parser.js. Turn 2 runs npm test -- parser and gets a stack trace showing input[0] is undefined. Turn 3 adds an empty-input guard and runs the focused test again.',
+        'The numbers matter. The run used 3 model turns, 2 shell commands, 1 file edit, and 1 verifier command. If the test passes, the transcript proves what changed and why. If it fails, the same transcript shows whether the patch was wrong or the verifier revealed a deeper case.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: mini-SWE-agent at https://github.com/SWE-agent/mini-swe-agent, SWE-agent docs at https://swe-agent.com/latest/, SWE-agent paper at https://arxiv.org/abs/2405.15793, SWE-bench official site at https://www.swebench.com/, and CWM at https://arxiv.org/abs/2510.02387.',
-        'Study Agentic AI Patterns: Planning, Tools, Memory, Abstract Agent Operation Graph, Coding Agent Edit Grammar Adapter Case Study, the agent-portability audit module, Terminal-Bench Long-Horizon Agent Case Study, and Process Reward Models & Verifier Search next.',
+        'Primary sources are mini-SWE-agent at https://github.com/SWE-agent/mini-swe-agent, SWE-agent documentation at https://swe-agent.com/latest/, the SWE-agent paper at https://arxiv.org/abs/2405.15793, and SWE-bench at https://www.swebench.com/. Use these sources for mechanism claims before relying on secondary summaries.',
+        'Study Agentic AI Patterns, Coding Agent Edit Grammar Adapter, Abstract Agent Operation Graph, Terminal-Bench Long-Horizon Agent Case Study, Process Reward Models and Verifier Search, and repository-specific test selection next. Start with the topic that explains the data shape, then move to the production system.',
       ],
     },
   ],

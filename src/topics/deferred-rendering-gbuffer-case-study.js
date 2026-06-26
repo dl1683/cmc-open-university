@@ -191,110 +191,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the first view as a frame graph. Active nodes show the geometry pass writing visible surface attributes into the G-buffer, and later nodes read those attributes for lighting and post effects. The safe inference is that lighting can ignore hidden triangles because the depth test has already chosen the visible surface for each pixel.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A real-time renderer has to solve two large problems every frame: which surfaces are visible, and how those surfaces should be lit. Forward rendering solves both while drawing each object. It rasterizes a mesh, runs the material shader, evaluates the relevant lights, and writes the final color.',
-        'That direct model is easy to understand and still widely used, but it can repeat work in scenes with many opaque objects and many lights. The renderer keeps asking which lights affect which object, then performs lighting while geometry is still being processed. As light counts rise, object-by-object shading can become hard to scale.',
-        'Deferred rendering separates visibility from lighting. First, a geometry pass records the visible opaque surface at each pixel. Then a lighting pass reads those recorded surface samples in screen space and computes lighting. The G-buffer is the set of textures that carries the surface records between those passes.',
+        'A renderer must decide what surface is visible at each pixel and how that surface is lit. Forward rendering does both while drawing each object. Deferred rendering exists because many scenes have many lights, and object-by-object lighting repeats work that can be delayed until visibility is known.',
         {type:'callout', text:'Deferred rendering wins by turning visible geometry into a screen-space schema so lighting and post effects can consume pixels instead of rewalking scene objects.'},
       ],
     },
     {
-      heading: 'The forward baseline',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Forward rendering draws an object and computes its final shaded color immediately. It handles transparency naturally because objects can be sorted and blended into the current color buffer. It works well with MSAA because visibility and shading can stay tied to samples. It also gives each material direct control over its shading path.',
-        'The limit appears when many lights affect many visible pixels. A naive forward pass may evaluate a long light list for each object, or it may require many shader variants to handle different light and material combinations. Forward-plus and clustered forward rendering improve this by building light lists, but lighting still remains close to each material draw.',
-        'Deferred rendering changes the unit of work. The geometry pass turns visible opaque surfaces into stored records. The lighting pass operates over pixels, tiles, or light volumes. Once the surface record exists, the renderer can light it without walking the original scene meshes again.',
+        'The obvious approach is forward shading. Draw each mesh, run its material shader, evaluate the lights that affect it, and write the final color. This is simple, handles transparency naturally, and remains a good fit for small light counts or special materials.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall appears when lighting work grows with objects times lights. If 500 visible objects each consider 40 lights, the renderer may evaluate thousands of object-light combinations before it knows which pixels matter. Overdraw makes it worse because hidden fragments can run shading work that never reaches the final image.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The G-buffer is a screen-space table keyed by pixel or sample. Instead of writing final lit color, the geometry pass writes attributes of the visible opaque surface: base color, normal, roughness, metalness, material id, emissive value, motion vector, and depth. Different engines choose different columns.',
-        'The lighting pass reads those records. For each pixel or affected light volume, it reconstructs enough surface information to evaluate the lighting model. Geometry complexity has been converted into texture reads and screen-space work.',
-        'This is a schema decision, not a magic buffer. The renderer must decide which facts are worth storing, how much precision each fact needs, how values are packed, which later passes may depend on them, and which materials do not fit the deferred contract.',
+        'Separate visibility from lighting. The geometry pass writes a per-pixel record containing depth, normal, albedo, material id, and other attributes. The lighting pass then works in screen space, using the G-buffer as a table keyed by pixel rather than walking scene objects again.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
-        'The gbuffer-pass view shows scene geometry flowing into a geometry pass, then splitting into albedo, normal, material, and depth records. Those targets are not decorative buffers. Together they form the per-pixel surface record that replaces immediate forward shading for opaque objects.',
-        'When the visual path moves from the G-buffer targets to lighting, the coordinate system has changed. The renderer is no longer iterating over meshes as the main unit of lighting work. It is reading screen-space records and applying lights to the visible samples those records describe.',
-        'The lighting-tradeoff view shows the bargain directly. Deferred rendering helps with many lights, but it pays with G-buffer bandwidth and awkward transparency. The hybrid node represents the common engine answer: deferred for opaque lighting, forward or forward-plus for transparent and special materials, with the framegraph recording the pass dependencies.',
+        'First, rasterize opaque geometry and keep only the closest fragment at each pixel. Store the attributes needed by later passes in multiple render targets, which together form the G-buffer. Then run lighting over pixels, tiles, or light volumes, reconstruct the surface point from depth, read the normal and material fields, and accumulate color.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'Why it works',
       paragraphs: [
-        'The geometry pass uses rasterization and depth testing to select the frontmost opaque surface for each pixel. Multiple render targets receive different fields of the surface record. A depth attachment stores the visibility result and often becomes input to later passes.',
-        'The lighting pass binds those G-buffer textures as inputs. It can shade the full screen, shade per light volume, or use tiled and clustered light lists. It often reconstructs view-space position from depth rather than storing position directly, because position costs more bandwidth than a depth value plus camera matrices.',
-        'Later passes reuse the same records. Normals and depth feed SSAO, fog, decals, outlines, contact shadows, and temporal effects. Motion vectors feed temporal antialiasing and motion blur. A framegraph records these resources and pass dependencies explicitly so the engine knows when each texture is produced, consumed, aliased, or cleared.',
+        'The correctness boundary is the depth invariant. For opaque geometry, the depth buffer selects the frontmost surface sample for each pixel, so later lighting uses the same surface forward rendering would have shaded last. The method is not correct for ordinary transparency because one pixel may need several ordered surfaces, not one winning record.',
       ],
     },
     {
-      heading: 'Invariant and correctness boundary',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The main invariant is simple: for every covered opaque pixel, the G-buffer record describes the same surface the depth test selected as visible. Lighting is correct only to the extent that the stored record contains the data the lighting equation needs.',
-        'This boundary matters. A Lambert material or common PBR opaque material can often be represented by albedo, normal, roughness, metalness, and depth. A material with subsurface scattering, anisotropy, clear coat, custom BRDF parameters, layered shading, or screen-dependent effects may not fit unless the schema stores extra data or routes the material through another pass.',
-        'Deferred rendering is therefore exact for the chosen shading contract, not for every material an engine may want. The contract must be visible to artists and shader authors. If a material cannot be expressed by the G-buffer schema, it needs a documented fallback path rather than a hidden approximation.',
+        'Deferred rendering trades shader repetition for memory bandwidth. At 1920 by 1080, one full-screen buffer with 4 bytes per pixel is about 8.3 MB; four such buffers are about 33 MB per frame before multisampling. Doubling resolution roughly quadruples G-buffer bytes, so bandwidth and compression often dominate before arithmetic does.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The cost is bandwidth, memory, and synchronization. A 1080p frame with several high-precision G-buffer targets moves a large amount of data before lighting even begins. Higher resolutions, MSAA, motion vectors, wider material schemas, and high dynamic range formats multiply the traffic.',
-        'Packing reduces bandwidth but introduces precision and debugging tradeoffs. Normals may be encoded into two channels. Roughness, metalness, ambient occlusion, and material flags may share a texture. Material ids can route shading but also create divergent branches in the lighting pass.',
-        'The payoff appears when many lights affect many visible pixels. Lighting can be limited by screen-space tiles, stencil volumes, clustered lists, or compute dispatches without rerunning the geometry pass. The geometry cost and lighting cost become easier to reason about separately.',
-        'The behavior depends heavily on hardware. Desktop GPUs with high memory bandwidth may tolerate wide G-buffers. Tile-based mobile GPUs may prefer designs that keep intermediate data on chip or avoid writing a large G-buffer to external memory. The algorithm is a design point, not a universal speed setting.',
+        'Deferred shading fits games and visualization scenes with many opaque surfaces and many dynamic lights. It also helps screen-space ambient occlusion, decals, outlines, fog, and motion effects because those passes can reuse depth and normals. Many engines use a hybrid pipeline: deferred for opaque lighting, forward or forward-plus for transparent and unusual materials.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Transparency is the classic failure mode. A normal G-buffer stores one winning opaque surface per pixel, but transparent glass, particles, hair, foliage, and volumetrics need multiple ordered contributors. Engines usually render those through forward or specialized passes after deferred opaque lighting.',
-        'MSAA is harder because shading and visibility are no longer naturally coupled. Per-sample G-buffers are expensive, while per-pixel shading can miss edge detail. Engines choose a compromise based on quality targets and bandwidth budget.',
-        'Schema creep is another failure mode. Adding a field for every material feature makes the G-buffer too wide. Omitting too many fields creates special cases that erode the benefit of the deferred path. The schema needs discipline, versioning, and debug views.',
-        'Debugging can also become harder when final color is produced several passes after geometry. A broken frame may come from bad vertex data, wrong normal encoding, depth reconstruction, light-list bugs, material id routing, or post-processing. Good buffer inspection tools are part of the design, not an optional extra.',
+        'It fails on transparency, very bandwidth-limited hardware, and materials that need custom lighting paths. It can also make antialiasing and material variety harder because the G-buffer must choose a fixed schema. If the scene has few lights, the extra geometry pass and memory traffic may cost more than forward shading would have spent.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Imagine a night street scene with opaque buildings, road surfaces, vehicles, signs, and dozens of small dynamic lights. A forward renderer may shade the same visible pixels through many object draws, each with a list of candidate lights. Managing those lists and material variants becomes a large part of the frame.',
-        'A deferred renderer first draws the opaque geometry once into the G-buffer. The road pixel stores albedo, normal, roughness, metalness, material id, motion, and depth. The lighting pass then applies street lamps, headlights, and signs in screen space. A lamp affects the pixels inside its screen-space volume without forcing the engine to redraw every mesh touched by that lamp.',
-        'After opaque lighting, the engine draws transparent windows, particles, and volumetric effects in a forward or specialized path. Post effects reuse depth, normals, and motion. The frame is hybrid, but the opaque lighting problem has been turned into a set of screen-space passes over a known schema.',
+        'Suppose a 1080p scene has 2,073,600 pixels and 64 point lights. A naive forward pass that lets each visible object consider every light can perform far more light checks than visible pixels, especially with overdraw. A deferred pass writes one visible record per pixel, then a tiled light pass might evaluate only the 8 lights overlapping a tile, reducing many pixels from 64 light tests to 8.',
+        'The cost is visible in memory. If the G-buffer stores albedo at 4 bytes, normal at 4 bytes, material plus roughness at 4 bytes, and depth at 4 bytes, it writes about 33 MB before lighting. At 120 frames per second, just writing those buffers is about 4 GB/s, not counting reads, blending, compression misses, or multisampling.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Sources and study next',
       paragraphs: [
-        'It wins in dense opaque scenes with many dynamic lights: indoor environments, city streets, night scenes, deferred decals, and games where many small lights overlap. It also helps when post effects already need depth, normals, motion, and material information.',
-        'It gives strong debug views. Artists and graphics programmers can inspect albedo, normals, roughness, depth, motion, material ids, and light accumulation as separate buffers instead of trying to infer everything from the final frame.',
-        'It also fits engines that use render graphs. The G-buffer makes resource lifetimes and pass inputs explicit: geometry writes, lighting reads, post effects read, transparent passes blend, and presentation consumes the final color. That structure helps scheduling, memory aliasing, and frame captures.',
-      ],
-    },
-    {
-      heading: 'Where it is a poor fit',
-      paragraphs: [
-        'It is a poor fit for mostly transparent scenes, very simple lighting, heavily bandwidth-limited hardware, or material systems where each object needs a unique shading program. Mobile and tile-based GPUs can make different tradeoffs from desktop GPUs.',
-        'It can also be a poor fit when the game relies on heavy material variety: complex skin, hair, cloth, layered surfaces, stylized shaders, or per-object lighting models that do not compress into a shared schema. The more exceptions the engine needs, the less clean the deferred path becomes.',
-        'Many modern engines are hybrid. They use deferred rendering for opaque lighting, forward or forward-plus for transparent and special materials, and a render graph to make the data dependencies explicit. Choosing deferred does not mean every surface must use it.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Design the G-buffer schema from the lighting model and target hardware. Decide the minimum fields needed for the common opaque path, then choose precision and packing. Validate normal encoding, depth reconstruction, color space, roughness range, material id routing, and motion vector conventions with debug views.',
-        'Keep transparency and special materials as planned paths, not late exceptions. Document which materials use deferred, which use forward, and which use custom passes. Make the framegraph show the ordering: opaque geometry, G-buffer reads, lighting, transparent passes, post effects, and presentation.',
-        'Measure bandwidth, not just shader time. A wider G-buffer can make a simple lighting pass slower than expected. Use GPU captures to inspect attachment formats, load and store operations, barriers, render target clears, tile memory behavior, and whether post effects are reading more data than they need.',
-        'Build failure views early. Show albedo without lighting, world or view normals, roughness, metalness, depth linearization, material id, motion vectors, light volumes, tile lists, and final light accumulation. Deferred rendering is much easier to maintain when the intermediate records are visible.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study depth testing, multiple render targets, texture formats, normal encoding, depth reconstruction, BRDF inputs, tiled and clustered lighting, temporal antialiasing, and render graphs. Then compare deferred rendering with forward-plus and clustered forward rendering on the same scene.',
-        'Primary references include the WebGPU specification for render pipelines and attachments, Vulkan fragment operations and render pass behavior, GPU vendor performance guides, and Unreal Engine Render Dependency Graph documentation. The next practical exercise is to design a four-target G-buffer for one lighting model, then list which material features it cannot represent.',
+        'Study the OpenGL deferred shading tutorials, GPU Gems material on deferred shading, and engine frame-graph documentation from Unreal or Frostbite. Then learn depth testing, multiple render targets, tiled lighting, clustered shading, order-independent transparency, and screen-space effects. The next comparison is forward-plus, which keeps forward material behavior while using screen-space light culling.',
       ],
     },
   ],

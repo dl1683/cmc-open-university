@@ -348,86 +348,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
         {type:'callout', text:'The Bw-tree keeps B+ tree order but moves physical mutation behind a mapping-table CAS, so logical pages stay stable while updates become replayable deltas.'},
-        'A B+ tree is a strong ordered index because it keeps sorted keys in pages and routes searches through separators. The hard part is concurrency. A hot leaf, root, or internal page can force many cores to wait on the same latch even when each operation only wants to insert, delete, or read one key.',
+        'Read each page id as a logical name, not as a direct memory pointer. The mapping table is the array that turns that name into the newest physical page chain. A safe inference is that a successful compare-and-swap on the mapping slot publishes the new version of that logical page.',
+        'Read the delta chain from newest record to base page. A delta is a small immutable record such as insert key 73 or delete key 51. Consolidation is cleanup that folds many deltas into a fresh base page without changing the logical page id.',
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/65/B-tree.svg', alt:'Diagram of a B-tree with sorted keys in internal and leaf nodes', caption:'A B-tree stores sorted keys through a balanced page hierarchy; the Bw-tree keeps that logical shape while replacing in-place mutation with mapping-table indirection and delta chains. Source: Wikimedia Commons, CyHawk, CC BY-SA 3.0/GFDL.'},
-        'The Bw-tree exists to ask a specific systems question: can an ordered B+ tree avoid in-place page mutation and still behave like a searchable index? Its answer is indirection. Tree edges name logical page ids, a mapping table turns each id into a physical page chain, and updates publish new delta records with compare-and-swap.',
       ],
     },
     {
-      heading: 'Baseline and wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The ordinary baseline is page latching: search to a leaf, acquire the page latch, edit the page in place, then release the latch. Splits and merges acquire more latches in a careful order. This design is understandable and often fast, but its critical sections become visible when the index is memory resident and many threads hit the same pages.',
-        'The wall is not just the latch instruction. Once page updates stop happening in place, the implementation must still give readers a stable page image, give writers one clear publication point, route searches across half-finished splits, and delay freeing old memory until no reader can hold it. The Bw-tree is really about safe physical replacement under B+ tree semantics.',
+        'A B+ tree is an ordered index: internal pages guide the search, and leaf pages store sorted key ranges. The classic implementation edits pages in place while holding latches, which are short critical-section locks. That works until many cores compete for the same hot page.',
+        'The Bw-tree exists to keep ordered lookup while removing in-place page mutation from the hot path. Tree edges point to logical page ids, and the mapping table points those ids at physical page chains. Writers append deltas and publish them with compare-and-swap instead of waiting for a page latch.',
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The central invariant is that a logical page id remains stable even when its physical representation changes. A parent points to page id p42, not directly to a mutable memory address. The mapping table slot for p42 points to the newest chain head for that page.',
-        'A page chain is a base page plus zero or more delta records in front of it. An insert delta says to add a key, a delete delta hides a key, an update delta changes a record, and split deltas describe structure changes. A successful CAS on the mapping-table slot is the publication event for the new logical page version.',
+        'The obvious approach is a conventional latch-protected B+ tree. Search descends to a leaf, the thread acquires the page latch, edits the page, and releases the latch. Splits and merges acquire more latches in a careful order.',
+        'That design is not naive. It is simple, cache-friendly when pages are stable, and strong enough for many databases. The problem appears when the index is memory resident and update contention makes latch waiting a visible part of request latency.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'In the delta-chain view, follow the lookup for key 73 from a logical search path to the mapping-table slot and then through the chain head. The important jump is from page id to mapping slot: that is where the Bw-tree avoids embedding physical pointers in the tree.',
-        'When the animation shows a CAS, treat that frame as the linearization point for the page update. If CAS succeeds, later readers see the new head. If CAS fails, another writer published first, so the losing writer must reread the slot and rebuild its delta against the new head.',
-        'In the split-consolidation view, watch for two different kinds of maintenance. A split keeps the key range reachable even before the parent is fully updated. Consolidation shortens a long chain but leaves the old chain alive until epoch reclamation says old readers are gone.',
+        'The wall is safe replacement under concurrency. If readers and writers stop editing the same page in place, the system still needs one current version, stable reads, searchable splits, and delayed memory reclamation. Removing latches does not remove those correctness obligations.',
+        'A second wall is physical locality. Delta chains add pointer chasing, and mapping-table slots can become hot compare-and-swap locations. The design trades blocking waits for retries, replay work, consolidation, and reclamation discipline.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'The core insight',
       paragraphs: [
-        'A lookup descends like a B+ tree, except every child reference is a logical page id. For each id, the reader loads one mapping-table slot, obtains a chain head, and reconstructs the current page by applying newer deltas before the base page. The reader does not need to latch the page because it follows an immutable chain snapshot.',
-        'A writer reads the current slot value, allocates a delta record, points that delta at the old head, and tries to CAS the slot from old head to new delta. This handles ordinary inserts, deletes, and updates. Failed CAS is not corruption; it is the normal retry path under writer races.',
-        'Long chains are folded by consolidation. A thread replays the chain into a compact base page, then CASes the mapping slot to the compact page. The old chain becomes garbage only after the reclamation system proves that no reader can still be traversing it.',
+        'The core insight is to separate logical identity from physical representation. Parent pages name logical page p42; the mapping table says where p42 lives right now. A page update creates a new chain head and tries to swap the mapping slot from the old head to the new head.',
+        'That swap is the publication point. A reader that loaded the old head reads the old immutable chain. A reader that loads after the swap reads the new chain. No reader sees a half-mutated page because the page contents are never edited in place.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'How it works',
       paragraphs: [
-        'For a single-page update, the correctness argument is simple: the update linearizes at the successful CAS on the mapping-table slot. A reader that loaded the old head before that CAS sees the old page version. A reader that loads after the CAS sees the new version. No reader observes a half-written mutable page.',
-        'Structure modification is harder. A split can become visible at the child before the parent separator is installed. Split deltas, side links, helping, and retries make that intermediate state searchable: a search that lands on the old page can discover that the target key belongs on the new right sibling and hop there.',
-        'Memory safety is part of correctness. A new base page replacing an old chain does not make the old chain freeable immediately. Epoch-based reclamation or a similar scheme is needed so stale readers do not dereference freed memory and so ABA-style pointer reuse does not fake a successful CAS.',
+        'Lookup descends through the logical B+ tree and translates each child page id through the mapping table. At the leaf, the reader reconstructs the visible page by applying deltas above the base page. Insert deltas add keys, delete deltas hide keys, and structure deltas describe splits.',
+        'A writer reads the current mapping-slot value, allocates a delta whose next pointer names that value, and runs compare-and-swap. If the slot still contains the old value, the update is published. If another writer won first, the losing writer rereads the slot and rebuilds its delta against the newer chain.',
+        'Consolidation controls read cost. When a chain grows past a threshold, a thread replays the chain into a compact base page and swaps the mapping slot to that base page. Old chains are freed only after the reclamation system proves no reader can still hold them.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'Why it works',
       paragraphs: [
-        'Suppose the tree search for key 73 reaches logical page id p42. The reader loads p42 from the mapping table and finds a head delta saying insert 73. It applies that delta, continues through an older delete delta for key 51, then reaches the base page. The answer is the base page plus the visible deltas above it.',
-        'Now another thread inserts key 88 into p42. It reads the old head, allocates an insert-88 delta whose next pointer is the old head, and CASes the p42 slot. If the slot still names the old head, the insert is published. If some other writer changed the slot first, the insert-88 thread retries against the newer chain.',
-        'If p42 later has a long chain, consolidation replays all visible effects into a fresh compact base page. Publishing that compact page is another CAS on p42. This keeps the logical page id the same while changing the physical representation again.',
+        'For ordinary page updates, correctness follows from the mapping-slot compare-and-swap. The slot moves atomically from old head to new head, so each reader sees either the state before the update or the state after it. The update linearizes at the successful swap.',
+        'Splits need extra help because a child can split before the parent separator is installed. Split deltas and side links keep the key range searchable during that interval. A search that lands on the old page can discover that its target belongs on the new right page and move there.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The Bw-tree trades latch waits for several other costs: CAS contention on hot mapping slots, extra pointer chasing through the mapping table, replay work on long delta chains, consolidation work, split-helping complexity, and delayed memory reclamation.',
-        'Writes can be cheap when they append a small delta instead of rewriting a page. Reads can suffer when chain length grows, when cache locality is poor, or when range scans must cross pages affected by concurrent splits. Consolidation thresholds therefore control a real latency tradeoff, not just a cleanup detail.',
+        'A write often allocates one small delta and one compare-and-swap, so it avoids rewriting a full page. The read cost grows with chain length because each lookup may replay several deltas. If a base page has 128 keys and a chain has 12 deltas, the reader must inspect the base plus those 12 records before answering.',
+        'When update rate doubles on a hot page, compare-and-swap failures and chain growth can also double or worse under contention. Consolidation reduces future reads but spends CPU and memory bandwidth now. The hidden complexity is memory reclamation, because freeing an old chain too early can crash a stale reader.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The design is most attractive for memory-resident ordered indexes where multicore update contention is visible and page latching dominates useful work. It is also a valuable teaching case because it separates logical identity, physical storage, update publication, and reclamation into distinct mechanisms.',
-        'It can fit systems that already have strong epoch management and can afford a careful implementation of page splits, consolidation, and range scans. In that environment, replacing in-place edits with copy-and-publish deltas can reduce blocking on hot pages.',
+        'The Bw-tree is most relevant for memory-resident ordered indexes with many concurrent updates. It was designed in the context of modern hardware and used as part of the Hekaton in-memory OLTP work. The important workload is one where latch waits dominate useful search and update work.',
+        'It is also a teaching case for indirection. The mapping table separates logical page identity, physical storage, publication, consolidation, and reclamation. Those boundaries appear in copy-on-write systems, lock-free structures, and multiversion storage engines.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Latch-free does not mean wait-free, simple, or automatically faster. A hot mapping slot can still create retry storms, a stalled reader can delay reclamation, and a mistuned consolidation policy can bury reads under replay work.',
-        'It is also a poor choice when a simpler B+ tree with good latching already meets the workload, when range scans dominate, or when the engineering team cannot spend proof-level attention on incomplete splits and memory reclamation. The OpenBw-tree work is the cautionary sequel: progress guarantees, cache behavior, and benchmark truth have to be evaluated together.',
+        'It fails when the extra machinery costs more than page latches. Range scans can suffer from pointer chasing, long chains can bury reads, and hot mapping slots can create retry storms. A stalled reader can also delay reclamation and keep old chains alive.',
+        'It is a poor fit for teams that cannot spend proof-level attention on split visibility and memory safety. The OpenBw-tree work is the cautionary sequel: latch-free structure alone does not guarantee better cache behavior, simpler progress, or honest benchmark wins.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose page id p42 has a base page with keys 10, 40, and 90. Thread A inserts 73 by creating an insert-73 delta pointing to the old head and swapping the p42 slot to that delta. A later reader reconstructs p42 as 10, 40, 73, and 90.',
+        'At the same time, thread B inserts 88 after reading the old head. If A wins the swap first, B sees that the slot no longer matches and retries with a new insert-88 delta pointing above insert-73. With 20 such deltas, consolidation can replay the chain into one base page so future reads do not pay 20 extra pointer hops.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Microsoft Research, The Bw-Tree: A B-tree for New Hardware Platforms, https://www.microsoft.com/en-us/research/publication/the-bw-tree-a-b-tree-for-new-hardware/ and DOI https://dl.acm.org/doi/10.1109/ICDE.2013.6544834. For the production setting, read the Hekaton overview at https://www.microsoft.com/en-us/research/publication/hekaton-sql-servers-memory-optimized-oltp-engine/. For a critical implementation study, read OpenBw-tree at https://www.cs.cmu.edu/~huanche1/publications/open_bwtree.pdf and the repository at https://github.com/wangziqi2013/BwTree.',
-        'Study B-Trees, B+ Tree Leaf Sibling Scan Case Study, Database Indexing, Nonblocking Progress Guarantees, Hazard Pointers & Epoch Reclamation, ABA Tagged Pointer Stack, Adaptive Radix Tree, LSM Trees, ALEX Adaptive Learned Index, and MySQL InnoDB Clustered Index next. The useful comparison question is always the same: which structure pays for concurrency, locality, and maintenance in the cheapest place for the workload?',
+        'Primary sources: The Bw-Tree: A B-tree for New Hardware Platforms at https://www.microsoft.com/en-us/research/publication/the-bw-tree-a-b-tree-for-new-hardware/, Hekaton at https://www.microsoft.com/en-us/research/publication/hekaton-sql-servers-memory-optimized-oltp-engine/, and OpenBw-tree at https://www.cs.cmu.edu/~huanche1/publications/open_bwtree.pdf.',
+        'Study B-trees, B+ tree leaf scans, database indexing, nonblocking progress, epoch reclamation, ABA prevention, adaptive radix trees, LSM trees, and learned indexes. The useful comparison is where each design pays for concurrency, locality, and maintenance.',
       ],
     },
   ],

@@ -232,97 +232,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why it exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'This case study exists because "deep learning wins everything" is a bad default for structured tables. Fraud, credit risk, churn, pricing, medical prediction, operations, and product analytics often start from columns that already mean something: age, balance, lab value, region, account age, event count, debt ratio, or support history.',
-        'The NeurIPS paper Why do tree-based models still outperform deep learning on tabular data? argues that tree ensembles often remain strong because their inductive bias fits ordinary tables: https://arxiv.org/abs/2207.08815. The lesson is not anti-neural. The lesson is to match the model class and benchmark protocol to the data shape.',
+        'Read the first view as a comparison of inductive bias, which means the kind of pattern a model can learn cheaply before seeing much data. Trees are highlighted where raw columns, thresholds, irrelevant features, and missing values match split-based rules.',
+        'Read the second view as a benchmark pipeline, not as a leaderboard. A fair claim requires sealed splits, preprocessing inside the fold, comparable tuning budgets, slice metrics, and cost measurement before saying one model family wins.',
         {type:'callout', text:'On ordinary tables, the winning architecture is often the one whose bias matches column semantics and benchmark protocol, not the newest model family.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/8/87/Recursive_Splitting.png', alt:'Recursive splitting diagram showing feature-space partitions and the corresponding decision tree.', caption:'Recursive binary splitting and its matching decision tree. Image: Rossc0827, Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'Naive baseline and wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive baseline is to compare a default neural network against a default boosted tree, or to assume the newer architecture deserves the production slot. That misses the real problem: a model result is a full pipeline result, including preprocessing, split policy, tuning budget, metric choice, early stopping, and leakage control.',
-        'The wall is that ordinary tables often contain high-level, axis-oriented, irregular features. A deep net may need many examples to learn that a risk score crosses a sharp threshold at 3 and another at 7. A tree can represent those discontinuities directly with two splits.',
+        'Structured tables are not images or text. Columns such as account age, debt ratio, lab value, region, and missed-payment count often already encode human or system concepts.',
+        'This case study exists because neural networks are not automatically the right default for those columns. Gradient-boosted decision trees, or GBDTs, often remain strong because they cheaply express axis-aligned thresholds, sparse feature use, and irregular local rules.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Gradient-boosted trees are biased toward feature selection, axis-aligned thresholds, and piecewise constant rules. That is often exactly the structure of business, finance, medical, and operations tables. Useless columns can be skipped. Useful thresholds can be isolated. Missingness and sparse categories can be handled by mature implementations.',
-        'The benchmark invariant is that protocol is part of the result. If preprocessing leaks across folds, entity duplicates cross train and test, one model receives more tuning budget, or the metric ignores important slices, the comparison is not measuring model quality.',
+        'The obvious approach is to compare a neural network and a tree model on the same dataset and keep the higher score. That sounds fair because both models see the same rows and target.',
+        'A second obvious approach is to treat the newest model family as the serious candidate and the GBDT as an old baseline. That can waste effort when the data is mostly medium-sized, structured, and already feature-rich.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'In the inductive-bias view, the table sends three kinds of structure toward both model families: irrelevant features, thresholded steps, and meaningful raw axes. Trees are highlighted where split-and-skip behavior fits that structure. Neural nets are compared where smooth mixing can help or hurt.',
-        'In the benchmark-protocol view, the graph models a pipeline contract. Datasets, sealed splits, preprocessing inside the fold, tuned GBDT, tuned neural model, score slices, and cost all feed the final claim. The claim node should stay limited unless the protocol was fair.',
+        'The wall is benchmark leakage and model mismatch. If preprocessing sees test data, entity duplicates cross splits, one model gets more tuning, or the metric hides important slices, the comparison is measuring protocol error.',
+        'Model mismatch appears when a smooth dense learner spends capacity rediscovering thresholds that a tree represents with one split. A neural model may need more data to learn that utilization above 80 percent is a sharp cliff rather than a gradual curve.',
       ],
     },
     {
-      heading: 'Mechanism: model classes and protocol',
+      heading: 'The core insight',
       paragraphs: [
-        'A decision tree partitions rows by asking threshold questions over columns. A random forest averages many trees to reduce variance. Gradient boosting adds trees sequentially so each new tree fits remaining errors. The result is an ensemble that can express irregular, local, feature-specific behavior without learning a dense representation first.',
-        'Neural tabular models can compete when representation learning is actually needed: very large tables, multimodal data, high-cardinality entities, event sequences, raw text or images attached to rows, or trustworthy pretraining. Even then, the fair baseline is a tuned GBDT, not a weak default.',
+        'GBDTs fit many tables because their bias matches column semantics. They select useful features, ignore many useless ones, create threshold rules, and add small trees sequentially to repair residual errors.',
+        'The benchmark invariant is that the pipeline is part of the result. The model, split policy, preprocessing, search budget, metric, calibration, latency, and operating cost are one object for evaluation.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A decision tree asks questions such as utilization <= 0.8 or account_age < 90 days. A random forest averages many trees, while gradient boosting adds trees one after another so later trees correct errors left by earlier trees.',
+        'A neural tabular model learns dense transformations of columns. That can help when the table is huge, entity-rich, multimodal, or supported by clean pretraining, but it can also add tuning and representation burden on ordinary business tables.',
+        'A fair protocol seals train, validation, and test splits before preprocessing. Imputation, normalization, target encoding, feature selection, and hyperparameter search must happen inside the training fold, and group or time splits must match the task.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'GBDTs work well on many tables because the columns are already compressed human or system measurements. A lab value, credit utilization ratio, account age, country code, or number of missed payments is not like a raw pixel. It often already names a concept. A tree can spend capacity deciding where that concept changes the target instead of first learning the concept from low-level input.',
-        'Boosting then turns many small, imperfect rules into a strong predictor. One tree can handle a coarse threshold, the next can repair an error in a narrower slice, and later trees can add interactions that only matter for a subset of rows. This additive correction process fits the jagged shape of many operational datasets without forcing the target function to be globally smooth.',
-        'Neural models work for a different reason. They can learn shared representations, dense embeddings, and cross-feature transformations when there is enough data and the signal benefits from those transformations. That is powerful for raw modalities and huge entity-rich histories. On medium structured tables, though, that flexibility can become extra search space the benchmark has to pay for.',
+        'Trees work when useful decisions are local and column-aligned. If one rule depends on debt_ratio > 0.45 and another depends on missed_payments >= 2 only for young accounts, a small ensemble can express that jagged surface directly.',
+        'Boosting works because additive correction reduces residual error. Each new tree does not need to solve the whole problem; it only needs to improve the current model on rows where the current prediction is weak.',
       ],
     },
     {
-      heading: 'Correctness and evaluation',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A correct benchmark seals train, validation, and test splits before preprocessing. Normalization, imputation, target encoding, feature selection, and hyperparameter search must happen inside the training fold. Time-dependent tasks need time splits. Entity-heavy tasks need group splits. Duplicate or near-duplicate rows must not leak across train and test.',
-        'Revisiting Deep Learning Models for Tabular Data found that strong simple baselines and consistent protocols matter: https://arxiv.org/abs/2106.11959. Benchmark Variance & Model Selection is the right lens: report tuning budget, score dispersion, task slices, latency, calibration, and operational cost instead of only the best leaderboard number.',
+        'GBDT cost is usually dominated by tree construction, feature scanning or histogram building, number of boosting rounds, and depth. If rows double, training roughly doubles for the same settings, while deeper trees and wider feature sets increase the split search.',
+        'Neural cost is dominated by architecture search, normalization, batch training, hardware use, and serving shape. A one-point accuracy gain can be a loss if it requires ten times the tuning budget or misses a latency target.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The practical cost question is end to end: training time, tuning budget, preprocessing, missing-value handling, feature drift, calibration, explainability, serving latency, memory, retraining cadence, and monitoring. GBDTs often deliver strong medium-data performance with a smaller operational surface.',
-        'Neural models can justify their complexity when they share embeddings across products, fuse tables with raw modalities, learn from huge histories, or transfer from pretraining. The tradeoff is that they usually demand more tuning, normalization, representation design, hardware attention, and failure analysis.',
+        'GBDTs are strong defaults for credit risk, fraud, churn, pricing, medical tabular prediction, product analytics, operations forecasting, and ranking features where columns have direct meaning. They are also attractive when teams need fast retraining, interpretable feature effects, and simple serving.',
+        'Neural models are more attractive when rows contain raw text, images, audio, event sequences, graph neighborhoods, or high-cardinality entities with reusable embeddings. In that setting the model is learning representations, not only thresholds over ready-made columns.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'GBDTs fail when representation learning is the main problem. They do not naturally learn shared dense embeddings across products, parse raw documents, exploit long sequences, or transfer large pretrained structure without extra machinery.',
+        'They also fail when the benchmark is sloppy. A tree model that wins because target encoding leaked test labels has not taught anything about model class quality.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Imagine a credit-risk table with income band, utilization ratio, account age, missed-payment count, product count, region, and recent balance changes. The true rule may contain cliffs: utilization above 80 percent matters, very young accounts behave differently, and missed payments interact with account age. A boosted tree can discover those thresholds and interactions with a few splits.',
-        'A neural model may still win if the table includes long transaction sequences, merchant descriptions, device fingerprints, or learned customer embeddings. The correct workflow is to establish a tuned tree baseline, add the neural pipeline, hold the split fixed, equalize search budgets, and compare accuracy, calibration, latency, and cost.',
-      ],
-    },
-    {
-      heading: 'Uses and limits',
-      paragraphs: [
-        'GBDTs often win on medium-sized, mostly structured tables with meaningful raw columns, mixed feature types, missing values, and irregular thresholds. They are also attractive when the organization needs fast retraining, explainable feature effects, simple serving, and strong baselines.',
-        'They can fail when representation learning matters more than thresholding: raw text, images, audio, graphs, long event sequences, very high-cardinality entity sharing, or extremely large datasets where learned embeddings transfer signal. Neural methods can also win when the table is only one input inside a larger multimodal model.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Start with a leakage-safe GBDT baseline and make it hard to beat. Keep the split fixed, tune the tree model seriously, report calibration and slice behavior, and record the compute budget. Then add neural candidates when the data gives a concrete reason: raw modalities, entity sharing, sequence history, scale, or pretraining that is clean for the task.',
-        'For production, measure the model as a service, not as a notebook score. GBDTs may be easier to retrain, explain, and serve with tight latency. Neural models may be easier to share across tasks once embeddings or sequence encoders exist. The right choice is the one that wins under the same data, same split, same operational budget, and same failure analysis.',
-      ],
-    },
-    {
-      heading: 'Pitfalls',
-      paragraphs: [
-        'Do not say trees always beat deep learning. They often beat deep learning on medium-sized, mostly structured tables under fair protocols. Do not compare defaults. Do not ignore tuning cost. Do not let preprocessing leak across folds. Do not average away rare but expensive slices. And do not call a neural tabular model better until it beats strong GBDT baselines under the same budget and deployment constraints.',
-        'Do not treat feature engineering as unfair help for trees while giving neural models architecture search, embeddings, pretraining, and augmentation. The comparison should reflect the best realistic pipeline each team could operate.',
+        'Suppose a credit dataset has 200,000 rows and 80 columns. A real pattern is low risk below 60 percent utilization, medium risk from 60 to 85 percent, and high risk above 85 percent, with missed_payments >= 2 adding another jump for accounts younger than 180 days.',
+        'A depth-3 tree can express the utilization cliffs and one interaction in a few splits. A neural network can learn the same shape, but it may spend many gradient steps fitting a smooth approximation unless the protocol, data volume, and tuning budget justify that flexibility.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Why do tree-based models still outperform deep learning on tabular data? at https://arxiv.org/abs/2207.08815, Revisiting Deep Learning Models for Tabular Data at https://arxiv.org/abs/2106.11959, XGBoost: A Scalable Tree Boosting System at https://arxiv.org/abs/1603.02754, and When Do Neural Nets Outperform Boosted Trees on Tabular Data? at https://arxiv.org/abs/2305.02997.',
-        'Study Tabular Feature-Basis Orientation Primer, Leakage-Safe Target Encoding Case Study, Gradient Boosting, Random Forest, Neural Network Forward Pass, Normalization, Hyperparameter Search, Benchmark Variance & Model Selection, Data Leakage & Contamination, and Cross-Validation & Honest Evaluation next.',
+        'Primary sources include Why do tree-based models still outperform deep learning on tabular data? at https://arxiv.org/abs/2207.08815, Revisiting Deep Learning Models for Tabular Data at https://arxiv.org/abs/2106.11959, XGBoost at https://arxiv.org/abs/1603.02754, and When Do Neural Nets Outperform Boosted Trees on Tabular Data? at https://arxiv.org/abs/2305.02997. Study gradient boosting, random forests, target encoding, cross-validation, leakage, calibration, hyperparameter search, and benchmark variance next.',
       ],
     },
   ],

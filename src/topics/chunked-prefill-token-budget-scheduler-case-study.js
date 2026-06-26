@@ -374,82 +374,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why it exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'LLM serving has two very different kinds of work. Prefill reads the prompt and builds KV cache for every prompt token. Decode extends active streams one token at a time. Prefill is usually large and compute dense. Decode is small but latency sensitive because a user notices every pause between streamed tokens.',
-        'Chunked prefill exists because long prompts are now normal. A coding agent can send a repository summary, tool schema, recent conversation, and retrieved files in one request. If the server treats that prompt as one indivisible prefill, it can block decode iterations for users who are already streaming. The scheduler needs a way to make the long prompt progress while keeping active streams responsive.',
+        'Read the token-budget view as one scheduler iteration. Prefill means reading a prompt and writing KV cache for each prompt token; decode means producing the next generated token for an active stream. The active cells show which work claims the iteration budget first.',
+        'Read the chunk ledger as the state that makes prefill resumable. A cursor records the next prompt token to process, and allocated KV blocks record the cache already written. The safe inference is that chunking protects other streams; it does not let a request generate before its full prompt has been processed.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'LLM serving has two different kinds of work. Prefill is large and compute dense because the model reads the whole prompt. Decode is small but latency sensitive because users notice pauses between streamed tokens. A scheduler must serve both without letting one long prompt freeze everyone else.',
+        'Chunked prefill exists because long prompts are normal in coding agents, retrieval systems, and enterprise assistants. A request may include tool schemas, repository summaries, retrieved files, and conversation history. If the server treats a 32k-token prompt as one indivisible job, active streams wait behind it.',
         {type:'callout', text:'Chunked prefill turns long prompt work into resumable budgeted slices so decode latency stays protected without starving new requests.'},
       ],
     },
     {
-      heading: 'The naive scheduler',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The obvious scheduler runs each request phase to completion: take a prompt, prefill all of it, then move on. That works in an empty benchmark, but it is unfair in a live server. One 16k or 64k prompt can make dozens of active streams wait for the next decode step. Inter-token latency gets worse even though the GPU may look busy.',
-        'The opposite naive rule is also broken: always run decode first and let prefill wait. That protects active streams, but new long prompts can starve. Time to first token becomes unbounded during high decode load. A production scheduler has to protect both metrics: inter-token latency for streams and time to first token for new requests.',
+        'The obvious scheduler runs each phase to completion. It takes a prompt, prefills all tokens, then moves to the next request. That works in an empty benchmark because the GPU stays busy and no competing stream is waiting.',
+        'The opposite obvious scheduler always prioritizes decode. That protects streams already generating, but new long prompts can starve. Time to first token, the delay before a new request emits its first output token, becomes unbounded under heavy decode load.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is head-of-line blocking. One 64k-token prefill can occupy an iteration while dozens of streams need one decode step each. The GPU may report high utilization while users see visible gaps in streamed output.',
+        'There is also a fairness wall. If decode always wins, long prompts never reach the point where they can decode. A serving system must protect inter-token latency for active streams and time to first token for waiting prompts.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The key move is to treat prefill as resumable work under a per-iteration token budget. A setting such as max_num_batched_tokens is not just a capacity knob; it is the accounting boundary for mixed decode and prefill work. The scheduler spends the first part of the budget on live decode streams, then admits only as much prefill as fits in what remains.',
-        'This turns a long prompt into a chain of chunks. The request does not become faster in a causal sense, because the model still needs the full prompt before it can produce the first generated token. What changes is interference. Other streams no longer have to wait behind one huge prefill wall.',
+        'The core insight is to turn long prefill into resumable chunks under a per-iteration token budget. A setting such as max_num_batched_tokens is an accounting boundary, not just a capacity knob. Decode claims part of the budget first, and prefill receives only the remaining safe slice.',
+        'The invariant is exact prompt order and exact KV ownership. The scheduler may split a prompt into chunks, but chunk 3 must attend to cache from chunks 1 and 2 and then write the next cache range. If the cursor, cache blocks, or cancellation state are wrong, the generated output is no longer conditioned on the intended prompt.',
       ],
     },
     {
-      heading: 'The data structure',
+      heading: 'How it works',
       paragraphs: [
-        'The central data structure is a chunk ledger. For each prefill request it stores the next prompt-token cursor, remaining token count, chunk size policy, allocated KV cache blocks, queue age, service class, cancellation state, and deadline or SLO budget. The scheduler can resume the exact next range instead of recomputing the prefix or guessing where the request stopped.',
-        'There are usually separate queues for decode-ready requests and prefill-ready requests. Decode entries are small and recurring. Prefill entries carry a cursor and memory claim. The ledger connects scheduling to KV cache ownership, which matters for cancellation, preemption, prefix reuse, and memory pressure.',
-      ],
-    },
-    {
-      heading: 'How the scheduler works',
-      paragraphs: [
-        'A typical iteration starts by collecting active decode streams. Each stream needs one next-token step, so the scheduler accounts for those token slots first. It then computes the remaining token budget and checks memory limits. Prefill candidates are considered in policy order: oldest first, shortest first, highest service class first, or a blended utility score.',
-        'If the next full prompt segment fits, it is admitted. If it does not fit, the scheduler creates a bounded chunk that does fit. After the model runs, the ledger advances the cursor and records the KV blocks written by that chunk. When the cursor reaches the end of the prompt, the request becomes decode-ready and can start producing output tokens.',
-      ],
-    },
-    {
-      heading: 'What the visual proves',
-      paragraphs: [
-        'The token-budget view proves that the policy is an accounting rule, not a new model architecture. Decode claims the first part of the iteration. The leftover budget becomes prefill capacity. A 16k prompt can make progress as p0, p1, p2, and p3 without forcing one giant batch.',
-        'The ledger view proves the correctness state. Done chunks own KV blocks. The next chunk is resumable. Waiting chunks have no cache yet. The stall-audit view proves the tuning problem: smaller chunks tend to protect inter-token latency, while larger chunks improve prefill progress and GPU utilization. The useful point is the measured knee, not the biggest chunk.',
+        'Each iteration starts by listing decode-ready requests. Every active stream needs one next-token step, so the scheduler accounts for those tokens first. It then computes the remaining token budget and admits prefill chunks that fit memory and policy constraints.',
+        'The chunk ledger stores request id, prompt cursor, remaining tokens, allocated KV blocks, queue age, service class, cancellation state, and deadline. After a chunk runs, the cursor advances and the KV blocks become owned by that request. When the cursor reaches the end of the prompt, the request becomes decode-ready.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Chunking works because transformer prefill over a prompt prefix can be resumed as long as the implementation preserves causal order and KV cache state. The model does not need to reread tokens that already produced correct KV blocks. The next chunk attends to the earlier cache and writes more cache for later chunks and decode.',
-        'The important invariant is that chunked prefill protects other streams; it does not make the long request logically complete early. The first generated token still waits for the final prompt chunk. Correctness comes from exact cursor advancement, ordered KV writes, and freeing only the blocks owned by cancelled or completed chunks.',
+        'Chunking works because transformer prefill over a prefix can be resumed when causal order and KV cache state are preserved. Earlier prompt tokens have already produced keys and values. The next chunk can attend to that cache and write more cache for later tokens and decode.',
+        'The correctness argument is ordered cache construction. The scheduler is free to interleave other requests between chunks, but it is not free to skip a token, reuse another request\'s cache, or generate early. Exact cursor advancement and ownership of KV blocks preserve the same prompt state as one large prefill.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Chunk size is the main tradeoff. Tiny chunks create more scheduler decisions, more kernel launch overhead, and more chances for the GPU to run below ideal density. Huge chunks recreate decode stalls. A fixed value can be acceptable, but a strong implementation measures work, memory, queue age, and service class rather than trusting token count alone.',
-        'There are also memory and fairness costs. KV blocks must be allocated while a request is only partly prefilled. A decode-first policy can still starve long prompts unless the scheduler adds age boosts, reserved prefill budget, or service-class rules. Better inter-token latency is not a win if time to first token becomes unacceptable for long-context users.',
+        'Chunk size controls the tradeoff. Tiny chunks protect decode but add scheduler overhead, more kernel launches, and lower prefill density. Huge chunks improve prefill throughput but recreate decode stalls. If a server has a 4096-token iteration budget and 96 decode streams need one token each, only 4000 tokens remain for prefill in that iteration.',
+        'The cost moves into policy. The scheduler must track memory pressure, queue age, service class, cancellation, prefix reuse, and p99 latency by prompt length. Doubling prompt length roughly doubles total prefill work, but chunking spreads that work across more iterations instead of one blocking wall.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Chunked prefill wins on mixed workloads: short chats, long prompts, and active streams sharing the same replica. It is especially useful before a team is ready for full prefill/decode disaggregation. One server can keep local scheduling simple while avoiding the worst head-of-line blocking caused by large prompts.',
-        'It is also a good fit for agentic requests. A coding assistant may send a stable tool schema, retrieved files, and live conversation state. Prefix caching can reuse stable KV, while chunked prefill handles the remaining long context. The scheduler keeps active decode streams present in every mixed batch instead of letting the repository prompt dominate the server.',
+        'Chunked prefill wins on mixed workloads where short chats, long prompts, and active streams share one replica. It is especially useful before a team adopts full prefill-decode disaggregation, where separate workers handle the two phases. One worker can keep scheduling local while avoiding the worst long-prompt stalls.',
+        'It also fits agentic requests. A coding assistant may send a stable tool schema, retrieved files, and live conversation state. Prefix caching can reuse stable cache, while chunked prefill schedules the remaining prompt so active decode streams stay present in mixed batches.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The most common failure is tuning by one metric. If the team chases lower time to first token, chunks can grow until streamed output has visible gaps. If it chases smoother streams, chunks can shrink until long prompts make little progress. The right rollout watches inter-token latency, time to first token, GPU utilization, preemption, queue age, KV pressure, and p99 by prompt length.',
-        'Another failure is confusing local chunking with remote prefill/decode disaggregation. Chunking schedules phases on the same worker. Disaggregation moves phases across workers and then needs a KV Cache Transfer Fabric to move prompt state safely. That can be worth it at scale, but it is a different system with different failure modes.',
+        'It fails when tuning follows one metric. Larger chunks can lower time to first token for long prompts while damaging inter-token latency for active streams. Smaller chunks can smooth streaming while letting long prompts age in the queue. The right setting is visible only by prompt-length slice and service class.',
+        'It also fails when teams confuse local chunking with remote prefill-decode disaggregation. Chunking schedules phases on the same worker. Disaggregation moves phases across workers and then needs a KV-cache transfer fabric, backpressure, and failure handling for remote state movement.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary references include vLLM optimization and chunked-prefill documentation at https://docs.vllm.ai/en/stable/configuration/optimization/, Sarathi-Serve at https://arxiv.org/abs/2403.02310 and https://www.usenix.org/system/files/osdi24-agrawal.pdf, Orca iteration-level scheduling at https://www.usenix.org/conference/osdi22/presentation/yu, TensorRT-LLM at https://nvidia.github.io/TensorRT-LLM/, and the Triton TensorRT-LLM backend at https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/tensorrtllm_backend/README.html.',
-        'Study LLM Continuous Batching, Length-Aware Batching for LLM Serving, Transformer Inference Roofline, KV Cache Concurrency Capacity Model, LLM Serving PagedAttention, Prefix Caching and RadixAttention, Prefill/Decode Disaggregation Case Study, KV Cache Transfer Fabric Case Study, SLO-Aware LLM Request Router, LLM Serving Admission-Control Goodput Gate, Backpressure, Tail Latency and p99 Thinking, and LLM Inference Cost Stack Case Study next.',
-        'A useful exercise is to plot time to first token and inter-token latency against chunk size for short, medium, and long prompts separately. The best setting is rarely visible in an aggregate average because the harm is concentrated in particular prompt lengths.',
+        'Suppose one iteration has a 4096-token budget. There are 120 active decode streams, so decode consumes 120 token slots. A new request has a 12,000-token prompt. The scheduler can admit a 3976-token prefill chunk, leaving the request cursor at token 3976 after the iteration.',
+        'On the next two iterations, if decode again consumes about 120 slots, two more chunks advance the cursor to 7952 and 11,928. A final 72-token chunk completes the prompt and the request becomes decode-ready. Active streams were delayed by bounded chunks instead of waiting behind one 12,000-token prefill.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary references include vLLM optimization and chunked-prefill documentation at https://docs.vllm.ai/en/stable/configuration/optimization/, Sarathi-Serve at https://arxiv.org/abs/2403.02310, Orca iteration-level scheduling at https://www.usenix.org/conference/osdi22/presentation/yu, TensorRT-LLM at https://nvidia.github.io/TensorRT-LLM/, and the Triton TensorRT-LLM backend documentation. Read them for the scheduler contract between token budgets, KV cache, and streaming latency.',
+        'Study continuous batching, length-aware batching, transformer inference rooflines, PagedAttention, prefix caching, prefill-decode disaggregation, KV-cache transfer, SLO-aware routing, admission-control goodput, backpressure, tail latency, and LLM inference cost models next. The common thread is that serving quality is controlled by queues, memory, and latency budgets rather than by model weights alone.',
       ],
     },
   ],

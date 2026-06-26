@@ -225,106 +225,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why Sequence Memory Needs a Ledger',
+      heading: 'How to read the animation',
       paragraphs: [
-        "Long-context memory claims are easy to inflate because the advertised capacity is simple and the actual behavior is not. A model can accept 128K tokens, pass a simple needle-in-haystack demo, and still fail when the important fact appears in the middle, must be combined with another fact, is overwritten later, or sits inside code with local dependencies. A serving stack can also look efficient in a notebook and then miss a production p99 latency target.",
-        "A sequence-memory evaluation ledger exists to separate those cases. It is a structured record of what kind of memory was tested, where the evidence was placed, what task demanded it, how the architecture stored or compressed state, and what happened under realistic serving conditions. The ledger turns a vague claim like 'long context works' into rows that can be inspected and repeated.",
+        'Read each ledger row as one memory claim under one serving path. Active cells are the current slice being evaluated, visited cells are completed measurements, and failed cells preserve the shape of the miss. The safe inference is that a long context window is not the same as useful memory.',
         {type:"callout", text:"A sequence-memory ledger makes long context measurable by preserving the shape of failures instead of averaging them away."},
-        "This matters because sequence memory is no longer one mechanism. Full attention, grouped or paged KV cache, sliding windows, retrieval, linear attention, state-space models, delta-rule memory, fast weights, xLSTM-style recurrence, and test-time neural memory all preserve different information in different ways. A single average score cannot tell a team which one is failing or why.",
       ],
     },
     {
-      heading: 'The Naive Benchmark Plan',
+      heading: 'Why this exists',
       paragraphs: [
-        "The obvious plan is to report maximum context length and one aggregate long-context score. That is easy to market and easy to compare in a table. It is also too shallow. Context length tells you how many tokens the system will accept, not how much useful information it can recover from those tokens.",
-        "A second shallow plan is to compare architecture labels. Full attention is exact, linear attention is efficient, state-space models carry a recurrent state, neural memory writes into learned storage, and retrieval adds external documents. These labels are useful, but they are not results. A weak full-attention implementation can fail due to prompting or serving limits. A compressed memory model can pass some retrieval tasks and fail overwrites. A retrieval system can find the right document and still lose the answer in the prompt.",
-        "The ledger is the antidote to label-driven evaluation. It demands that each claim name the slice, the setup, the evidence position, the model revision, the runtime path, and the decision rule.",
+        'Sequence memory is the ability to keep and use information across a long token sequence. A model may accept 128,000 tokens and still fail when evidence sits in the middle, must be joined with another fact, or is overwritten later. A ledger records which kind of memory was tested and how it behaved in the real runtime.',
       ],
     },
     {
-      heading: 'The Wall: Memory Is Not One Skill',
+      heading: 'The obvious approach',
       paragraphs: [
-        "Memory quality is not one property. Exact lookup, multi-hop binding, middle-position robustness, recency, overwrite handling, long carry, aggregation, code-trace fidelity, and instruction following can all move in different directions. A system may retrieve a single unique key but fail when two keys must be associated. It may remember the first and last pages while ignoring the middle. It may keep stale facts after a later correction.",
-        "Deployment adds another wall. A candidate memory layer can pass offline tasks and fail production because it falls off the optimized kernel route, increases time to first token, produces a tail-latency spike, consumes unexpected state bytes per user, or silently routes hard examples to full attention. If the serving path is not recorded, a quality win may actually be a hidden fallback.",
-        "That is why a useful ledger mixes modeling rows and systems rows. The same candidate must be evaluated as a memory algorithm and as a serving component.",
+        'The obvious approach is to report maximum context length and one average long-context score. That is easy to compare, but it hides where the model failed. A product team cannot decide from one number whether the issue is retrieval, overwrite handling, latency, or memory cost.',
       ],
     },
     {
-      heading: 'Core Insight: Evaluate Slices',
+      heading: 'The wall',
       paragraphs: [
-        "The core insight is to evaluate memory as a ledger of slices, not as a single scoreboard. A slice is a narrow claim: can the model recover one fact at 80 percent depth, bind two facts separated by 40K tokens, prefer the later correction over the earlier statement, aggregate values across the context, or trace a variable through a long code file? Each row should have enough metadata to rerun it.",
-        "The result is a frontier rather than a champion. Full attention may win exact recall but pay a high KV-cache cost. A compressed memory model may reduce state bytes but blur rare facts. A state-space model may carry long trends while struggling with sharp associative lookup. A retrieval hybrid may work when the retriever finds the right chunk and fail when chunking breaks the evidence. The ledger makes those tradeoffs visible.",
-        "This style also prevents good results from hiding bad product fit. A model that wins average accuracy but fails the legally required citation slice is not shippable for a legal assistant. A model that passes retrieval but misses p99 is not shippable for interactive chat. The ledger keeps the decision attached to the use case.",
+        'The wall is that memory is not one skill. Exact lookup, multi-hop binding, lost-in-the-middle behavior, recency, aggregation, and code-trace fidelity can diverge. Deployment adds another wall: a memory layer can pass offline tasks while missing p99 latency, the latency under which 99 percent of requests finish, or falling back to a hidden full-attention route.',
       ],
     },
     {
-      heading: 'Ledger Data Model',
+      heading: 'The core insight',
       paragraphs: [
-        "A useful row includes architecture id, model revision, tokenizer, context length, task family, evidence position, number of needles, multi-hop depth, overwrite pattern, aggregation rule, prompt template, seed, expected answer, scoring function, and pass or fail reason. For serving, it includes runtime, kernel path, batch shape, p50, p95, p99, time to first token, time per output token, state bytes per user, fallback rate, and hardware.",
-        "The ledger also needs artifact pointers. Each row should link to the exact prompts, generated data, code version, container or environment, model weights or API revision, and scorer. Without those links, the ledger is only a slide. With them, it becomes an engineering object that can catch regressions, support rollout decisions, and settle disputes about what actually changed.",
-        "A good schema keeps rows narrow but composable. You should be able to filter by architecture, by task slice, by context length, by evidence position, by serving route, and by product gate. That lets the team ask precise questions instead of staring at one blended number.",
+        'Evaluate memory as rows of narrow claims. A slice says what evidence was placed, where it was placed, what task used it, which model and runtime handled it, and what rule scored the answer. The result is a frontier of quality, latency, and state cost rather than a champion label.',
       ],
     },
     {
-      heading: 'What the Animation Teaches',
+      heading: 'How it works',
       paragraphs: [
-        "The recall-slices view shows that long-context testing should cover more than simple lookup. The highlighted middle-position, overwrite, and aggregation cells are the places where impressive context-window claims often break. The plot makes the lost-in-the-middle pattern concrete: edge evidence can be easy while middle evidence disappears.",
-        "The serving-gate view shows that quality and cost have to be evaluated together. A candidate may look attractive as context length grows because it uses less memory, but the product cannot ship it if the quality curve drops below the floor or the p99 path becomes unstable. The gate is therefore a frontier decision, not a trophy for the highest average score.",
-      ],
-    },
-    {
-      heading: 'Mechanism: From Baseline to Gate',
-      paragraphs: [
-        "Start with a strong baseline. In many projects that means the current production route and, where feasible, a full-attention reference. The baseline must be strong enough that the candidate cannot win by beating a strawman. Then run shared slices: single-needle lookup, multi-needle lookup, multi-hop binding, middle-position retrieval, late overwrite, aggregation, long conversation carry, code trace, and domain-specific tasks.",
-        "Next add architecture-specific probes. Linear attention needs collision, normalization, and denominator-stability tests because many tokens are compressed into a state. State-space models need long-carry and sharp-event tests because they excel at some continuous sequence patterns but may smear rare associative facts. Delta-rule and fast-weight models need overwrite tests because update rules can leave stale state. Neural memory needs surprise-write, retrieval, and drift probes because its learned storage can change behavior across distributions.",
-        "Finally run serving gates under realistic traffic shapes. Use the same route the product will use, not a special benchmark path. Record batch size, context distribution, output length, hardware, kernel selection, fallback rate, and tail latency. A candidate that passes only under a lab route has not passed the product gate.",
-      ],
-    },
-    {
-      heading: 'Worked Example: Replacing Attention Layers',
-      paragraphs: [
-        "Suppose a team wants to replace some full-attention layers with a compressed memory layer to reduce KV-cache pressure at 64K and 128K context. The candidate looks promising on cost: state bytes per user fall, decode throughput improves, and batch capacity rises. A single aggregate benchmark says the model is close to baseline.",
-        "The ledger asks sharper questions. Does the model still find a fact placed at 50 percent depth? Does it bind the right customer id to the right invoice total when the two facts appear far apart? Does it prefer a late correction over an early statement? Does it summarize a long incident timeline without dropping the root cause? Does it trace a renamed function through a code migration?",
-        "Now the decision becomes actionable. If middle-position retrieval fails but serving is strong, the team may need training data or architectural changes. If quality passes but p99 fails, the next work is kernel and runtime engineering. If overwrite tasks fail, the update rule or recency handling is suspect. The ledger tells the team what to fix instead of merely saying the candidate is better or worse.",
+        'Each row stores architecture id, model revision, tokenizer, context length, evidence position, task type, expected answer, scorer, runtime, kernel path, fallback rate, p50, p99, and state bytes per user. The same candidate is tested on recall slices and serving gates. Rows link to prompts, generated data, code, and hardware so the result can be rerun.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        "The ledger works because failures do not get averaged away. A model can pass simple retrieval and fail multi-hop binding. It can pass edge evidence and fail middle evidence. It can pass quality and fail p99. Those are different rows with different owners and different fixes.",
-        "It also works because it forces evidence to stay attached to deployment. Long-context memory is not only a modeling property. It is a serving claim about state size, kernels, caching, batching, and fallback behavior. A memory-efficient architecture is not production-ready unless its quality slices and serving path survive together.",
-        "The product decision is usually a knee in the curve. As context grows, compressed memory becomes more attractive on cost, but quality may decline. The ship point is where savings, latency, and memory fit improve while the required slices remain above the product floor.",
+        'Correctness comes from preserving claim boundaries. A pass on single-needle lookup cannot erase a fail on overwrite, and a quality pass cannot erase a p99 miss. The ledger is trustworthy when every row names its setup, scorer, artifact, and route, so a later regression can be traced to a changed input or system path.',
       ],
     },
     {
-      heading: 'Costs and Tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "The ledger has its own cost. It requires benchmark generation, scorers, prompt versioning, artifact storage, hardware capture, and routine re-runs. It can slow down teams that want one clean leaderboard. It also forces uncomfortable conversations when a candidate wins average accuracy but fails a high-value slice.",
-        "The trade is worth it when memory choices affect architecture and infrastructure. Grouped KV, latent KV, linear attention, RetNet-style recurrence, RWKV, Mamba-2, Gated DeltaNet, TTT layers, xLSTM, neural memory, retrieval, and hybrid attention budgets all change both quality and serving cost. The ledger is the place where those changes become comparable.",
-        "The main danger is false precision. A ledger with weak slices, brittle scorers, or unrepresentative traffic can look scientific while steering the team badly. The slice set must be updated as the product learns where users actually depend on memory.",
+        'The ledger costs benchmark generation, artifact storage, reruns, and scorer maintenance. If 40 slices run at 3 context lengths on 5 model revisions, the team already has 600 quality rows before serving sweeps. The payoff is that one expensive failed rollout can be replaced by a precise fix list.',
       ],
     },
     {
-      heading: 'Where It Wins and Fails',
+      heading: 'Real-world uses',
       paragraphs: [
-        "A sequence-memory ledger wins in model selection, architecture research, runtime planning, and rollout reviews. It is especially useful when a team must decide whether the next month belongs to kernel work, data generation, retrieval improvements, context packing, architecture changes, or a narrower launch target.",
-        "It fails when the rows are too easy, the prompts are not versioned, the serving path is missing, or the baseline is weak. It also fails when the report collapses back into one average after collecting detailed rows. The point of the ledger is to preserve the shape of the failures.",
-        "The ledger is not a substitute for real product telemetry. Synthetic tasks can expose mechanisms, but user traffic reveals distributions. The best evaluation loop keeps synthetic slices, curated domain tasks, and canary telemetry connected.",
+        'This pattern fits long-context model selection, architecture research, RAG evaluation, coding assistants, legal or medical assistants, and runtime planning. It is useful whenever a missed fact, stale correction, or tail-latency spike changes whether the product can ship.',
       ],
     },
     {
-      heading: 'Misconceptions to Avoid',
+      heading: 'Where it fails',
       paragraphs: [
-        "Do not treat context length as memory quality. A bigger window can increase the chance that evidence is present while decreasing the chance that the model uses it correctly. Presence and use are different claims.",
-        "Do not treat a needle task as a complete long-context evaluation. It is a useful smoke test, especially when scaled and varied, but it cannot stand in for multi-hop reasoning, overwrite handling, aggregation, code navigation, or domain workflows.",
-        "Do not treat efficient memory as automatically better. A compressed state that is cheap but loses rare facts can be worse than full attention for high-stakes retrieval. Conversely, exact full attention that misses latency or cost targets can be unusable at product scale.",
+        'A ledger fails when slices are too easy, prompts are not versioned, or the report collapses back into one average. It also fails when synthetic rows never connect to user traffic. Good ledgers keep synthetic probes, curated domain tasks, and canary telemetry linked.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Worked example',
       paragraphs: [
-        "Primary sources: Lost in the Middle at https://arxiv.org/abs/2307.03172 and https://aclanthology.org/2024.tacl-1.9/, RULER at https://arxiv.org/abs/2404.06654 and https://github.com/NVIDIA/RULER, LongBench at https://arxiv.org/abs/2308.14508, and Transformer Inference Roofline sources in this repo.",
-        "Study Mamba-2 Structured State Space Duality Case Study, Linear Attention Prefix-State Primer, Fast Weight Delta-Rule Memory Case Study, Kimi Linear Attention, Titans Test-Time Neural Memory Case Study, Lost in the Middle: Long-Context Failure Modes, Benchmark Variance and Model Selection, KV Cache Concurrency Capacity Model, and RAG Context Packing Token Budget next.",
+        'A team compares full attention with a compressed memory layer at 64K tokens. State bytes per user fall from 16 GB to 4 GB, but middle-position invoice lookup drops from 94 percent to 71 percent and p99 improves from 9 seconds to 5 seconds. The ledger says this is not a general win: kernel work is less urgent than fixing the middle-position slice for invoice workflows.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study Lost in the Middle, RULER, LongBench, KV cache capacity models, linear attention, state-space models such as Mamba, fast-weight memory, neural memory, retrieval evaluation, and benchmark variance. Then study serving traces, because memory quality without the runtime path is only a lab result.',
       ],
     },
   ],

@@ -273,107 +273,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Autoregressive decoding is latency-bound because the target model normally produces one token per expensive forward pass. The next pass cannot start until the previous token is known, so the largest model sits on the critical path for every output token.',
-        'Speculative decoding tries to shorten that path without changing the target model contract. A cheaper draft path proposes several future tokens, and the target path verifies those tokens in one parallel pass.',
+        'Read the graph as one speculative decoding round. The prefix is the text already accepted, the draft path proposes cheap future tokens, the target model verifies them, and the runtime either accepts a prefix or repairs the first rejection. Active nodes are doing the current step, compare nodes are discarded guesses, and found nodes are emitted target-compatible tokens.',
+        'The ledger matrix is the important artifact. It records draft probability, target probability, random draw when sampling is used, action, repair token, latency, and cache movement. The safe inference is that target KV cache can advance only over tokens justified by the target path.',
         {type:'callout', text:'The ledger protects exactness by making every draft token either target-approved, target-repaired, or discarded before the cache advances.'},
       ],
     },
     {
-      heading: 'The obvious approach and wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive approach is to use a smaller model directly. That is faster, but it changes quality, calibration, and distribution. It is model substitution, not an exact acceleration of the target model.',
-        'Another naive approach is to let a helper guess several tokens and keep them when they look plausible. That breaks the serving contract unless the target model verifies acceptance under the same decoding rule the baseline would have used.',
-        'The wall is exactness under real traffic. Creative high-temperature prompts, schema masks, weak drafters, memory pressure, and batch fragmentation can turn speculation from a speedup into wasted work or worse p99 latency.',
+        'Autoregressive decoding produces text one token at a time. The target model is the large model whose output contract the service wants to preserve. Each new token normally needs one expensive target forward pass, so decode latency grows with output length.',
+        'Speculative decoding exists to reduce target passes without replacing the target model. A cheaper proposal path guesses several future tokens. The target model verifies those guesses in parallel and keeps only the prefix allowed by the decoding rule.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious way to go faster is to serve a smaller model. That reduces latency, but it changes quality, calibration, and output distribution. It is substitution, not exact acceleration.',
+        'Another obvious path is to let a helper guess tokens and keep them when they look plausible. That is unsafe because plausible text may not match the target decoder. The service needs a verifier rule that preserves the target contract.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is exactness under latency pressure. The target decoder owns the distribution, but the runtime wants to advance several tokens per target pass. If a rejected draft token leaks into output or cache, the system has silently changed the decoder.',
+        'The production wall is traffic variation. Low-temperature code may accept long draft prefixes, while creative chat rejects quickly. A single draft length can create speedup on one slice and p99 regression on another.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Separate proposing from verifying. The drafter guesses a short continuation. The target evaluates that continuation. The runtime keeps the accepted prefix, repairs the first rejection with a target token, and discards any later draft guesses.',
-        'The acceptance ledger is the operational data structure around that loop. It records proposed tokens, draft probabilities, target probabilities, random draws for stochastic acceptance, accepted length, repair token, KV-cache decisions, latency, memory pressure, and fallback reason.',
+        'Separate proposal from authority. The draft path proposes k tokens, and the target path decides how many form a valid prefix. After the first rejection, later draft tokens are discarded because they depend on an invalid prefix.',
+        'The acceptance ledger is the data structure that makes this exact. It records every proposed token, verification probability, acceptance decision, repair token, emitted count, and cache update. The ledger turns a speed trick into an auditable serving protocol.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'How it works',
       paragraphs: [
-        'A round starts from the current prefix and target KV state. The draft path proposes k tokens cheaply. The target model scores the prefix plus the proposed tokens in one pass, so it can verify several positions that would otherwise require several target passes.',
-        'In greedy decoding, acceptance is a prefix match against target choices. In stochastic speculative sampling, token i is accepted with a rule based on draft probability and target probability, and the first rejection is repaired from a corrected target distribution. The goal is unchanged output distribution, not merely similar-looking text.',
-      ],
-    },
-    {
-      heading: 'Algorithm',
-      paragraphs: [
-        'For each round, choose a draft length k, run the draft model, run the target verifier over the proposed continuation, accept the longest valid prefix, emit either the accepted draft tokens plus a bonus target token or a repaired target token at the first rejection, and advance the target KV cache only over tokens justified by the target path.',
-        'The ledger should log draft length, proposed tokens, draft probabilities, target probabilities, acceptance decisions, repair token, accepted-prefix length, target latency, draft latency, memory footprint, batch shape, and whether fallback was used.',
-        'Fallback is part of the algorithm in production. If acceptance falls below the gate, verifier latency spikes, memory pressure rises, or quality checks fail, the runtime should return to ordinary target decoding immediately.',
+        'A round starts from the current accepted prefix. The drafter generates k candidate tokens cheaply. The target model scores the prefix plus those candidates in one verifier pass, which reveals whether each proposed next token can be accepted under greedy or stochastic rules.',
+        'For greedy decoding, the accepted prefix matches the target choices until the first mismatch. For stochastic speculative sampling, acceptance uses draft and target probabilities so the final distribution remains the target distribution. The first rejection is repaired by drawing from a target-compatible correction path.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The speedup comes from accepted tokens per target pass. If the target accepts three draft tokens and emits one repair or bonus token, one expensive verifier pass may advance several output positions instead of one.',
-        'The exact algorithms matter because the target model remains the authority. Accepted draft tokens are accepted only when the verifier permits them, and rejected positions are sampled from the target-compatible correction path. Latency may change; the target distribution or quality contract should not.',
-        'The ledger makes that authority auditable. If a deployment claims exact acceleration, the record should show which tokens were proposed, which were accepted, which token repaired the first rejection, and how the target cache advanced. Without that record, speedup claims are hard to separate from decoder changes.',
+        'The correctness argument is that the target model remains the only authority for emitted tokens. Accepted draft tokens are kept only when the verifier rule permits them. Rejected positions are replaced by target-compatible tokens, and later draft guesses are discarded.',
+        'Speedup comes from advancing more than one output position per target pass. If a round accepts three draft tokens and emits one target repair or bonus token, one expensive verifier pass advances four positions. The ledger proves that latency changed while the target contract did not.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The cost depends on acceptance rate and draft overhead. With k = 4 and average accepted prefix 3, the target may advance about 4 tokens per verifier pass including a repair or bonus token. If average accepted prefix falls to 0.4, the drafter spends most of its work on discarded guesses.',
+        'Memory and batching also change behavior. The verifier may handle longer candidate sequences, draft KV may be wasted, and continuous batching can fragment when requests reject at different positions. The right metric is milliseconds per output token plus p99 latency and memory, not average tokens per second alone.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Speculative decoding is useful for predictable decode-heavy workloads: low-temperature code, boilerplate, repeated assistant phrasing, schema-like output, and long completions where target decode dominates. It is a serving optimization for the decode phase.',
+        'Variants such as draft models, Medusa heads, EAGLE feature prediction, and lookahead methods differ in proposal generation. The common contract is cheap proposals, target verification, target-compatible output, and fallback when the economics break.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the drafter is weak, temperature is high, prompts move out of domain, schema masks are expensive, or memory pressure hurts batching. Average speedup can hide p99 damage if a few slices reject constantly.',
+        'Implementation bugs are dangerous. Target KV must reflect accepted or target-emitted tokens, not unverified draft guesses. A cache handoff error can produce fluent text from the wrong state and be hard to spot without ledger tests.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Suppose the drafter proposes four tokens: the, cat, sat, quickly. The target verifier accepts the first three and rejects quickly. The runtime emits the accepted prefix, draws or chooses the repair token from the target path, discards later draft state, and starts the next round from the repaired prefix.',
-        'The ledger row is what makes the event auditable: k=4, accepted=3, rejection_index=3, repair_token=on, target_ms, draft_ms, target_KV_appended=4 tokens if the repair advances one position, draft_KV_discarded after rejection, and fallback=false.',
+        'Suppose the prefix is The and the drafter proposes four tokens: cat, sat, quickly, down. The target verifier accepts cat with target probability 0.70, accepts sat with 0.42, rejects quickly because target probability is 0.08, and emits on as the repair token.',
+        'The ledger stores k = 4, accepted = 2, rejection_index = 2, repair_token = on, target_pass_ms = 18, draft_ms = 4, and emitted_tokens = 3. Baseline target decoding would need three target passes for cat sat on. This round used one target pass plus draft work, while discarding quickly and down.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A longer draft length increases upside only when accepted prefixes are often long. When acceptance is low, the drafter spends cycles on tokens that are thrown away and the verifier may carry extra memory or batching cost for little progress.',
-        'The real ship metric is not a single demo tokens-per-second number. Use accepted length distribution, milliseconds per output token, p50 and p99 latency, draft and target memory, batch fragmentation, fallback rate, and protected-slice quality or distribution checks.',
-        'Batching complicates the math. One request with high acceptance can run quickly while another request in the same batch rejects early and fragments the verifier work. Production evaluation should measure batch-level throughput and tail latency, not only single-request traces.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'Speculation fails when the drafter is too weak, temperature is high, prompts shift domains, constraint masks dominate verifier cost, memory pressure reduces batch efficiency, or p99 worsens even while average throughput improves.',
-        'It also fails when implementation state leaks across the verification boundary. Target KV must reflect accepted or target-emitted tokens, not unverified draft guesses. A cache handoff bug can silently turn exact acceleration into a different decoder.',
-      ],
-    },
-    {
-      heading: 'Useful contexts',
-      paragraphs: [
-        'Speculative decoding is strongest on predictable low-temperature traffic: code continuations, copied boilerplate, chat completions with repetitive phrasing, and structured outputs where the draft path often matches the target.',
-        'Variants such as Medusa, EAGLE, lookahead methods, and multi-token heads change how proposals are produced, but the production contract is the same: propose cheaply, verify with the target path, preserve the output contract, and measure acceptance under real workload slices.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the accept-ledger view, read each row as a token-level audit record. The important field is not just keep or reject; it is the relationship between draft probability, target probability, random draw, repair token, and KV-cache action.',
-        'In the speed-model view, compare k=2, k=4, and k=8 by acceptance rate. The larger draft is not automatically better; it wins only when enough proposed tokens survive verification. In the variants view, treat each method as a different proposal engine behind the same verifier contract.',
-      ],
-    },
-    {
-      heading: 'Operational checklist',
-      paragraphs: [
-        'Ship speculation by traffic slice, not by aggregate demo speed. Track accepted tokens per target pass, rejection index distribution, draft latency, target latency, memory pressure, fallback rate, p99 latency, and quality checks for code, chat, schema, and creative traffic separately.',
-        'Make fallback boring. A serving stack should disable speculation automatically when acceptance drops, verifier errors rise, memory is tight, or protected quality checks fail. Speculation is an optimization layer; ordinary target decoding must remain the reliable path.',
-        'Keep the configuration visible: draft model or head version, draft length, temperature policy, tokenizer assumptions, cache handoff rule, and verifier batch policy. If any of those change, acceptance metrics from the previous rollout may no longer predict behavior.',
-      ],
-    },
-    {
-      heading: 'Testing the ledger',
-      paragraphs: [
-        'Test deterministic cases where the drafter always matches the target, always mismatches at position zero, and mismatches in the middle of the draft. The accepted prefix, repair token, emitted token count, and target KV state should match the expected ledger exactly.',
-        'For stochastic sampling, compare output distributions against the non-speculative target decoder on controlled prompts. The speed path is only acceptable if the probability contract survives the acceptance and repair logic.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Fast Inference from Transformers via Speculative Decoding at https://arxiv.org/abs/2211.17192, Accelerating Large Language Model Decoding with Speculative Sampling at https://arxiv.org/abs/2302.01318, Medusa at https://arxiv.org/abs/2401.10774, EAGLE at https://arxiv.org/abs/2401.15077, and EAGLE-2 at https://arxiv.org/abs/2406.16858.',
-        'Study Speculative Decoding, Multi-Token Decoding, Early-Exit Transformer Layer Skipping, JSON Schema Constrained Decoding Token Mask, Knowledge Distillation, KV Cache, Transformer Inference Roofline, LLM Continuous Batching, and LLM Inference Scaling Playbook next.',
+        'Start with Fast Inference from Transformers via Speculative Decoding, Accelerating Large Language Model Decoding with Speculative Sampling, Medusa, EAGLE, and implementation docs from current serving stacks. Exact defaults and support status change, so verify product behavior against live documentation.',
+        'Study KV cache, transformer inference rooflines, continuous batching, multi-token decoding, constrained decoding, knowledge distillation, and runtime controllers next. The ledger makes sense when cache state and decode economics are understood together.',
       ],
     },
   ],

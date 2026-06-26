@@ -221,64 +221,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Substrait exists because modern data systems rarely stay inside one query engine. A user may define a view in SQL, build a dataframe in Python, optimize a plan in Calcite or DataFusion, execute fragments in Velox or DuckDB, and move intermediate artifacts through services written in different languages. The hard part is not drawing boxes named scan, filter, and join. The hard part is preserving the exact meaning of those boxes when the producer and consumer do not share planner classes, parser settings, SQL dialect, function registry, or type system. Substrait treats a query plan as a portable data structure: relation nodes, expressions, field references, types, function anchors, extension declarations, and serialization rules. The artifact is meant to be inspected, validated, stored, transmitted, and either executed or rejected by a different system.',
+        'Read the left side as the authoring world and the right side as the execution world. SQL, dataframes, or another frontend produce a logical plan, and Substrait is the serialized intermediate representation that carries typed relational meaning across that boundary.',
+        'A highlighted relation node is not just an operator name. It is safe to move the plan only when field order, types, function bindings, null behavior, and extension declarations are preserved well enough for the receiving engine to reject unknown meaning instead of guessing.',
         {type:'callout', text:'Substrait treats a query plan as a portable semantic contract that another engine must either understand exactly or reject before execution.'},
       ],
     },
     {
-      heading: 'The Naive Boundary',
+      heading: 'Why this exists',
       paragraphs: [
-        'The reasonable first attempt is to exchange SQL strings. That works when one engine owns parsing, planning, optimization, and execution. It also works for simple portability demos because SQL is familiar and compact. The wall appears when two systems disagree about names, implicit casts, timestamp rules, decimal rounding, null behavior, collation, function overloads, identifier casing, or unsupported syntax. A string says what the author typed, not what the planner resolved. The second attempt is to pass private planner objects. That preserves more detail but only inside one codebase or language runtime. It also freezes interoperability to internal classes that were never designed as a public wire format. Substrait sits between those failures: lower level than SQL text, more portable than private objects.',
+        'Modern analytics stacks rarely use one engine from source query to execution. A Python dataframe library, SQL parser, query optimizer, vectorized engine, lakehouse service, and embedded database may all touch the same logical query.',
+        'Substrait exists because source text is too vague and private planner objects are too local. It defines a portable query-plan format, which means a structured representation of reads, filters, projections, joins, aggregates, types, functions, and extensions that another engine can validate before it runs anything.',
       ],
     },
     {
-      heading: 'The Core Insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core insight is that a query plan is a contract, not a picture. A contract must say which relation produces which fields, how each expression is typed, which function definition is being called, what nulls mean in predicates, what names are references rather than display labels, and which extensions are outside the base specification. Substrait makes those facts data. The invariant is semantic preservation: if an engine accepts the plan, it should know enough to compute the same logical result the producer intended. If it does not know enough, it should fail before execution. That refusal path is part of interoperability. A silent best effort conversion is worse than an explicit incompatibility because it can produce a valid-looking answer with the wrong semantics.',
+        'The obvious handoff is a SQL string. That works when one engine parses, plans, optimizes, and executes the query, and it is still the right interface for many humans.',
+        'A second obvious handoff is to share an internal planner object. That preserves more detail, but it binds every consumer to one language runtime, one versioned class layout, and one optimizer implementation.',
       ],
     },
     {
-      heading: 'How the Plan Works',
+      heading: 'The wall',
       paragraphs: [
-        'A Substrait plan starts with relation nodes. A read relation describes an input, a filter relation applies a boolean expression, a project relation chooses expressions for output fields, an aggregate relation groups and computes aggregate functions, and a join relation combines inputs under join type and key semantics. Those relation nodes form a tree or a plan graph with references. Expressions point at fields by ordinal or reference structure, not by whatever display name was convenient in the frontend. Type messages describe integers, decimals, strings, lists, structs, timestamps, nullability, and type variations. Function calls do not rely on a bare spelling such as round or substr; they bind through extension declarations and anchors. Serialization then gives the same contract two surfaces: text for debugging and review, and protobuf binary for IPC, storage, or network transport.',
+        'SQL strings do not carry all resolved meaning. Two engines can disagree on decimal rounding, timestamp rules, null comparison, identifier casing, function overloads, collation, implicit casts, or unsupported syntax while accepting similar text.',
+        'Private planner objects fail at the organization boundary. They are hard to store, hard to review, hard to move across processes, and brittle when either side upgrades its optimizer.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'The core insight',
       paragraphs: [
-        'The correctness argument is a contract argument. If the producer emits every semantic dependency of the logical plan, and the consumer validates every dependency before execution, then execution is safe relative to that contract. The plan does not prove that the original SQL was wise or that the physical engine will be fast. It proves that the consumer is not guessing about the logical work it has been asked to perform. Extension anchors are central to that proof. When a plan references a scalar function, aggregate function, type variation, or custom relation through a declared extension, the consumer can map that anchor to an implementation with matching semantics. If the anchor is unknown, the safe answer is refusal or routing to a compatible engine.',
+        'A query plan should be treated as a semantic contract, not as a diagram of boxes. The producer must state enough meaning for the consumer to either execute the same logical query or refuse the plan before damage is done.',
+        'The invariant is semantic preservation. If a plan says a filter uses a particular boolean function over nullable fields, the receiving engine must know that function and those types, not merely see the word filter.',
       ],
     },
     {
-      heading: 'What the Visual Proves',
+      heading: 'How it works',
       paragraphs: [
-        'The plan-contract view shows a boundary that many system diagrams hide. SQL or dataframe code enters on the left, but the engine on the right does not receive that source text. It receives a bound logical artifact plus types, serialization, and validation. The text and binary nodes are alternate representations of the same contract: one helps humans inspect the plan, the other helps programs move it efficiently. The component matrix shows why relation names alone are insufficient. Filters need predicate semantics, projections need field ordering, aggregates need function definitions, and joins need null and key behavior. The engines view adds the extension ledger. Different producers and consumers can meet at the shared intermediate representation only when non-core functions, types, and relations have explicit anchors.',
+        'A Substrait plan is built from relation nodes. Read nodes describe inputs, filter nodes describe predicates, project nodes define output expressions, aggregate nodes define grouping and aggregate calls, and join nodes define how two inputs combine.',
+        'Expressions refer to fields and functions through structured bindings. Types record integer, string, decimal, timestamp, list, struct, nullability, and variation information, while extension declarations anchor functions or types outside the base specification.',
+        'The same contract can be shown as text for review or encoded as protobuf binary for machine transport. Validation checks whether the consumer knows the relation shapes, type rules, function anchors, and extensions needed to execute safely.',
       ],
     },
     {
-      heading: 'Cost and Behavior',
+      heading: 'Why it works',
       paragraphs: [
-        'Substrait does not make planning free. A frontend still has to parse source code, resolve names, infer types, bind functions, and choose which logical structure to emit. A consumer still has to parse or decode the plan, validate capabilities, map extension anchors to implementations, and often translate the logical plan into its own physical plan. The binary format keeps transport compact compared with ad hoc JSON, but plan size still grows with relation count, expression complexity, and extension metadata. The larger cost is operational: producers and consumers need versioning discipline. When a function signature changes or an engine adds partial support for a relation, the boundary must record what is supported instead of assuming every Substrait-shaped plan is executable everywhere.',
+        'The correctness argument is conditional and useful. If the producer emits every semantic dependency of the logical plan, and the consumer validates every dependency before execution, then the consumer is not guessing about the query it runs.',
+        'Unknown semantics must fail closed. Refusing an unsupported extension is correct behavior because a silent fallback can return a valid-looking table with the wrong answer.',
       ],
     },
     {
-      heading: 'Where It Wins',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Substrait is useful when planning and execution need a durable boundary between them. A lakehouse can store a view as a resolved plan instead of only as dialect-specific SQL. A Python dataframe frontend can hand work to a native engine without exposing private planner objects. A federated system can ask several execution engines which parts of a plan they can run. A testing tool can compare how two engines interpret the same logical artifact. A query service can validate tenant-submitted plans before dispatching them. The common access pattern is not human query writing; it is machine-to-machine handoff after semantic binding. That is why field ordinals, function anchors, types, and extension declarations matter more than making the plan look like familiar SQL.',
+        'Substrait shifts cost from parser reuse to contract maintenance. Producers still parse, bind names, infer types, and emit plans; consumers still decode, validate, map functions, and translate the logical plan into their own physical execution plan.',
+        'Plan size grows with relation count, expression count, and extension metadata. A 20-node plan with 80 expressions is still small compared with most data, but every node is another compatibility surface that must be versioned and tested.',
       ],
     },
     {
-      heading: 'Where It Fails',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Substrait is the wrong tool when the real problem is user-facing dialect compatibility, query optimization quality, or physical execution speed. It does not erase semantic differences between engines. It only gives systems a place to state those differences. Timestamp behavior, decimal overflow, collation, user-defined functions, custom scans, and physical distribution assumptions can still break portability. A weak implementation can serialize a plan that is syntactically valid but semantically incomplete. Another failure mode is treating extensions as a dumping ground: if every important operator is custom, the shared contract shrinks and consumers need one-off adapters. The tax is precision. A useful plan must carry more detail than a diagram, and every detail needs compatibility checks.',
+        'Substrait fits machine-to-machine query handoff. A dataframe frontend can emit a plan for a native execution engine, a lakehouse can store a view as a resolved artifact, and a federated service can ask which engine supports which fragment.',
+        'It is also useful for tests and audits. Two engines can be given the same logical artifact, and differences can be traced to function support, type semantics, optimization choices, or execution behavior rather than parser dialect.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Use the official Substrait home page, extension documentation, serialization basics, binary serialization page, and specification index as the primary references: https://substrait.io/, https://substrait.io/extensions/, https://substrait.io/serialization/basics/, https://substrait.io/serialization/binary_serialization/, and https://substrait.io/spec/specification/. Then study relational algebra, SQL join algorithms, Cascades-style memo optimizers, Selinger join order planning, protobuf wire format, schema registries, Apache Arrow columnar memory, DuckDB vectorized execution, and Velox-style execution engines. The next conceptual step is to separate three artifacts in your head: source query, logical plan contract, and physical execution plan. Most interoperability bugs come from confusing those layers.',
+        'Substrait does not erase real semantic differences between engines. Timestamp behavior, decimal overflow, custom functions, collation, physical distribution, and user-defined relations can still make a plan nonportable.',
+        'It also fails when teams use extensions as a private escape hatch for everything. If most important operators are custom, the shared contract shrinks and every consumer needs one-off adapters.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a query reads 10,000,000 orders, filters to status = paid, groups by customer_id, and computes sum(total). If the producer estimates that 30 percent of rows pass the filter, the consumer still needs exact semantics for status comparison, decimal sum, null total handling, and customer_id type before it can run the plan.',
+        'A SQL string might say SELECT customer_id, SUM(total), but the Substrait plan says which input field is customer_id, which function anchor implements sum, what decimal precision is expected, and which relation produces each output field. If the receiving engine lacks that decimal sum anchor, the correct result is rejection, not approximate execution.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources are the Substrait specification, extension documentation, serialization basics, and binary serialization notes at https://substrait.io/, https://substrait.io/extensions/, https://substrait.io/serialization/basics/, and https://substrait.io/serialization/binary_serialization/. Study relational algebra, SQL planning, protobuf, Apache Arrow, DuckDB, Velox, DataFusion, and Calcite next.',
       ],
     },
   ],

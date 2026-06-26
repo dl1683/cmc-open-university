@@ -212,102 +212,54 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        `Long sequences do not only contain facts. They contain changes to facts. A document can introduce a person's old title, then later say the person moved to a new role. A repository trace can show an API returning one shape, then a migration changing the return value. A useful sequence memory should store evidence, but it should also revise old evidence when the sequence itself says the world changed.`,
-        `Fast-weight memory is one way to think about that problem. Instead of treating attention as a lookup over all past tokens, linear attention can be read as a small writable memory inside the model. Each token writes into a temporary weight matrix. Later tokens query that matrix. The memory is "fast" because it changes during the sequence, unlike the model's trained parameters.`,
-        `The delta-rule version asks a sharper question: if the memory already returns something for this key, should the new token add another value, or should it correct the current mapping? That distinction matters whenever a later fact is supposed to replace, refine, or override an earlier one.`,
-        {type:`callout`, text:`Delta-rule memory treats sequence state as a writable mapping that should correct stale associations, not merely accumulate another blurred fact.`},
-      ],
-    },
-    {
-      heading: 'The simple approach and the wall',
-      paragraphs: [
-        `The simple linear-attention update is additive. A token produces a key and a value, and the model writes an outer product into a fast matrix. A later query multiplies against that matrix to recover a value-like answer. This is elegant because the memory has fixed size and can be updated as the sequence streams by.`,
-        `Additive writing behaves like an append-only summary. That is fine when evidence accumulates, such as repeated mentions of the same name or topic. It is weaker when evidence conflicts. If key A first maps to version 1 and later maps to version 2, blindly adding both associations can make the readout a blurred mixture rather than the current answer.`,
-        `The wall is interference. The memory matrix has finite capacity. Similar keys collide. Old associations do not vanish just because a newer token is more relevant. Long-context tasks often fail exactly there: the model remembers that something was said, but not which later statement should control the answer.`,
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        `The core insight is to make the write depend on the current error. Before updating memory for a key, read what the memory already predicts. Compare that prediction with the value the current token says should be stored. Then write a correction. This is the old delta-rule idea recast as a learned sequence-memory mechanism.`,
-        `A correction update is different from an additive update. If the memory already returns the right value, the correction can be small. If the memory returns a stale or wrong value, the correction can point at the mismatch. The memory is no longer just piling evidence into a matrix. It is trying to move the mapping toward what the latest context says it should return.`,
-        `Gates add the other missing control. Some state should persist. Some should decay. Some should be erased when the sequence marks an overwrite. Delta updates give write precision; gates give forgetting policy. A good fast-weight memory needs both, because not every conflict should be handled by adding more signal.`,
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        `The fast-weight view shows the memory as a key-value structure implemented by a matrix. The key addresses the memory, the value supplies data, the write changes the matrix, and a later query reads from it. The important lesson is that linear attention can be studied as a data structure, not only as a neural-network formula.`,
-        `The conflict frame shows why naive additive writing breaks down. When old and new associations share a key or nearby keys, the read can return a mixture. The delta path introduces the prediction error as part of the update, so the write has a chance to correct the old mapping instead of only adding another association beside it.`,
-        `The gated view adds time control. An erase gate can remove stale information, a delta update can repair a mapping, and chunkwise training keeps the mechanism practical on accelerators. The animation is not saying the memory is a database with perfect keys. It is showing the operations a learned compressed memory must approximate: address, write, read, correct, forget, and audit.`,
-      ],
-    },
-    {
-      heading: 'The data structure inside the model',
-      paragraphs: [
-        `The core objects are key vectors, value vectors, a fast weight matrix, query vectors, predicted values, delta errors, update rates, erase gates, chunk summaries, and retrieval tests. The model learns the keys, values, gates, and update strengths. The programmer does not assign symbolic keys the way an external database would.`,
-        `Still, the data-structure comparison is useful. Additive writes are append-only inserts into compressed state. Delta writes are corrective updates. Gates act like deletion or decay policy. Chunkwise algorithms are execution plans that make many recurrence steps trainable in parallel. Retrieval audits are tests that ask whether the compressed state still answers the right question after conflicts.`,
-        `The hard part is that every piece is soft and learned. Keys are not exact strings. Values are not exact rows. The matrix stores many associations superposed in continuous space. That gives the model speed and differentiability, but it also means collisions, drift, and imperfect erasure are normal failure modes rather than rare bugs.`,
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        `In additive fast-weight attention, each token contributes an update shaped like an outer product between a key and a value. Accumulating those outer products builds a matrix that later queries can read. Conceptually, the matrix maps addresses to stored content. In practice, it is a compressed learned state.`,
-        `In a delta-rule memory, the token first checks the current mapping. The model reads the memory with the relevant key or query, gets a predicted value, compares that prediction with the target value, and writes the difference. This turns the update into "make the current memory more correct for this key" instead of "add this value again."`,
-        `Gated DeltaNet-style mechanisms combine this correction with learned gates. A gate can retain old state, weaken old state, or erase aggressively. The update can be scheduled in chunks so training does not become a purely serial loop across every token. That execution detail is not cosmetic. Without chunkwise or parallel-friendly algorithms, a nice recurrence can be too slow to scale.`,
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        `It works when the memory's own readout is a useful diagnostic. If a key already maps to the desired value, the error is small and the update does not need to disturb the matrix much. If the key maps to a stale value, the error names the direction of repair. That is the corrective advantage over plain accumulation.`,
-        `It also works because many sequence tasks have local overwrite structure. A paragraph says the default setting is false, then later says the migration sets it to true. A code diff shows a method removed and replaced. A legal document defines a term, then amends it. In each case, the later token is not just more evidence. It changes which association should be retrieved.`,
-        `Gates make the time horizon learnable. Some facts should last for the whole document. Some should expire after a local block. Some should be overwritten immediately. A single decay constant cannot express all of that. Learned gates give the model a way to choose retention behavior from the content of the sequence.`,
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        `Imagine a model reading a long repository trace. Early in the trace, it sees "API A returns shape v1." Many lines later, a migration says "API A now returns shape v2." Later still, a test asks what shape API A returns today. The answer should be v2, but the model may still need to explain that v1 existed historically.`,
-        `With additive memory, both associations can be present under similar keys. A query for API A may retrieve a blend, or it may choose the old association because it appeared in a stronger local pattern. The model looks like it has memory, but its memory does not know which write was a replacement.`,
-        `With delta-rule memory, the later v2 statement can read the current A mapping, see that the memory still points toward v1, and write a correction. A gate can reduce stale v1 state while preserving enough context to answer historical questions. The retrieval audit should test both facts: current value is v2, and v1 was the old value before the migration.`,
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        `The first cost is capacity. A fast-weight matrix is not unlimited memory. It compresses many associations into fixed state, so collisions are expected. Larger hidden states can help, but they raise compute and memory cost. Better update rules can help, but they do not remove the information bottleneck.`,
-        `The second cost is kernel and training complexity. Additive linear attention is attractive partly because it can be made efficient. Delta updates, gates, and chunkwise scans add machinery. If the implementation is slow or numerically fragile, the model can lose the very hardware advantage that made linear-time memory appealing.`,
-        `The third cost is evaluation. Language-model loss can improve while the overwrite behavior remains weak. A serious evaluation needs mutable key-value traces, entity updates, code migrations, multi-hop retrieval after edits, latency, memory footprint, and ablations against ordinary attention, state-space layers, and retrieval-augmented systems.`,
-      ],
-    },
-    {
-      heading: 'Where it wins and where it fails',
-      paragraphs: [
-        `Delta-rule memory is strongest when the sequence contains mutable associations: revised instructions, changing API behavior, updated entity attributes, evolving plans, or facts where the latest value should dominate the old one. It is also useful as a conceptual bridge between linear attention, recurrent state, and learned memory updates.`,
-        `It fails when keys collide too strongly, when the correction target is noisy, or when gates erase information the task later needs. Correction can amplify mistakes if the model writes confidently in the wrong direction. Forgetting can become destructive when the task needs both the old and new facts.`,
-        `It can also fail as an engineering choice. A mechanism that wins a synthetic overwrite benchmark but requires immature kernels, worse throughput, or delicate training may be the wrong layer for a production model. The right comparison includes quality, speed, memory, stability, and task mix.`,
-      ],
-    },
-    {
-      heading: 'Misconceptions and pitfalls',
-      paragraphs: [
-        `One misconception is that fast-weight memory is an external database. It is not. There are no exact keys, no durable rows, and no guarantee that a later query can recover an arbitrary past fact. It is a learned compressed memory inside the model's forward pass.`,
-        `Another misconception is that the delta rule simply makes memory longer. The real benefit is not length by itself. It is better handling of corrections. Long memory that preserves stale facts too strongly can be worse than shorter memory for tasks where the current value matters.`,
-        `A third pitfall is ignoring the difference between overwrite and accumulation. Some evidence should accumulate, such as repeated support for a topic. Some evidence should replace, such as a changed API contract. A good evaluation separates those cases instead of rewarding any mechanism that remembers more tokens.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Primary sources: Linear Transformers Are Secretly Fast Weight Programmers at https://arxiv.org/abs/2102.11174, Gated Delta Networks: Improving Mamba2 with Delta Rule at https://arxiv.org/abs/2412.06464 and https://openreview.net/forum?id=r8H7xhYPwz, the NVLabs implementation at https://github.com/NVlabs/GatedDeltaNet, and Mamba-2 SSD at https://arxiv.org/abs/2405.21060.`,
-        `Study Linear Attention Prefix-State Primer to understand the state carried by linear attention. Study Mamba-2 Structured State Space Duality Case Study for the connection between attention-like and state-space views. Study RetNet Retention State Case Study and Hybrid Attention State Budget Case Study for other ways to budget sequence state. Then compare all of them against external retrieval, because learned internal memory and explicit retrieved context solve different parts of the long-context problem.`,
-        `A useful exercise is to design three traces: one where facts accumulate, one where a fact is overwritten, and one where the old fact must remain historically answerable. A memory mechanism that treats all three traces the same has not learned the distinction this topic is about.`,
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'The animation shows a recurrent memory matrix being edited token by token. A fast weight is a temporary weight matrix produced during inference, not a learned parameter stored after training. Active nodes are the current key, value, gate, or memory update; found nodes are associations stored in memory; compare nodes show the current read before correction.',
+      'The safe inference rule is error-driven writing. A plain outer-product write adds a new key-value association. A delta-rule write first reads what the memory already returns for that key, then writes the difference between the desired value and the current value.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Standard attention stores a key and value for every token, then compares each later query with all earlier keys. That gives strong recall but costs memory proportional to sequence length. A long-context model serving 128,000 tokens has to carry a large key-value cache.',
+      'Fast-weight memory exists as a fixed-size alternative. Instead of storing every past token, the model updates a matrix that summarizes associations between keys and values. The challenge is editing that matrix without overwriting useful older associations.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious fast-weight write is additive. Given key k and value v, add an outer product k v^T to the memory matrix. Later, a query similar to k reads back a value similar to v.',
+      'This is reasonable because it is simple and parallel-friendly. It resembles linear attention, where sequence history is compressed into sums of key-value products. The problem is that adding more associations can blur or collide with earlier ones.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is interference. If key k already maps to value old_v and the model adds another full write for new_v, the memory may return a mixture rather than the intended new value. Repeated writes to similar keys accumulate error.',
+      'Fixed-size memory also has finite capacity. If the memory matrix has 64 by 64 entries, it has 4,096 scalar slots no matter whether the sequence has 1,000 tokens or 100,000 tokens. The model must decide what to preserve, correct, and forget.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Use the delta rule: write the residual error, not the full target again. The model reads current = M k, computes error = v - current, and updates M by adding a gated outer product of error and key. The write says how to change the current answer for this key.',
+      'A gate controls write strength. A gate near 0 preserves old memory, while a gate near 1 makes a stronger correction. This turns memory update into a learned edit rather than blind accumulation.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'At step t, the model produces a key k_t, a value v_t, and a gate beta_t. It reads the memory with k_t to get the current prediction. It then computes the difference between desired value and current prediction.',
+      'The update has the form M_t = M_{t-1} + beta_t * (v_t - M_{t-1} k_t) k_t^T, depending on convention for row or column layout. The important point is residual correction. If memory already returns v_t, the error is near zero and the write is small.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is local least-squares correction. For a normalized key k, the update moves M k toward v by a fraction beta of the current error. If beta is 1 and k has unit norm, the next read for the same key returns the target under the simplified single-key model.',
+      'With many keys, the guarantee weakens because keys are not perfectly orthogonal. The update for one key can affect reads for nearby keys. Gating and learned key geometry are therefore part of correctness, not cosmetic additions.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The recurrent state has fixed memory O(d_k * d_v), where d_k is key size and d_v is value size. If both are 128, the memory matrix has 16,384 numbers. That state size does not grow when the sequence grows from 4,000 to 64,000 tokens.',
+      'Per-token work is matrix-vector read plus outer-product update, roughly O(d_k * d_v). Softmax attention decode reads an ever-growing cache, while fast-weight decode keeps constant state. The cost is compression error: the model cannot recover every past token exactly from one fixed matrix.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Fast-weight delta memory appears in linear attention research and DeltaNet-style sequence models. It fits long-context or streaming settings where constant-size state is more attractive than a full key-value cache. The access pattern is sequential updates with many later reads from compressed memory.',
+      'It also helps explain the connection between attention and associative memory. Attention stores explicit examples and searches them. Fast weights store a learned map that tries to answer from compressed associations.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'It fails when exact episodic recall is required. A fixed matrix cannot store an unlimited number of unrelated facts without interference. If a task needs verbatim retrieval of one token from 100,000 distractors, full attention or an external retrieval structure may be safer.',
+      'It also fails when gates learn poor overwrite behavior. Too much writing erases useful associations, while too little writing leaves stale memory. Training has to teach both what to write and how aggressively to edit.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Use a 2-dimensional key and value memory with M initially all zeros. Let k = [1, 0] and v = [3, 5]. The current read M k is [0, 0], so the error is [3, 5].',
+      'With beta = 1, the update writes error times k^T, producing M = [[3, 0], [5, 0]] in column-vector layout. Reading the same key gives M k = [3, 5], so the association is correct. If beta = 0.5, the read becomes [1.5, 2.5], halfway corrected.',
+      'Now write a nearby key k2 = [1, 0.2] with value [4, 5]. The update affects the first association because k2 overlaps k. That numerical interference is the real tax behind the memory compression.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: "Linear Transformers Are Secretly Fast Weight Programmers" by Schlag, Irie, and Schmidhuber, and "Gated Delta Networks: Improving Mamba2 with Delta Rule" by Yang, Kautz, and Hatamizadeh. Read the update equations before reading benchmark claims.',
+      'Study next: linear attention, associative memory, outer products, recurrent neural networks, Mamba-style state space models, and key-value cache cost. The main lesson is that constant memory buys speed by replacing exact storage with learned edits.',
+    ] },
   ],
 };

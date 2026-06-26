@@ -187,99 +187,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the outbox as a durable queue owned by the browser app. Durable means the record survives a tab close, a page reload, or a temporary network outage. The active item is the mutation being retried; queued items are user work that exists locally but has not yet been acknowledged by the server.',
+        'The safe inference rule is that the sync event is only a wakeup. If the outbox row is present, the app has work to retry. If the row is missing, no amount of Background Sync logic can reconstruct the lost mutation.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Offline-capable apps cannot treat a failed POST as lost work. A user may write an order, comment, form, or note while the network is gone, close the tab, and expect the app to finish later. The browser needs a durable place to remember the mutation and a wakeup path to retry it.',
-        'Background Sync is one wakeup mechanism: it lets a web app defer synchronization work to its service worker so it can run later, often after connectivity improves. The reliable design is not the sync event by itself. It is the durable outbox behind it.',
-        'MDN describes the Background Synchronization API as deferring server synchronization work to a service worker at a later time: https://developer.mozilla.org/en-US/docs/Web/API/Background_Synchronization_API. MDN also marks SyncManager as limited availability, so production designs need fallbacks: https://developer.mozilla.org/en-US/docs/Web/API/SyncManager.',
+        'Offline-capable apps cannot treat a failed POST as lost work. A user may submit an order, inspection, comment, or note while the network is gone and expect the app to finish later. The browser needs a place to remember the write and a later execution path to retry it.',
+        'Background Sync is a browser API that can wake a service worker later to perform synchronization. A service worker is a background script associated with a web app, and IndexedDB is the browser database usually used for durable local state. Reliability comes from the IndexedDB outbox, not from the wakeup event alone.',
       ],
     },
     {
-      heading: 'The obvious attempt',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The simple approach is to call fetch from the UI and show an error if it fails. A slightly better version keeps the request in memory and retries when the online event fires.',
-        'That breaks when the tab closes, the browser kills the page, the online event is wrong, the response is lost after the server committed, or the API returns a permanent validation error. A retry loop without durable state can lose work, duplicate work, or retry bad input forever.',
+        'The obvious approach is to call fetch from the page and show an error if the request fails. A slightly better version stores the request in memory and retries when the online event fires. This can work during a short Wi-Fi hiccup while the tab stays open.',
+        'It breaks as soon as the page process dies or the user closes the browser. Memory is not a durable queue. The app has promised the user that work was saved, but the only copy of the mutation disappeared.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        {type:'callout', text:'The sync tag is only a wakeup handle — the real durability comes from the IndexedDB queue. If the queue is empty, the sync event fires but does nothing. If the tab dies, the queue survives. This is the browser version of the Transactional Outbox pattern.'},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/5b/HTTP_logo.svg', alt:'HTTP protocol', caption:'Background Sync retries failed HTTP requests from a durable queue — the service worker acts as a persistent message consumer. Source: Wikimedia Commons, CC BY-SA 4.0'},
-        'The core data structure is a persistent queue in IndexedDB. Each row needs an operation id, payload, idempotency key, status, attempt count, next retry time, and reconciliation metadata. The sync tag is only a wakeup handle.',
-        'This is the browser version of Transactional Outbox and Message Queue. The producer is a page, the durable queue is IndexedDB, and the consumer is a service worker or foreground fallback. The invariant is that a mutation is either safely queued, acknowledged by the server, or visible to the user as failed.',
+        'The wall is uncertainty. The client may send a request, the server may commit it, and the response may be lost before the browser sees it. A blind retry can duplicate the operation unless the protocol has an idempotency key, which is a stable request identity the server uses to deduplicate repeats.',
+        'There are also permanent failures. A validation error should not be retried forever, and a conflict should not be overwritten silently. A queue that cannot classify pending, retryable, failed, and acknowledged states becomes a hidden data-loss machine.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        'Inspect the outbox as the browser version of a transactional queue. A user action must create local visible state and a durable mutation record before the app promises that the work is saved. The sync tag is only a wake-up mechanism; the queue is the source of truth.',
-        'The important fields are operation id, idempotency key, payload, dependency key, attempt count, next retry time, last error, local entity mapping, and user-visible status. If those fields are missing, the app cannot explain whether a write is pending, safe to retry, permanently failed, or already acknowledged by the server.',
+              {type:'callout', text:'The sync tag is only a wakeup handle — the real durability comes from the IndexedDB queue. If the queue is empty, the sync event fires but does nothing. If the tab dies, the queue survives. This is the browser version of the Transactional Outbox pattern.'},,
+              {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/5b/HTTP_logo.svg', alt:'HTTP protocol', caption:'Background Sync retries failed HTTP requests from a durable queue — the service worker acts as a persistent message consumer. Source: Wikimedia Commons, CC BY-SA 4.0'},,
+        'The core insight is to store intent before trying delivery. Each outbox row should contain an operation id, payload, idempotency key, attempt count, next retry time, status, and reconciliation data. The UI can then tell the truth: this item is saved locally, waiting to send, failed, or confirmed.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The UI first writes local state and appends an outbox row in the same logical action. It then registers a sync tag if the platform supports Background Sync. The app may also schedule foreground retries on launch, focus, explicit retry, or online hints.',
-        'When a sync event fires, the service worker opens IndexedDB, selects due rows, sends them in a safe order, and keeps the event alive with waitUntil. A successful response records the ack, reconciles temporary ids or local pending state, and removes the row. A retryable failure updates backoff. A permanent failure becomes user-visible state.',
+        'The page first writes local visible state and appends an outbox row in one logical action. It then registers a sync tag if the platform supports it. The app should also drain the queue on launch or focus because Background Sync is not available or prompt everywhere.',
+        'When the service worker wakes, it opens IndexedDB and selects due rows. For each row, it sends the HTTP request with the idempotency key, waits for a response, and updates the row. Success removes or marks the row acknowledged; retryable failure schedules backoff; fatal failure becomes user-visible state.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Durability protects the user from browser and network timing. Once the outbox row is committed, the mutation survives tab close and can be retried by another wake path. Idempotency protects the server from duplicate commits when a retry follows a lost response.',
-        'Ordering and failure classification make retries safe. Dependent operations drain in queue order unless the protocol supports temp-id remapping. Retryable errors wait with backoff. Fatal validation errors stop. Conflicts route to merge logic instead of being overwritten silently.',
+        'The correctness argument has two invariants. First, once the outbox row is committed, the client has a durable description of the unsent mutation. Second, every retry carries the same idempotency key, so the server can treat repeats as the same operation rather than new operations.',
+        'Ordering handles dependent mutations. If creating an order must happen before adding line items, the queue should not send line items until the order has a server id or a temp-id mapping. The queue is correct when every mutation is either pending, delivered once logically, failed visibly, or blocked for a stated reason.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Consider an offline field-sales app. The user submits an order while the device is offline. The UI writes the order to an IndexedDB object store and appends an outbox row with idempotency key order-client-91. The app registers a sync tag. Later the browser fires a sync event. The service worker reads the outbox, sends POST /orders, receives invoice id INV-700, updates the local order, and removes the outbox row.',
-        'If the API returns 503, the worker increments attempts and schedules a later retry. If it returns 400, the row becomes a failed user-visible order. If it returns 409, the app needs conflict resolution. Optimistic UI Mutation Log explains the user-facing pending states; IndexedDB Object Store Case Study explains the local durability; Local-First Sync Engine Case Study explains the larger sync pattern.',
-        'The important implementation detail is that the user-visible order and the outbox row must not drift apart. If the app shows a saved order but fails to create the outbox row, the server never sees the order. If it creates the row but loses the local entity mapping, the server acknowledgment cannot be reconciled cleanly. Treat the local write and queue append as one logical transaction even though the browser API does not give you a distributed transaction.',
+        'The queue adds storage, schema, battery, and protocol cost. Each pending row must be persisted, indexed by retry time, and cleaned up after acknowledgment. If the number of queued rows doubles, drain time and local storage roughly double unless requests can be batched safely.',
+        'The dominant cost is not CPU. It is network retry behavior and user-state complexity. Immediate retry loops waste battery and can overload the API during outages, while excessive backoff leaves user work pending for too long.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The queue protects user work, but it introduces storage, schema, ordering, and battery costs. Payloads must be small enough for IndexedDB and safe to persist. The server must accept idempotency keys or another dedupe mechanism. The client must render pending, failed, and reconciled states honestly.',
-        'Backoff is not optional. Immediate retry loops waste battery and can hammer APIs during outages. Foreground fallbacks are also not optional because Background Sync is not available everywhere and the browser controls when background work runs.',
+        'The pattern fits field-sales orders, inspection forms, comments, task updates, offline notes, and local-first mobile web flows. The access pattern is append a mutation, retry later, reconcile server acknowledgment, then remove the queue row. It works best when operations are small and idempotent.',
+        'It also appears on servers as the Transactional Outbox pattern. A database transaction writes both business state and an outgoing message, then a worker publishes that message later. The browser version uses IndexedDB and a service worker instead of a server database and broker.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Where it fails',
       paragraphs: [
-        'The outbox pattern wins for user-authored writes that can be retried safely: field-sales orders, comments, form submissions, task updates, inspections, and local-first edits. The access pattern is append, retry, acknowledge, and delete.',
-        'It is the wrong fit for non-idempotent operations with no dedupe key, huge uploads that need chunk manifests, operations that require immediate confirmation, or conflict-heavy collaborative edits that need a full sync engine instead of a simple queue.',
+        'It fails for operations that cannot be safely retried. Charging a card, booking a scarce seat, or sending an irreversible command needs a server protocol that can deduplicate and explain the final state. Without that protocol, the browser queue only repeats uncertainty.',
+        'It also fails when the UI hides pending state. A user needs to know whether work is local only, sent, failed, or blocked by conflict. Offline support is a product promise backed by queue semantics, not a spinner with better timing.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'The common misconception is that Background Sync makes offline writes reliable by itself. It does not store the mutation for you, classify failures, dedupe server commits, or render failed states. Those are outbox responsibilities.',
-        'Bad outboxes retry forever, send dependent writes out of order, lose temporary-id mappings, hide fatal errors, or delete rows before local state is reconciled. The queue is a correctness boundary, not a background convenience.',
-      ],
-    },
-    {
-      heading: 'Operational signals',
-      paragraphs: [
-        'Track queued row count, oldest pending age, retry histogram, fatal-error count, conflict count, duplicate server acknowledgments, foreground-drain count, background-sync availability, and rows blocked by dependencies. These metrics separate a healthy offline system from an app that silently stores work it will never deliver.',
-        'A useful debug screen should show each row and why it is still present. Waiting for network, waiting for dependency, retrying after 503, blocked by validation, and acknowledged but not reconciled are different states. Collapsing them into one spinner wastes the user time and makes support almost impossible.',
-      ],
-    },
-    {
-      heading: 'What to remember',
-      paragraphs: [
-        'Background Sync is not the algorithm. The algorithm is durable outbox plus idempotent server protocol plus honest UI state. The browser may help wake the worker, but reliability comes from the data model and retry rules.',
-        'For course design, teach this after IndexedDB and service workers, then connect it to server-side transactional outbox. Students should see the same pattern on both sides of the network: write intent durably, retry safely, acknowledge explicitly, and never pretend an uncertain write is complete.',
-        'The deeper lesson is that offline support is a product promise backed by systems design. A user does not care that SyncManager is unavailable or that the browser delayed a background event. The app must still explain what is saved locally, what is waiting to send, what failed, and what needs user action.',
+        'A field app lets a user submit order O-91 while offline. The page writes the local order and an outbox row with idempotency key order-client-91, attempt 0, and status pending. The visible order is marked Waiting to sync, not Complete.',
+        'At 10:05 the service worker wakes and sends POST /orders with that key. The server creates invoice INV-700, but the response is lost, so the queue records attempt 1 and retries after 30 seconds. On retry, the server recognizes the idempotency key and returns the same invoice instead of creating a duplicate.',
+        'The client updates the local order with INV-700 and removes the outbox row. If the server had returned 400, the row would stay as a failed order that needs user correction. If it returned 409, the app would route to conflict handling rather than deleting the row.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: MDN Background Synchronization API at https://developer.mozilla.org/en-US/docs/Web/API/Background_Synchronization_API, MDN SyncManager at https://developer.mozilla.org/en-US/docs/Web/API/SyncManager, MDN Service Worker API at https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API, and the WICG Background Sync draft at https://wicg.github.io/background-sync/spec/.',
-        'Study next by role: IndexedDB Object Store Case Study for local durability, Service Workers & Offline-First for the execution environment, Optimistic UI Mutation Log for user-facing pending state, Query Cache: Stale Time & GC for read freshness, Message Queue and Transactional Outbox for the server-side pattern, Local-First Sync Engine Case Study for conflict-rich apps, AbortController Cancellation Graph for cancelable foreground retries, and Web Locks API Lock Manager for coordinating multiple tabs.',
+        'Primary sources: MDN Background Synchronization API, MDN SyncManager, MDN Service Worker API, MDN IndexedDB, and the WICG Background Sync draft. Use them to separate browser wakeup behavior from the app-level durability contract.',
+        'Study next by role. For local durability, study IndexedDB Object Store. For user state, study Optimistic UI Mutation Log. For server analogs, study Message Queue and Transactional Outbox. For multi-tab coordination, study Web Locks API Lock Manager.',
       ],
     },
   ],

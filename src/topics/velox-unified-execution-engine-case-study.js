@@ -221,87 +221,21 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Velox exists because many data systems repeat the same hard execution work. A SQL engine, dataframe runtime, feature pipeline, and ML data loader may all need fast scans, expression evaluation, joins, aggregations, memory tracking, spilling, and Parquet or ORC connectors.',
-        'Duplicating that data plane is expensive. Each system has to tune vector layouts, null handling, dictionary encodings, hash tables, memory pools, spill behavior, connector pushdown, and metrics. Fixing the same bug or performance issue in several engines wastes engineering effort.',
-        'Velox is Meta\'s open source unified execution engine: a C++ library of reusable vectorized data-processing components. It is not a full database frontend. It does not mainly give you a SQL parser, dataframe API, cost optimizer, or cluster scheduler. It is the execution substrate other systems embed.',
-        {type:'callout', text:'Velox creates leverage by sharing the physical data plane while leaving each embedding system in charge of language, planning, and semantics.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is for every engine to own its full stack: parser, optimizer, planner, executor, connectors, memory manager, and observability. That gives each system full control, but it also creates many slightly different implementations of the same physical operators.',
-        'Another shortcut is to share only a file format or columnar memory standard. That helps interchange, but it does not give a complete execution engine. Operators still need selection vectors, encodings, memory pools, spill, expression evaluation, and connector integration.',
-        'A third mistake is to imagine a shared executor can erase semantic differences. SQL dialects, timestamp behavior, null rules, user-defined functions, and aggregate semantics differ across systems. Reuse is safe only when adapters bind those meanings explicitly.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'The core insight is to separate frontends from the physical data plane. The embedding system keeps parsing, optimization, dialect rules, scheduling, and user-facing APIs. Velox provides the shared execution core that runs the physical plan over vectors.',
-        'This creates a shared optimization point at the lowest expensive layer. A better vector encoding, memory-accounting fix, hash-join improvement, spill path, or connector optimization can benefit multiple systems. Observability also becomes more consistent because the same execution core reports comparable metrics.',
-        'The adapter is the semantic firewall. It maps an outside plan into Velox operators and binds functions, types, null behavior, timestamp rules, and connector semantics before shared execution begins.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'An embedding system gives Velox an optimized plan. Velox creates tasks, drivers, pipelines, operators, and vector batches. Connectors read files or external sources into vectors. Expressions transform vectors. Operators perform scans, filters, projections, joins, aggregations, sorting, repartitioning, and output.',
-        'Velox vectors are columnar in-memory structures with encodings such as flat, constant, dictionary, and row vectors. They are similar in spirit to Arrow, but tuned for execution needs such as dictionary wrapping, shared buffers, lazy loading, out-of-order writes, and zero-copy transformations.',
-        'Memory is a first-class part of execution. Hash joins, aggregations, sorts, and spills can grow quickly. A shared execution engine needs memory pools, allocation tracking, spill paths, and metrics so the host system can manage resource pressure rather than discover it after failure.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The vector-engine view proves that execution is a pipeline of physical operators over batches, not a row-at-a-time loop. Vectors let one operator process many values at once, exploit cache locality, skip repeated decoding, and carry dictionary or constant encodings through later work.',
-        'The reuse-boundary view proves what Velox does not own. SQL parsing, dataframe APIs, cost-based optimization, cluster scheduling, and dialect policy remain outside. The adapter is where the host system translates its plan and semantics into reusable execution.',
-        'The consolidation view proves the engineering payoff. Before Velox, several engines may duplicate execution code. After Velox, they can share the same optimized core while keeping different frontends and schedulers.',
-        'The memory-pool node is deliberately visible because execution engines fail under pressure before they fail in the average case. A plan that is fast when all hash tables fit in memory needs a spill strategy, accounting model, and host-level backpressure when the same query meets skew or larger-than-estimated data.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'Vectorized execution works because modern CPUs are much faster when data is laid out predictably and processed in batches. Operators can reduce branches, improve cache behavior, use SIMD-friendly loops, and avoid per-row virtual dispatch.',
-        'Dictionary and constant encodings work because many query operations filter, project, and join without needing to materialize every value immediately. Carrying encoded structure through the pipeline can avoid copies and preserve sharing.',
-        'Shared execution works organizationally because execution bugs and optimizations are concentrated in one place. The host systems still compete on planning, semantics, scheduling, and product experience, but the physical data plane benefits from shared investment.',
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        'The main tradeoff is integration complexity. A host system must adapt plans, functions, types, null rules, connector behavior, and metrics into Velox. If that adapter is weak, the shared engine can compute the wrong answer very quickly.',
-        'Velox also does not remove planning or scheduling. Join order, cardinality estimates, repartitioning strategy, cluster placement, workload isolation, and user-facing APIs remain the embedding system\'s responsibility. A shared execution engine is a foundation, not a complete warehouse.',
-        'There is a governance cost too. Several systems depending on one execution core need compatibility discipline, performance regression testing, and a way to evolve operators without surprising every host at once.',
-        'A practical integration review should trace one query end to end: which frontend planned it, which adapter mapped it, which Velox operators ran it, which connector read the data, which memory pool owned each allocation, what spilled, and which metrics return to the host. That trace is what keeps reuse from becoming a black box.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Velox wins when several systems need the same high-performance data plane. Presto-like query engines, Spark-like execution paths, feature engineering, data loading for ML, and analytics services can keep different frontends while sharing scan, expression, join, aggregate, memory, spill, and connector logic.',
-        'It is especially attractive for organizations with deep execution expertise but too many engines. A single vector optimization or connector improvement can lift many workloads. A single memory-accounting fix can prevent several classes of outage.',
-        'It is less attractive when a system has unusual semantics, a tiny workload, or no need for high-performance columnar execution. The adapter cost has to be paid back by enough reuse and enough performance pressure.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The danger is semantic mismatch. SQL dialects, timestamp rules, null behavior, aggregate semantics, decimal precision, collation, and function implementations differ across systems. If the adapter binds a function loosely, the shared engine can faithfully compute the wrong meaning.',
-        'Another failure is treating vectorization as a universal cure. Bad plans still hurt. A poor join order, missing predicate pushdown, skewed partitioning, or underestimated cardinality can overwhelm even a strong execution engine.',
-        'A third failure is losing accountability. When a query is slow or wrong, the boundary between optimizer, adapter, connector, and Velox operator must be observable. Shared infrastructure needs better provenance, not less.',
-        'Connector behavior is another sharp edge. Predicate pushdown, lazy loading, file statistics, and partition pruning must match the host planner\'s assumptions exactly.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Meta engineering announcement at https://engineering.fb.com/2023/03/09/open-source/velox-open-source-execution-engine/, Velox repository at https://github.com/facebookincubator/velox, Velox in 10 minutes at https://facebookincubator.github.io/velox/velox-in-10-min.html, Velox vectors docs at https://facebookincubator.github.io/velox/develop/vectors.html, Velox operators docs at https://facebookincubator.github.io/velox/develop/operators.html, and the VLDB paper at https://vldb.org/pvldb/vol15/p3372-pedreira.pdf. Study DuckDB Vectorized Execution Case Study, Apache Arrow Columnar Memory Case Study, SQL Join Algorithms Primer, Exchange Operator Parallel Query, Cascades Memo Query Optimizer, Substrait Query Plan Interchange Case Study, Apache DataFusion Arrow Query Engine Case Study, and Parquet Columnar Format Case Study next.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the graph as a boundary between a frontend and a data plane. Active nodes show a physical plan moving through drivers, vectors, operators, memory pools, and connectors.',
+      'A frontend parses a language and owns user semantics. Velox is an execution engine: it runs already-planned work over columnar vectors, which are batches stored by column.',
+      {type:'callout', text:'Velox creates leverage by sharing the physical data plane while leaving each embedding system in charge of language, planning, and semantics.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: ['Analytical systems repeat the same execution work. SQL engines, dataframe runtimes, feature pipelines, and ML loaders all need scans, filters, joins, aggregations, memory tracking, and connectors.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is for every engine to own a full stack. That gives control, but it creates several implementations of the same physical operators.'] },
+    { heading: 'The wall', paragraphs: ['The wall is duplicated complexity plus semantic mismatch. Sharing execution helps only if adapters bind timestamps, nulls, types, functions, and connector rules exactly.'] },
+    { heading: 'The core insight', paragraphs: ['The core insight is to separate semantic planning from physical execution. Host systems own language and scheduling, while Velox owns reusable data-plane machinery.'] },
+    { heading: 'How it works', paragraphs: ['A host gives Velox an optimized physical plan. Velox breaks it into tasks, drivers, pipelines, operators, and vector batches, then tracks memory and connector behavior through execution.'] },
+    { heading: 'Why it works', paragraphs: ['Vectorized execution works because CPUs handle predictable batches better than scattered row objects. Shared execution works because the adapter makes the semantic boundary explicit before Velox runs the plan.'] },
+    { heading: 'Cost and complexity', paragraphs: ['The main cost is integration risk. If one null rule or timestamp rule is mapped wrongly, Velox can compute the wrong answer quickly.'] },
+    { heading: 'Real-world uses', paragraphs: ['Velox fits organizations with several large analytics or ML data systems. A single vector, connector, spill, or memory-accounting improvement can then help multiple hosts.'] },
+    { heading: 'Where it fails', paragraphs: ['Velox is not a warehouse, optimizer, scheduler, SQL dialect, or product API. Bad plans, skewed joins, and weak adapters can still dominate runtime and correctness.'] },
+    { heading: 'Worked example', paragraphs: ['A query scans 10 million rows, filters to 1 million, joins a 50,000-row dimension, and groups by day. Velox can carry selected positions through dictionary vectors, but if one group owns 600,000 rows, memory pools and spill policy decide whether the query finishes.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: Meta Velox announcement at https://engineering.fb.com/2023/03/09/open-source/velox-open-source-execution-engine/, Velox docs at https://facebookincubator.github.io/velox/velox-in-10-min.html, Velox vectors at https://facebookincubator.github.io/velox/develop/vectors.html, and the VLDB paper at https://vldb.org/pvldb/vol15/p3372-pedreira.pdf. Study Apache Arrow, DuckDB vectorized execution, SQL joins, and Substrait next.'] },
   ],
 };

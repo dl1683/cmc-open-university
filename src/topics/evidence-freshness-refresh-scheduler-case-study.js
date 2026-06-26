@@ -222,82 +222,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why it exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'An evidence freshness refresh scheduler exists because research does not age evenly. A definition from a standard may remain useful for years. A cloud price, product limit, security advisory, model leaderboard, legal rule, release note, or benchmark result can become stale in days. Deep research systems often produce long reports with many claims. Rerunning the whole report every time one source changes is expensive, but leaving date-sensitive claims untouched is how confident answers become quietly wrong.',
-        'The scheduler turns freshness into a claim-level property. It tracks when a claim was supported, what source and span supported it, what kind of claim it is, how volatile that class is, which watch query can update it, and which report sections depend on it. This connects claim graphs, source ledgers, cache invalidation, feature freshness SLOs, and temporal workflows. The basic engineering lesson is simple: state that can go stale needs metadata, invalidation rules, repair jobs, and version history.',
+        'Read each row as one claim, not as one document. A claim is a sentence-sized assertion that a reader may rely on, such as a price, release date, benchmark result, law, or definition. The active row is due for checking because its time-to-live policy has expired or its source changed.',
+        'The arrows are dependency edges. If claim C-17 supports a paragraph and that paragraph supports the conclusion, refreshing C-17 can reopen both. The safe inference rule is simple: only claims whose support changed, expired, or contradicted a newer source should force article edits.',
         {type:'callout', text:'Freshness becomes maintainable when each claim has its own support ledger, TTL, dependency edges, and refresh job instead of inheriting a report-level date.'},
       ],
     },
     {
-      heading: 'The naive baseline',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive baseline is to mark a source as fresh or stale. That fails because a source contains many claims with different lifetimes. A three-year-old paper may still define a method correctly while its benchmark comparison is obsolete. A vendor documentation page may have a current access date but still describe a feature that changed last week on a different page. Freshness belongs to the claim and its use, not only to the URL.',
-        'The other naive baseline is to rerun the entire research workflow on a schedule. That is safe only when the report is small and refresh cost is low. For serious research, full reruns waste time, reopen stable sections, and create new opportunities for drift in unrelated prose. The better approach is surgical refresh: identify fragile claims, fetch targeted evidence, diff against old support, and update only dependent claims and sections.',
+        'Research goes stale unevenly. A definition from a standard may be stable for years, while a cloud price, product limit, security advisory, model capability, or legal rule can change before the report is read again. A report-level date hides that difference.',
+        'A freshness scheduler makes stale risk part of the data model. Each claim stores the source span that supports it, the date of that source, the date it was checked, the volatility class, and the report sections that depend on it. The system can then repair the claims that need repair instead of regenerating a whole report from scratch.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core insight is to treat a research report like a dependency graph. A conclusion depends on section claims. Section claims depend on evidence spans. Evidence spans depend on sources, dates, access permissions, and retrieval queries. If one volatile source changes, the system should be able to identify exactly which claims and sections are affected. That is the same idea as build systems, cache invalidation, lineage graphs, and database refresh plans.',
-        'A freshness scheduler does not ask, "Is this report old?" It asks, "Which important claims are likely to have changed enough to affect a decision, and what is the cheapest trustworthy way to check them?" That question combines stale risk, source authority, claim class, elapsed time, downstream importance, fetch cost, and user stakes. It makes freshness a prioritization problem rather than a vague feeling.',
+        'The obvious approach is to attach a last-reviewed date to the document. That works for small notes because a human can reread the whole thing and decide whether anything matters. It fails when one article contains stable background, volatile numbers, and source-specific claims with different lifetimes.',
+        'The next approach is to rerun the entire research workflow every week. That is safer than doing nothing, but it wastes search budget and creates noise in sections that did not need to move. It also makes every refresh a rewrite event, which can erase the history of why a claim changed.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'The wall',
       paragraphs: [
-        'The freshness-ledger visual proves that a claim has more than citation text. It has a source, a source date, an access date, a TTL policy, a watch query, and a report gate. The matrix of claim classes shows why definitions, prices, laws, benchmarks, model capabilities, and security findings cannot share one refresh cadence. A stable definition can stay. A benchmark claim may need a rerun. A security claim may need a new advisory check.',
-        'The scheduler visual proves that refresh work should be queued by risk and consequence. The stale-risk plot separates stable, product, and security claims over time. The queue table adds cost and blocking status. The fetch-diff-ledger path then shows the expected outcome: fetch new evidence, compare it with the old support span, preserve versions, update affected claims, and reopen contradictions when the new evidence changes the answer.',
+        'The wall is that freshness is not a property of a URL. One page can contain a stable method description, a stale benchmark table, and a current release note. A single access date cannot tell which sentence is still safe.',
+        'The second wall is cost. Suppose a report has 400 claims and a full refresh takes 6 hours of tool time, review, and source checking. If only 30 claims are volatile, a full rerun spends most of its time proving stable text is still stable while high-risk claims wait behind low-risk work.',
       ],
     },
     {
-      heading: 'How the data model works',
+      heading: 'The core insight',
       paragraphs: [
-        'A useful claim record stores the claim text, report section, source pointer, exact evidence span, source date, access date, source version, retrieval query, claim class, volatility class, authority label, TTL, last refresh time, next due time, watch query, and dependency edges. A source pointer can be a URL, PDF page, repository commit, command output, dataset version, or private file handle. The exact span matters because a page can support one sentence and not the next.',
-        'The scheduler records jobs separately. A job has a claim ID or claim group, stale-risk score, fetch plan, expected cost, permission requirement, blocking status, owner, and outcome. Outcomes include unchanged, updated, source gone, access restricted, contradicted, superseded, or manually escalated. Keeping those states explicit prevents a dangerous shortcut where the system silently rewrites a paragraph and loses why the old claim changed.',
-        'The metadata has roots in older standards and systems. Dublin Core is useful background for source dates and lifecycle fields. W3C PROV-DM models entities, activities, agents, and derivation. OpenLineage shows how production lineage systems attach metadata to jobs, runs, and datasets. A freshness scheduler applies the same lineage discipline to research claims.',
+        'Treat the report as a dependency graph. Conclusions depend on section claims, section claims depend on evidence spans, and evidence spans depend on sources, retrieval queries, dates, permissions, and versions. Refreshing one source should identify the exact claims that inherited risk from it.',
+        'The scheduling question becomes concrete: which claim is likely enough to have changed, important enough to matter, and cheap enough to check now. That score combines volatility, elapsed time, source authority, downstream importance, user stakes, fetch cost, and whether the source needs permission. Freshness becomes a queueing problem with audit history.',
       ],
     },
     {
-      heading: 'How the scheduler works',
+      heading: 'How it works',
       paragraphs: [
-        'The scheduler begins by classifying claims. Definitions, historical facts, prices, product limits, laws, security advisories, benchmark results, model capabilities, and availability claims get different TTL policies. The policy can be fixed, learned from source volatility, or adjusted by user stakes. A medical, legal, or financial claim gets a shorter leash than a stable computer-science definition because the cost of stale advice is higher.',
-        'Next, the system generates watch queries. A watch can be a source-specific fetch, an official release-page check, a CVE query, a benchmark repository run, a documentation diff, a regulatory update search, or a manual reminder. Jobs enter a priority queue ordered by stale risk, downstream importance, blocking status, cost, and permissions. Cheap high-risk checks can run immediately. Expensive benchmarks can batch. Private-source refreshes may need user authorization before tools open files.',
-        'After fetch, the system diffs new evidence against the old support span. If the support is unchanged, the ledger records a refresh and moves the next due date. If a value changed, dependent claims and sections are updated. If a source disappeared, the system replaces it or downgrades confidence. If a newer source contradicts the old answer, the contradiction graph reopens instead of hiding the conflict in revised prose.',
+        'Each claim record stores text, section id, source pointer, exact evidence span, source date, access date, source version, claim class, time-to-live, last check, next due time, watch query, and dependency edges. A source pointer can be a URL, PDF page, repository commit, command output, dataset version, or private file handle. The exact span matters because one document rarely supports every sentence around it.',
+        'The scheduler writes refresh jobs into a priority queue. A job stores the claim id, stale-risk score, fetch plan, estimated cost, permission requirement, owner, and possible outcomes. Outcomes include unchanged, updated, source gone, access restricted, contradicted, superseded, or manually escalated.',
+        'After fetch, the system compares new evidence with the old support span. If the value and meaning are unchanged, it records a refresh and advances the next due date. If the source changed or contradicted the old claim, it updates dependent sections or opens a review item instead of silently rewriting history.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because most reports have a small number of volatile claims carrying a large amount of freshness risk. Refreshing those claims gives a better return than rereading every stable background section. The dependency graph keeps the work bounded. If a CUDA support table changes, update the claims that cite that table. If a price changes, update the cost section. If a definition still matches the standard, leave the conceptual section alone.',
-        'It also works because it preserves versions. Old evidence is not erased. The ledger can show that a claim was true under a previous source date, then superseded by a new release, contradicted by an independent benchmark, or downgraded because a source became unavailable. That history is useful for audit, reproducibility, and user trust. It prevents the system from pretending the report was always current.',
+        'The correctness argument is reachability in the dependency graph. If every claim names its evidence span and every section names the claims it uses, then a changed evidence span can only affect nodes reachable from that span. Stable claims with no path from the changed source do not need to be reopened.',
+        'The queue is correct for deadline selection under its policy because the highest-risk due job is examined first. A lazy recheck handles updates: when a claim receives new evidence, the scheduler recomputes its due time and ignores stale heap entries. The invariant is that no accepted article section depends on an expired or contradicted claim without carrying that status.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is bookkeeping. Every claim needs metadata, and every refresh job needs a result. That overhead is not worth it for throwaway notes, but it is worth it for reports that drive decisions, compliance, market strategy, security posture, medical workflows, legal analysis, or benchmark claims. The scheduler also needs storage for source snapshots or hashes, because silent source changes are common.',
-        'There are operational tradeoffs. Watch queries can create noise. Over-refreshing can waste search budget and destabilize reports. Under-refreshing can leave stale claims in high-visibility sections. Automated diffs can miss semantic changes, especially when a source rewrites language without changing numbers. Permissioned sources require access checks. A system should never refresh private evidence into a public answer without verifying scope.',
+        'The main cost is metadata. If 400 claims each store a 2 KB record for source pointers, spans, policy, status, and version history, the ledger is under 1 MB, but the human and tool discipline is real. Each new claim must be classified before the scheduler can protect it.',
+        'Runtime is dominated by refresh work, not by the heap. A priority queue gives O(log n) inserts and updates, so 400 or 40,000 claims are cheap to schedule. The expensive behavior is source fetching, benchmark reruns, permission checks, and review of contradictions.',
+        'Over-refreshing is a product bug. It burns search budget, creates churn, and can destabilize polished text. Under-refreshing is a trust bug because stale high-stakes claims remain in the report while the prose still sounds confident.',
       ],
     },
     {
-      heading: 'Real uses',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A market report can assign short TTLs to prices, funding, leadership, product availability, and benchmark tables while giving long TTLs to definitions and historical background. A security report can watch CVEs, advisories, exploit status, patch versions, and vendor guidance. A legal memo can watch regulations, court decisions, agency guidance, and jurisdiction-specific updates. A model-selection report can watch model cards, release notes, pricing pages, latency benchmarks, and deprecation notices.',
-        'Agentic research products need this especially. A user may return to a report weeks later and ask for an update. The right response is not to regenerate everything from memory. The system should know which claims are stale, which watch jobs are due, what changed, and which sections need revision. That is how a research workspace becomes durable instead of a pile of one-off transcripts.',
+        'Market research can give short time-to-live policies to prices, funding, leadership, product availability, and benchmark tables while giving long policies to background definitions. Security reports can watch advisories, exploit status, patch versions, and vendor guidance. Legal and financial work need stricter review because stale claims can change a decision, not just a footnote.',
+        'Agentic research products need this because users return to old work. The system should know which claims are stale, which checks are blocked, what changed, and which sections need revision. That turns a one-off answer into a maintained research object.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Where it fails',
       paragraphs: [
-        'Do not treat publication date as the only freshness signal. A page can be undated, silently modified, or current in one section and stale in another. Do not trust an access date without storing what was accessed. Do not refresh every source equally. Do not silently overwrite old evidence. Do not let a report stay unchanged simply because the prose still reads well.',
-        'The scheduler can also fail by overconfidence. A watch query may miss the authoritative update. A source may move behind an access wall. A benchmark rerun may not be comparable to the old setup. A contradiction may be real rather than a data-entry error. The system should surface these states as review items. Freshness automation is a control loop, not a license to skip judgment.',
+        'It fails when publication date is treated as truth. A page can be undated, silently modified, or current in one paragraph and stale in another. An access date without a stored span or source hash only proves that something was opened.',
+        'It also fails when watch queries miss the authoritative update. A vendor page may lag a release note, a benchmark rerun may not be comparable, and a source can move behind an access wall. The scheduler should surface uncertainty as a review state rather than converting weak evidence into confident prose.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Study Claim Graph & Source Ledger, Source Authority Triage Priority Queue, Research Contradiction Resolution Graph, Deep Research Question Decomposition DAG, RAG Index Lifecycle and Alias Swap, Feature Freshness SLO Monitor, HTTP Cache ETag Revalidation, Cache Invalidation & Versioning, Temporal Workflow Case Study, OpenLineage Metadata Lineage Graph Case Study, W3C PROV-DM, Dublin Core Metadata Terms, and NIST AI Risk Management Framework at https://www.nist.gov/itl/ai-risk-management-framework. The next design question is how to choose TTL policy from claim class, source volatility, decision stakes, and refresh cost.',
+        'Suppose a 400-claim model-selection report has 260 stable claims, 90 product claims, 30 pricing claims, and 20 benchmark claims. Stable definitions get a 365-day policy, product claims get 30 days, pricing gets 7 days, and benchmark claims get 14 days or a rerun trigger. On day 15, only the benchmark and pricing claims are due unless a watched source changed.',
+        'A full refresh costs 6 hours. The scheduler instead checks 50 due claims: 30 pricing pages at 2 minutes each and 20 benchmark claims at 6 minutes each, for about 3 hours before review. If 6 claims changed, only the dependent cost and benchmark sections reopen.',
+        'Now one pricing source is unreachable. The job outcome is not unchanged; it is access restricted, and the dependent claim is marked blocked. That blocked status is part of the answer because the old price may still be displayed only with an explicit stale-evidence warning.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study W3C PROV-DM for provenance graphs, Dublin Core for source lifecycle fields, OpenLineage for job and dataset metadata, HTTP cache revalidation for validator-based freshness, and NIST AI Risk Management Framework for risk-based controls. Then study Claim Graph and Source Ledger, Source Authority Triage Priority Queue, Research Contradiction Resolution Graph, Feature Freshness SLO Monitor, Cache Invalidation and Versioning, and Temporal Workflow Case Study.',
+        'The next exercise is to design a time-to-live policy for five claim classes. Give each class a volatility estimate, a source authority rule, a refresh cost, and a user-harm level. If two classes receive the same policy, explain why their stale behavior is actually the same.',
       ],
     },
   ],

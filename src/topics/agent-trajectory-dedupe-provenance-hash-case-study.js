@@ -1,4 +1,4 @@
-﻿// Coding-agent trajectory dedupe: normalize operations, fingerprint behavior,
+// Coding-agent trajectory dedupe: normalize operations, fingerprint behavior,
 // and keep provenance hashes so train/eval splits cannot silently leak.
 
 import { graphState, matrixState, plotState, InputError } from '../core/state.js';
@@ -256,259 +256,89 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The "trajectory fingerprints" view shows the pipeline from raw rollout to canonical record. Active nodes are the stage currently executing. Found nodes are outputs now committed. The graph traces how task metadata, environment identity, operation events, patch diffs, and oracle results flow through normalization and MinHash into a provenance hash.',
-        'The "split leakage guard" view shows how near-duplicate families are routed into train, eval, or quarantine buckets. Active edges are live assignment paths. Removed nodes are quarantined families awaiting human review. The split ledger at the end is the audit artifact.',
-        {
-          type: 'note',
-          text: 'In the similarity-threshold plot, the "review band" marker shows the zone where automated merge decisions are unreliable. Traces above the band merge automatically; traces below are kept as distinct. Traces inside the band require human judgment.',
-        },
+        {type:'callout', text:'The core problem: surface-level transcript diversity hides behavioral duplication. Three agents that use different shell commands to find the same bug and apply the same patch have produced one lesson, not three. Without dedupe, training overweights the ritual and evaluation inflates the score.'},
+        'Read the trajectory-fingerprints view as a data-cleaning pipeline. A trajectory is one recorded agent run: task, environment, tool events, patch, verifier result, and final outcome. Active nodes show raw evidence being normalized into fingerprints.',
+        'Read the split-leakage view as benchmark protection. A split is the assignment of examples to training or evaluation. The safe inference is that near-duplicate families must not straddle train and eval unless that transfer is the explicit thing being measured.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          text: 'If the same bug-fix pattern appears in both training and evaluation under different surface forms, the benchmark measures memorization, not generalization.',
-          attribution: 'Core problem statement for coding-agent data pipelines',
-        },
-        {type:'callout', text:'The core problem: surface-level transcript diversity hides behavioral duplication. Three agents that use different shell commands to find the same bug and apply the same patch have produced one lesson, not three. Without dedupe, training overweights the ritual and evaluation inflates the score.'},
-        'Coding-agent factories produce thousands of successful rollouts per day. A factory runs an agent against a pinned issue, records the tool calls, captures the final patch, confirms it passes the test oracle, and stores the trajectory. But three agents that use grep, rg, and direct file open to find the same assertion failure, apply the same guard, and pass the same test have produced one lesson wrapped in three transcripts.',
-        'The damage is twofold. Training overweights the repeated pattern -- the model learns the patch ritual rather than the debugging skill. Evaluation inflates accuracy -- a "held-out" task that shares a mutation template, test oracle, or patch hunk with training data is not truly held out.',
-        {
-          type: 'table',
-          headers: ['Duplication type', 'Surface difference', 'Shared evidence', 'Risk if missed'],
-          rows: [
-            ['Exact re-ingestion', 'None', 'Everything', 'Sampler overweights one example'],
-            ['Tool-call variation', 'grep vs rg vs cat', 'Patch + oracle + task', 'False diversity in training'],
-            ['Mirror repository', 'Repo name, paths', 'Mutation template + test', 'Train/eval leakage'],
-            ['Synthetic mutation sibling', 'Variable names, line numbers', 'Generator seed + fix pattern', 'Benchmark inflation'],
-            ['Conceptual neighbor', 'Different repo, different test', 'Same fix idea', 'Acceptable if labeled'],
-          ],
-        },
+        'Coding-agent data factories produce many successful rollouts. Different agents can use different shell commands, explanations, or edit formatting while solving the same underlying bug with the same patch idea. Those records look diverse at the transcript level but teach one lesson.',
+        'Dedupe exists to prevent two failures. Training can overweight repeated repair rituals, and evaluation can leak answer patterns from training into held-out tasks. A provenance hash gives each family of related trajectories a durable identity.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The first instinct is exact matching. Hash the final diff, hash the test output, hash the issue description. If two records produce the same hash, merge them. This is fast, deterministic, and necessary -- it catches accidental re-ingestion, copy-paste imports, and identical reruns.',
-        {
-          type: 'code',
-          language: 'python',
-          text: '# Exact dedupe: hash the observable outputs\ndef exact_fingerprint(trajectory):\n    return hashlib.sha256(\n        trajectory.task_id.encode() +\n        trajectory.patch_diff.encode() +\n        trajectory.oracle_result.encode()\n    ).hexdigest()',
-        },
-        'Exact matching works for the easiest 20% of duplicates and costs almost nothing. It is a prerequisite, not a solution.',
+        'The obvious approach is exact matching. Hash the issue text, final diff, and test output. If two hashes match, merge the records. This is fast, deterministic, and catches accidental re-ingestion.',
+        'Exact matching is necessary but shallow. It catches identical reruns and copied files, but it misses same-behavior traces with different tool syntax, line numbers, variable names, or whitespace. It also cannot explain conceptual similarity that should be tagged but not merged.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'Behavior stays the same while surface text changes. Two agents apply the same one-line guard to the same function, but one uses single quotes and the other uses double quotes -- different diff hash, same fix. Line numbers shift after an unrelated commit -- different hunk header, same semantic patch. The model explains its plan in different words each run -- different transcript, same operation sequence.',
-        {
-          type: 'table',
-          headers: ['Noise source', 'What changes', 'What stays the same', 'Exact-match verdict'],
-          rows: [
-            ['Whitespace formatting', 'Diff text', 'AST change', 'Distinct (wrong)'],
-            ['Line number drift', 'Hunk header', 'Edited function + logic', 'Distinct (wrong)'],
-            ['Tool selection', 'Shell commands', 'Information gathered', 'Distinct (wrong)'],
-            ['Explanation wording', 'Transcript text', 'Operation sequence', 'Distinct (wrong)'],
-            ['Variable renaming (synthetic)', 'All identifiers', 'Fix structure + test shape', 'Distinct (wrong)'],
-          ],
-        },
-        'The opposite failure is equally dangerous. Two tasks both mention "off by one" but require editing different files, different functions, and different tests. A fuzzy matcher that groups on description text will merge genuinely distinct repairs.',
-        {
-          type: 'note',
-          text: 'The invariant: dedupe must be sensitive to what the agent actually did (operation sequence, patch semantics, oracle identity) and insensitive to how it said it (formatting, tool choice, explanation text, line numbers).',
-        },
+        'The wall is surface variation. One agent uses grep, another uses rg, and a third opens the file directly. One patch writes if not tokens, another writes if len(tokens) == 0. Exact diff hashes differ, but the behavior may be the same guard on the same failing case.',
+        'The opposite wall is false merge. Two tasks can both mention off-by-one and both run tests, while editing different functions for different reasons. A fuzzy text matcher can collapse distinct repairs and remove useful training diversity.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Compare trajectories through multiple independent lenses, then let provenance decide which similarities threaten split integrity.',
-        {
-          type: 'bullets',
-          items: [
-            'Normalized operation sequence: abstract away tool names and paths into canonical operations (read-file, search-text, edit-hunk, run-test).',
-            'Patch fingerprint: hash the edited function, removed logic, and added logic at the AST level, not the text level.',
-            'Oracle fingerprint: hash the test command identity, failing test name, error class, and pass/fail outcome.',
-            'Task provenance: repository id, issue family, synthetic mutation id, base commit, environment digest.',
-          ],
-        },
-        'No single lens is sufficient. Two trajectories can share an operation sequence while fixing different bugs (same debugging ritual, different targets). They can share a patch fingerprint while using completely different discovery paths. The family decision requires agreement across lenses.',
-        {
-          type: 'diagram',
-          label: 'Multi-lens comparison: each lens catches a different kind of duplicate',
-          text: 'Trajectory A ──┬── ops: [search, read, edit, test]  ─── match ──── ops: [search, read, edit, test] ──┬── Trajectory B\n               ├── patch: guard(tokens != null)     ─── match ──── patch: guard(tokens != null)     ├\n               ├── oracle: test_empty_input PASS     ─── match ──── oracle: test_empty_input PASS     ├\n               └── prov: repo=X, issue=42, mut=m7   ─── match ──── prov: repo=X, issue=42, mut=m7   ┘\n                                                                                                      \n               All four lenses agree => merge into one canonical family.',
-        },
-        'The main data structure is a canonical family record: a provenance root, a split assignment, aliases to every member rollout, per-lens similarity scores, and a sampler policy (merge / downsample / tag / promote). The family record never deletes evidence. It tells downstream systems how many times each trajectory should count and where it may appear.',
+        'Compare trajectories through several lenses. Normalize the operation sequence, fingerprint the patch, fingerprint the oracle, and preserve task provenance. A lens is one independent view of similarity; no single lens is trusted alone.',
+        'Provenance means recorded origin: repository id, issue family, base commit, synthetic mutation id, environment digest, patch fingerprint, oracle fingerprint, and normalized operation signature. A canonical family record stores aliases to all related rollouts plus the split assignment and sampler weight.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The pipeline runs four passes over the raw trajectory pool.',
-        {
-          type: 'table',
-          headers: ['Pass', 'Method', 'Output', 'Cost'],
-          rows: [
-            ['1. Exact dedupe', 'SHA-256 on (task_id, patch_hash, oracle_hash)', 'Alias groups', 'O(n)'],
-            ['2. Near-duplicate candidates', 'MinHash + LSH on operation shingles', 'Candidate pairs', 'O(n) expected'],
-            ['3. Provenance linking', 'Join on repo lineage, mutation id, issue family', 'Family roots', 'O(n log n)'],
-            ['4. Canonical decision', 'Multi-lens scoring + policy rules', 'Split ledger entries', 'O(families)'],
-          ],
-        },
-        'Pass 1: Normalization. Each trajectory event is converted to a canonical operation record. Tool calls become abstract ops (read-file, search-text, edit-hunk, run-test, inspect-error). Shell commands become command kinds with normalized paths. Patches become AST-aware hunk fingerprints. Test outputs become oracle fingerprints (test name, error class, pass/fail).',
-        {
-          type: 'code',
-          language: 'python',
-          text: '# Normalize a tool-call event into a canonical operation\ndef normalize_event(event):\n    op_map = {\n        "cat": "read-file", "bat": "read-file",\n        "grep": "search-text", "rg": "search-text", "ag": "search-text",\n        "sed": "edit-hunk", "patch": "edit-hunk",\n        "pytest": "run-test", "jest": "run-test", "cargo test": "run-test",\n    }\n    kind = op_map.get(event.tool, event.tool)\n    target = normalize_path(event.target)  # strip absolute prefix\n    return CanonicalOp(kind=kind, target=target)',
-        },
-        'Pass 2: Shingling and MinHash. The normalized operation stream is broken into overlapping k-shingles (k=3 works well for typical 10-30 step trajectories). Each shingle is a tuple like (search-text, read-file, edit-hunk). MinHash compresses the shingle set into a fixed-size signature, and LSH buckets group trajectories with high Jaccard similarity.',
-        {
-          type: 'code',
-          language: 'python',
-          text: '# Operation shingles for a trajectory\ndef shingle(ops, k=3):\n    return {tuple(ops[i:i+k]) for i in range(len(ops) - k + 1)}\n\n# Example: [search-text, read-file, edit-hunk, run-test, inspect-error, edit-hunk, run-test]\n# Shingles: {(search-text, read-file, edit-hunk),\n#            (read-file, edit-hunk, run-test),\n#            (edit-hunk, run-test, inspect-error),\n#            (run-test, inspect-error, edit-hunk),\n#            (inspect-error, edit-hunk, run-test)}',
-        },
-        'Pass 3: Provenance linking. Trajectories that share a synthetic mutation id, issue family, or repository lineage are linked into families regardless of behavioral similarity. This catches mirror-repo duplicates that may have different operation sequences but derive from the same source task.',
-        'Pass 4: Canonical decision. Each family receives a policy based on multi-lens evidence:',
-        {
-          type: 'table',
-          headers: ['Evidence pattern', 'Decision', 'Sampler policy'],
-          rows: [
-            ['All lenses match', 'Exact duplicate', 'Merge: keep one, alias the rest'],
-            ['Ops + oracle match, patch differs cosmetically', 'Near duplicate', 'Downsample: weight = 1/family_size'],
-            ['Provenance links but behavior differs', 'Issue family', 'Same-split: all members on one side'],
-            ['One lens matches, others diverge', 'Ambiguous', 'Quarantine: hold for human review'],
-            ['No lenses match', 'Novel', 'Promote: full weight, independent sampling'],
-          ],
-        },
+        'First normalize events. Tool calls become abstract operations such as read-file, search-text, edit-hunk, run-test, and inspect-error. Paths lose machine-specific prefixes. Test output becomes oracle identity: command, failing test, error class, and pass or fail.',
+        'Second, build near-duplicate candidates. Operation streams are broken into shingles, which are short overlapping subsequences. MinHash compresses the shingle set into a signature, and locality-sensitive hashing groups likely-near trajectories for exact review.',
+        'Third, link provenance. If two records share a synthetic mutation id or issue family, they stay in one family even if their surface behavior differs. The final policy can merge exact duplicates, downsample near duplicates, keep conceptual neighbors tagged, or quarantine ambiguous records.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness target is not perfect similarity judgment -- it is controlled split integrity. The system enforces three invariants:',
-        {
-          type: 'bullets',
-          items: [
-            'No exact duplicate counts more than once in the sampler.',
-            'No near-duplicate family inflates diversity metrics.',
-            'No family straddles the train/eval boundary unless the evaluation explicitly measures that kind of transfer.',
-          ],
-        },
-        'The family root is the key mechanism. Without it, two independent pipelines can make contradictory split assignments: pipeline A places trajectory T1 in training because its transcript is novel, pipeline B places T1\'s sibling T2 in evaluation because the issue id differs slightly. The model sees the answer pattern during training. The benchmark reports a held-out win. The family root prevents this by anchoring all split decisions to a single provenance identity.',
-        {
-          type: 'diagram',
-          label: 'Split leakage without family roots',
-          text: 'Pipeline A:  T1 (transcript "grep ...") ──> train     }\n                                                        } same fix, same test, same mutation\nPipeline B:  T2 (transcript "rg ...")   ──> eval      }\n\nResult: model trains on the answer, benchmark claims generalization.\n\nWith family root:\n  Family F42 = {T1, T2}  ──> root assigns to train  ──> both in train\n                                                         eval slot given to a different family.',
-        },
-        'The multi-lens design prevents both false merges (single-lens coincidence) and false negatives (surface variation hiding behavioral identity). LSH provides cheap broad recall; patch and oracle fingerprints provide high-precision confirmation; provenance catches relationships that behavior alone cannot reveal.',
+        'The correctness target is controlled split integrity, not perfect semantic judgment. The system enforces that exact duplicates count once, near-duplicate families do not inflate diversity metrics, and one family does not appear on both sides of a train/eval split.',
+        'The family root prevents contradictory decisions. Without it, one pipeline can put trace A in train while another puts trace B from the same mutation in eval. With it, the split decision belongs to the family, and every member inherits that assignment.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Component', 'Time', 'Space', 'Dominant cost in practice'],
-          rows: [
-            ['Normalization', 'O(n * avg_steps)', 'O(n * avg_steps)', 'AST parsing for patch fingerprints'],
-            ['Shingling + MinHash', 'O(n * shingles * num_hashes)', 'O(n * sig_size)', 'Hash computation per shingle'],
-            ['LSH bucketing', 'O(n * bands)', 'O(n * bands)', 'Band-level hash collisions'],
-            ['Candidate verification', 'O(candidates * lenses)', 'O(1) per pair', 'Patch-level AST diff'],
-            ['Provenance linking', 'O(n log n)', 'O(n)', 'Join on mutation/issue ids'],
-            ['Split ledger write', 'O(families)', 'O(families)', 'Append-only, cheap'],
-          ],
-        },
-        'For 100,000 trajectories with 20 steps each, normalization takes minutes. MinHash with 128 hashes and 20 LSH bands runs in under a minute. The bottleneck is candidate verification: each candidate pair requires multi-lens comparison, and AST-level patch diffing is the most expensive lens. In practice, LSH reduces the quadratic comparison space to a few percent of all pairs.',
-        {
-          type: 'note',
-          text: 'The similarity threshold is a data-product decision, not a mathematical constant. Setting it too low (0.55) catches 96% of duplicates but false-merges 30% of pairs. Setting it too high (0.95) misses 72% of near-duplicates. The animation plots this tradeoff. Most teams use a review band (0.75-0.85) where automated decisions are unreliable and human audit is required.',
-        },
-        'Over-deduplication starves training of variation. Two repairs may share the operation sequence read-file, edit-hunk, run-test while requiring entirely different reasoning about the bug. Under-deduplication inflates benchmarks. The safe default is to err toward quarantine: when in doubt, hold the family for review rather than silently merging or silently splitting.',
+        'Let n be trajectory count and s be average steps per trajectory. Normalization costs O(n * s). Exact hashing costs O(n). MinHash and locality-sensitive hashing are roughly linear in the number of shingles and hash functions, while candidate verification costs depend on how many pairs fall into the same buckets.',
+        'For 100,000 trajectories with 20 steps each, normalization touches about 2,000,000 events. With 128 MinHash functions, the signature store is 12,800,000 small hash values. The expensive part is patch-level comparison on candidate pairs, so the pipeline uses LSH to avoid all-pairs comparison.',
+        'Cost is behavior because thresholds change the dataset. A low similarity threshold catches more duplicates but risks false merges. A high threshold preserves diversity but lets leakage survive. A review band around the cutoff is usually better than one magic number.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'SWE-bench and similar coding-agent benchmarks: provenance hashing ensures that train/eval splits are family-aware, not just text-aware. A benchmark that can show its split ledger is more credible than one that claims dedupe by exact diff hash.',
-            'Agent training pipelines (reinforcement learning from rollouts): the sampler weights families, not raw trajectories, preventing the reward signal from being dominated by whichever bug-fix pattern the factory ran most often.',
-            'Synthetic data generation: mutation-based task generators tag each task with its generator seed and template family. Downstream dedupe links siblings automatically instead of rediscovering relationships from behavior.',
-            'Curriculum design: repeated families can be intentionally kept for measuring retry robustness or interface variation, but the label says "same family, different surface" rather than pretending independence.',
-            'Legal and compliance audit: the alias structure preserves every original transcript while the canonical record controls what counts. Auditors can trace any training example back to its source rollout and its family membership.',
-          ],
-        },
+        'Coding-agent benchmarks use this to protect train/eval splits. If a benchmark can show family-aware dedupe, its held-out claims are more credible than a dataset that only hashes raw text. Training pipelines use it to weight families rather than raw trajectory count.',
+        'Synthetic data systems need it because mutation generators can produce siblings with different names and paths but the same repair idea. Curriculum systems can intentionally keep siblings for interface-robustness training, but the label must say same family, different surface.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Normalization is the single point of failure. If AST-aware patch fingerprinting reduces a subtle logic change to "edited same function," two genuinely different fixes will merge. If command normalization strips a flag that distinguished two debugging strategies, distinct approaches become identical. The normalized representation must be validated against labeled duplicate/non-duplicate pairs before production use.',
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Cause', 'Consequence', 'Mitigation'],
-          rows: [
-            ['Over-merging', 'Normalization too aggressive', 'Distinct fixes collapsed, training diversity lost', 'Test against known non-duplicate pairs'],
-            ['Under-merging', 'Normalization too conservative', 'Duplicates survive, benchmarks inflated', 'Audit held-out set for family leakage'],
-            ['Missing provenance', 'Upstream did not record mutation/seed ids', 'Must infer families from behavior alone', 'Require provenance at generation time'],
-            ['Threshold treated as truth', 'No review band, no quarantine', 'Borderline cases silently misclassified', 'Always define an ambiguous zone'],
-            ['Stale split ledger', 'New rollouts added without re-running dedupe', 'New duplicates leak into old split', 'Incremental dedupe on ingestion'],
-          ],
-        },
-        'Provenance hashing also fails when upstream provenance is dishonest or missing. If a synthetic task generator does not record its seed, template, or mutation family, later dedupe must infer relationships from behavior -- weaker, slower, and less reliable than preserving provenance at creation time.',
-        {
-          type: 'note',
-          text: 'A privacy tension exists: strong provenance hashes may encode sensitive repository or task information. Separate internal audit keys from public dataset identifiers. Use salted or scoped hashes where full provenance disclosure would leak private relationships.',
-        },
+        'It fails when normalization removes the thing that mattered. If an AST patch fingerprint reduces two different fixes to edited same function, over-merging destroys useful training variation. If command normalization strips a flag that changed behavior, two strategies become falsely identical.',
+        'It also fails when provenance was never recorded. If upstream generators omit seed, template, issue family, or base commit, later dedupe has to infer relationships from behavior alone. Inference is weaker and slower than preserving provenance at creation time.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A factory generates four successful Python bug-fix trajectories against parser modules:',
-        {
-          type: 'table',
-          headers: ['Trace', 'Search tool', 'Target file', 'Fix applied', 'Test passed', 'Repo origin'],
-          rows: [
-            ['A', 'grep', 'parser.py', 'guard: if not tokens: return []', 'test_empty_input', 'repo-X'],
-            ['B', 'rg', 'parser.py', 'guard: if tokens is None or len(tokens)==0: return []', 'test_empty_input', 'repo-X'],
-            ['C', 'grep', 'parser.py', 'guard: if not tokens: return []', 'test_empty_input', 'repo-X-mirror (same mutation m7)'],
-            ['D', 'ag', 'tokenizer.py', 'guard: if not stream: return default', 'test_no_stream', 'repo-Y'],
-          ],
-        },
-        'Pass 1 (exact): No exact hash matches -- different tool calls produce different transcripts, and C has different file paths due to the mirror.',
-        'Pass 2 (near-duplicate): A and B share operation shingles (search-text, read-file, edit-hunk, run-test), patch fingerprint (same function, same guard logic at AST level despite formatting difference), and oracle fingerprint (test_empty_input PASS). Jaccard similarity on shingles: 0.92. They are merged into one canonical record.',
-        'Pass 3 (provenance): C links to the same family through synthetic mutation id m7. Even though C came from a mirror repo, provenance says it is the same task. C is assigned to the same split as A/B.',
-        'Pass 4 (canonical decision): D shares the abstract pattern "guard against empty input" but edits a different file, passes a different test, and comes from a different repo. One lens matches (operation sequence); three do not (patch, oracle, provenance). D is tagged as a conceptual neighbor but kept as an independent sample.',
-        {
-          type: 'code',
-          language: 'python',
-          text: '# Final split ledger entry for family F42\n{\n  "family_id": "F42",\n  "provenance_root": {"repo": "repo-X", "issue": 42, "mutation": "m7"},\n  "members": ["trace-A", "trace-B", "trace-C"],\n  "canonical": "trace-A",\n  "split": "train",\n  "policy": "downsample",\n  "weight": 0.33,\n  "neighbors": [{"id": "trace-D", "relation": "conceptual", "split": "eval"}],\n  "decision_reason": "3/4 lenses match across A,B; provenance links C; D diverges on patch+oracle+provenance"\n}',
-        },
-        'A future benchmark report can explain why one empty-input guard did not count as four independent wins. The split ledger is the proof artifact.',
+        'A factory records four traces. A uses grep and adds if not tokens: return [] in parser.py, passing test_empty_input. B uses rg and adds if tokens is None or len(tokens) == 0: return [] in the same function, passing the same test. C comes from a mirror repo with synthetic mutation m7 and the same fix. D edits tokenizer.py for a different empty-stream test.',
+        'Exact diff hashing finds no matches because formatting, paths, and repos differ. Operation shingles put A and B at 0.92 similarity, patch fingerprints say same function and same guard meaning, and oracle fingerprints match. C joins through mutation id m7. D shares the broad idea empty input guard but differs on patch, oracle, and provenance.',
+        'The split ledger creates family F42 with members A, B, and C, assigns the family to train, and gives it weight 0.33 per member or one canonical sample. D is tagged as a conceptual neighbor but remains independent. The eval set no longer contains the same bug under a mirror transcript.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Andrei Z. Broder, "On the Resemblance and Containment of Documents," 1997. The foundational MinHash paper that makes set-similarity estimation practical for large collections. The shingling-to-MinHash-to-LSH pipeline used here is a direct application.',
-            'Carlos E. Jimenez et al., "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?," 2023. The benchmark that made coding-agent trajectory quality a concrete problem. Its task-instance deduplication strategy is the motivating use case.',
-            'Indyk and Motwani, "Approximate Nearest Neighbors: Towards Removing the Curse of Dimensionality," 1998. The LSH framework that makes sublinear candidate search possible in the near-duplicate pass.',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'Prerequisite: MinHash and locality-sensitive hashing (the similarity engine). Extension: verified agent trajectory stores (the upstream data model). Contrast: RAG chunk dedupe (same problem, different unit -- document fragments instead of behavior traces). Related case study: agent checkpoint replay ledger (the execution-level view of the same provenance problem).',
-        },
+        'Study Andrei Broder, On the Resemblance and Containment of Documents, 1997; Indyk and Motwani, Approximate Nearest Neighbors, 1998; and SWE-bench at https://arxiv.org/abs/2310.06770. Then study MinHash and Locality-Sensitive Hashing, Verified Agent Trajectory Store, Agent Checkpoint Replay Ledger, RAG Chunk Dedupe, and Data Leakage and Contamination.',
       ],
     },
   ],
 };
-

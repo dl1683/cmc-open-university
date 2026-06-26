@@ -240,47 +240,93 @@ export function* run(input) {
   else throw new InputError('Pick a WebAssembly memory view.');
 }
 
-const legacyArticle = {
+export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'WebAssembly needs to run low-level code without handing that code native pointers into the browser or host process. C, C++, Rust, and other compiled languages still need addresses, loads, stores, stacks, heaps, structs, and byte buffers. Linear memory is the compromise: one sandboxed byte array that Wasm can address directly.',
-        'The official core specification describes linear memory as a mutable byte array, and MDN describes WebAssembly.Memory as the resizable buffer accessed by a WebAssembly instance: https://www.w3.org/TR/wasm-core-2/ and https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory. This topic is the bridge between arrays, allocators, typed arrays, browser runtimes, and sandboxing.',
+        'Read the linear-memory view as one byte buffer with several typed interpretations. Active nodes show a load, store, pointer, or view being used now. Found nodes are offsets and lengths that are safe to pass across the JavaScript and WebAssembly boundary.',
+        'The safe inference is that a WebAssembly pointer is a number, not a JavaScript object reference. If the animation shows pointer 1024 and length 12, JavaScript must create a view over memory.buffer at that byte range. It must not treat 1024 as a host heap address.',
         {type:'callout', text:'Linear memory is the contract that lets low-level code use numeric offsets while the host sees only a sandboxed, resizable byte buffer.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/1/1f/WebAssembly_Logo.svg', alt:'WebAssembly logo with white WA letters on a purple square.', caption:'WebAssembly logo, by Carlos Baraza Haro, CC0, via Wikimedia Commons.'},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'WebAssembly needs to run low-level code without handing it native pointers into the browser or host process. C, C++, Rust, and other compiled languages still need addresses, stacks, heaps, structs, arrays, strings, and byte buffers. Linear memory is the compromise: one sandboxed byte array that Wasm can address directly.',
+        'JavaScript sees that memory as a WebAssembly.Memory buffer. Wasm code sees numeric offsets inside a contiguous address space. The boundary lets compiled code use efficient loads and stores while the host keeps the memory sandboxed.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        'The easy mistake is to treat a Wasm pointer like a JavaScript object reference. It is not one. A pointer is just an integer offset into the module memory. JavaScript cannot follow it as an object, and Wasm cannot use it to escape into the host heap.',
-        'Another mistake is to cache typed-array views forever. For non-shared memory, memory.grow detaches references to the old buffer, even grow(0), so code that keeps a Uint8Array over memory.buffer must recreate the view after any call that may grow memory: https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory/grow.',
+        'The obvious approach is to pass JavaScript objects into compiled code and expect the module to read them. That is how ordinary JavaScript functions work, so it is a natural first thought. It fails because Wasm has no direct access to the JavaScript heap object graph.',
+        'The next mistake is to treat a Wasm pointer like a host pointer. A pointer returned by malloc is only an offset into linear memory. JavaScript must combine that offset with a length and a typed-array view before it can read or write bytes.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is representation. JavaScript strings, arrays, and objects have engine-specific layouts, garbage-collector movement, and hidden metadata. Wasm instructions load and store bytes at numeric offsets. Those worlds cannot share object identity directly.',
+        'Growth creates another wall. For non-shared memory, memory.grow can detach old ArrayBuffer views. Code that caches a Uint8Array over memory.buffer forever can silently read from a stale view after a call that grows memory.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A memory has an initial size measured in pages. One WebAssembly page is 64 KiB. A module can import memory from JavaScript or create and export memory to JavaScript. JavaScript creates typed-array views such as Uint8Array, Uint32Array, or Float64Array over the same buffer. Those views do not copy data; they reinterpret the same bytes with different element widths.',
-        'The invariant is pointer plus length. Compound values cross the boundary by writing bytes into memory, passing an offset and length to an exported function, and reading bytes back through a fresh view. Loads and stores are bounds-checked against linear memory, so an out-of-bounds access traps instead of reading arbitrary host memory.',
-        'Toolchains such as Emscripten add calling helpers, string conversion, malloc/free wrappers, and HEAP8/HEAPU8/HEAP32-style views, but the model underneath is still bytes plus offsets: https://emscripten.org/docs/api_reference/preamble.js.html.',
+        'The cross-boundary contract is pointer plus length. To pass a string or array, JavaScript encodes bytes into linear memory, passes the offset and byte count to Wasm, and reads results back through a fresh view. The object disappears; the byte layout is the API.',
+        'One WebAssembly page is 64 KiB. A memory starts with an initial page count and may have a maximum. Loads and stores are bounds-checked against the current memory size, so an out-of-bounds access traps instead of reading arbitrary host memory.',
       ],
     },
     {
-      heading: 'How to read the animation',
+      heading: 'How it works',
       paragraphs: [
-        'In the linear-memory view, watch one buffer fan out into Uint8, Uint32, and Float64 interpretations. The point is not that there are three copies; the point is that one byte store can be viewed with several element widths, so offsets, alignment, and encoding become part of the contract.',
-        'In the growth-and-interop view, malloc returns a numeric pointer, JavaScript creates a view over that range, and growth makes old views unsafe for non-shared memory. The safe rule is to store pointer and length, recreate views after growth, and pair ownership with free when the module owns the heap. If you remember only one thing, remember that the pointer is a number inside Wasm memory, not a host object.',
+        'A module can import memory from JavaScript or create and export memory. JavaScript creates views such as Uint8Array, Uint32Array, or Float64Array over memory.buffer. Those views do not copy bytes; they interpret the same buffer with different element widths.',
+        'A compiled allocator manages heap space inside that buffer. malloc returns an offset, free releases a range back to the allocator, and structs are fields at agreed byte offsets. Toolchains add helpers for strings and arrays, but the underlying mechanism remains bytes, offsets, and views.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Correctness comes from bounded address translation. Wasm code can compute address 1024, but that address only means byte 1024 inside the module memory. The engine checks the access against current memory bounds before performing the load or store.',
+        'Interop correctness comes from preserving encoding and ownership. If JavaScript writes UTF-8 bytes at ptr with length len, Wasm must read exactly that range using the same encoding. If Wasm owns the allocation, JavaScript must not keep using the range after free or after a call that may reallocate it.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'The base cost is copying and encoding at the boundary. Suppose JavaScript sends a 10 MB image into Wasm. Encoding may be free if the source is already bytes, but the write into linear memory still moves 10 MB, and a result copied back moves more bytes.',
+        'Memory pages make growth coarse. Growing by 16 pages adds 1 MiB because 16 * 64 KiB equals 1,048,576 bytes. Growth can be expensive because old views must be recreated and the runtime may reserve or commit more backing storage.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'Linear memory wins when native-style code needs predictable byte layout, portable sandboxing, and efficient bulk exchange with JavaScript. It connects Buddy Allocator Free Lists and Slab Allocator Size Classes to browser execution because compiled allocators manage a heap inside this byte array. It also connects Apache Arrow Columnar Memory Case Study because both rely on byte buffers, typed views, and offsets.',
-        'It fails when callers forget the boundary contract. JavaScript strings are not raw C strings. Struct layout needs agreed alignment and field widths. Cached views can go stale. Shared memory introduces Atomics and cross-origin isolation requirements. The sandbox prevents host-memory escape, but C code can still corrupt its own heap inside linear memory.',
-        'WebAssembly is not only a browser feature. The core format is portable, though browsers expose it through JavaScript APIs. V8 4GB Wasm Memory is a useful example of how runtime and toolchain details affect large memories in practice: https://v8.dev/blog/4gb-wasm-memory.',
+        'Linear memory fits codecs, image processing, compression, parsers, cryptography, games, scientific kernels, and libraries compiled from C, C++, Rust, or Zig. The access pattern is bulk byte exchange plus many low-level operations inside the module.',
+        'It also explains nearby systems. WebGPU buffers, Apache Arrow arrays, and network protocols all force object-rich code into flat bytes at boundaries. Once data crosses that boundary, layout, alignment, and ownership become first-class design concerns.',
       ],
-    }
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Linear memory does not make unsafe source code safe inside the module. A C buffer overflow can corrupt the module heap even if it cannot escape into host memory. The sandbox protects the host, not every data structure inside the guest.',
+        'It also fails when the boundary is too chatty. Passing thousands of tiny strings one at a time can spend more time encoding, copying, and allocating than doing useful work. Batch data and keep repeated work inside Wasm when possible.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'JavaScript wants Wasm to sum 1,000 32-bit integers. It asks Wasm malloc for 4,000 bytes, writes a Uint32Array view at pointer 2048, and calls sum(ptr, 1000). Wasm reads 1,000 values from byte offsets 2048 through 6044 and returns a 32-bit result.',
+        'If memory starts at 2 pages, it has 128 KiB. If malloc needs more room and grows to 4 pages, the memory becomes 256 KiB. JavaScript must recreate its Uint8Array or Uint32Array views after the grow before reading the result buffer.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: WebAssembly Core Specification at https://www.w3.org/TR/wasm-core-2/, MDN WebAssembly.Memory at https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory, and MDN memory.grow at https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory/grow.',
+        'Study next by role: ArrayBuffer and TypedArray for JavaScript views, Slab Allocator and Buddy Allocator for heap management, WebGPU Buffer and Bind Group for another byte-layout boundary, Apache Arrow Columnar Memory for typed buffers, and Bounds Checking for sandbox safety.',
+      ],
+    },
   ],
 };
-

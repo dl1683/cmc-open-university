@@ -401,5 +401,93 @@ const activationAwareQuantizationArticleSections = [
 ];
 
 export const article = {
-  sections: activationAwareQuantizationArticleSections,
+  sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The calibration-ledger view shows why quantization cannot look only at stored weights. Quantization means representing numbers with fewer bits, such as storing model weights in 4-bit integers instead of 16-bit floating point. Active rows show calibration evidence: which prompts were used, which channels produced large activations, and which packing format the runtime must load.',
+        'The method-map and serve-gate views separate accuracy, bytes, and speed. A smaller checkpoint is not automatically faster if it dequantizes through a slow path or misses the accelerator kernel. The safe inference is that a quantized model is ready only when calibration identity, quality slices, packed format, and serving compatibility all pass.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt:'Processor die shot showing compute units', caption:'Quantization trades numerical precision for throughput — fewer bits per weight means more operations per second on the same silicon. Source: Wikimedia Commons, KL/Intel, Public domain'},
+        {type:'callout', text:'Activation-aware quantization does not just compress weights — it calibrates the quantization grid using real activation distributions from representative prompts. The calibration data determines whether the quantized model preserves behavior or collapses.'},
+        'Large models are often limited by memory capacity and memory bandwidth. A 4-bit weight file can fit on hardware where a 16-bit checkpoint cannot, and fewer bytes can improve tokens per second when memory movement is the bottleneck. The risk is that low-bit rounding changes behavior.',
+        'Activation-aware quantization exists because not all weight errors matter equally. An activation is the value flowing through a layer during inference, and a channel with large activations can amplify small weight errors. The calibration ledger records the data, statistics, scales, group sizes, and runtime constraints that justify the compressed checkpoint.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious method is round-to-nearest quantization. Pick a scale, divide weights by that scale, round to the nearest integer, and store the low-bit result. This is simple, fast, and a useful baseline because it shows how much raw rounding error the model tolerates.',
+        'A second obvious method is to judge by average benchmark score after compression. If perplexity or a general evaluation barely changes, the checkpoint looks safe. That approach misses narrow slices such as code, math, refusal behavior, tool calling, or a customer domain.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is activation outliers. A weight channel may look harmless by weight magnitude but dominate output because representative prompts produce large activations through it. A global scale can spend numeric range on one outlier and crush many useful small values toward zero.',
+        'The serving wall is separate. A checkpoint can pass an offline script and still fail production if the loader does not understand its packed format, if group size mismatches the kernel, or if the runtime expands int4 weights back to fp16. The bit width alone does not say whether the serving path is legal.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Calibration evidence must travel with the compressed model. Methods such as AWQ, GPTQ, and SmoothQuant differ, but each turns representative activations into quantization decisions. AWQ protects activation-salient channels, GPTQ minimizes layer reconstruction error, and SmoothQuant moves activation difficulty into weights for W8A8 execution.',
+        'The quantized checkpoint is a data structure. It contains integer payloads, scales, zero-points, group layout, method version, calibration identity, and target kernel assumptions. The invariant is that every packed record must be interpretable by the serving runtime that will execute it.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A run starts from a frozen fp16 or bf16 checkpoint and a calibration set that represents expected prompts. The quantizer runs forward passes, records per-channel activation statistics such as max or p99 values, and combines them with weight information. It then chooses scales, group sizes, zero-point conventions, protected channels, or equivalent transforms.',
+        'The weights are rounded and packed into the target format. The ledger records calibration sample hashes, method version, tensor names, group size, scale format, protected-channel rules, quality results, loader version, and kernel target. A loader test then proves the exact runtime can consume the artifact without hidden expansion or fallback.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works when calibration statistics predict which numerical errors will affect deployed behavior. If a channel is often amplified by real activations, protecting that channel can reduce output error more than spreading precision evenly. Equivalent transforms preserve the original function before rounding by scaling one side of a multiplication and compensating on the other side.',
+        'The correctness argument is empirical and ledger-bound. The method does not prove that all prompts are safe; it proves that under recorded calibration data, method settings, and evaluation slices, the compressed model stayed within tolerances. The ledger keeps that claim reproducible instead of letting a checkpoint filename stand in for evidence.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Calibration costs forward passes over representative data. More samples can expose rare outliers but increase runtime and may overfit if the sample set is narrow. Smaller quantization groups reduce outlier damage because each scale covers fewer weights, but they add metadata and can reduce kernel efficiency.',
+        'Cost behaves through the roofline. If inference is memory-bandwidth bound, 4-bit weights can improve throughput because fewer bytes move per token. If the runtime dequantizes inefficiently or falls back to a generic kernel, the same checkpoint may save disk space while slowing p99 latency.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Activation-aware quantization is useful for on-device inference, desktop GPUs with limited VRAM, edge deployments, and high-throughput serving fleets. It helps when weight memory or memory bandwidth is the bottleneck and the model has enough redundancy to tolerate low-bit storage. Weight-only int4 paths are attractive when activation quantization is too risky.',
+        'The ledger is useful even when the method fails. It tells the team whether to resample calibration prompts, reduce group size, protect different channels, change the packing format, or block rollout. That turns quantization from a one-shot compression script into an inspectable release process.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when calibration data does not match deployment. Legal text, code, math, multilingual prompts, long contexts, or tool-call schemas can produce activation patterns absent from the calibration set. Average scores can hide regressions in these slices.',
+        'It also fails at the runtime boundary. The model may load but silently dequantize, use the wrong scale convention, miss an accelerator kernel, or expand memory during serving. Overcompression can create a cliff where no scale trick recovers behavior.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A 7B model has 13 GB of bf16 weights and does not fit on an 8 GB edge GPU after runtime overhead. The team targets int4 weight-only quantization with group size 128, which reduces raw weight payload to about 3.3 GB plus scale metadata. They calibrate on 2,000 prompts: 1,000 chat, 500 code, 300 math, and 200 customer-support examples.',
+        'The first round-to-nearest run loses 5.2 points on the math slice while average perplexity changes only 0.4 percent. Activation statistics show three MLP channels with p99 activations 6 times larger than the layer median. AWQ-style scaling protects those channels, and the math loss shrinks to 0.8 points while the packed file remains under 3.6 GB.',
+        'Serving validation catches the final boundary. The int4 kernel supports group size 128 for batch <= 16, but the production router sometimes batches to 32. The launch gate caps this model at batch 16 on the edge GPU and records a fallback plan for larger batches instead of advertising generic int4 support.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study GPTQ, AWQ, and SmoothQuant for the main method families. Study compressed-tensors and LLM Compressor documentation for artifact formats and serving integration. Read hardware or runtime docs for the exact int4, int8, bf16, or fp8 kernels you plan to use.',
+        'Study next: Quantization for scale and rounding, Transformer Inference Roofline for bytes versus compute, Accelerator Kernel Compatibility Matrix for serving legality, KV Cache Quantization and Compression for request-state memory, Structured Pruning for mask-based compression, and Knowledge Distillation for training smaller models before compression.',
+      ],
+    },
+  ],
 };

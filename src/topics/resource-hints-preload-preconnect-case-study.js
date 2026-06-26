@@ -203,106 +203,54 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Resource hints exist because browsers discover some critical work too late. HTML parsing is fast, but JavaScript-discovered images, CSS imports, fonts, third-party origins, and server-generated HTML can delay the request that actually determines first render or LCP.',
-        'The problem is scheduling, not decoration. A hint tells the browser that part of the load graph is important before the normal discovery path would prove it.',
-        {type:'callout', text:'Resource hints only help when they move a real critical-path edge earlier without crowding out more important requests.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious approach is to let the parser and preload scanner do everything. That is often correct because browsers already prioritize CSS, scripts, images, fonts, and connections better than most application code can.',
-        'The wall appears when the real critical dependency is hidden behind JavaScript, CSS, late HTML, or a remote origin handshake. The browser cannot schedule what it has not discovered.',
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'A page load is a dependency graph plus a priority queue. preconnect adds an early edge to an origin handshake. preload adds an early fetch for a known current-page resource. dns-prefetch is weaker and does only name resolution. prefetch is speculative work for a likely future page.',
-        'The insight is to move only the edges that are both critical and high-confidence. Every hint spends scarce resources: socket slots, bandwidth, request priority, cache space, and sometimes privacy budget.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        "In the critical-path view, watch discovery time. A resource hint is useful only when it moves a real critical request earlier than the browser would have found it by parsing HTML, CSS, or JavaScript normally.",
-        "In the hint-budget view, read every hinted request as competition. A preload can help the LCP image, but too many preloads can delay CSS or more important images. A preconnect can hide handshake latency, but an unused preconnect spends sockets and CPU for no visible result.",
-        "The marks are not proof that a page is optimized. They show a bet: this origin or resource will matter soon enough that early work is worth the contention. The audit question is whether the eventual waterfall proves the bet was right.",
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A product page renders its hero image only after a client-side bundle parses product data. The normal browser path discovers HTML, CSS, JavaScript, then eventually the hero URL. If the hero image is consistently the LCP element, a matching preload can start the fetch before JavaScript discovers it. If the image sits on a CDN with a cold connection, a preconnect can also start DNS, TCP, TLS, and protocol setup early.',
-        'Now change the example: the page preloads six carousel images, two route chunks, a font variant not used above the fold, and an optional third-party origin. The HTML looks performance-conscious, but the network waterfall can become worse. The critical CSS or real LCP image may compete with speculative work. Resource hints are a scalpel, not an asset manifest.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'preconnect warms DNS, TCP, TLS, and protocol setup before the resource request arrives. It does not fetch a file. preload starts a fetch now and stores the response for the later consumer, but reuse depends on matching request shape: destination, CORS mode, credentials, media, type, and sometimes image selection.',
-        '103 Early Hints can send Link headers before the final HTML response is ready, letting the browser begin connection or preload work while the server is still generating the page.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'A useful hint works because it shortens a real critical path without displacing more important work. If the hinted resource is later needed with the same request shape, the browser can reuse the warmed connection or fetched response.',
-        'The correctness boundary is that hints should not change the page result. They change timing and priority. If a hint points at the wrong file, wrong credentials mode, or wrong media condition, it can create duplicate work instead of a faster load.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'The cost is contention. Too many preloads can delay render-blocking CSS, compete with the LCP image, or crowd out user-visible work. Too many preconnects leave idle sockets and spend handshake work that may never be used.',
-        'When a hint is right, the user sees lower latency for the critical resource. When it is wrong, the waterfall gets busier and slower even though the HTML looks more "optimized."',
-        'The browser also has its own scheduler. Hints influence that scheduler, but they do not override physics. Bandwidth, socket limits, server priorities, cache state, CORS shape, and request destination still determine whether the hinted work is reused or duplicated.',
-      ],
-    },
-    {
-      heading: 'Measurement discipline',
-      paragraphs: [
-        'Add hints only after looking at real waterfalls or field data. Identify the LCP element, render-blocking resources, late-discovered origins, and cache behavior. Then add the smallest hint that moves the bottleneck earlier. Re-measure on slow networks and mobile devices because contention is easiest to miss on a fast desktop connection.',
-        'A good review asks: was the hinted resource actually needed on this page, was it reused by the eventual consumer, did it improve the target metric, and did it harm other resources? If the answer is unclear, the hint is probably not ready to ship.',
-      ],
-    },
-    {
-      heading: 'Choosing the hint',
-      paragraphs: [
-        'Use `preload` when the exact current-page resource is known and important. Use `preconnect` when the origin is definitely needed but the exact resource may be discovered later. Use `dns-prefetch` when only name resolution is worth warming. Use `prefetch` for likely future navigations, not current render-critical work.',
-        'This choice matters because each hint has a different failure mode. The wrong preload can duplicate a fetch. The wrong preconnect wastes a socket. The wrong prefetch spends bandwidth on a path the user never takes.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Resource hints win for high-confidence hero images, critical fonts, render-critical CSS discovered late, a small number of third-party origins, and CDN origins that are definitely used on the current page.',
-        'They also help server-side rendering paths where 103 Early Hints can overlap backend generation with browser connection setup.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Hints fail as bulk asset manifests. They also fail when the hinted request does not match the eventual request, when the resource is below the fold, when the origin is optional, or when the page changes but stale hints remain.',
-        'prefetch has an extra boundary: it predicts future navigation. Wrong predictions spend bandwidth and may reveal browsing intent.',
-        'preload has a stricter footgun: request mismatch. If the final resource uses a different `as`, CORS mode, credentials mode, media condition, or selected image candidate, the browser may fetch twice. That failure mode is common enough that every preload should be checked against the actual request it is meant to satisfy.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A product page renders a hero image from a CDN, a brand font, and CSS. The first waterfall shows the hero image discovered by late JavaScript. The fix is not to preload every asset. The fix is to preload the hero image and critical font, preconnect to the CDN, keep CSS first, and leave route chunks or below-the-fold media alone unless measurements prove they are next-navigation wins.',
-        'This links directly to CDN Request Flow, HTTP/3 over QUIC, Service Workers & Offline-First, and Browser Rendering. Resource hints tune the browser side of the same edge-cache and transport path.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: MDN rel=preload at https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/preload, MDN rel=preconnect at https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/preconnect, W3C Resource Hints at https://www.w3.org/TR/2023/DISC-resource-hints-20230314/, WHATWG HTML links at https://html.spec.whatwg.org/multipage/links.html, and web.dev Resource Hints at https://web.dev/learn/performance/resource-hints. Study CDN Request Flow, Browser Rendering, Service Workers & Offline-First, HTTP Cache ETag Revalidation, HTTP/3 over QUIC, HTTP/3 Priority Urgency Scheduler, Cache Invalidation & Versioning, and Subresource Integrity Hash Manifest next.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the graph as a page-load dependency graph. Active nodes are the work the browser is doing now, found nodes are work made ready early, removed nodes are late discoveries avoided by the hint, and compare nodes are the request or resource that pays the contention cost.',
+      'A resource hint is safe only when it moves a dependency that the page really needs. The inference rule is simple: if the later consumer reuses the same connection or cached response, the hint shortened the critical path; if it does not, the hint spent budget on the wrong edge.',
+    ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Resource hints exist because browsers cannot schedule resources before they discover them. The preload scanner can find many links in HTML, but it cannot see a hero image created by JavaScript, a font referenced deep in CSS, or an origin needed by a late API route.',
+      'A resource hint is a small scheduling instruction. preconnect starts DNS, TCP, TLS, and protocol setup for an origin, while preload starts a current-page fetch for a known resource. The goal is lower user-visible latency, usually Largest Contentful Paint, not a longer list of clever tags.',
+      {type:'callout', text:'Resource hints only help when they move a real critical-path edge earlier without crowding out more important requests.'},
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious approach is to let the browser discover and prioritize everything on its own. That is often right because modern browsers already have a parser, a preload scanner, a cache, per-request priorities, and transport limits.',
+      'The approach breaks when the important resource is hidden behind work the browser has not reached. A hero image discovered after a JavaScript bundle executes can start hundreds of milliseconds later than the CSS that frames it, even though the user sees the image as the main content.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is not lack of syntax. It is contention inside a scarce scheduler. Browsers have limited connection slots, bandwidth, cache space, CPU for handshakes, and priority budget, so every hint can delay something else.',
+      'A wrong preload can be worse than no preload. If the final request uses a different as value, CORS mode, credentials mode, media condition, or image candidate, the browser may download twice. If a page preloads ten nice-to-have files, render-blocking CSS can lose the race.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Treat the page as a graph of dependencies and treat hints as early edges in that graph. A good hint moves one high-confidence edge earlier; a bad hint creates a new edge that competes with the real critical path.',
+      'preconnect is weaker than preload because it only warms an origin. preload is stronger because it fetches bytes now, so it needs a stricter match with the eventual request. prefetch is different again: it speculates about a future navigation rather than the current render.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'preconnect asks the browser to prepare an origin before a request exists. That preparation can cover DNS lookup, TCP connection, TLS handshake, and HTTP negotiation, so the later request can send bytes sooner.',
+      'preload asks the browser to fetch a specific current-page resource early and place the response in the cache for the later consumer. Reuse depends on matching destination, type, CORS, credentials, media, and selected URL. A 103 Early Hints response can send the same Link information before the final HTML is ready.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The correctness argument is about equivalence of the later request. If the hinted work is the same work the browser would have done later, then moving it earlier changes timing without changing page meaning.',
+      'The performance argument is a critical-path argument. If the hero image normally starts at 900 ms because JavaScript discovers it late, and preload starts it at 250 ms without delaying CSS, the visible page can complete earlier. If the same bytes would not have been needed, the page only got busier.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'The cost is browser resource pressure. A preconnect may leave an idle socket, a preload may consume bandwidth and cache, a prefetch may reveal intent and waste mobile data, and a badly ordered set of hints can demote the resource the user actually sees.',
+      'Cost behaves differently on different networks. On a fast desktop link, an unused 80 KB preload may be invisible. On a slow mobile link, that same preload can delay a 25 KB critical CSS file enough to hurt first render. That is why hints need waterfall evidence, not faith.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'Use preload for a confirmed current-page hero image, critical font, or CSS file that is discovered too late. Use preconnect for a small number of origins that are definitely needed soon, such as an image CDN used by the above-the-fold content.',
+      'Use 103 Early Hints when the server or CDN knows critical links before the final HTML is generated. Use prefetch for likely next-route assets when the browser is idle and the prediction is strong. In each case, the use is tied to a measured delay, not a generic hope that early is faster.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'Hints fail when they become an asset manifest. Preloading every route chunk, every carousel image, and every optional font variant converts scheduling help into network noise.',
+      'They also fail when request shape changes. A font preload without the right CORS mode can download once for the preload and again for the CSS font request. A responsive image preload can fetch the wrong candidate if it does not match the final srcset and media logic.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A product page has a 30 KB CSS file, a 60 KB JavaScript bundle, a 40 KB font, and a 180 KB hero image on a CDN. Without hints, HTML arrives at 100 ms, CSS starts at 130 ms, JavaScript finishes at 650 ms, and only then does the browser discover the hero image. With 100 ms of CDN connection setup and 500 ms of image transfer, the hero completes near 1250 ms.',
+      'Add one preconnect to the CDN at 120 ms and one matching preload for the hero at 150 ms. The connection work overlaps CSS and JavaScript, and the image completes near 750 ms if bandwidth is not stolen from CSS. Add four below-the-fold image preloads of 180 KB each, and the same page may lose the win because 720 KB of speculative image bytes competes with the real hero.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: MDN rel=preload at https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/preload, MDN rel=preconnect at https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/preconnect, W3C Resource Hints at https://www.w3.org/TR/2023/DISC-resource-hints-20230314/, WHATWG HTML links at https://html.spec.whatwg.org/multipage/links.html, and web.dev Resource Hints at https://web.dev/learn/performance/resource-hints.',
+      'Study Browser Rendering, CDN Request Flow, HTTP Cache ETag Revalidation, HTTP/3 over QUIC, HTTP/3 Priority Urgency Scheduler, Service Workers and Offline-First, Cache Invalidation and Versioning, and Subresource Integrity Hash Manifest next.',
+    ] },
   ],
 };

@@ -214,118 +214,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Apache Parquet exists because analytical queries read data differently from transactional applications. A transaction often needs one whole row: customer, status, amount, timestamp, address, and so on. An analytical query often needs two or three columns across billions of rows. A row format forces the reader to drag unused bytes through storage, network, decompression, and CPU.',
-        'Parquet makes physical layout match analytical access. It groups rows into row groups, stores each column of a row group as a contiguous column chunk, breaks chunks into encoded and compressed pages, and puts metadata in a footer so readers can plan before scanning.',
-        'The teaching point is that a file format is a data structure. Parquet is not just "CSV but faster." It is a layout that lets query engines skip columns, skip row groups, compress similar values together, reconstruct nested records, and use write-time metadata as read-time evidence.',
+        'Read the file graph from the footer backward into the byte layout. Active nodes show the row group, column chunk, or page currently read; found nodes are metadata that lets the reader skip work; compare nodes are bytes a row format would still touch.',
+        'A row group is a horizontal batch of rows, a column chunk is one column inside that batch, and a page is the encoded unit inside a chunk. The safe inference rule is that a query can skip a chunk only when metadata proves the query does not need it.',
         {type:'callout', text:'Parquet is a file-format data structure: row groups preserve table chunks while column chunks, pages, and footer metadata make analytical scans skip work.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/47/Apache_Parquet_logo.svg', alt:'Apache Parquet logo.', caption:'Apache Parquet logo, by The Apache Software Foundation, vectorized by Vulphere, Apache License 2.0 and public-domain text logo notice, via Wikimedia Commons.'},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Analytical queries often read a few columns across many rows. A dashboard might need date, country, and amount from 1 billion events while ignoring browser, address, note, and payload fields.',
+        'A row file makes the engine read unused fields because each record is stored together. Parquet exists to put like values together so projection, compression, and metadata pruning can remove work before decoding starts.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to store rows in the order applications produce them. CSV, JSON lines, and row-oriented binary formats are simple to write and easy to inspect. They work well when each request needs whole records or when files are small enough that wasted IO does not matter.',
-        'That approach breaks down for analytics. A query such as "sum amount by country for February" does not need every merchant name, user agent, address, or free-text note. Reading whole rows wastes IO, and compressing mixed fields together misses patterns that appear within one column.',
+        'The obvious approach is CSV, JSON lines, or a row-oriented binary file. That layout is easy to append, easy to inspect, and good when each request needs whole records.',
+        'It also matches application writes. Services produce one event or one order at a time, so storing the row as received feels natural until analytical reads become the dominant cost.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is bytes. At analytical scale, the difference between reading five columns and reading fifty columns is not cosmetic. It changes object-store requests, network transfer, decompression work, CPU cache behavior, and query latency.',
-        'The second wall is selectivity. If a predicate can rule out entire row groups from metadata, the engine can avoid touching their data pages. If the file is poorly sorted or row groups have broad min/max ranges, predicate pushdown has little to work with.',
-        'The third wall is table management. Parquet is a file format, not a table format. It does not by itself provide ACID commits, snapshot history, compaction planning, partition evolution, or governance. Lakehouse table formats such as Delta Lake and Iceberg build those layers around Parquet files.',
+        'The wall is wasted bytes. If a table has 50 columns and the query needs 3, a row format still drags the other 47 through storage, network, decompression, and CPU cache.',
+        'The second wall is weak pruning. Without row-group statistics and dictionaries, a filter such as date in February or country equals US cannot skip large physical regions safely.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Store rows in groups, but lay each group out by column. That compromise gives Parquet enough row locality to manage chunks of a table while giving readers column locality for projection, encoding, compression, and predicate pruning.',
-        'The footer turns the file into an index-like object. A reader can fetch metadata, inspect the schema, locate column chunks, examine statistics, and decide which byte ranges to read. Good analytics performance begins before the first data page is decoded.',
+        'Store rows in groups, but lay each group out by column. Row groups preserve a manageable table chunk, while column chunks make each queried column a contiguous byte range.',
+        'The footer is the planning surface. It stores schema, chunk locations, counts, encodings, compression, and statistics so a reader can decide which byte ranges to request.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
-        'The columnar-layout view shows the hierarchy: file, row group, column chunk, page, footer. The key move is inside the row group. Instead of storing row objects contiguously, Parquet stores each column\'s values together so projected queries can read only the needed chunks.',
-        'The predicate-pushdown view shows how metadata becomes work avoidance. If row-group statistics prove that February rows cannot exist in row group one or that country=US cannot exist in row group three, the reader can skip those data pages entirely.',
-        'The important thing to watch is that write-time choices determine read-time options. Row-group size, sort order, page size, statistics, dictionaries, compression codec, and file size all shape how much the query engine can skip later.',
-      ],
-    },
-    {
-      heading: 'How the file is organized',
-      paragraphs: [
-        'A Parquet writer batches rows into row groups. For each row group, it writes one column chunk per column. A column chunk contains pages. Data pages hold encoded values; dictionary pages can hold mappings for low-cardinality values; metadata records encodings, compression, counts, offsets, and statistics.',
-        'The footer sits at the end of the file and describes the schema and row groups. Readers commonly fetch the footer first, then issue range reads for selected chunks. This layout fits object stores and distributed query engines because the engine can plan byte ranges rather than read the file linearly from the top.',
-        'Nested data is handled with definition and repetition levels. That sounds like a detail, but it is central. Parquet can store nested records in columnar form while preserving whether fields are null, repeated, or nested inside arrays and structs. The price is conceptual complexity for anyone implementing readers or debugging odd nested schemas.',
-      ],
-    },
-    {
-      heading: 'Encoding and compression',
-      paragraphs: [
-        'Columnar layout makes encoding effective because adjacent values share type and often share distribution. Country codes, statuses, booleans, IDs, timestamps, and sorted numeric values each have encodings that exploit their shape.',
-        'Dictionary encoding replaces repeated values with small integer codes. Run-length encoding and bit-packing shrink repeated or small integer values. Delta encodings store changes rather than full values for ordered numeric data. After encoding, a compression codec such as Snappy, Zstd, or Gzip compresses page bytes.',
-        'The order matters. Encoding first exposes structure; compression then works on the encoded bytes. A row format that mixes unrelated columns together gives the compressor a harder job and gives the reader fewer ways to skip work.',
-      ],
-    },
-    {
-      heading: 'Predicate pushdown',
-      paragraphs: [
-        'Predicate pushdown means applying filters as close to storage as possible. In Parquet, the reader can compare query predicates against row-group or page metadata. If min and max timestamps for a row group fall outside February, a February query can skip that group. If a dictionary lacks country=US, a country filter can skip that region.',
-        'This is not magic. It works only when metadata is trustworthy and selective. If every row group spans the full date range, min/max pruning cannot help. If statistics are missing, too broad, or confused by null and NaN edge cases, the reader must scan more data.',
-        'Sorting and clustering are therefore write-time performance features. A table sorted by date lets time filters skip large ranges. A table randomly mixed across years may store the same logical data but force every query to touch every row group.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Imagine a payments table with timestamp, merchant, country, amount, currency, status, card_network, and metadata. A dashboard asks for total amount by country in February. A row file must read every field for each row, even though most fields are irrelevant.',
-        'A Parquet reader fetches the footer, finds row groups whose timestamp range overlaps February, selects only country and amount column chunks, and skips merchant, status, card_network, and metadata. If country dictionaries prove that some row groups do not contain the requested countries, those groups can be skipped too.',
-        'Now change the write pattern. If files are tiny, footer overhead and object-store listings dominate. If row groups are huge, pruning may be coarse and memory pressure may rise. If the data is sorted by ingestion time but queries filter event time, min/max ranges may be weak. The format is powerful, but layout discipline decides how much power you get.',
+        'A writer buffers rows into a row group, writes one column chunk per column, and splits each chunk into pages. Pages may use dictionary encoding, run-length encoding, bit packing, delta encoding, and then compression.',
+        'A reader usually fetches the footer first. It uses the schema to choose projected columns, uses row-group metadata to test filters, then range-reads only selected column chunks and pages.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Parquet works because it aligns physical bytes with common analytical operations: projection, filtering, scanning, compression, and vectorized execution. Projection reads fewer columns. Filtering skips row groups or pages. Encoding and compression shrink column chunks. Vectorized readers decode batches of values efficiently.',
-        'It also works because metadata is explicit. The footer tells the reader what exists and where it lives. That lets engines such as Spark, Trino, DuckDB, Arrow, and many lakehouse systems plan IO instead of discovering structure one row at a time.',
-        'The deeper lesson is that layout is an algorithm. The same logical table can be cheap or expensive depending on row-group boundaries, sort order, file size, partitioning, and statistics. Parquet exposes those choices rather than hiding them inside a database engine.',
+        'Projection works because all values for one column chunk are stored together. A sum over amount does not need to read customer_name when those bytes live in a different chunk.',
+        'Predicate pruning is conservative. If row_group_max_date is before February, every row in that group is too early, so skipping is correct; if metadata is missing or broad, the reader must scan.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Parquet is excellent for scans and analytical reads, but it is not a low-latency row-update format. Rewriting files is common when data changes. Deletes, updates, and merges usually require a table format or engine layer that can track new files, delete files, equality deletes, position deletes, or compaction.',
-        'Small files are a classic failure mode. Each file has metadata, object-store overhead, planning overhead, and scheduling overhead. Too many tiny files can make a table slow even when each file is Parquet. Compaction is often as important as compression.',
-        'Columnar layout can also hurt row-oriented access. If an application needs one complete record by key, a database index or row store may be a better fit. Parquet shines when many rows are processed in bulk.',
+        'Parquet saves read cost by spending write-time structure. Writers must choose row-group size, page size, sort order, encodings, compression, statistics, and file size.',
+        'When rows double, scan cost for one projected column roughly doubles only for the selected chunks, not for the whole table width. Small files add a different cost: each file has footer reads, object-store metadata, planning overhead, and scheduling work.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Parquet wins in data lakes, warehouses, feature stores, ML training datasets, log analytics, batch ETL, interactive SQL engines, and any workload that reads subsets of columns across many rows. It is one of the default physical layers under Spark, Trino, Hive, DuckDB, Arrow pipelines, Iceberg, Delta Lake, and many managed analytics systems.',
-        'It is especially useful when the same data supports many readers. A well-written Parquet table can serve dashboards, model training, audits, and backfills because each reader can project and filter the pieces it needs.',
+        'Parquet fits data lakes, warehouses, feature stores, batch ETL, log analytics, ML training datasets, and SQL engines that scan subsets of columns. The access pattern is bulk reading, not single-row mutation.',
+        'It also fits shared datasets. The same Parquet table can support dashboards, backfills, model training, and audits because each reader can project and filter the physical pieces it needs.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Parquet fails when teams treat it as a complete table system. It stores files. It does not by itself manage concurrent commits, schema evolution policy, transaction logs, partition evolution, or snapshot isolation. Delta Lake, Iceberg, and Hudi exist because a lake needs more than files.',
-        'It also fails when write-time layout ignores read-time questions. Unsorted data, missing statistics, high-cardinality dictionary blowups, too many small files, oversized row groups, and mismatched partitioning can turn a good format into a slow table.',
+        'Parquet fails as a low-latency row-update format. Updating one record often means writing new files or relying on a table format that tracks deletes, snapshots, and compaction.',
+        'It also fails when layout ignores queries. Unsorted data, missing statistics, oversized row groups, too many tiny files, and mismatched partitioning can make a good file format behave like a slow table.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Worked example',
       paragraphs: [
-        'Remember the hierarchy: file, row group, column chunk, page, footer. The footer lets the reader plan. Column chunks let projection skip unused columns. Statistics let filters skip irrelevant row groups. Encodings and compression shrink the bytes that remain.',
-        'Remember the boundary too: Parquet is a physical format. Table formats and query engines add transaction semantics, catalogs, planning, governance, and optimization around it.',
+        'A payments table has 1,000,000,000 rows and 40 columns. A dashboard asks for total amount by country for February, so the logical query needs 2 columns plus a timestamp filter.',
+        'If each row averages 400 bytes in a row file, a full scan reads about 400 GB. If Parquet stores amount, country, and timestamp chunks at 8 bytes, 2 bytes, and 8 bytes per row before compression, the same query starts from about 18 GB before pruning and compression.',
+        'If sorting by timestamp lets February touch 2 of 12 monthly row-group ranges, the scan may fall near 3 GB before column compression. The exact number depends on encoding and file layout, but the behavior comes from skipping unused columns and irrelevant row groups.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Official sources: Apache Parquet concepts at https://parquet.apache.org/docs/concepts/, file format docs at https://parquet.apache.org/docs/file-format/, and format repository at https://github.com/apache/parquet-format/. Study Dremel Query Engine Case Study, Delta Lake Case Study, Apache Iceberg Table Format Case Study, Hudi Record Index Metadata Table, Snowflake Warehouse Case Study, Database Indexing, and Bloom Filter next.',
+        'Study Apache Parquet concepts at https://parquet.apache.org/docs/concepts/, file format docs at https://parquet.apache.org/docs/file-format/, and the format repository at https://github.com/apache/parquet-format/. Read them for the physical hierarchy: file, row group, column chunk, page, footer.',
+        'Next, study Parquet Page Index, Dremel Query Engine Case Study, Delta Lake Case Study, Apache Iceberg Table Format Case Study, DuckDB Vectorized Execution, Database Indexing, and Bloom Filter. These topics show how file layout, table metadata, and execution engines combine.',
       ],
     },
   ],

@@ -250,103 +250,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the edit-intent view as a translation boundary. The agent wants a semantic change, such as rename this symbol or replace this branch condition. The local runtime may accept a unified diff, search-replace block, AST edit, IDE call, or typed patch tool.',
+        'Read the rollback-ledger view as the safety proof. Active rows show the target path, locator, precondition, generated patch, dry run, actual diff, verifier result, and rollback handle. The safe inference is that applying patch text is not enough; the applied state must match the intended edit.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Edit is the most dangerous operation in a coding-agent trace because it changes the workspace. A model can choose the right high-level fix and still fail because the local runtime expects a different patch grammar, line numbers drifted, or the replacement matched too many spans.',
-        'A coding-agent edit grammar adapter separates what the agent wants to change from how the local environment accepts edits. The stable object is a typed edit intent: target path, locator, precondition, transformation, postcondition, verifier, and rollback metadata. A unified diff, search-replace block, whole-file rewrite, IDE API call, AST transform, or typed tool call is only one binding of that intent.',
+        'Editing is the most dangerous operation in a coding-agent trace because it mutates the workspace. A model can choose the right fix and still fail because the runtime expects another patch grammar, line numbers drift, or the replacement matches too many places. A clean patch apply also does not prove the edit was the intended one.',
+        'An edit grammar adapter separates intent from encoding. The stable object is a typed edit intent with target path, locator, expected old state, transformation, allowed scope, verifier, and rollback metadata. A concrete diff or tool call is only one way to carry that intent into a local environment.',
         {type:'callout', text:'Edit adapters make patch formats replaceable by treating every edit as a verified, rollbackable state transition.'},
-        'This matters for curriculum because editing is where abstract reasoning meets a real filesystem. A learner should not leave with the idea that a patch is just text. A patch is a proposed state transition with authority, scope, evidence, and rollback cost.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is to let the model emit the native edit format directly. If the runtime expects a unified diff, train on diffs. If it expects search-replace blocks, train on those. This is simple and often works in one environment.',
-        'The wall appears when the edit surface changes or the file has drifted. A diff hunk can fail to apply. A search string can match multiple places. A whole-file rewrite can clobber unrelated changes. A clean apply also does not prove the edit was the intended one.',
+        'The obvious approach is to train the model to emit the native edit format directly. If the runner expects unified diffs, ask for diffs. If it expects search-replace blocks, ask for those. This is simple and often works inside one benchmark harness.',
+        'The approach becomes brittle when the environment changes. A diff hunk can fail after nearby edits, a search string can match two functions, and a whole-file rewrite can overwrite unrelated user changes. The model may look wrong when the actual failure was binding the right intent to the wrong grammar.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is ambiguity under drift. Files change while an agent is reasoning, formatters move lines, generated files appear, and imports can be reordered. A locator based only on line number or weak text can identify the wrong span after that drift.',
+        'There is also an evaluation wall. If a patch applies cleanly but changes the wrong behavior, raw apply success rewards the wrong thing. If a patch grammar fails while the intended fix was correct, raw apply failure blames the wrong layer. The system needs an error taxonomy that separates planning, locating, binding, applying, and verifying.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Make edit intent the stable object and treat concrete patch text as a binding. The key structures are an edit intent AST, locator map, file-version clock, adapter capability table, dry-run result, applied diff, normalized diagnostic record, rollback snapshot, and verifier proof ledger.',
-        'This fills a practical gap between Abstract Agent Operation Graph and the agent-portability audit module. Those modules show that edit should be an abstract operation. This module shows the concrete data structure that lets the same edit survive different agent-computer interfaces.',
-      ],
-    },
-    {
-      heading: 'What the animation teaches',
-      paragraphs: [
-        "The edit-intent view separates the agent's desired operation from the patch syntax used to carry it. The target path, locator, expected old text, transformation, and verifier are the durable pieces. A diff hunk or search-replace block is only the local encoding.",
-        "The rollback-ledger view shows the safety argument. A serious adapter records the pre-edit snapshot, the chosen grammar, the dry-run result, the actual diff, the verifier result, and the rollback handle. That ledger is what lets a runtime reject unsafe edits without losing the lesson from the failed attempt.",
+        'The core insight is to make edit intent the stable data structure. The intent says what should change, why, where it is allowed to write, what old state must be present, and how success will be checked. Concrete patch text is generated from that intent only after the adapter knows local capabilities.',
+        'The invariant is roundtrip alignment. Parse intent, bind it to a local grammar, dry-run it, apply it once, inspect the actual diff, run the verifier, and keep a rollback handle. At every gate, the workspace state must still match the intended state transition.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The planner emits edit intent. The adapter chooses the best available grammar, serializes the intent, dry-runs it, applies it against a snapshot, compares the actual diff with the expected intent, runs the verifier, and records the result. If a gate fails, the adapter returns a normalized observation such as parse_error, stale_locator, ambiguous_match, apply_failed, test_failed, or policy_blocked.',
-        'This is why edit adapters are more like transaction coordinators than text formatters. They protect the working tree, distinguish model reasoning errors from binding errors, and preserve evidence that the final patch really came from the intended operation.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'An agent needs to rename `loadUserProfile` to `loadAccountProfile` in two files. The intent says which symbol should change, which files are in scope, which old references must be present, and which tests or static checks should run afterward. In a diff-based runner, the adapter emits hunks. In an IDE runner, it may call a rename API. In an AST-backed runner, it may bind to parsed identifier nodes.',
-        'The adapter then compares the actual workspace diff with the intent. If a search-replace edit also changed a comment in generated code outside the allowed scope, the apply may have succeeded but the adapter should reject it. If the target file changed and the old anchor is missing, the adapter should report a stale locator rather than guessing.',
-      ],
-    },
-    {
-      heading: 'Intent schema',
-      paragraphs: [
-        'A useful edit intent is more than path plus replacement. It should include the reason for the change, the expected old state, a locator strategy, allowed write scope, transformation type, verifier, and rollback policy. For multi-file edits, it should also describe whether all edits must apply atomically or whether partial application is allowed.',
-        'The locator deserves special care. Line numbers are weak because files drift. Stronger locators combine file digest, surrounding text, syntax node, symbol name, import path, and sometimes semantic information from a language server. The point is to fail loudly when evidence no longer identifies the target.',
+        'The planner emits a typed intent. The adapter chooses a grammar supported by the environment, serializes the change, checks preconditions, applies against a snapshot, and normalizes any failure into a useful observation such as stale_locator, ambiguous_match, parse_error, policy_blocked, apply_failed, or test_failed.',
+        'After apply, the adapter compares the actual diff with the expected scope. If a search-replace edit also touched generated code or an unrelated comment, the adapter can reject it even though the grammar accepted it. If verification passes, the ledger records the patch, test evidence, and rollback snapshot.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is roundtrip proof. The intent is parsed, bound to a local grammar, dry-run, applied once, converted back to an actual diff, compared with the expected change, verified by tests or policy, and linked to a rollback snapshot. Each gate preserves the invariant that applied workspace state matches the intended edit.',
-        'A locator should not be just a line number. Strong locators combine path, old text, syntax node, symbol name, neighboring anchors, and file digest. That lets the adapter detect stale context instead of applying a plausible patch to the wrong location.',
+        'It works because the adapter preserves authority and evidence around a mutation. The model proposes a change, but the environment decides whether the locator is current, whether the write scope is allowed, whether the concrete patch matches intent, and whether behavior still passes checks. This prevents patch syntax from masquerading as correctness.',
+        'Strong locators are the key correctness device. They combine path, file digest, surrounding text, symbol name, syntax node, imports, and sometimes language-server data. If those facts no longer identify one target, the adapter fails loudly instead of guessing.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Adapters add latency and rejection. Malformed patches, ambiguous locators, and weak preconditions are dropped before they reach the dataset. That can look wasteful, but it prevents bad edits from becoming positive examples.',
-        'No grammar is universally best. Diff hunks are compact but fragile. Search-replace blocks are readable but can match too much. Whole-file rewrites are easy but can clobber. AST edits are semantic but parser-bound. Typed tools need authorization and policy gates.',
-        'The adapter also changes evaluation. A raw model might be penalized for a patch grammar mismatch even when its intended fix was good. A model might also be rewarded for a clean patch that only passed because the verifier was weak. Separating intent, binding, and verification gives the evaluator a better error taxonomy.',
+        'Adapters add latency, implementation work, and rejection. A direct patch may take one apply attempt; an adapter may parse intent, resolve symbols, dry-run, apply, diff, test, and record rollback. That overhead is justified when failed edits are expensive or when training data must distinguish useful intent from grammar accidents.',
+        'Suppose an agent proposes 1,000 edits. If 8 percent have stale locators, 4 percent have ambiguous matches, and 6 percent fail verification, a raw runner might collapse all 180 failures into "bad patch." An adapter turns them into separate repair signals, which improves debugging and model evaluation.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Edit adapters win in multi-environment training, IDE agents, typed tool environments, and portability audits. They let evaluation ask a sharper question: did the model choose the right edit intent, or did the local grammar fail to express it?',
+        'Edit adapters win in multi-environment training, IDE agents, code-review assistants, refactoring tools, and benchmark portability audits. They let the same abstract edit bind to a diff runner, language-server rename, AST transform, or typed patch tool. That makes the agent less tied to one interface.',
+        'They are also useful for protecting user worktrees. Allowed paths, generated-file policy, lockfile policy, and rollback rules can be enforced outside the model prompt. Unexpected diffs become safety evidence instead of side effects hidden in a final patch.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when the intent schema is too weak to identify the target or too rigid to express local editing conventions. It also fails when the verifier is shallow. A patch can apply cleanly, pass weak tests, and still edit the wrong behavior. The trace should identify whether the plan, locator, binding, verifier, or rollback gate failed.',
-        'It also fails when policy is implicit. If the adapter can edit generated files, vendored code, lockfiles, or unrelated user changes without declaring that authority, it becomes a clobbering tool. Good adapters make write scope explicit and treat unexpected diffs as evidence of danger, not as harmless side effects.',
+        'It fails when the intent schema is too weak. If the record says only "replace foo with bar," the adapter cannot know whether comments, generated files, tests, or vendored code are in scope. Weak intent creates false confidence.',
+        'It also fails when the verifier is shallow. A patch can apply cleanly, stay inside scope, and pass a weak test while still changing the wrong behavior. The adapter protects the edit boundary, but it cannot prove semantics that the verifier never observes.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Common failure modes are stale line numbers, ambiguous search text, parser mismatch, formatter churn, hidden generated-code updates, cross-platform newline changes, non-atomic multi-file edits, and verifiers that do not exercise the edited behavior. Each failure should produce a specific observation so the next agent can repair the right layer.',
-        'The most important misconception is that patch application equals correctness. It does not. Application only proves that the local grammar accepted the edit. Correctness requires intent alignment, bounded scope, behavioral verification, and an ability to restore or explain the previous state.',
+        'An agent needs to rename loadUserProfile to loadAccountProfile in two source files and one test. The intent names the symbol, the allowed paths, the expected old references, and the verifier command. In a diff runner, the adapter emits hunks; in an IDE runner, it calls a rename API; in an AST runner, it targets parsed identifier nodes.',
+        'Suppose a naive search-replace finds six matches, including one generated file outside scope. The adapter rejects the concrete patch because expected scope was three files and actual scope was four. The agent receives a precise observation, updates the intent or scope, and avoids clobbering unrelated output.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A coding agent must rename a deprecated API across a repository. In a diff-only runner, the intent binds to unified hunks. In an IDE runner, it binds to symbol-aware workspace edits. In a typed tool runner, it binds to apply_patch with path and hunk arguments. The abstract trace stays the same: find references, prepare rename intent, apply edits, run tests, inspect failures, and submit.',
-        'Without the adapter, a model may look brittle because it learned one patch grammar. With the adapter, the evaluation can ask a sharper question: did the model choose the right edit intent, or did the local grammar fail to express it?',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Do not accept successful patch application as correctness. A patch can apply cleanly and still edit the wrong file, clobber comments, delete unrelated code, or pass weak tests. Do not hide adapter failures inside a generic agent failure.',
-        'Primary sources: SWE-agent on agent-computer interfaces at https://arxiv.org/abs/2405.15793, mini-SWE-agent at https://github.com/SWE-agent/mini-swe-agent, Git apply documentation at https://git-scm.com/docs/git-apply, Model Context Protocol overview at https://modelcontextprotocol.io/docs/getting-started/intro, and Aider Polyglot benchmark notes at https://aider.chat/docs/leaderboards/. Study Abstract Agent Operation Graph, the agent-portability audit module, Verified Agent Trajectory Store, Constrained Decoding, Model Context Protocol Case Study, Git Internals, and Operational Transformation next.',
+        'Primary sources include SWE-agent on agent-computer interfaces at https://arxiv.org/abs/2405.15793, mini-SWE-agent at https://github.com/SWE-agent/mini-swe-agent, Git apply documentation at https://git-scm.com/docs/git-apply, Model Context Protocol documentation at https://modelcontextprotocol.io/docs/getting-started/intro, and Aider benchmark notes at https://aider.chat/docs/leaderboards/. Read them as evidence that agent edits are interface-bound state transitions, not just text patches.',
+        'Study abstract agent operation graphs, agent portability audits, verified trajectory stores, constrained decoding, Model Context Protocol, Git internals, language-server protocols, and operational transformation next. The recurring test is whether an edit remains a verified state transition after the local grammar changes.',
       ],
     },
   ],

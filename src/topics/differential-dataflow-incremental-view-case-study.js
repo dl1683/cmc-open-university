@@ -236,80 +236,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this topic exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        `Differential dataflow exists because many useful computations are too expensive to rerun from scratch after every small change. A dashboard, recommendation graph, fraud detector, search index, or materialized database view may receive a tiny update while depending on billions of older records. Recomputing the whole answer is easy to reason about, but it wastes work and creates latency that grows with total history rather than with the actual change.`,
-        `The hard version is not just maintaining a simple count. Real computations join streams, retract old facts, run nested iteration, and need answers at logical times. A user can move from one region to another. An order can be corrected. A graph edge can appear and later disappear. Differential dataflow gives these systems a precise model: represent data as signed differences, route those differences through a dataflow graph, index reusable state, track progress with frontiers, and compact history when it is safe.`,
-        {type: 'callout', text: `The maintained view is a ledger of signed changes plus indexed history, with frontiers deciding when old detail can safely disappear.`},
+        'Read the arrangement view as an incremental table, not as a full recomputation. Positive differences add rows, negative differences retract rows, and logical time says when the change is visible. The frontier view shows when no more earlier updates can arrive, which is the condition that makes compaction safe.',
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        `The naive batch approach stores tables, runs a query, writes the result, and runs the same query again after each update. This is correct if the input snapshot is correct, but it ignores the fact that most rows did not change. A one-row update can trigger a full scan, full join, and full aggregation. The user sees stale dashboards or the operator pays for constant recomputation.`,
-        `The naive streaming approach pushes inserts forward but treats corrections and iteration as special cases. It can add new facts easily, but retractions are harder. If user 7 moves from California to New York, the view must undo all contributions that depended on the old region and add the new ones. If the system only knows current rows, it may not know which downstream results to retract. If it stores all history without progress information, memory grows without bound.`,
-        `The naive materialized-view approach adds indexes and triggers by hand. That works for a few queries, but the logic becomes fragile when queries are composed. Each operator needs to know how to update its result from upstream changes, how to handle negative updates, and when old history can be forgotten. Differential dataflow turns that ad hoc trigger logic into a general computation model.`,
+        'Many systems maintain a result that changes a little while the total data set is huge. A dashboard, recommendation graph, fraud view, or search index may receive one correction while depending on billions of older records. Differential dataflow exists to update the result by processing the change, not by rerunning the whole query.',
+        {type: 'callout', text: 'The maintained view is a ledger of signed changes plus indexed history, with frontiers deciding when old detail can safely disappear.'},
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is full recomputation. When an input changes, run the query again over the current table and replace the old result. This is simple and correct, and it works while the table is small or updates are rare.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that latency grows with total history instead of with the size of the change. Updating one user region should not require rescanning every user and every order. Joins, reductions, and iterative graph computations make the waste worse because the same old state is rediscovered on every run.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is that a collection can be described by differences over time, not only by its current rows. A record with diff +1 inserts one copy. A record with diff -1 retracts one copy. The value of a collection at a logical time is the sum of all differences visible at that time. Operators do not need to rerun over full tables if they can transform input differences into output differences.`,
-        `Time is part of the data structure. A difference is not just "row X changed." It is "row X changed at logical time t with weight d." Logical times can be partially ordered, which matters for loops and nested iteration. A dataflow can ask whether all inputs before some time are complete, whether old updates are still distinguishable, and whether two updates can be consolidated without changing future answers.`,
-        `Arrangements complete the idea. An arrangement is an indexed trace of differences, usually keyed by the fields a downstream operator will need. Joins, reductions, and iterative operators can reuse arranged state instead of scanning all prior updates. Differential dataflow is therefore not only a timestamp trick. It is signed arithmetic plus indexed history plus progress tracking.`,
+        'Represent collections as signed differences at logical times. A row with weight +1 inserts a fact, and a row with weight -1 retracts it. Operators transform differences through the dataflow graph while arrangements, which are indexed traces, keep reusable history available by key.',
       ],
     },
     {
-      heading: 'How the system works',
+      heading: 'How it works',
       paragraphs: [
-        `Each input update enters the graph as a triple: data, time, diff. Stateless operators are simple. A map applies a function to the data and keeps the time and diff. A filter either forwards the same difference or drops it. Stateful operators need more structure. A join stores each side in an arrangement by key. When a difference arrives on one side, the join looks up matching records on the other side and emits the signed product of their differences.`,
-        `A reduction maintains grouped state. If a user changes region and the view counts orders by region, the system retracts the old region contributions and adds the new region contributions. It does not need to recompute all regions. The update cost is proportional to the dependency fanout: how many downstream rows depend on the changed fact.`,
-        `Frontiers describe progress. An input frontier says which logical times may still receive more updates. When the frontier has advanced beyond time t, operators know no future update for earlier times will arrive. This unlocks compaction. Old differences at times that no longer need to be distinguished can be merged into equivalent summaries. Without frontiers, the system would not know whether deleting or merging old history would break a future correction.`,
-        `The runtime therefore maintains a ledger: differences for correctness, arrangements for lookup, frontiers for progress, and compaction rules for bounded memory. The user sees an incrementally maintained result. The operator sees a graph of indexed traces being updated over logical time.`,
+        'Each operator receives batches of differences and emits only the consequences of those differences. A join probes arranged state by key instead of scanning both inputs, and a reduce updates the affected group instead of all groups. Frontiers track progress so the system knows when old times can be consolidated without changing future answers.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `It works because the algebra is compositional. If every operator knows how to convert input differences into output differences, a whole dataflow graph can maintain its result by composition. Positive and negative weights let the system undo prior consequences instead of treating corrections as new special cases. Timestamps let the system keep multiple logical versions alive when necessary.`,
-        `It also works because indexes turn history into a usable data structure. A join cannot be incremental if it must scan the entire opposite input for each update. An arrangement makes the relevant matches addressable by key. When multiple downstream operators need the same keyed view, the arrangement can be shared, which turns repeated query work into maintained state.`,
-        `Compaction preserves the model over long-running workloads. Old differences are necessary only while future computation can still observe their exact times. Once a frontier proves that distinction no longer matters, the trace can consolidate equivalent records. The system keeps enough history to be correct and removes detail that no future answer can see.`,
+        'The correctness invariant is summation. The value of a collection at time t is the sum of all signed differences visible at t. Compaction is correct only after the frontier has passed a time, because no future input can still distinguish the old detailed timestamps being merged.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The visual proves that an incremental view is not one object. It is a chain of change propagation, indexed traces, and progress statements. The input-diffs node shows that changes are first-class records. The arrangements show that joins and reductions need reusable keyed state. The frontier node shows that memory management depends on knowing which times can still receive updates.`,
-        `The compaction visual proves a subtle correctness point. The system cannot compact history merely because records are old in wall-clock time. It can compact only when the logical frontier has passed them. If a reader, loop, or delayed input holds the frontier back, old trace entries may remain necessary. That is why a production differential dataflow system needs progress diagnostics, not just throughput metrics.`,
+        'The target cost is proportional to the changed keys and their affected joins, not to the full table size. If one user update touches 2 orders, the region summary should process 2 retractions and 2 insertions, not 100 million orders. The tax is memory for arrangements, bookkeeping for logical time, and complicated behavior when frontiers get stuck.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Differential dataflow trades recomputation for maintained state. That is a good trade when updates are small, arrangements are reused, and frontiers advance. It can be a bad trade when one update has huge fanout, when many distinct arrangements must be maintained, or when old logical times cannot compact. The system saves CPU by spending memory and bookkeeping.`,
-        `The worst surprise is delta fanout. If user 7 has two orders, moving the user between regions emits two output corrections. If user 7 has ten million orders, the same logical update emits ten million corrections. Incremental maintenance makes the dependency explicit; it does not make the dependency disappear. Bad keys, skewed joins, and hot groups are still hard.`,
-        `Operational cost also appears in compaction and diagnostics. Trace size, arrangement count, frontier lag, consolidation work, and operator queue depth all matter. A system can process input quickly but accumulate memory because one frontier is stuck. Another can compact aggressively but spend too much CPU merging old updates. The production question is whether the maintained view beats periodic recompute under the real workload.`,
+        'Differential dataflow fits materialized views, streaming analytics, incremental search indexes, graph algorithms, and systems where corrections and retractions matter. It is useful when queries reuse state by key and the workload needs low-latency updates. It is especially strong for joins and iterative computations where naive streaming systems lose track of old dependencies.',
       ],
     },
     {
-      heading: 'Real uses',
+      heading: 'Where it fails',
       paragraphs: [
-        `Differential dataflow is useful for streaming databases, materialized view maintenance, graph analytics, iterative algorithms, incremental search indexes, and interactive analytics over changing data. Materialize popularized the database version of the idea: users write SQL-like queries and the engine maintains results as sources change.`,
-        `The model is especially strong when users want low-latency answers over changing inputs. A risk dashboard can update as events arrive. A social graph computation can revise recommendations after edge changes. A development tool can maintain analysis results as code changes. In each case, the system tries to pay for the change, not for the whole world.`,
+        'It fails when the maintained state is larger than the value of incremental updates. Random high-cardinality keys can make arrangements expensive, and stuck frontiers can prevent compaction so traces grow without bound. It also raises the implementation bar because negative differences, logical time, and partial orders are harder to debug than append-only streams.',
       ],
     },
     {
-      heading: 'Failure modes and limits',
+      heading: 'Worked example',
       paragraphs: [
-        `The first failure mode is assuming incremental means constant time. It does not. Work is proportional to the consequences of the update, and those consequences can be large. The second is stuck frontiers. A delayed input, long-running read, or iterative loop can prevent compaction and grow memory. The third is arrangement explosion, where many keys and query shapes require many maintained indexes.`,
-        `The fourth is semantic mismatch. Differential dataflow maintains exact logical results for the dataflow it was given. If the query is poorly keyed, the data has extreme skew, or the product only needs approximate answers, the exact incremental engine may be more expensive than a simpler approximation or scheduled batch rebuild. The fifth is debugging complexity. A wrong result may come from an incorrect diff, a bad timestamp, an operator bug, or compaction before the frontier allowed it.`,
+        'Suppose the maintained view is orders by user region. User 7 moves from CA to NY and has 2 orders worth 30 and 70. The update emits -30 and -70 for CA, then +30 and +70 for NY, changing only the affected region totals.',
+        'With concrete totals, CA was 1,000 and NY was 500. After the differences, CA becomes 900 and NY becomes 600. A full recompute over 10 million orders would still produce those numbers, but the incremental path did 4 contribution updates plus index lookups.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Differential Dataflow with Timely Dataflow because progress tracking is part of the design, not an afterthought. Then study Streaming Watermarks, the Google Dataflow Model, MillWheel, Flink Checkpointing, Distributed Snapshot and Consistent Cut, Database Indexing, Materialized Views, and Join Algorithms.`,
-        `For implementation practice, build a tiny maintained view for users(id, region) joined with orders(id, user_id), then update one user's region. Represent the change as one negative user tuple and one positive user tuple. Use an orders-by-user index to find affected orders. Emit negative counts for the old region and positive counts for the new region. Then add a frontier and ask when old updates can be compacted.`,
+        'Read the Differential Dataflow paper, Timely Dataflow material, and Materialize documentation on arrangements and frontiers. Then study incremental view maintenance, multiset semantics, dataflow graphs, watermarks, logical time, and trace compaction. The key contrast is append-only stream processing versus signed updates that can correct prior results.',
       ],
     },
   ],

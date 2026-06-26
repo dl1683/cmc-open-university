@@ -166,81 +166,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A fencing token is a monotonically increasing number attached to a lock grant, lease, leadership term, or exclusive work assignment. The client includes that number on every side effect. The protected resource stores the highest token it has accepted and rejects operations with older tokens. The token turns "I think I still own the lock" into a checkable epoch at the place where data would actually change.',
-        'This exists because a distributed lock service can choose a new owner while an old owner is paused, partitioned, or delayed. When the old process resumes, it may still have stale local state and may still be capable of sending writes. The lock service alone cannot stop writes that go to a database, object store, manifest service, hardware controller, or external API. The resource receiving the side effect must participate.',
+        'Read each frame as a race between ownership and delayed side effects. Active marks the process or resource currently making a decision; visited marks state already recorded, such as the highest fencing token accepted by the storage gate. Found marks the only result the protocol is allowed to commit: a write whose token is newer than the stored high-water mark.',
+        'A fencing token is a number that increases every time a lock, lease, or leadership grant changes hands. The safe inference rule is simple: if the resource has accepted token 42, any later request with token 41 is stale even if it arrives after a long network pause. The animation is correct only if the comparison happens at the resource that applies the write.',
         {type:'callout', text:'A lock only proposes ownership; fencing makes freshness enforceable at the resource that applies the write.'},
       ],
     },
     {
-      heading: 'The real problem',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is a leased lock. A worker acquires the lock, receives permission for a bounded time, performs the critical section, and renews or releases the lease. That protects liveness because a crashed worker will eventually stop renewing and another worker can take over. The same expiry rule creates the safety problem: a running process can outlive its own lease without observing the loss in time.',
-        'The dangerous window is check-then-act. Worker A can acquire a lease, check that it still owns the lease, pause for a long garbage collection or network stall, lose the lease, and then resume by writing to the external resource. Worker B may have already acquired a newer lease and completed the correct write. Without a resource-side token check, zombie A can overwrite B while every component believes it behaved correctly.',
+        'A distributed lock lets one process act as the owner of shared work. The hard part is that real processes pause, packets arrive late, clocks drift, and a lease can expire while the old process still has enough local state to send writes. A stale process that keeps writing after losing ownership is called a zombie writer.',
+        'The lock service alone cannot protect an external database, object store, or manifest service. The resource receiving the side effect must know whether the writer is still fresh. Fencing exists to move the final safety check from the client to the place where corruption would happen.',
       ],
     },
     {
-      heading: 'The core mechanism',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The lock service must issue tokens in a total monotonic order: 10, then 11, then 12, never reused and never going backward. A client must attach its token to every protected operation. The resource must compare the incoming token against a stored high-water mark in the same transaction or conditional update that applies the operation. If token 11 has been accepted, token 10 is stale forever.',
-        'The data structure is simple: a max-seen epoch at the side-effect boundary. The engineering requirement is harder: every write path must carry the token, and every resource that can be corrupted by a stale holder must enforce it. Fencing is not a property of the lock client. It is a protocol between the lock service, the client, and the resource being protected.',
+        'The obvious approach is a leased lock. Worker A acquires a lease for 30 seconds, does the critical section, renews the lease while alive, and releases it when done. If A crashes, the lease expires and Worker B can continue.',
+        'That design is reasonable because it solves liveness: the system does not wait forever for a dead owner. It fails because liveness is not safety. A process can be alive but paused long enough to lose the lease, then resume and write using stale assumptions.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'In the token-gate view, follow the lease grant into the epoch node and then into the storage gate. The lock service decides who should act next, but the gate decides whether a write is still current. The frame where the gate remembers max=41 and accepts token 42 is the whole protocol in miniature: compare, apply, advance the high-water mark.',
-        'In the zombie-write view, watch the old worker pause after receiving token 10. A newer worker receives token 11 and writes successfully. When the old worker wakes, its request still reaches the store, but the store rejects it because max=11. The rejected edge is the safety guarantee. The old client did not need to know it was stale; the resource knew.',
+        'The wall is the check-then-act gap. A worker can check that it owns the lease, pause for 45 seconds during garbage collection, lose the lease at second 30, and still send a write at second 46. A client-side check cannot cover the time between checking ownership and applying the side effect.',
+        'The network makes this worse because old packets can arrive after new ones. If Worker B publishes backup manifest 18 and Worker A later publishes older manifest 17, the durable truth can move backward. The lock service may have behaved correctly while the storage service accepted the wrong write.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Attach a monotonically increasing token to each ownership grant, and make the protected resource reject old tokens. Monotonic means the number only moves upward for a given resource: 10, then 11, then 12, never reused. The resource stores the highest accepted token and treats lower tokens as stale forever.',
+        'This turns a timing problem into an ordering problem. The resource no longer has to know whether a worker paused, whether a packet was delayed, or whether the worker still thinks it owns the lock. It only compares the incoming token with the stored high-water mark.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A concrete implementation can be one row with protected_value and fencing_token. The update says: apply this write only if incoming_token is greater than the stored fencing_token; if accepted, store the new value and the new token together. In SQL this is a conditional update inside a transaction. In an object store it may be a generation precondition. In a service API it may be an explicit compare-and-set on the epoch field. The essential rule is atomicity: the token comparison and the side effect must not be separable.',
-        'Tokens can come from a consensus-backed lock service, a ZooKeeper sequential node number, an etcd revision, a database sequence, or a leadership term, as long as the order is monotonic for the protected resource. Chubby describes sequencers and acquisition counts for validating lock ownership: https://research.google.com/archive/chubby-osdi06.pdf. Martin Kleppmann emphasizes the storage-server side of the design: stale tokens must be rejected where the write lands: https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html.',
+        'The lock service issues token 11 when it grants ownership. The client includes token 11 on every protected write. The resource performs a conditional update: accept the write only if incoming_token is greater than the stored fencing_token, then store the new value and token together.',
+        'The comparison and the mutation must be atomic. In SQL, that can be one conditional update in a transaction. In an object store, it can be a generation precondition. In an API, it can be a compare-and-set field that advances only with a newer epoch.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because monotonic order survives delay. The network can deliver token 10 after token 11. A garbage collector can stop a process for longer than its lease. A retry can arrive after a newer owner has completed the job. None of those timing facts change the comparison: 10 is less than 11. The high-water mark turns a timing problem into an integer-ordering problem.',
-        'It also moves the safety check to the only place that can make it exact. A client-side self-check is always stale by the time the write happens because the process can pause between the check and the write. A resource-side conditional write closes that gap because the comparison and the mutation happen together. The lock remains useful for choosing a likely owner; the fencing gate enforces correctness.',
+        'The invariant is that the resource high-water mark is always the greatest token it has accepted. If token 11 has been accepted, then token 10 cannot be current under any legal ownership sequence. Rejecting token 10 preserves the invariant even when messages arrive out of order.',
+        'This is the right boundary because the token check and the side effect happen together. A stale client cannot sneak through a gap between validation and mutation because there is no separate gap at the resource. The lock chooses a likely owner; the fenced write proves freshness at commit time.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is protocol coverage. Every protected write path needs a token parameter. Every resource needs storage for the high-water mark. Multi-resource operations need every resource to enforce the same epoch, or they need a higher-level transaction that does. If one side effect bypasses the gate, that path can still be corrupted by a stale holder.',
-        'Fencing also does not solve retries by itself. A request with a fresh token can succeed while the client times out waiting for the response. Retrying the same operation needs an idempotency key, operation id, or compare-and-set shape so the resource can distinguish a duplicate from a new action under the same owner. Fencing rejects old owners; idempotency handles ambiguous repeats by a current owner.',
+        'The runtime cost is tiny: one token field on each request, one stored high-water mark per protected resource, and one integer comparison per write. The real cost is coverage. Every path that can change the protected resource must carry the token and enforce the same rule.',
+        'Fencing does not remove retry complexity. If a fresh token write succeeds but the client times out, retrying the same operation needs an idempotency key or operation id so the resource can recognize a duplicate. Fencing rejects old owners; idempotency handles repeated attempts by the current owner.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A backup system elects one worker to publish the latest backup manifest. Worker A receives token 10, starts uploading chunks, then pauses during garbage collection. Its lease expires. Worker B receives token 11, verifies the chunks for the new backup, and writes manifest_version=2026-06-17 with fencing_token=11. The manifest service stores token 11 as the high-water mark.',
-        'Worker A wakes and tries to publish its older manifest with token 10. Without fencing, the older manifest could replace the newer one and make restore tooling point at stale or incomplete data. With fencing, the manifest service performs one conditional update, sees 10 < 11, and rejects the write. The backup lock helped coordinate workers, but the manifest service protected the durable truth.',
+        'Fencing fits leader-elected writers, storage masters, backup publishers, compaction workers, distributed cron jobs, and hardware controllers. The common shape is one owner at a time plus an external resource that can be damaged by stale writes. Chubby describes this pattern with a lock acquisition count passed to the server that performs the write.',
+        'It also appears inside consensus systems as leader terms. A leader term fences older leaders only if followers and downstream resources reject stale terms. Leadership is a claim about who should act; fencing is the write rule that makes the claim enforceable.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Fencing fails if tokens are random, reused, scoped incorrectly, or generated by a split-brain authority. The token order must match the resource being protected. If two lock services can issue token 12 for the same resource, the comparison is meaningless. If a token is only monotonic per client rather than per resource, an old client can still look fresh to the store.',
-        'It also fails when enforcement is only advisory. Logging the token is not enough. Checking it in the client is not enough. Checking it before a non-atomic write is not enough. Sending one fenced write to the database and one unfenced write to an object store is not enough if either side effect can corrupt the invariant. The resource that receives the side effect must reject stale epochs before applying them.',
+        'Fencing fails if tokens are random, reused, scoped to the wrong resource, or generated by split-brain authorities. Two independent lock services issuing token 12 for the same object destroy the comparison. Tokens must be monotonic for the exact resource whose writes they protect.',
+        'It also fails when enforcement is partial. Logging the token is not enough, checking it in the client is not enough, and checking it before a non-atomic write is not enough. One unfenced side effect can still corrupt the system.',
       ],
     },
     {
-      heading: 'Useful contexts',
+      heading: 'Worked example',
       paragraphs: [
-        'Fencing tokens are useful for leader-elected writers, backup manifests, storage controllers, distributed schedulers, compaction workers, primary-only maintenance jobs, distributed cron, and any workflow where an old holder can resume after losing ownership. They pair well with databases, object stores, and APIs that support conditional writes over a version or generation field.',
-        'They are also a way to read leader terms in consensus systems. A new leader term fences older leaders only if followers and downstream resources reject stale terms. That is the general lesson: leadership, locks, and leases are proposals about who should act; fencing turns that proposal into an enforceable write rule.',
+        'A backup service elects one manifest publisher. Worker A receives token 10 and starts building manifest 17, then pauses for 45 seconds. Its 30-second lease expires, Worker B receives token 11, and B writes manifest 18 with fencing_token 11.',
+        'A wakes and tries to write manifest 17 with token 10. Without fencing, restore tooling can point at the older manifest. With fencing, the manifest row already stores token 11, so the conditional update 10 > 11 is false and the write is rejected.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Chubby paper at https://research.google.com/archive/chubby-osdi06.pdf, ZooKeeper programmer guide at https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html, and Martin Kleppmann distributed locking analysis at https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html.',
-        'Study Distributed Locks, View Changes: Replacing a Failed Leader, Raft Leader Lease Read Safety, Chubby Lock Service, ZooKeeper & Zab, Idempotency & Exactly-Once Delivery, Transactional Outbox, Compare-and-Swap, and Write-Ahead Log next.',
+        'Primary sources: The Chubby lock service paper at https://research.google.com/archive/chubby-osdi06.pdf, ZooKeeper programmer guide at https://zookeeper.apache.org/doc/current/zookeeperProgrammers.html, and Martin Kleppmann on distributed locking at https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html.',
+        'Study next by role. For lock services, read Chubby Lock Service and ZooKeeper and Zab. For commit-time guards, read Compare-and-Swap and Write-Ahead Log. For repeated writes after timeout, read Idempotency and Exactly-Once Delivery.',
       ],
     },
   ],

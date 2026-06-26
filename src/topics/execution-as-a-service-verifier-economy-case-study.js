@@ -181,88 +181,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        'A transcript is weak training material for an agent. It can show what the model said, but it may not prove that the action ran, changed the right state, preserved constraints, or would work again tomorrow. For code, that proof may be tests and a patch. For robotics, it may be simulator success plus device telemetry. For finance, it may be a leak-free backtest. The scarce object is not the conversation; it is a reproducible execution with a trusted verdict.',
-        'Execution-as-a-service is the infrastructure layer that turns tasks into runnable episodes. It owns environments, sandboxes, tools, time limits, secrets policy, verification oracles, proof records, and release gates. The verifier economy is the market that forms around that layer when models become easier to copy than clean execution data.',
+        'Read the pipeline as a factory for verified episodes. An episode is one task attempt with starting state, actions, final state, and proof. The active node is accepted only after the oracle records why the result should be trusted.',
+        'The value chain separates raw transcript from reusable data. A transcript says what an agent appeared to do, while a verified episode says what ran and what passed. The safe inference rule is that only episodes with replayable state and an oracle verdict can become high-trust training or evaluation data.',
         {type:'callout', text:'The scarce asset is not the agent transcript but the verified execution episode: state, action, result, and proof under a replayable oracle.'},
       ],
     },
     {
-      heading: 'Why transcripts are not enough',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is to gather human demonstrations, chat logs, terminal logs, or agent traces and train on them. That captures surface behavior, but it does not answer the hard questions: was the repository state real, were the tests meaningful, did the tool calls execute, did the fix generalize beyond the visible test, and can the trace be replayed under the same conditions?',
-        'A plain benchmark label has the opposite problem. Pass/fail tells you whether an endpoint accepted the result, but it discards the path. For agents, the path matters: which files were inspected, which wrong turns were avoided, which commands produced evidence, and which intermediate states made the final action safe.',
+        'Agent transcripts are easy to collect and hard to trust. They can show fluent reasoning, tool calls, and final answers without proving that the tool calls ran or that the result survived a real verifier. For code, the verifier may be tests and review; for robotics, it may be simulator success plus telemetry.',
+        'Execution-as-a-service is the infrastructure that turns tasks into runnable episodes. It owns environments, sandboxes, tools, limits, secrets policy, oracles, proof records, and release gates. The verifier economy forms because clean execution data can become scarcer than model weights.',
       ],
     },
     {
-      heading: 'The production wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Verification is expensive before it is useful. The factory needs runners, containers, simulators, data snapshots, dependency caches, network controls, validators, human review paths, storage, and audit logs before the first clean example can ship. A cheap trace with no oracle is just telemetry. A verified trajectory is manufactured evidence.',
-        'Governance is part of the wall, not paperwork after the fact. Execution traces can contain private code, credentials, customer data, proprietary workflows, licensed text, and sensitive failures. A verifier factory without redaction, authorization, retention rules, consent boundaries, and lineage records cannot become a durable data product.',
+        'The obvious approach is to train on chat logs, terminal logs, human demonstrations, or agent traces. That captures behavior but not trust. The reader still has to ask whether the repository state was real, whether the tests were meaningful, and whether the trace can be replayed.',
+        'A plain pass/fail benchmark label loses the opposite information. It says whether an endpoint accepted the result, but it discards the path that made the result safe. Agent learning often needs both the final verdict and the inspected states that led there.',
       ],
     },
     {
-      heading: 'Core insight and mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'The factory can be described as a pipeline: collect tasks, snapshot the environment, run candidate agents, capture every state transition, score the outcome with an oracle, attach proof, deduplicate near-identical traces, apply governance, and publish only eligible trajectories. Each stage has a ledger because later users need to know why an example counts.',
-        'The common record is state, action, result, proof. State names the environment and task context. Action records tool calls, edits, decisions, and timing. Result records what changed. Proof records why the result should be trusted. The domain changes the executor and oracle; the shape of the record stays stable.',
+        'Verification is expensive before it becomes useful. A serious factory needs runners, containers, simulators, data snapshots, dependency caches, validators, human escalation, storage, audit logs, and privacy controls. A cheap trace without an oracle is just telemetry.',
+        'Governance is part of the wall. Execution traces can contain private code, credentials, customer data, proprietary workflows, licensed text, or sensitive failures. A verifier factory that cannot redact, authorize, retain, and prove data rights cannot safely publish its own product.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'The core insight',
       paragraphs: [
-        'Imagine a coding platform that sees issues, pull requests, failing tests, accepted patches, review comments, and reruns. It can snapshot a repository, ask several agents to repair the failure, run the test suite, reject patches that only satisfy a brittle visible test, and store a proof packet containing the diff, commands, logs, timing, dependency lockfiles, and reviewer outcome.',
-        'That platform can use the same factory three ways. It can train on successful trajectories, evaluate new agents against private tasks, or sell an enterprise customer a private verifier loop that never exports source code. A startup without platform access must recreate task collection, environment replay, verification, privacy review, dedupe, and data release from scratch.',
+        'The stable record is state, action, result, and proof. State names the task, environment, inputs, and permissions. Action records tool calls, edits, decisions, and timing. Result records what changed, and proof records why the change is accepted.',
+        'The executor and oracle change by domain, but the record shape stays useful. A coding oracle may run tests, a finance oracle may run a leak-free backtest, and a lab oracle may run a simulator. In each case, acceptance is separated from generation.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'How it works',
       paragraphs: [
-        'In the value-chain view, follow the flow from corpus to environment and task, then through rollout, oracle, proof ledger, dataset, and model. The important handoff is not from data to model; it is from untrusted execution to verified execution. The oracle and proof ledger are the narrow waist because they decide what can enter the training or evaluation supply.',
-        'In the factory-economics view, compare the cost curves. Manual verification starts lower but stays expensive because every example needs attention. An automated factory starts with high fixed cost, then gets cheaper when runners, sandboxes, dedupe indexes, and governance checks are reused across many episodes. The operating ledger frames the real bottlenecks: task mix, run cost, pass-proof quality, novelty rate, and release risk.',
+        'The factory collects tasks, snapshots environments, runs candidate agents, captures state transitions, scores outcomes with an oracle, attaches proof, deduplicates similar episodes, applies governance, and publishes eligible records. Each stage has a ledger because later users need to know why the example counts. The ledger is not optional metadata; it is the chain of custody.',
+        'A release gate turns internal execution into reusable data. It can require hidden tests, clean replay, static analysis, human review, license checks, privacy redaction, and split-deduplication. Different products can use different gates while sharing the same raw execution substrate.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because the factory separates generation from acceptance. Agents may produce many attempts, but only attempts with a reproducible environment and a credible oracle become training or evaluation data. That prevents fluent-but-wrong behavior from being treated as expertise.',
-        'It also works economically. Once a domain has stable executors, common task templates, reusable validators, and governance rails, the marginal cost of another verified trajectory can fall. That is why git hosts, IDE vendors, cloud CI systems, benchmark operators, and domain labs have structural advantages: they already sit near task streams and execution evidence.',
+        'It works because generation and acceptance are different jobs. Agents can produce many attempts, but only attempts with a reproducible environment and credible oracle enter the training or evaluation set. That prevents fluent wrong behavior from being treated as expertise.',
+        'It also works economically after the fixed cost is paid. Once a domain has reusable runners, validators, data snapshots, and governance rails, the marginal cost of another verified episode can fall. Platforms near real task streams have an advantage because they already see failures, fixes, and execution evidence.',
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The tradeoff is control versus openness. A tight factory can produce high-trust data, but it may be expensive, private, and hard for outsiders to audit. A public benchmark is easier to compare, but it can be saturated, leaked, overfit, or too narrow for production behavior.',
-        'The second tradeoff is oracle strength. Unit tests, simulators, static analyzers, backtests, and human review all catch different errors. Stronger oracles cost more and may slow data volume. Weaker oracles scale faster but can turn systematic blind spots into training signal.',
+        'The cost behaves like a factory. If building the first domain costs 12 engineer-weeks and each verified episode costs 20 minutes of compute and review, the early examples are expensive. At 50,000 episodes, the fixed cost is diluted, and the main cost becomes runner utilization, oracle strength, and release risk.',
+        'Oracle strength is the central tradeoff. Visible unit tests scale cheaply but miss hidden behavior. Human review catches more context but is slow and inconsistent. Strong gates cost more, but weak gates can train models to exploit blind spots.',
       ],
     },
     {
-      heading: 'Operating checklist',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A serious verifier factory needs versioned environments, pinned dependencies, task provenance, runner isolation, secret boundaries, timeout policy, artifact storage, oracle versioning, and reviewer escalation. Each accepted episode should be explainable months later: what was the starting state, what actions ran, what changed, what checked it, and what rights allow reuse.',
-        'The release gate should separate evidence classes. A trajectory that passed visible tests is not the same as one that passed hidden tests, human review, static analysis, and replay on a clean machine. Training data, evaluation data, and customer-visible proof packets may need different thresholds even when they come from the same execution run.',
+        'Coding-agent platforms can snapshot repositories, run repairs, store diffs, collect logs, and keep accepted proofs. Robotics labs can use simulators and hardware telemetry to decide which trajectories are real. Finance systems can preserve data snapshots and backtest rules so a strategy result is not just a chart.',
+        'Enterprise products can use private verifier loops without exporting source code or customer records. The customer gets a local execution service and proof ledger, while the vendor gets aggregate product metrics or no data at all. That boundary matters when the verifier is valuable but the raw execution is sensitive.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The factory fails when passing the oracle is mistaken for solving the domain. A patch can pass visible tests while breaking hidden behavior. A finance strategy can pass a backtest by leaking future information. A robot policy can succeed in a simulator by exploiting simulator quirks. The proof ledger must record what was actually proven, not what the operator wishes had been proven.',
-        'It also fails through data rights and freshness. A trajectory may be correct but not trainable because of license, privacy, consent, or customer-boundary constraints. A task may be valuable today and unreplayable next month because dependencies changed. A factory without environment pinning, retention policy, and source authority loses its own evidence.',
+        'It fails when passing the oracle is mistaken for solving the domain. A patch can pass visible tests while breaking hidden behavior, a robot can exploit simulator quirks, and a backtest can leak future information. The proof ledger must record what was actually proven.',
+        'It also fails through rights and freshness. A trajectory may be correct but not trainable because of license, consent, privacy, or customer-boundary constraints. A task may be replayable today and unreplayable next month if dependencies or data access disappear.',
       ],
     },
     {
-      heading: 'Practical use',
+      heading: 'Worked example',
       paragraphs: [
-        'Use this mental model when evaluating agent products, benchmarks, and data businesses. Ask what the task source is, how environments are replayed, what the oracle proves, how proof is stored, how duplicates are filtered, and which governance gate allows release. If any link is missing, the claimed dataset is weaker than it sounds.',
-        'For builders, start with one domain where execution is real and verification is cheap enough to repeat. Build the task queue, environment registry, oracle result table, proof ledger, dedupe index, privacy and license registry, and release gate as first-class product systems. The verifier is not an internal script; it is the asset.',
+        'Suppose a coding platform starts with 100,000 issue attempts. The verifier reruns each attempt in a pinned environment, rejects 55,000 for failing tests, rejects 10,000 for missing proof, and rejects 5,000 for privacy or license risk. The remaining 30,000 episodes have state, action, result, and proof records.',
+        'If each accepted episode costs 25 minutes of runner time and review, the accepted set costs 12,500 hours before infrastructure reuse. A better cache, stronger dedupe, and batch validation reduce cost per accepted episode. The economic asset is not the transcript count; it is the accepted proof count per dollar.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: CWM at https://arxiv.org/abs/2510.02387 and https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/, SWE-bench at https://arxiv.org/abs/2310.06770, SWE-agent at https://arxiv.org/abs/2405.15793, SWE-bench Verified at https://www.swebench.com/verified.html, OpenAI SWE-bench Verified analysis at https://openai.com/index/why-we-no-longer-evaluate-swe-bench-verified/, and AlphaEvolve at https://arxiv.org/abs/2506.13131.',
-        'Study Verified Agent Trajectory Store, Abstract Agent Operation Graph, Agent Portability Audit, Process Reward Models & Verifier Search, AlphaEvolve Case Study, Software Supply Chain Provenance Graph, and Temporal Workflow Case Study next.',
+        'Study SWE-bench, SWE-agent, SWE-bench Verified, Code World Models, process reward models, AlphaEvolve, sandboxed execution, and software supply-chain provenance. Then study Verified Agent Trajectory Store, Abstract Agent Operation Graph, Agent Portability Audit, Process Reward Models and Verifier Search, Software Supply Chain Provenance Graph, and Temporal Workflow Case Study.',
+        'The next exercise is to define an oracle for one domain. Name the starting state, allowed actions, acceptance proof, replay method, privacy rule, and release gate. If any field is missing, the episode is not yet a durable data product.',
       ],
     },
   ],

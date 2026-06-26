@@ -165,80 +165,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why it matters',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Large distributed systems need a small number of facts to be more reliable than the machines using them: who is leader, which server owns a shard, where a service endpoint lives, what configuration is current, and whether a participant is still considered alive.',
-        'Chubby matters because it turns those facts into a deliberately small control-plane service. It gives clients coarse locks, small files, directories, watches, sessions, and a replicated master. The paper is a lesson in restraint: make coordination reliable, then keep the heavy data path out of the lock service.',
+        'Read the lock-cell view as a control-plane service. A control plane stores facts that guide other systems, such as the current leader, shard owner, service address, or configuration version. The active node is the Chubby master or the client session currently proving that a lock is still valid.',
+        'Read the sessions-and-watches view before reading the lock name. A session is the client relationship that must stay alive for a lock to mean anything, and a watch is an invalidation hint that tells a client to re-read state. The safe inference is that ownership is current only while the session and fencing rules say it is current.',
+      ],
+    },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Large distributed systems need a few facts to be more reliable than the machines using them. Examples include who is leader, which server owns a shard, where a service endpoint lives, what configuration is current, and whether a participant is still alive. If every service invents those rules independently, rare failures become repeated bugs.',
+        'Chubby exists as a small replicated lock and metadata service for those facts. It provides coarse locks, small files, directories, watches, sessions, and a replicated master. Its main lesson is restraint: make coordination reliable, then keep hot data-path work out of the lock service.',
         {type:'callout', text:'Chubby works by making rare control-plane facts reliable while keeping hot data-path work out of the lock service.'},
       ],
     },
     {
-      heading: 'The naive baseline and its wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The naive baseline is to let every service invent its own leader election, config file distribution, heartbeat table, and lock protocol. That looks local and simple, but every team then has to solve split brain, stale owners, retries, crashes, and reconfiguration under partitions.',
-        'The other naive baseline is to use a database row or shared file as a lock. That can work only if the storage system already gives the right lease, failure, and fencing semantics. Without those semantics, a paused process can wake up believing it still owns a resource after another process has taken over.',
-        'The wall is that coordination bugs are rare, expensive, and cross-system. Chubby centralizes the hard part for coarse-grained decisions while still warning engineers not to use it for every data operation.',
+        'The obvious approach is for each service to build its own leader election, heartbeat table, config distribution, and lock protocol. That feels local because the service team knows its own state. It fails because each team then has to solve split brain, stale owners, retries, partitions, and crash recovery.',
+        'Another obvious approach is to use a database row or shared file as a lock. That works only if the storage system already gives lease semantics, monotonic versions, and fencing. Without those properties, a paused process can wake up and keep writing after another process has taken ownership.',
       ],
     },
     {
-      heading: 'Core invariant',
+      heading: 'The wall',
       paragraphs: [
-        'The invariant is that a lock is meaningful only together with its session and lease semantics. A client owns a Chubby lock while its session is valid, not forever. If the client cannot renew, it must stop acting or prove freshness with a fencing token, sequence number, or conditional write on the external resource.',
-        'The second invariant is that watches are invalidation hints, not durable event streams. When a watched file changes, the client re-reads authoritative state from Chubby. It does not treat the notification itself as the state change record.',
+        'The wall is stale authority. In a distributed system, a process can pause, lose network access, miss renewals, and later resume with old memory. If it still believes it owns a lock, it may write to an external resource after a new owner has been chosen.',
+        'The second wall is load shape. Coordination facts are rare and important, but data-path operations are frequent. A lock service can protect leader choice and config version; it cannot become the per-request mutex for every read and write without becoming the bottleneck it was meant to avoid.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The core insight',
       paragraphs: [
-        'In the lock-cell architecture view, start at the cell master and replica group. The file `/service/leader` is small, but the important property is that its lock and contents are backed by replicated consensus. The client library is part of the design because it hides reconnects, caching, handle reuse, session renewal, and master failover from application code.',
-        'The usage table is a fit test. Leader election, service discovery, small configuration, and coarse barriers are rare, high-value facts. They belong in a coordination service. Per-request locking and large file storage do not.',
-        'In the sessions-and-watches view, follow the lease state before the lock state. A healthy client renews and continues. A paused or partitioned client is at risk and should stop before expiry or fence its writes. When the watch fires, the correct next move is re-read, not replay a notification as if it were a durable queue message.',
+        'The core insight is that a lock is meaningful only with a session, a lease, and a way to make stale owners harmless. A lease is time-bounded ownership that must be renewed. A fencing token is a monotonic value that external systems can use to reject old owners.',
+        'Watches follow the same discipline. A watch notification is not the durable event stream; it is a signal that cached state may be stale. The client must re-read the Chubby file or metadata and use that authoritative value.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'How it works',
       paragraphs: [
-        'A Chubby deployment is organized into cells. A cell is a small replicated service with one master at a time. The master serves client operations, while consensus keeps replicas in agreement so a new master can take over after failure. The paper describes this design for reliable coarse-grained locking and small-file metadata: https://research.google.com/archive/chubby-osdi06.pdf.',
-        'The namespace looks like a file system because that is a convenient API for humans and programs: directories, files, handles, permissions, contents, locks, and metadata. A service can publish its current leader or configuration by writing a small file and letting clients watch that path.',
-        'Clients normally talk through a Chubby library. The library caches file data and handles, renews sessions, observes invalidations, retries through master changes, and exposes a simpler API. That library layer is what keeps application code from treating every transient network event as a fresh distributed-systems problem.',
+        'A Chubby deployment is organized into cells. Each cell has a small replicated service with one master at a time, and consensus keeps replicas in agreement so a new master can take over after failure. Clients usually talk through a library that handles caching, reconnects, master failover, session renewal, and watch invalidation.',
+        'The namespace looks like a file system because directories and files are a convenient interface for small metadata. A service can publish \'/service/leader\' with the current leader address and generation number. Other services watch that path, invalidate their cache when it changes, and re-read the file before trusting the new state.',
       ],
     },
     {
-      heading: 'Correctness',
+      heading: 'Why it works',
       paragraphs: [
-        'Correctness depends on making old owners harmless. If client A holds a lock, pauses beyond its lease, and client B then acquires the lock, client A may still resume and try to write to a database, file system, or shard. Chubby can release the lock, but it cannot undo a stale external write.',
-        'The usual fix is fencing. Each successful lock acquisition or protected update carries a monotonically increasing token, version, or generation number. The external resource accepts only the newest valid token. That converts stale ownership into a rejected write instead of corruption.',
-        'Watches have a similar correctness rule. Because notifications can be coalesced or lost across reconnects, a watch should trigger cache invalidation and a fresh read. The file contents and metadata are the durable truth.',
+        'Correctness depends on making old owners harmless. If client A holds a lock, pauses past its lease, and client B acquires the lock, client A may still resume. Chubby can release the lock, but the protected storage system must reject A with a stale fencing token.',
+        'The invariant is monotonic ownership evidence. Each successful acquisition or protected update carries a version, generation, or token that only moves forward. External resources accept only current tokens, so stale clients become rejected writers instead of corrupt writers.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost of Chubby is latency, operational complexity, and dependency concentration. Consensus-backed writes are slower than local memory, master failover can pause clients, and a bad usage pattern can put many systems behind one small control plane.',
-        'The tradeoff is worth it when the coordinated fact is rare and valuable. It is not worth it when the fact changes on every user request, carries large payloads, or belongs in a storage system designed for throughput. Chubby improves availability of coordination; it does not make coordination cheap enough to put in the hot path.',
+        'Chubby pays consensus latency, operational complexity, and dependency concentration. A consensus-backed write is slower than local memory, and master failover can pause clients. If too many systems depend on one small cell, the control plane becomes a shared failure surface.',
+        'The cost is acceptable when the coordinated fact changes rarely and protects large downstream work. For example, a shard leader might change once per day while serving millions of data requests. Paying tens of milliseconds for the leader decision is cheap; paying that cost on every data operation would be reckless.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Chubby-style systems fit leader election, service discovery, master location, small configuration, membership, coarse barriers, and bootstrapping larger storage systems. ZooKeeper, etcd, Consul, and Kubernetes control-plane storage belong to the same family even though their APIs differ. The common pattern is reliable small metadata, not high-throughput data storage.',
+        'They are useful when many clients need to agree on one current fact. A storage system can use the service to publish shard ownership, while the storage layer enforces fencing on actual writes. That split keeps coordination centralized and data movement local.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when used as a high-throughput database, work queue, per-request mutex, large-file store, or substitute for idempotent application logic. The service is reliable enough that teams are tempted to add more dependencies. That social pattern can turn a small control plane into a large bottleneck.',
+        'It also fails when designs forget the stale-owner case. A lock alone does not stop a delayed process from writing to a separate system. If the protected system does not check fencing tokens, the design is incomplete even if the lock service is correct.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Consider a storage shard with one active master. Candidates race to acquire `/shards/17/master`. The winner writes its address and generation number into the file, holds the lock through a renewed session, and begins serving traffic. Other processes watch the file so they can discover the current owner.',
-        'If the owner crashes, its session expires and the lock is released. A new process acquires the lock, writes a higher generation, and starts serving. Clients that receive the watch invalidation re-read the file and switch to the new owner. Any write to the shard includes the generation number, so a delayed request from the old owner is rejected by the shard storage layer.',
-        'The example shows the division of labor. Chubby decides current ownership and publishes metadata. The data store enforces fencing on actual writes. Clients use watches to refresh their cached view.',
+        'Consider shard 17 with one active master. Candidate A acquires \'/shards/17/master\', receives generation 41, writes its address, and renews its session. Clients watch the file and send writes to A with generation 41 attached.',
+        'A then pauses for 90 seconds and misses renewals, so the session expires. Candidate B acquires the lock, receives generation 42, and writes its address. If A resumes and sends an old write with generation 41, the shard storage layer rejects it because 41 is less than 42. Chubby chose ownership, and fencing made stale ownership harmless.',
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Chubby-style systems win for leader election, service discovery, master location, small configuration, coarse barriers, membership, and bootstrapping larger systems. ZooKeeper, etcd, Consul, and Kubernetes control-plane storage follow the same broad family of ideas even though their APIs and internals differ.',
-        'They fail when used as high-throughput data stores, work queues, per-request mutexes, large-file stores, or substitutes for application-level idempotency. The social failure mode is common: because the service is reliable, teams keep adding new dependencies until the control plane becomes the bottleneck.',
-        'A practical design review question is: what happens if the lock holder pauses, the lease expires, a new holder starts, and the old holder resumes? If the answer lacks fencing, conditional writes, or idempotent recovery, the design is incomplete.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary source: "The Chubby lock service for loosely-coupled distributed systems" at https://research.google.com/archive/chubby-osdi06.pdf.',
-        'Study Distributed Locks: What They Can Promise for lock semantics, Paxos: Consensus Without a Leader for replicated agreement, Leader Replacement for failover behavior, Google File System Case Study and Bigtable Case Study for systems that need reliable metadata, Load Balancer for service discovery pressure, and Clocks & Ordering: Lamport to TrueTime for the time assumptions behind leases and freshness.',
+        'Primary source: \'The Chubby lock service for loosely-coupled distributed systems\' at https://research.google.com/archive/chubby-osdi06.pdf. Read it for the design boundaries as much as for the API. The paper is careful about what belongs in the lock service and what must stay outside it.',
+        'Study distributed locks, leases, fencing tokens, Paxos, Raft, ZooKeeper, etcd, and Kubernetes control-plane storage next. Then study Google File System and Bigtable to see why reliable metadata matters for larger storage systems.',
       ],
     },
   ],

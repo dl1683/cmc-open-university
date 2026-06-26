@@ -217,83 +217,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        "Dremel exists for a specific pain: analysts want interactive answers over enormous nested datasets. The data is often log-like or protocol-buffer-like. Records contain optional fields, repeated fields, and deeply nested structures. The questions, however, usually touch only a few paths: count pages by country, group requests by language, compute an error rate, or inspect one repeated field.",
-        "A batch system can answer those questions, but it makes exploration slow. Write a job, wait for scheduling, scan the dataset, materialize output, and repeat for the next question. Dremel was designed as a complement to heavy batch pipelines: keep the data in a form that large scans can read quickly, then fan out SQL-like aggregation work across many machines.",
-        "The case study matters because it joins two ideas that are often taught apart. Columnar storage saves work by reading only the fields the query needs. A serving tree saves work by pushing partial aggregation down toward the shards. The speed comes from both layout and execution topology.",
+        'Read the nested-record view as a byte-avoidance proof. Active fields are the columns needed by the query, and removed fields are real data that can stay unread because the SQL expression does not reference them.',
+        'Read the serving-tree view from leaves back to the root. The safe inference rule is that a grouped aggregate can send partial counts upward because addition preserves the final count while shrinking the data in flight.',
         {type: "callout", text: "Dremel gets interactivity by avoiding work twice: columnar nested storage skips unused fields, and the serving tree reduces raw scans into partial aggregates near the shards."},
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        "The naive approach is to store each nested record as one row-shaped object and scan whole rows for every query. That is easy to understand. A reader pulls a record, decodes it, finds the fields it needs, and moves to the next record. For small data, this is fine.",
-        "At Dremel scale, it breaks. If the query only needs country and language, scanning repeated links, payload blobs, debug fields, and unused metadata is wasted IO and CPU. Nested records make the waste worse because the reader may have to walk complex structure just to discover that most of it is irrelevant.",
-        "Another naive approach is to parallelize the row scan and send all matching rows back to one coordinator. That improves throughput but creates a new bottleneck. The coordinator receives far more data than the final answer needs. For a count or group by, most raw rows should never leave the leaf machine. The system should ship summaries, not records."
+        'Dremel exists because analysts want interactive aggregation over very large nested records. The records may be logs or protocol buffers with optional fields, repeated fields, and many paths that most queries never touch.',
+        'A batch job can answer these questions, but exploration suffers when each question waits for scheduling and a full scan. Dremel keeps the data in a columnar nested layout and sends aggregation through a serving tree so many exploratory queries can finish quickly.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to store each nested record as one row-shaped object. A scan reads the whole object, walks the nested structure, extracts country and language, and moves to the next record.',
+        'This works for small data because the representation matches how programmers think about records. It is also easy to update one whole object and easy to return a complete record to a user.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall appears when queries touch a few fields across many records. If a query counts pages by country, decoding repeated links, headers, debug fields, and unused payloads is wasted IO and CPU.',
+        'Parallel row scans do not remove the second wall. If every leaf sends matching raw records to one coordinator, the network and root server handle far more data than the final grouped count requires.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "The core insight is that nested structure can be separated from physical row storage. Dremel stores values column by column, including fields inside repeated and optional records. It keeps enough level metadata to reconstruct the nesting when needed, but it does not force every query to rebuild full records.",
-        "Definition levels answer whether a value is present at a path. Repetition levels answer where repeated values belong in the original record hierarchy. Together they let a column stream represent nested data without carrying every parent object alongside every value. That is the trick: the query can read a path as a column while the format still remembers how that path fits into records.",
-        "The execution insight is equally direct. Leaves scan local column shards. Mixers combine partial aggregates. The root produces the final answer. Each level should reduce data before passing it upward."
+        'Nested records can be stored as column streams without losing their structure. Dremel stores field values separately and uses definition levels to describe whether optional values exist and repetition levels to describe how repeated values attach to parent records.',
+        'The execution insight is that aggregation should happen near the shards. Leaves scan selected columns, mixers combine partial results, and the root returns the small final answer.',
       ],
     },
     {
-      heading: 'The mechanism',
+      heading: 'How it works',
       paragraphs: [
-        "A Dremel-style scan starts with a query plan that identifies the needed columns and expressions. If the query counts pages by country and language, the engine does not need the links.url column unless a predicate or projection references it. The column reader streams values and level metadata for the selected paths.",
-        "For repeated fields, the reader uses repetition levels to know whether a value continues the same repeated group or starts a new one. For optional fields, definition levels tell whether the value exists or is null or missing at some depth. This is more complex than a flat column, but it is still cheaper than decoding every full nested record when the query only needs a few paths.",
-        "The serving tree handles the distributed part. A root server receives the query and sends work to mixers. Mixers send subqueries to leaf servers that own shards. Leaves scan columns and compute local partials, such as count by country. Mixers merge those partials, and the root merges again. The plan is shaped so that data shrinks as it moves upward."
+        'A query plan first identifies the paths it needs. For count pages by country and language, the engine reads those columns and can leave links.url untouched unless a predicate or projection uses it.',
+        'For optional and repeated fields, the column reader uses definition and repetition levels to reconstruct the logical nesting when needed. That metadata is the price paid for reading a nested field as a column without attaching every parent object to every value.',
+        'The serving tree fans the query to leaves that own column shards. Each leaf computes local partial aggregates, each mixer merges child results, and the root merges the smaller summaries into the final table.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why it works',
       paragraphs: [
-        "The nested-record visual proves the waste in a row scan. The repeated links field is real data, but the target query does not need it. A row layout drags it through the scan path anyway. A column layout lets the query touch country and language while leaving links.url unread.",
-        "The column table also proves that Dremel did not simply flatten the data and throw away meaning. The definition and repetition metadata is the price paid for nested correctness. Without it, the engine could read values quickly but would not know which repeated child belonged to which parent record or whether an optional path was absent.",
-        "The serving-tree visual proves that parallelism alone is not the lesson. The query fans out, but the important motion is the result flowing back as smaller partial aggregates. Leaves do the first reduction. Mixers do the second. The root should never need to collect every row just to compute a grouped count."
+        'The layout works because analytical queries are sparse over fields. When a record has hundreds of possible paths and a query reads five of them, column pruning turns unused fields into bytes that are never loaded.',
+        'The serving tree works when the operation has mergeable state. Counts, sums, many histograms, and grouped maps can be combined from partials, so the tree preserves the answer while reducing traffic toward the root.',
       ],
     },
     {
-      heading: 'Why the method works',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Dremel works because analytical queries are usually sparse over fields and compressible over values. A wide nested record might have hundreds of possible paths. A query often reads a handful. Storing those paths as separate streams turns field pruning into a physical IO win.",
-        "It also works because similar values sit near each other in column form. Countries, languages, status codes, booleans, small enums, and repeated tags compress better when stored together. Even when compression is not the main goal, typed column streams make vectorized scanning, predicate evaluation, and aggregation easier than decoding mixed row objects.",
-        "The serving tree works because many analytical operations are associative or can be decomposed into partial state. Counts add. Sums add. Many sketches and histograms merge. Grouped aggregation can combine per-shard maps. The tree uses that algebra to keep bandwidth and coordinator load under control."
+        'The read cost is roughly proportional to selected columns, selected row groups, and the work needed to interpret level metadata. If a query reads 3 columns from a 90-column record, the storage layout can avoid most field bytes before CPU work begins.',
+        'The complexity cost sits in the reader and planner. Repetition levels, definition levels, null semantics, distinct counts, and nested predicates must be handled exactly, because a fast query that attaches a child value to the wrong parent is wrong.',
+        'The serving tree also has distributed cost. Stragglers, hot shards, bad fanout, and root overload can dominate latency even when the storage layout is efficient.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        "The cost is that readers become more complex. A flat row reader can hand back one object at a time. A nested column reader must interpret definition levels, repetition levels, column chunks, encodings, and query projection rules. Bugs here are subtle because the output can look plausible while repeated values are attached to the wrong parent.",
-        "The layout is also a poor fit for frequent single-row mutation. Dremel was aimed at read-mostly analytical data. If the workload is a transactional application that updates individual records and immediately reads whole objects back, a columnar nested scan engine is the wrong center of gravity.",
-        "The serving tree adds distributed execution risks. Hot shards can dominate latency. Stragglers delay the root. Bad mixer placement can overload network links. Stale metadata can send work to the wrong leaves. Partial aggregation must preserve exact query semantics, especially around nulls, repeated fields, and distinct counts."
+        'The pattern fits web telemetry, security logs, observability data, product analytics, and large read-only corpora. These workloads scan many records, read a subset of fields, and return aggregates much smaller than the input.',
+        'Dremel directly influenced BigQuery-style interactive analytics and the broader use of nested columnar storage. The same mental model appears in Parquet, Arrow-based engines, distributed aggregation, and query profiles that separate scan bytes from shuffle bytes.',
       ],
     },
     {
-      heading: 'Real use cases',
+      heading: 'Where it fails',
       paragraphs: [
-        "Dremel shaped BigQuery-style interactive analytics and influenced the way people think about nested columnar formats. The pattern fits log analysis, product analytics, security telemetry, feature exploration, observability data, and large read-only corpora where most questions aggregate a subset of fields.",
-        "A practical example is web telemetry. Each event record might include country, language, device, page, experiment IDs, repeated links, timing spans, error metadata, and request headers. A product analyst asking for daily page views by country should not pay to decode every header and repeated link. A security analyst filtering one nested signal should not ship every matching row to one coordinator before counting.",
-        "The same mental model appears in Parquet, columnar warehouses, query engines with exchange operators, and distributed profiles that show scan bytes, shuffle bytes, and partial aggregation."
+        'Columnar nested storage is a poor center for frequent single-row mutation. A transactional workload that updates whole objects and immediately reads them back wants a different storage shape.',
+        'It also fails when queries reconstruct most of each record. If nearly every query reads nearly every field, the level metadata and column assembly work can become extra machinery with little pruning benefit.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        "The first failure mode is assuming columnar always wins. It wins when queries skip fields, scan many rows, compress similar values, and aggregate early. It can lose when queries constantly reconstruct full records, update individual rows, or touch nearly every field.",
-        "The second failure mode is flattening nested data without preserving enough structure. Repeated fields are not just arrays of values. They belong to records and parent groups. If the level encoding is wrong, the engine can return counts that are fast and incorrect.",
-        "The third failure mode is confusing distributed fanout with efficient execution. A query that fans out to many leaves but returns raw rows to the root is still expensive. The tree is valuable only when leaves and mixers reduce data early."
+        'Suppose each record averages 1 KB across 100 fields, and a dashboard query needs only country, language, and latency. A row scan over 1 billion records touches about 1 TB before filtering, even if the final answer is a small grouped count.',
+        'If those three columns plus level metadata average 40 bytes per record, the Dremel-style scan touches about 40 GB instead of 1 TB. If 1,000 leaves each scan 40 MB and return 200 grouped counters, the root receives summaries rather than raw events.',
+        'Correctness comes from the level metadata and merge rule. The column reader preserves which values belong to which records, and the serving tree adds partial counts that would have been counted in the full row scan.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Study the Dremel paper, columnar storage, Parquet definition and repetition levels, Apache Arrow, vectorized execution, exchange operators, distributed aggregation, bitmap filters, dictionary encoding, and query profiles next. Nearby curriculum topics include Exchange Operator Parallel Query, MapReduce Case Study, Bigtable Case Study, Inverted Index, Roaring Bitmaps, Database Indexing, Apache DataFusion Arrow Query Engine Case Study, and Velox Unified Execution Engine Case Study.",
-        "The durable lesson is simple: fast analytics is usually work avoidance. Do not read columns the query does not use. Do not reconstruct nested objects unless the answer requires them. Do not ship raw rows when a shard can send a partial aggregate."
+        'Study the Dremel paper, then read Parquet documentation on definition and repetition levels to see how nested columns are encoded in a widely used format. BigQuery architecture notes are useful for the managed service descendant, while query-engine papers explain exchange and aggregation operators.',
+        'Next study columnar storage, Parquet, Apache Arrow, vectorized execution, exchange operators, bitmap filters, dictionary encoding, MapReduce, and distributed aggregation. The durable lesson is work avoidance: do not read unused fields and do not ship raw rows when partial state is enough.',
       ],
     },
   ],

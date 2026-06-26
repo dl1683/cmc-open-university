@@ -182,93 +182,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Replacing a file is easy until power fails between two storage events. A process can return from write() while bytes are still only in the page cache. A filesystem can persist file contents before the directory entry that names them. A journal can protect metadata consistency while still leaving application-level state in the wrong generation.',
-        'The desired contract for a safe replace is simple to state: after a crash, recovery should find either the old complete file or the new complete file. It should not find a truncated target, half of the new contents, a target name whose update vanished, or a temp file that the application treats as committed state.',
+        'Read the animation as a crash timeline. A page cache is memory where writes can sit before reaching storage, and durable storage is the place expected to survive power loss. Active nodes show the current syscall, compared nodes show what is visible versus what is durable, and found nodes show the state that would survive recovery.',
+        'The safe inference rule is old or new, never torn. Before the rename, the target path must still recover to the old file. After the file fsync, rename, and parent-directory fsync have all succeeded, the target path must recover to the new file.',
         {type:'callout', text:'Crash consistency is an ordering problem: first make bytes durable, then make the name durable, and only then claim the replacement committed.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is open the target, truncate it, write the new bytes, close it, and report success. That destroys the old valid copy before the new one has earned durability. If the machine crashes after truncate and before all bytes reach stable storage, the filesystem can recover cleanly while the application data is ruined.',
-        'Even code that writes all bytes correctly can hit the wall. Process success is not the same as crash survival. Crash consistency asks what is true after every prefix of the syscall sequence, not just what is true when the happy path reaches the end.',
+        'Crash consistency means the data layout after a crash still satisfies the promise the program made before the crash. A save operation that returns success should not leave a zero-byte config file after the next reboot.',
+        'Filesystems often separate file contents from directory metadata. The bytes of a new file and the directory entry naming that file can reach storage at different times, so a correct update protocol must force both in the right order.',
       ],
     },
     {
-      heading: 'Core insight and invariant',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A pathname is not the file contents. It is a directory entry that points to a filesystem object. That gives durable replacement two separate targets: make the new bytes stable, then make the target name point at those stable bytes.',
-        'The invariant is old-or-new, never torn. Before commit, the old file remains the committed version. After commit, the new file and its name are durable. The protocol works by preparing a separate temp file, forcing its contents, using rename as the visible commit, then forcing the parent directory so the commit survives recovery.',
+        'The obvious approach is to open the target, truncate it, write the new bytes, close it, and report success. This works in normal testing because the process sees the new contents immediately through the operating-system cache.',
+        'A slightly better attempt writes a temp file and renames it over the target. That fixes the visibility problem for live readers, because same-filesystem rename is atomic for the directory namespace.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'The wall',
       paragraphs: [
-        'The safe-replace view separates preparation from commit. The temp node is new content that is not yet the live target. The cache and disk nodes show why write() and durability differ. The rename node shows the atomic namespace swap. The directory node shows the metadata step that many broken safe-save paths skip.',
-        'The crash-windows view is a timeline audit. At each row, ask which object is durable: the old file, temp contents, target name, or parent directory. The lesson is boundary location. Every syscall moves one boundary, and a crash can land between them.',
+        'The wall is that visibility is not durability. A reader can see the new name after rename while the storage device has not yet made the directory update crash-safe.',
+        'Truncate in place has an even sharper failure. If a 10 KB settings file is truncated and only 3 KB reaches disk before power loss, recovery can find a valid filesystem containing an invalid application file.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        'Create the temp file in the same directory as the target, or at least on the same filesystem. Same-filesystem rename is the atomic namespace operation the protocol depends on. Cross-filesystem moves become copy plus unlink, which is a different and weaker shape.',
-        'Write all replacement bytes to the temp file. Handle short writes and errors before the file becomes a candidate commit. Then call fsync on the temp file descriptor. That asks the kernel and filesystem to push the file contents, plus the file metadata needed to find those contents, to stable storage.',
-        'Call rename(temp, target). From the namespace view, readers should see either the old target or the new target, not a mixed file. Then open the parent directory and fsync the directory descriptor. The directory entry is parent-directory metadata, so fsyncing the renamed file is not the conservative substitute.',
+        'Treat replacement as a two-object commit. The new file object must be durable first, and the parent directory entry that points the target name at that object must be durable second.',
+        'The invariant is that the committed target path always names one complete generation. The old generation remains committed until rename, and the new generation is not claimed as crash-safe until the parent directory has been fsynced.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Create a temp file in the same directory as the target. Same directory matters because rename across filesystems can degrade into copy plus unlink, which does not have the same atomic namespace contract.',
+        'Write the complete contents to the temp file and check for short writes or errors. Call fsync on the temp file so the bytes and the file metadata needed to find them reach stable storage.',
+        'Call rename from temp path to target path, then open the parent directory and call fsync on that directory descriptor. The rename changes the namespace; the directory fsync makes that namespace change survive recovery.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Before the temp-file fsync, a crash can lose the new bytes, but the old target is still the committed file because rename has not happened. After the file fsync and before rename, a crash may leave a temp file to clean up, but the target still names the old committed file.',
-        'After rename but before directory fsync, userspace may have observed the new name, yet crash recovery can still be uncertain about whether the directory update is durable. After directory fsync, both the bytes and the target-name binding are inside the durable contract.',
-        'The method works because content durability and namespace durability are forced separately. Atomic rename gives clean visibility. Directory fsync gives crash durability for that visibility. Confusing those two promises is the source of many data-loss bugs.',
+        'Before the temp-file fsync, a crash can lose the new file, but the old target is still intact. After the temp-file fsync and before rename, a crash may leave a temp file to clean, but the committed target still names the old generation.',
+        'After rename and before directory fsync, live readers see the new file, but the crash-survival claim is not complete. After directory fsync returns, both the new bytes and the target-name binding have crossed the durability boundary.',
       ],
     },
     {
-      heading: 'Worked examples',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A text editor saves file.txt. It writes .file.txt.tmp beside the target, checks that all bytes were written, fsyncs the temp file, renames it to file.txt, and fsyncs the parent directory. A crash before rename leaves the old file. A crash after the complete sequence leaves the new file.',
-        'A model-serving system can use the same shape for a current-model manifest. The large model blobs may be immutable and content-addressed. The small manifest is the pointer that changes. Durable replacement makes the pointer swap recoverable without teaching every reader about partial deployment state.',
-        'A package manager can write a new metadata snapshot, force the snapshot file, rename it into place, and force the directory. Readers either find the old metadata generation or the new generation. They do not have to repair a half-written JSON file after boot.',
+        'The time cost is dominated by fsync latency, not by the rename. On fast local SSDs this can be sub-millisecond to a few milliseconds; on busy network or cloud storage it can be much slower and more variable.',
+        'The space cost is one extra copy of the file during the update. If a 4 MB manifest is replaced, the directory briefly contains the old 4 MB target and the new 4 MB temp file. Doubling the file size roughly doubles write bandwidth and temporary space, while fsync still adds an ordering boundary.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'This pattern is a good fit for small state files where one path represents the current committed value: editor saves, configuration updates, manifest swaps, package metadata, checkpoint pointers, feature-flag snapshots, and generated indexes.',
-        'It is also useful when readers are simple. A reader can open the target path and parse one complete file. The writer pays the ordering cost so readers do not need a recovery protocol for partial files.',
+        'This pattern fits editor saves, configuration files, package-manager metadata, checkpoint pointers, model-serving manifests, and generated indexes. It is strongest when one path represents the current committed version and readers should not run a repair protocol.',
+        'Databases use richer versions of the same idea. Write-ahead logs, page checksums, and commit records all separate preparation from commit so recovery can choose a complete generation instead of trusting a partial write.',
       ],
     },
     {
-      heading: 'Limits and failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'Stopping after rename is the classic failure. Rename is atomic for visibility, but it is not the full portable durability story. If the parent directory was not forced, recovery may not preserve the name update on every platform and filesystem combination.',
-        'The pattern does not create a multi-file transaction. Replacing config.json and index.json together can still leave one old and one new after a crash. Multi-object updates need a manifest generation, journal, database transaction, write-ahead log, or another higher-level commit protocol.',
-        'It does not protect against bad bytes. If the program writes corrupt content, fsync and rename will preserve corrupt content very reliably. Validate or checksum the temp file before commit when malformed data is worse than stale data.',
-        'It does not erase platform differences. Network filesystems, disk write caches, mount options, storage controllers, browser storage layers, and OS-specific fsync semantics can change the real contract. Durable code must read the platform contract it runs on.',
+        'The pattern is not a multi-file transaction. Replacing config.json and index.json with separate rename sequences can recover with one old file and one new file unless a higher-level manifest or journal defines the generation.',
+        'It also does not validate the bytes. If the program writes corrupt JSON and then fsyncs and renames it, the protocol will preserve the corrupt JSON very reliably. Semantic validation, checksums, and version fields belong before the commit point.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Worked example',
       paragraphs: [
-        'Use a temp name that cannot be mistaken for committed state. Place it in the target directory so rename is same-filesystem and so directory fsync covers the final name update. Clean old temp files on startup using a clear naming convention.',
-        'Check every return value. A safe-save path that ignores write errors, close errors, fsync errors, rename errors, or directory-open errors is only safe in comments. Low disk space, quota failures, interrupted syscalls, and permission changes belong in the error path.',
-        'If readers require validation, write a checksum, length, schema version, or generation number inside the file. The replace protocol protects the file boundary. It does not tell the reader that the content is semantically valid.',
+        'A service has config.json generation 41 with 12,000 bytes. It writes config.json.tmp generation 42 with 12,480 bytes, fsyncs the temp file, renames it to config.json, and fsyncs the directory.',
+        'If power fails after 8,000 bytes of the temp file are written, recovery still uses generation 41 because rename has not happened. If power fails after rename but before directory fsync, the result depends on filesystem and storage semantics, so the program cannot honestly claim generation 42 is crash-safe until the directory fsync returns.',
       ],
     },
     {
-      heading: 'Operational guidance',
+      heading: 'Sources and study next',
       paragraphs: [
-        'fsync can be slow because it forces an ordering boundary through buffering. On busy storage, cloud volumes, or laptops with power-management behavior, latency can be visible to users. Measure the real storage path before putting fsync in a hot loop.',
-        'Batching can reduce cost, but it changes the promise. If a UI says "saved" before directory fsync completes, the product is choosing faster feedback over a strict crash-survival claim. That may be acceptable, but the claim should be honest.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Linux fsync(2), rename(2), open(2) O_TMPFILE notes, filesystem journaling, ext4 journal modes, SQLite pager design, write-ahead logging, content-addressed storage, and browser OPFS durability constraints. The shared theme is ordering: bytes, names, metadata, and recovery rules must line up.',
+        'Study the Linux fsync(2), rename(2), open(2), and syncfs(2) man pages, plus filesystem documentation for ext4, XFS, APFS, NTFS, and the specific network filesystem in use. The portable lesson is to read the durability contract of the platform, not only the POSIX call names.',
+        'Next study write-ahead logging, SQLite rollback journals and WAL mode, content-addressed storage, generation manifests, and browser OPFS durability. They all solve the same problem: define the state that recovery is allowed to find.',
       ],
     },
   ],

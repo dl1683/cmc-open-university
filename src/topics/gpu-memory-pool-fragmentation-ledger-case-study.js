@@ -321,89 +321,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'GPU allocation is too expensive and synchronization-heavy to treat like ordinary throwaway memory in hot inference paths. Frameworks keep memory in pools so tensors can reuse device blocks without returning every free to the driver.',
-        'That creates a new failure mode: reserved memory can be high while live tensor memory is lower, and fragmentation can make a large allocation fail even when total free bytes look sufficient. The allocator needs a ledger, not guesses from nvidia-smi.',
+        'Read the pool as a ledger of block shapes, not as one memory total. Active blocks hold live tensors, cached blocks are reserved by the process for reuse, split blocks are leftovers from larger allocations, and external blocks belong to libraries outside the framework allocator.',
+        'The safe inference is that a request can fail even when total free cached bytes look large. The allocator must find a block of the right size, lifetime, stream safety, and graph-capture status at the moment the request arrives.',
         {type:'callout', text:'GPU memory failures are often block-shape and lifetime failures, so the allocator ledger matters more than a single free-byte total.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/4/4a/External_Fragmentation.svg', alt:'Diagram of external memory fragmentation showing free and allocated blocks.', caption:'External fragmentation diagram by Hjasud, retouched by Incnis Mrsi, Wikimedia Commons, CC0.'},
       ],
     },
     {
-      heading: 'The tempting wrong answer',
+      heading: 'Why this exists',
       paragraphs: [
-        'The wrong answer is to read nvidia-smi as live tensor memory. Cached allocator memory can appear as used even when it is available for reuse inside the process.',
-        'Another wrong answer is to call empty_cache whenever an OOM appears. That may help other processes see memory, but it does not fix live tensors, bad shape churn, missing large blocks, or graph address assumptions.',
+        'GPU allocation is expensive enough that frameworks avoid calling the driver for every temporary tensor. They reserve memory, split it into blocks, cache freed blocks, and reuse those blocks on hot inference and training paths.',
+        'The ledger exists because reserved memory is not the same as live tensor memory. A process can reserve 72 GB on an 80 GB GPU, have only 38 GB of live tensors, and still fail a 2 GB allocation because no suitable contiguous block is available.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The data-structure idea is familiar from buddy allocators and slab size classes: round, bin, split, cache, reuse, and occasionally release. GPU pools add stream order, driver synchronization, CUDA graph replay, and non-framework allocations.',
-        'PyTorch exposes allocated and reserved memory counters, memory_stats, memory_summary, and allocator snapshots. The difference between live allocated bytes, reserved bytes, cached free blocks, split fragments, largest free block, and driver-side memory is the difference between a useful OOM report and superstition.',
-        'A good allocator ledger separates several questions that are often blurred together. How many bytes are live tensors? How many bytes are reserved by the process? How many reserved bytes are reusable without calling the driver? What is the largest contiguous block? Which bins are fragmented? Which stream last used the block? Which CUDA graph assumes this address? Each answer points to a different fix.',
+        'The obvious approach is to read a device-memory total from a tool such as nvidia-smi. If used memory is high, the service appears close to out of memory; if used memory is low, it appears safe.',
+        'That view is too coarse for a pooled allocator. Cached memory may be reusable inside the process, while fragmented cached memory may be useless for the next large allocation.',
       ],
     },
     {
-      heading: 'How the allocator state is structured',
+      heading: 'The wall',
       paragraphs: [
-        'The pool-bins view shows request rounding, bin selection, block splitting, active tensors, cached free blocks, and release back to the driver. The reserved-versus-active table is the key: reserved memory is not the same as live tensor memory.',
-        'The stream-order view shows why freeing a pointer is not just deleting it from a map. If another stream may use the pointer, events or waits must prove use is complete before reuse. CUDA graph replay adds another constraint: captured graphs may assume stable addresses.',
+        'The wall is fragmentation plus lifetime ordering. Splitting a large block can satisfy many small requests quickly, but it can also destroy the only block large enough for a later workspace.',
+        'GPU streams and CUDA graphs add more constraints. A block freed on one stream may not be safe on another until ordering is proven, and a captured graph may require stable addresses for replay.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'The core insight',
       paragraphs: [
-        'A GPU memory ledger is useful for LLM inference workers with mixed request sizes, CUDA graph shape caches, temporary workspaces, and PagedAttention-style KV block pools. Fixed-size KV blocks reduce contiguous-allocation pressure and let requests grow, share, and evict sequence memory in smaller units.',
-        'A concrete case: live tensor memory is 38 GB on an 80 GB GPU, reserved memory is 72 GB, and a new 2 GB workspace fails. The snapshot shows many smaller cached blocks and no large free block. The fix is shape bucketing, split-policy tuning, stable graph buffers, and admission limits for outlier requests.',
-        'The same thinking applies outside LLM serving. Training jobs create temporary activations, optimizer buffers, communication workspaces, and checkpoint staging areas. Inference services create prefill buffers, decode buffers, KV caches, graph-captured workspaces, and library allocations. The allocator is where those lifetimes collide.',
+        'Treat the allocator as a data structure with observable states. The important counters are allocated bytes, reserved bytes, inactive split bytes, largest free block, stream waits, graph-pinned memory, allocation retries, and non-framework memory.',
+        'The invariant is lifetime safety. A block can be reused only after all work that may touch it is complete, and a graph-captured address cannot be casually moved without invalidating replay assumptions.',
       ],
     },
     {
-      heading: 'Where it fails',
+      heading: 'How it works',
       paragraphs: [
-        'Do not mix streams without explicit order. Do not ignore non-framework allocations such as NCCL. Do not capture CUDA graphs without preserving address and shape assumptions. Do not tune split policies without allocator snapshots and workload-specific OOM evidence.',
-        'A pool is not a garbage collector. It makes reuse fast after the program establishes correct lifetime ordering. The release gate should track OOM rate, largest free block, reserved-minus-active bytes, graph-cache hit rate, and p99 latency.',
+        'A request is rounded into a size class or bin. The allocator searches cached free blocks, may split a larger block, marks the chosen block active, and records enough stream information to know when future reuse is safe.',
+        'When the tensor dies, the block usually returns to the pool instead of the driver. It may be coalesced with neighboring free blocks, kept in a bin, released under pressure, or held because a CUDA graph or stream dependency still needs it.',
+        'Snapshots turn allocator state into evidence. They show which request shape consumed which blocks, which split fragments remain, and whether the next failure is a true capacity shortage or a block-shape problem.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Pooling works because many workloads repeat allocation sizes. If every request allocates and frees through the driver, the service pays synchronization and bookkeeping costs on a hot path. A pool keeps blocks nearby and reuses them when lifetimes are known to be complete. That turns expensive global allocation into cheaper local bookkeeping.',
-        'Fragmentation is the cost of that speed. Splitting a large block can make several small requests fast while destroying the ability to satisfy a later large request. Releasing everything to the driver can restore global free memory while hurting latency and graph assumptions. The allocator policy is therefore a workload-specific tradeoff, not a universal setting.',
+        'Pooling works because many GPU workloads repeat allocation sizes. Reusing a cached block avoids driver allocation, global synchronization, and repeated setup on the latency-critical path.',
+        'The correctness rule is conservative reuse. If the allocator only hands out blocks whose previous uses are complete and whose address constraints are valid, reuse preserves tensor memory semantics while reducing allocation overhead.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Track active bytes, reserved bytes, inactive split bytes, largest free block, allocation retries, OOMs by requested size, stream-wait counts, graph pool usage, non-framework memory, and memory by request shape. These counters let teams distinguish real capacity shortage from fragmentation, leaks, and shape churn.',
-        'The most useful debugging artifact is a timeline: which request shape arrived, which blocks it needed, which bins were split, when a graph pool pinned memory, and what allocation failed. Without that timeline, teams often change batch size, call empty_cache, or blame the driver without knowing which lifetime caused the failure.',
+        'The time cost of a cache hit is mostly local bookkeeping, while a miss may call the driver, synchronize, or trigger retry and cleanup paths. That is why a small increase in miss rate can show up as p99 latency spikes.',
+        'The space cost is reserved-minus-active memory plus fragmentation. If active tensors use 38 GB and reserved memory is 72 GB, then 34 GB is allocator-managed slack, but only the largest free block tells whether a 2 GB request can run.',
       ],
     },
     {
-      heading: 'A worked serving example',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Consider an inference worker serving a mix of 2k, 8k, and 32k-token prompts. The 2k prompts reuse small prefill buffers well. The 8k prompts split medium blocks. Then one 32k prompt asks for a large contiguous workspace and fails, even though the process reports many free cached bytes. The allocator has memory, but not in the shape the request needs.',
-        'The fix is not one magic call. The team can bucket prompt lengths so shapes repeat, reserve a separate workspace for rare large requests, limit admission of outlier prompts, tune split thresholds, or move KV cache to fixed-size pages. Each fix changes the block-shape distribution. That is why the ledger must report largest free block and inactive split bytes, not only total memory.',
-        'This example also explains why memory bugs can look nondeterministic. The same request may succeed after a restart because the pool is clean, then fail after hours of mixed traffic because the block history changed. Fragmentation is history-dependent. A useful article must teach that allocator state is not a static capacity number; it is the accumulated shape of previous requests.',
+        'GPU memory ledgers are useful in LLM inference workers, training jobs, CUDA graph caches, temporary workspace management, PagedAttention-style KV cache pools, and services with mixed request lengths. They explain why the same request can succeed after restart and fail after hours of shape churn.',
+        'They also guide concrete fixes. Shape bucketing, admission limits, split-threshold tuning, separate large-workspace pools, graph-cache policy, and KV block paging all change the distribution of block sizes and lifetimes.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Where it fails',
       paragraphs: [
-        'GPU memory pools are data structures for latency and reuse. They make hot allocation paths fast by reserving, binning, splitting, and reusing blocks. They also create fragmentation and visibility problems if teams read only coarse device-memory totals.',
-        'The deep lesson is to debug memory by lifetime and block shape, not by one total number. Live tensors, reserved cache, split fragments, graph-pinned addresses, and external library allocations are different states in the ledger.',
-        'For course design, this topic should follow ordinary allocators and precede LLM serving. Students need to see that the same split-and-reuse ideas from CPU allocators become more constrained on GPUs because streams, graph capture, and accelerator memory pressure make lifetimes harder to reason about.',
-        'The wrong tool is a single memory gauge. A dashboard that shows only used GPU memory hides the allocator state that determines whether the next request can run. The correct artifact is a ledger that connects allocation request, block source, stream safety, split history, and failure reason. That is what lets an engineer choose between admission control, shape bucketing, pool tuning, graph-cache changes, and model-size reduction.',
-        'If students remember one diagnostic question, make it this: did the system run out of bytes, or did it run out of the right block at the right time? Those are different failures with different fixes.',
-        'The comparison to CPU allocators is useful but incomplete. GPU pools live inside accelerator scheduling, stream ordering, graph capture, and request admission. That makes allocator state part of the serving control plane, not just a low-level runtime detail.',
-        'A mature service treats allocator policy like capacity policy: measured, reviewed, and changed with evidence.',
+        'A pool is not a garbage collector. It can reuse memory only when the program has established correct lifetimes, and it cannot free live tensors or external library allocations that the framework does not own.',
+        'The ledger can also mislead if it hides non-framework memory. NCCL, custom kernels, CUDA libraries, and driver allocations may consume memory outside the allocator snapshot, so total device pressure still has to be reconciled.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Consider an 80 GB GPU serving 2k, 8k, and 32k-token prompts. After two hours, live tensors use 38 GB, reserved memory is 72 GB, inactive split blocks total 20 GB, and the largest free block is 1.3 GB.',
+        'A new 32k prompt asks for a 2 GB contiguous workspace and fails. The process has 34 GB reserved-minus-active slack, but the allocator does not have the right block shape.',
+        'One fix is to bucket prompts so 8k requests reuse the same medium blocks and rare 32k requests use a protected large-workspace pool. If that keeps the largest free block above 2.5 GB during mixed traffic, the same 32k request no longer depends on restart luck.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: PyTorch CUDA memory management at https://docs.pytorch.org/docs/2.12/notes/cuda.html#memory-management, PyTorch memory snapshot tooling at https://docs.pytorch.org/docs/2.12/torch_cuda_memory.html, NVIDIA stream-ordered allocation docs at https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/stream-ordered-memory-allocation.html, NVIDIA cudaMallocAsync introduction at https://developer.nvidia.com/blog/using-cuda-stream-ordered-memory-allocator-part-1/, and vLLM PagedAttention design at https://docs.vllm.ai/en/latest/design/paged_attention/. Study Buddy Allocator Free Lists, Slab Allocator & Size Classes, TLSF Real-Time Allocator Bitmap Index, CUDA Graph Shape Cache, Inference Kernel Fusion & CUDA Graphs, LLM Serving: PagedAttention, KV Cache Concurrency Capacity Model, Length-Aware Batching for LLM Serving, and GPU All-Reduce next.',
+        'Primary references are PyTorch CUDA memory management at https://docs.pytorch.org/docs/2.12/notes/cuda.html#memory-management, PyTorch memory snapshot tooling at https://docs.pytorch.org/docs/2.12/torch_cuda_memory.html, NVIDIA stream-ordered allocation documentation at https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/stream-ordered-memory-allocation.html, NVIDIA cudaMallocAsync material at https://developer.nvidia.com/blog/using-cuda-stream-ordered-memory-allocator-part-1/, and vLLM PagedAttention design at https://docs.vllm.ai/en/latest/design/paged_attention/.',
+        'Study buddy allocators, slab size classes, TLSF, CUDA graphs, LLM PagedAttention, KV cache capacity models, length-aware batching, and GPU all-reduce next. The shared question is how block shape and lifetime determine runtime behavior.',
       ],
     },
   ],

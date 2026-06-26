@@ -182,111 +182,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'The Storage Access API exists because the web is moving away from ambient third-party cookies. For years, an embedded iframe could often read cookies for its own origin while the user was visiting a different top-level site. That made single sign-on widgets, comment boxes, payment frames, and subscription checks easy to build. It also let trackers join a user across unrelated sites without a meaningful moment of consent.',
-        'Modern browsers increasingly block or partition cross-site state. That is the right privacy direction, but it creates a compatibility problem for user-facing embeds that really do need first-party account state. The API is a narrow request path: an embedded document can check whether it has access to unpartitioned storage, ask the browser for access when appropriate, and handle denial without pretending the old cookie model still exists.',
+        'Read the animation as a browser-state permission flow. The top-level site is the page in the address bar, the embedded site is the iframe origin, partitioned storage is state keyed by both sites, and unpartitioned storage is the embedded site state it would use as a first party. Active nodes show which state boundary is being tested.',
+        'Visited checks are browser decisions already known to the application. Found markers mean a grant, denial, or fallback branch is now the correct product state. The safe inference is that a frame must branch on access; it cannot assume third-party cookies exist.',
         {type:'callout', text:'The API turns ambient cross-site cookie reach into a browser-mediated capability with explicit granted, denied, and fallback states.'},
       ],
     },
     {
-      heading: 'The obvious shortcut and why it broke',
+      heading: 'Why this exists',
       paragraphs: [
-        'The old shortcut was global cookie reach. If idp.example set a session cookie during a first-party visit, every idp.example iframe could try to read it later inside news.example, shop.example, forum.example, or any other top-level site. One login session appeared everywhere.',
-        'That shortcut collapsed two very different cases. A visible sign-in widget may have a legitimate reason to know whether the user is signed in. A hidden tracking iframe does not. Browsers could not rely on every embed to draw that line honestly, so they started making the top-level site part of the storage context or blocking access altogether.',
-        'The Storage Access API is not a promise that old behavior will come back. It is a way to make the exceptional case explicit and browser-mediated. Code asks for a capability. The browser applies policy. The user may be involved. Denial is a normal result.',
+        'Third-party cookies let an embedded origin read the same cookie jar across many unrelated top-level sites. That made sign-in widgets and payment frames convenient, but it also enabled tracking that users could not see or meaningfully control. Modern browsers increasingly block or partition that state.',
+        'The Storage Access API exists as a narrow compatibility path. An embedded document can check whether it has access to unpartitioned cookies or state, request access under browser policy, and fall back when the request is denied. The API is not a return to ambient cross-site storage.',
       ],
     },
     {
-      heading: 'Partitioned versus unpartitioned state',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The browser keeps two ideas separate. Partitioned state is scoped to the pair of top-level site and embedded site. An idp.example frame inside news.example gets a different partition from an idp.example frame inside shop.example. That preserves local functionality without giving the embed a single cross-site identity thread.',
-        'Unpartitioned state belongs to the embedded site as a first party. It is the cookie jar or storage the user would see when visiting idp.example directly, subject to browser rules. Storage access is a capability that may let the iframe reach that unpartitioned state from inside a third-party context.',
-        'This distinction is the center of the design. An embed should ask: can I finish this flow with partitioned state, a top-level redirect, or a one-time token? If yes, it should avoid requesting unpartitioned access. If not, it should request access only at the moment the user understands the reason.',
+        'The old approach was to read document.cookie inside the iframe and proceed. If idp.example had a login cookie, the idp.example iframe inside news.example could render the signed-in widget. Product code often treated missing cookies as a rare edge case.',
+        'That approach broke the privacy boundary. A visible identity widget and a hidden tracker used the same browser mechanism. Since the browser cannot trust every embed to self-police, it makes the top-level site part of the storage decision or blocks unpartitioned access by default.',
       ],
     },
     {
-      heading: 'The privacy invariant',
+      heading: 'The wall',
       paragraphs: [
-        'The invariant is that cross-site identity state should not flow silently from an embedded origin into every top-level site that includes it. The top-level site remains part of the storage context unless the browser grants a narrower exception.',
-        'Capability gating is the practical enforcement method. Before a grant, the iframe can use public resources, partitioned state, and explicit messages from the top page. It cannot assume it can read the unpartitioned session. After a grant, access is scoped by browser policy and may be temporary or revocable.',
-        'Application code should reflect that invariant. There should be a state for "unknown," a state for "no access," a state for "request pending," a state for "granted," and a state for "denied." Treating denial as an error path creates brittle products and encourages dark patterns.',
+        'The wall is that the iframe no longer owns the whole context. It may have partitioned state for this top-level site, no unpartitioned cookie access, and no guarantee that a request will be granted. Browser behavior can depend on user activation, iframe sandbox flags, permissions policy, prior interaction, related website sets, private browsing, and user settings.',
+        'Application code that has only a success path fails as a product. It produces blank widgets, sign-in loops, or instructions to weaken privacy settings. Denial is an expected branch, not an exception that can be ignored.',
       ],
     },
     {
-      heading: 'Request flow',
+      heading: 'The core insight',
       paragraphs: [
-        'A good embedded flow starts with a check. If the document already has storage access, it can use the relevant unpartitioned state according to browser rules. If it does not, it should render the best state it can without access, usually a signed-out widget, a limited guest mode, or a button that starts a visible login flow.',
-        'The request should be tied to meaningful user intent. A click on "sign in," "continue payment," or "show my subscription" gives the browser and the user context. A request on page load is weaker because the user did not ask the frame to cross a privacy boundary.',
-        'The browser can consider iframe permissions, user activation, prior first-party interaction, tracking-prevention rules, user settings, and implementation-specific policy. That variability is not a bug in the application contract. It is the reason the application must branch on granted and denied outcomes.',
+        'Treat unpartitioned storage as a capability. A capability is permission to do a specific thing, granted by an authority under rules, and possibly unavailable. The frame should first ask what it can do without the capability, then request it only when a visible user task needs it.',
+        'Partitioned state is often enough for local preferences, guest comments, or per-publisher widgets. Top-level redirects or signed tokens can handle many login and payment flows. The API should be reserved for cases where unpartitioned browser state is the least invasive way to finish the user-facing task.',
       ],
     },
     {
-      heading: 'Worked identity example',
+      heading: 'How it works',
       paragraphs: [
-        'A news site embeds an identity-provider frame so subscribers can see whether they are signed in. On load, the frame has partitioned state for the pair (news.example, idp.example). It checks access and receives false. It can still render a sign-in button because that public UI does not require the unpartitioned session cookie.',
-        'When the user clicks sign in, the frame requests access. If the browser grants it, the frame can read the idp.example session cookie and render the signed-in subscription widget. If the browser denies it, the frame can open a top-level login, use an OAuth-style redirect, exchange a short-lived token, or remain in guest mode.',
-        'The important design detail is that every branch is planned. The iframe does not spin forever, hide the denial, or tell the user to disable privacy settings. It explains the next action in product terms and keeps the top-level page usable.',
+        'Inside the embedded document, code feature-detects the API and calls document.hasStorageAccess when available. If access is already present, it can use the relevant cookies or requested storage handles according to browser rules. If access is absent, it renders a limited state or waits for a user action before requesting access.',
+        'A request may need transient user activation such as a click, and sandboxed iframes need the right sandbox tokens. The browser then resolves or rejects the request. A robust embed records the outcome and moves to granted, denied, top-level-login, token, or partitioned-mode behavior.',
       ],
     },
     {
-      heading: 'Using the views',
+      heading: 'Why it works',
       paragraphs: [
-        'In the embed request view, the important split is partitioned state versus unpartitioned state. The frame starts in a context tied to the top site. The check node decides which branch the application is in. The grant node marks a capability boundary, not just a UI prompt.',
-        'In the fallback design view, compare the use cases. Single sign-on and payment flows have visible user tasks that may justify a request. Broad ad tracking does not. The top-level bounce pattern shows a safer alternative: make the identity action first-party and visible instead of relying on invisible third-party cookie access.',
+        'Correctness is a state-machine argument. The application has explicit states for unknown, no access, request pending, granted, denied, and fallback. Every transition is caused by a browser result or user action, so the UI never depends on a cookie read that the browser may legally hide.',
+        'The privacy invariant is that cross-site identity does not flow silently from the embedded origin into every top-level site. A browser grant creates a scoped exception. Without that grant, the top-level site remains part of the storage boundary and the iframe must use partitioned or explicit alternatives.',
       ],
     },
     {
-      heading: 'Fallback patterns',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The first fallback is a top-level login or consent visit. The embedded service opens as the top-level site, establishes first-party state, then returns to the original page. This is more visible than silent iframe access and fits OAuth-style flows well.',
-        'The second fallback is a signed, short-lived token passed through a server or redirect flow. This can answer a narrow question, such as "does this user have access to this article," without giving the iframe broad storage access. Token design must include audience, expiration, replay protection, and server-side authorization.',
-        'The third fallback is partitioned mode. A comments widget, support chat, or embedded preference panel may keep separate state per top-level site. That does not give the user one global account experience, but it can preserve useful local behavior with better privacy boundaries.',
+        'The runtime cost is small, but the product cost is real. Each embed needs feature detection, branch handling, user-action timing, iframe policy setup, telemetry, fallback UX, and browser compatibility tests. Doubling the number of third-party embeds roughly doubles the audit surface because each one may request different state.',
+        'The security cost is that storage access can expose an existing session to an embedded context. It does not authenticate the user, authorize actions, prevent CSRF, or validate postMessage origins. Normal web security still has to carry those jobs.',
       ],
     },
     {
-      heading: 'Authentication is still separate',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Storage access is not an authentication protocol. It does not prove who the user is, issue tokens, rotate sessions, prevent CSRF, or authorize an action. It only affects whether an embedded document can access some browser storage that would otherwise be unavailable in a third-party context.',
-        'A secure login or payment flow still needs normal web security: SameSite and Secure cookie attributes, CSRF defenses where cookies authenticate requests, OAuth or OIDC state and nonce handling, PKCE for public clients, server-side session validation, token expiration, and careful postMessage origin checks when frames communicate.',
-        'This separation matters because storage access can make an existing session visible to an iframe. It does not make every action safe. The server must still decide what the session is allowed to do inside this top-level context.',
+        'The fit is visible user tasks: single sign-on widgets, subscription checks, payment flows, comment boxes, support chat, and account panels. The user can connect the request to the action they are taking, and denial can lead to a clear top-level login or guest branch.',
+        'It is also useful as migration telemetry. Every request marks a place where a product still depends on unpartitioned third-party state. That inventory can guide moves to partitioned cookies, first-party redirects, server-issued tokens, or direct first-party integrations.',
       ],
     },
     {
-      heading: 'Implementation guidance',
+      heading: 'Where it fails',
       paragraphs: [
-        'Start by inventorying every third-party embed and the state it expects. Classify each need as public UI, partitioned state, top-level redirect, one-time token, or true unpartitioned storage access. Many uses disappear once the flow is made explicit.',
-        'In the iframe, check access before reading cookies that might not exist. Gate the request behind a clear user action. Record which branch happened so support and privacy review can understand real behavior. Never assume that a grant in one browser, one top-level site, or one session means future grants everywhere.',
-        'When the iframe needs cooperation from the top-level page, use explicit integration points. Permissions Policy, sandbox attributes, postMessage origin checks, and server-issued tokens are part of the design. A third-party frame should not depend on incidental embedding behavior.',
+        'It fails for hidden tracking and broad analytics joins. Those uses are exactly what partitioning and blocking are meant to reduce. Requesting access on page load or in invisible frames is both brittle and hostile to the browser privacy model.',
+        'It also fails if treated as a portable identity protocol. Browser support and policy vary, and newer methods such as top-level requestStorageAccessFor are not universal. Authentication, authorization, and session design need protocols outside this API.',
       ],
     },
     {
-      heading: 'Browser variability',
+      heading: 'Worked example',
       paragraphs: [
-        'Browser behavior differs and evolves. Some browsers may require prior first-party interaction with the embedded site. Some may require user activation. Some may deny requests in private browsing, under tracking-prevention settings, or when iframe policy does not delegate the capability. Some may support related APIs differently.',
-        'A robust product tests the states, not just the happy path. Test access already granted, access denied, request unavailable, missing user activation, blocked iframe policy, third-party cookies disabled, partitioned cookies present, and top-level login return. The denial path should be as intentional as the grant path.',
-      ],
-    },
-    {
-      heading: 'Where it fits and where it does not',
-      paragraphs: [
-        'The API fits user-facing embeds whose purpose is understandable at the moment of request: SSO, account widgets, subscription checks, payment flows, comment systems, and support chat that needs an account session. In those cases, the user can connect the storage request to a visible task.',
-        'It does not fit hidden tracking, broad analytics joins, or flows that can be implemented with partitioned state or top-level authentication. It is also the wrong abstraction for server-to-server identity, native-app login, or authorization between services. Those are protocol problems, not browser-storage problems.',
-        'The API is also useful as an audit signal. Every call marks a place where the product still depends on unpartitioned third-party state. That list can guide migration toward partitioned cookies, first-party sets where appropriate, OAuth PKCE redirects, signed server tokens, or first-party integrations.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The first failure is designing only for the granted path. Users with stricter browser settings then get blank iframes, infinite spinners, or misleading sign-in loops. The second failure is requesting access too early, before the user has taken an action that explains why the frame needs it.',
-        'The third failure is scope creep. A compatibility valve can become a tracking surface if every embed asks for access by default. Teams should log, review, and justify each request. The question is not "can we get the cookie back?" The question is "is unpartitioned storage the least invasive way to finish this user-facing task?"',
+        'A news site embeds idp.example in an iframe. On load, document.hasStorageAccess returns false, so the iframe renders a signed-out button using public assets and partitioned state. The user clicks Sign in, giving the frame a user activation for the request.',
+        'If requestStorageAccess resolves, the frame reads the idp.example session cookie and renders Subscriber: active. If it rejects, the frame opens a top-level login flow with a return URL or asks the server for a one-time token. In both branches, the page remains usable and the state transition is explicit.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: MDN Storage Access API usage guide at https://developer.mozilla.org/en-US/docs/Web/API/Storage_Access_API/Using, MDN Storage Access API reference at https://developer.mozilla.org/en-US/docs/Web/API/Storage_Access_API, and the Privacy CG Storage Access draft at https://privacycg.github.io/storage-access/.',
-        'Study SameSite Cookies and CSRF for cookie attachment rules, Browser Cache Partitioning Network Key for the wider state-isolation pattern, Permissions Policy Feature Gate for iframe delegation, OAuth PKCE Token Lifecycle Case Study for top-level login redirects, WebAuthn Passkey Credential Discovery for account discovery, postMessage Origin Validation for frame communication, and Content Security Policy for reducing script-level token theft.',
+        'Primary sources start with MDN Using the Storage Access API at https://developer.mozilla.org/en-US/docs/Web/API/Storage_Access_API/Using. Then read the MDN API reference at https://developer.mozilla.org/en-US/docs/Web/API/Storage_Access_API and the Privacy CG draft at https://privacycg.github.io/storage-access/.',
+        'Study SameSite Cookies and CSRF for cookie attachment, then Browser Cache Partitioning Network Key for state partitioning. After that, use Permissions Policy Feature Gate, OAuth PKCE Token Lifecycle, and postMessage Origin Validation to design the surrounding flow.',
       ],
     },
   ],

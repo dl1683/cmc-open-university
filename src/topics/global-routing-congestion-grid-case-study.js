@@ -203,98 +203,90 @@ export function* run(input) {
 }
 
 export const article = {
-  references: [
-    { title: 'OpenROAD Global Routing Documentation', url: 'https://openroad.readthedocs.io/en/latest/main/src/grt/README.html' },
-    { title: 'OpenROAD Detailed Routing Documentation', url: 'https://openroad.readthedocs.io/en/latest/main/src/drt/README.html' },
-    { title: 'TritonRoute Paper', url: 'https://vlsicad.ucsd.edu/Publications/Journals/j133.pdf' },
-  ],
   sections: [
+    {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a coarse routing plan for an integrated circuit. A global router divides the chip into grid cells, a net is a required electrical connection, capacity is available routing resource, and demand is resource already claimed. Active edges are being routed or repaired, visited edges have accounted demand, and found edges are legal guide paths.',
+        'The safe inference rule is demand minus capacity. An edge with demand 6 and capacity 4 has overflow 2, no matter how short or visually convenient that path looks.',
+      ],
+    },
     {
       heading: 'Why this exists',
       paragraphs: [
-        `After placement, the chip has legal cell coordinates but not physical wires. Every signal net needs metal shapes, vias, spacing, shielding where needed, and connections to pins. Exact detailed routing for the whole chip from scratch is too large and rule-heavy: tracks, layers, design-rule spacing, macro obstructions, antenna effects, and pin access all interact.`,
-        `Global routing creates a coarse plan before exact geometry. It divides the chip into routing regions, often called G-cells, and models the boundaries between regions as edges with capacity. Each net receives a coarse route tree through this grid. The result is not final metal. It is a guide that says which regions and layers a net should use and where the design is likely to run out of routing resources.`,
-        `The point is early evidence. If a macro channel has demand six and capacity four, detailed routing does not need to spend hours proving the obvious. Placement, buffering, layer assignment, or macro planning may need to change. Global routing gives the flow a congestion map with ownership and available detours.`,
-        {type:`callout`, text:`Global routing turns exact metal into a capacity graph so congestion becomes measurable, owned, and repairable before detailed routing begins.`},
-        {type:`image`, src:`https://upload.wikimedia.org/wikipedia/commons/a/ac/Motorola68040die.jpg`, alt:`Close-up macro photograph of a Motorola 68040 die with visible interconnect regions and bond wires.`, caption:`Motorola 68040 die, photo by Farwestern and Gregg M. Erickson, Wikimedia Commons, CC BY 3.0.`},
+        'Modern chips contain many pins, standard cells, macros, routing layers, and design rules. Exact detailed routing is too expensive to run blindly over the whole chip without a coarse plan.',
+        'Global routing exists to predict congestion early and produce guide regions for detailed routing. It tells placement, timing, and routing tools where the fabric is likely to fail before exact wire shapes are chosen.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        `The reasonable first attempt is shortest-path routing. For each net, connect its pins with the shortest Manhattan path. If a net has more than two pins, build a simple tree that keeps total length low. This works on toy grids because empty space is abundant and every path has similar cost.`,
-        `The approach fails because routing resources are shared and limited. Early nets can consume the easiest channels. Later nets inherit the leftovers. A route through the center of a block may be short, but if many nets choose the same edge, that edge overflows. Macros remove routing resources or restrict access around their boundaries. Layers have different preferred directions and via costs. Pins can be harder to access than open channel space.`,
-        `A second naive approach is to draw a heatmap after routing and call the hottest area the problem. That is only half useful. A heatmap without net ownership cannot repair itself. The router needs to know which nets created overflow, which can detour, and whether the cause is routing choice, placement density, macro blockage, or pin access.`,
+        'The obvious approach is to route every net by shortest path. For each connection, choose the nearest geometric path around blockages and move to the next net.',
+        'That works for one net in isolation. It is also a reasonable first mental model because wirelength and delay usually prefer shorter paths when resources are available.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        `The wall is capacity under interaction. Routing one net changes the graph for every other net because it consumes demand on shared edges. A route that is legal alone can be illegal in the population. The router must optimize a collection of route trees, not independent paths.`,
-        `The second wall is that overflow is not the only metric. A detour can reduce congestion while increasing wirelength, capacitance, delay, coupling risk, and via count. A route that satisfies coarse capacity can still fail detailed routing because exact pin shapes, spacing rules, or via placement are tighter than the abstraction.`,
-        `The third wall is responsibility. Routing congestion may be a symptom of placement, not a routing mistake. If standard cells are too dense near a macro, no routing algorithm can create enough channel capacity out of nothing. Global routing has to produce evidence that other tools can act on.`,
+        'The wall is interaction. Routing one net consumes tracks that other nets also need, so legal local choices can create an illegal global population.',
+        'The wall is also abstraction loss. A coarse grid can show congestion pressure, but detailed routing still has exact pin access, via, spacing, antenna, and manufacturing rules that the coarse model does not fully represent.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is to represent routing as a capacity graph before representing it as exact metal. G-cells are vertices or regions. Edges between neighboring cells carry capacity, demand, layer information, blockage information, historical cost, and net ownership. A net owns a tree over this graph. Congestion is demand greater than capacity on one or more edges.`,
-        `This abstraction turns detailed geometry into a tractable planning problem. The router can run maze search, Steiner-style tree construction, pattern routing, or negotiated-congestion methods over a smaller graph. It can ask, "If this edge is overused, which nets should leave it?" rather than trying to move exact wires immediately.`,
-        `Rip-up/reroute is the repair loop. Select nets that own overflow, remove their current demand from the grid, raise the cost of hot edges, and search for alternate route trees. Historical costs remember that an edge has been contested before, so the router does not bounce all nets back to the same cheap-looking channel. The invariant is that demand accounting and net ownership stay explicit after every change.`,
+        'Represent routing as a capacity graph before choosing exact metal shapes. Grid edges store capacity, demand, blockage, layer cost, historical congestion, and net ownership.',
+        'The invariant is explicit accounting. When a net is routed, its demand is added to the edges it uses; when it is ripped up, that demand is removed before a new path is searched.',
       ],
     },
     {
-      heading: 'Mechanism: how the system works',
+      heading: 'How it works',
       paragraphs: [
-        `The flow starts with placed pins, blockages, routing layers, preferred directions, and capacity estimates. The chip is partitioned into a grid. Each edge receives a capacity derived from available tracks, layer resources, blockages, and technology assumptions. Nets become routing problems, often with multi-pin trees rather than one independent path per pin pair.`,
-        `An initial routing pass assigns each net to a coarse route. Simple nets may use pattern routes. Harder nets may use maze search or negotiated cost. Demand is accumulated on edges and layers. The router then computes overflow: demand minus capacity where demand is too high. It also records which nets own the demand, so repair has a handle.`,
-        `Repair proceeds by ripping up selected nets and rerouting them with updated costs. Hot edges become more expensive. Blocked regions remain unavailable. Via penalties discourage excessive layer changes. Timing-critical nets may receive protection from large detours, while less critical nets may move first. The loop stops when overflow is gone or when remaining violations require help from other tools.`,
-        `The handoff to detailed routing is a set of guides. Detailed routing turns those guides into exact tracks, vias, wire widths, spacing-compliant shapes, and pin connections. If it fails, its markers show whether pin access, guides, placement density, or macro channels need repair.`,
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        `The route-grid view proves that congestion is a ratio, not a color. Six units of demand on capacity four is overflow. The same six units might be fine on a wider channel. The blocked macro cell shows why shortest geometric distance is not the same as route availability. The via marker shows that layer changes have costs.`,
-        `The rip-up-reroute view proves that ownership makes congestion actionable. Nets with overflow enter a worklist because the router knows who consumed the hot resources. Raising edge costs and searching detours can reduce overflow, but the plot shows the tax: wirelength can rise while congestion falls. That is routing closure in miniature, not a pure shortest-path problem.`,
+        'The flow starts with placed cells, macros, pins, layers, blockages, and routing capacities. The router builds a grid and assigns each edge an estimated number of available tracks.',
+        'Each net receives an initial route tree over the grid. Demand accumulates on edges, overflow is computed where demand exceeds capacity, and ownership lists identify which nets are responsible for hot edges.',
+        'The repair loop rips up selected nets, raises the cost of congested edges, and reroutes those nets through alternatives. The final output is a guide for detailed routing, not the final legal wire geometry.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        `Global routing works because coarse capacity pressure is a reliable early warning for many detailed-routing failures. It does not need exact shapes to know that too many nets want the same macro channel. It does not need final vias to know that layer transitions are being overused. The abstraction throws away detail, but it preserves the facts needed for planning: demand, capacity, blockage, cost, and ownership.`,
-        `The repair loop works by monotonic pressure, not by guaranteeing that every individual reroute is better. When an edge overflows, its cost rises. Nets searching later see that cost and prefer alternatives when alternatives are reasonable. Historical cost prevents the system from repeatedly choosing the same contested edge after each rip-up. The invariant is that the grid accounting stays consistent: ripping up a net removes its demand; rerouting adds demand along the new tree.`,
-        `The handoff works because detailed routing receives a narrowed search space. Instead of exploring the whole chip for every connection, it starts from global guides that are likely to have capacity. Detailed routing can then spend its effort on exact design rules, pin access, vias, and local conflicts.`,
+        'Global routing works because many detailed-routing failures have a coarse capacity cause. Too many nets in a macro channel can be detected before exact tracks and vias are assigned.',
+        'Rip-up and reroute works by feedback. Increasing the cost of overused edges makes later searches prefer alternatives when alternatives exist, while demand accounting keeps the congestion map honest after each change.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        `The cost of global routing depends on grid size, net count, pin count, and the search method. Demand accumulation is roughly proportional to total route-tree length on the grid. Maze search is more expensive because it explores alternatives, especially in congested regions. Rip-up/reroute multiplies this work across repair rounds.`,
-        `Memory is spent on grid edges, capacities, layer data, blockage maps, route trees, ownership lists, costs, and work queues. Finer grids improve spatial accuracy but add vertices and edges. Coarser grids are faster but can hide pin-access and local channel problems.`,
-        `When input size doubles, the pain is not only more nets. More nets create more interaction. Congestion can make search harder because many reasonable paths are already expensive. The dominant cost in practice is often the repeated repair loop around contested regions, not the first clean pass over easy nets.`,
+        'Cost depends on grid size, net count, pin count, and search method. Demand accumulation is roughly proportional to total route-tree length, while maze search becomes expensive in congested regions because it explores alternatives.',
+        'When net count doubles, runtime can grow by more than double because interactions increase and repair rounds multiply. Memory stores grid edges, capacities, costs, ownership lists, route trees, blockage maps, and work queues.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        `Global routing wins in digital physical-design flows where exact detailed routing is too expensive to start blindly. It gives placement a routability signal, gives timing a more realistic wire estimate, gives detailed routing guide regions, and gives engineers a map of structural congestion. It is the right tool when the design has enough regular routing fabric for capacity abstraction to predict the main failures.`,
-        `It also wins as a diagnosis tool. If overflow clusters around macro edges, floorplanning may be the problem. If overflow follows a dense standard-cell region, placement spreading may help. If timing-critical nets cannot detour, buffering or cell movement may be needed. If detailed routing fails despite clean global capacity, pin access or design-rule detail may be the missing model.`,
+        'Global routing is used in digital physical-design flows between placement and detailed routing. It gives timing tools better wire estimates, gives detailed routers guide regions, and gives engineers congestion evidence.',
+        'It is also a diagnosis tool. Congestion near macro edges can point to floorplan problems, while congestion in dense standard-cell regions can point to placement spreading or buffering needs.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        `A clean global route is not proof of a clean detailed route. The abstraction can miss exact spacing rules, odd pin shapes, antenna fixes, via enclosure rules, cut spacing, local track coloring, and cell-internal access limits.`,
-        `The technique also fails when it is asked to fix impossible floorplans. If a macro channel has too little physical capacity, negotiated cost can move nets around the symptom but cannot create tracks. If placement density is too high, routing detours may only push congestion elsewhere. If timing is already tight, the detours needed for congestion relief may be unacceptable.`,
-        `The common mistake is optimizing overflow alone. A design with zero coarse overflow can still be too slow, too noisy, too via-heavy, or too fragile under detailed rules. Routing closure means congestion, timing, manufacturability, and analysis feedback agree enough to finish.`,
+        'A clean global route does not prove a clean detailed route. Exact pin shapes, local track coloring, via enclosure, spacing, antenna fixes, and cell-internal access can still fail.',
+        'It also cannot fix impossible floorplans. If a channel physically lacks enough tracks, negotiated cost can move overflow around but cannot create routing fabric.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        `Study Standard Cell Placement because placement creates most of the geometry that routing must repair or confirm. Study Static Timing Analysis because routing choices change capacitance, delay, and slack. Study A* and Dijkstra for path search, Steiner tree heuristics for multi-pin nets, min-cost flow for capacity tradeoffs, and interval or spatial indexes for geometry queries.`,
-        `Sources: OpenROAD global routing docs at https://openroad.readthedocs.io/en/latest/main/src/grt/README.html, OpenROAD detailed routing docs at https://openroad.readthedocs.io/en/latest/main/src/drt/README.html, and the TritonRoute paper at https://vlsicad.ucsd.edu/Publications/Journals/j133.pdf.`,
+        'Suppose a grid edge has capacity 4 tracks. Nets A, B, C, D, E, and F all choose that edge in the initial route, so demand is 6 and overflow is 2.',
+        'The router rips up E and F, raises the edge cost from 1 to 5, and reroutes them around a longer path that uses edges with capacity 4 and demand 2. Overflow drops to 0, but total wirelength rises by 18 grid steps, which may hurt timing.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Study OpenROAD global routing documentation, OpenROAD detailed routing documentation, the TritonRoute paper, and classic negotiated-congestion routing papers. The important source idea is the split between coarse capacity planning and exact design-rule closure.',
+        'Next study standard-cell placement, static timing analysis, Dijkstra or A* search, Steiner tree heuristics, min-cost flow, and design-rule checking. Routing closure is where graph search meets physical manufacturing constraints.',
       ],
     },
   ],

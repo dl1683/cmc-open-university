@@ -377,114 +377,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read each request as work with shape, risk, deadline, and cost. Active queues are candidates being considered, visited signals are measurements already used, and the chosen route is a policy decision under current fleet state. The safe inference is that equal request count is not equal load.',
+        {type:'callout', text:'An LLM router is a control plane that scores work, risk, cache locality, and live fleet state before admission.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'An LLM serving fleet rarely has one kind of request. Some prompts are short chats, some are long-context coding tasks, some need low latency, some can wait, some require a stronger model, and some should be rejected before they harm p99 latency.',
-        'An SLO-aware router exists to make those tradeoffs explicit. It sends each request to a model, replica, batch, or queue based on latency targets, cost, quality needs, cache locality, and current load.',
-        {type:'callout', text:'An LLM router is a control plane that scores work, risk, cache locality, and live fleet state before admission.'},
+        'An LLM, or large language model, service handles short chats, long coding tasks, cached-prefix continuations, high-risk summaries, and low-value background work. An SLO is a service-level objective, such as p99 latency below 8 seconds for paid chat. A router exists because the same fleet cannot treat every prompt as the same unit of work.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious router is round robin. It balances request count, but request count is not work. A 200-token prompt and a 100,000-token prompt do not consume the same prefill memory, decode time, or cache capacity.',
-        'Another tempting router is cheapest-model-first. That can lower cost for easy requests, but it can also violate quality requirements, overload a small model, or send hard requests down a path that causes retries and higher final cost.',
+        'The obvious router is round robin across replicas. It balances request count, but a 200-token prompt and a 100,000-token prompt do not use the same prefill time, KV memory, or decode occupancy. Cheapest-model-first is also tempting, but retries and bad answers can make it more expensive.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The router should estimate work and risk before admission. Useful features include prompt tokens, expected output tokens, request class, deadline, user tier, model constraints, cache-key hit probability, current queue depth, KV memory pressure, and recent p99 latency.',
-        'The decision is not only where to send the request. It may be admit, shed, downgrade, upgrade, queue, split, route to a cached prefix, or send to a verifier-backed path. SLO-aware routing is a control plane, not a load balancer label.',
+        'The wall is tail behavior. A few long prompts can fill KV cache memory, the key-value attention state held for generation, delay decode streams, and push p99 over the SLO while average latency still looks acceptable. Routing by backend count misses the actual bottleneck: token shape, queue age, cache locality, and quality risk.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Route by predicted work and consequence. Useful signals include prompt tokens, expected output tokens, deadline, user tier, model capability, cache hit probability, current queue depth, KV pressure, fallback rate, and recent p99. The decision can be admit, queue, shed, downgrade, upgrade, or send to a verifier-backed path.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A request arrives with metadata and a prompt. The router classifies it, estimates token work, checks policy, reads live fleet state, and chooses a route. The route can be a specific model, replica group, service tier, queue, or fallback plan.',
-        'The router then records the decision and watches outcome metrics: time to first token, inter-token latency, total latency, cost, error, truncation, quality score, safety result, and cache behavior. Those outcomes update future routing policy.',
-        'A good router distinguishes prefill pressure from decode pressure. Long prompts stress prefill and KV allocation. Long answers stress decode occupancy. Routing by raw request count hides both bottlenecks.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The queue view proves that equal requests are a fiction. Requests carry different token shapes, deadlines, and quality requirements. A router that ignores shape can make average utilization look fine while protected p99 slices fail.',
-        'The decision-table view proves that routing is policy under evidence. Cache hit probability, queue age, model capability, and SLO budget all affect the decision. The router should explain why a request went where it went.',
+        'The router classifies the request, estimates token work, checks policy, reads live fleet state, scores candidate routes, and records the decision. Outcomes such as time to first token, total latency, cost, error, quality score, cache result, and fallback path feed future policy. A conservative router must behave safely when telemetry is missing.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The router works when its predictions are good enough to prevent obvious mismatches. A long-context request should not land on a replica with tight KV memory. A low-risk classification task should not consume the most expensive model if a cheaper one meets quality.',
-        'It also works through feedback. Routing policy should not be static folklore. If a route misses p99 or fails quality checks, the system should adjust admission, batching, fallback, or model choice.',
+        'Correctness is an SLO invariant: protected classes should not be sacrificed by work that could have been delayed or rejected. If a route lacks KV headroom for a long-context request, sending it there is predictably unsafe. Feedback closes the loop by comparing predicted latency and quality with observed outcomes.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The router adds latency, policy complexity, observability requirements, and failure modes. If the router is slow or unavailable, the serving stack can fail before a model sees the request.',
-        'The tradeoff is global efficiency. A little routing overhead can prevent expensive overload, reduce tail latency, improve cache reuse, and reserve strong models for requests that need them. The value appears at fleet level, not in one isolated request.',
+        'The router adds a control-plane hop, policy code, telemetry dependencies, and incident modes. If scoring takes 8 ms, that overhead is small compared with a 6-second generation but large for a 40 ms embedding call. The behavior benefit appears at fleet level: fewer overload cascades, better cache reuse, and fewer strong-model calls for easy work.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'SLO-aware routing wins in multi-model products, enterprise tiers, coding assistants, agent platforms, mixed-context workloads, and fleets that combine GPUs with different memory and throughput profiles.',
-        'It is especially useful when paired with prefix caching, continuous batching, prefill/decode disaggregation, semantic caching, verifier-guided routing, and admission control. Each mechanism supplies signals the router can use.',
+        'This pattern fits multi-model chat products, coding assistants, agent platforms, enterprise tiers, prefill/decode-disaggregated fleets, and heterogeneous GPU pools. It is strongest when requests vary widely in context length, answer length, quality risk, and cache reuse.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'The first failure is optimizing the wrong metric. A router that lowers average latency while harming p99 for paid users is not SLO-aware. A router that lowers cost while increasing invalid answers is not successful.',
-        'The second failure is stale fleet state. Queue depth, cache pressure, and failure rates change quickly. Routing on old telemetry can create oscillations or overload the route that looked healthy seconds ago.',
-        'The third failure is unexplainable policy. When a request misses its SLO, operators need to know whether the cause was admission, model choice, queueing, batching, cache miss, or decode slowdown.',
-      ],
-    },
-    {
-      heading: 'Implementation checklist',
-      paragraphs: [
-        'Define SLO classes before writing routing code. Decide which users, routes, and tasks are protected. Track time to first token, inter-token latency, total latency, cost, quality, and error separately.',
-        'Use conservative fallbacks. If live telemetry is missing, choose a safe route or shed load rather than pretending the fleet is healthy. If model quality is uncertain, route to a verifier or stronger model for high-risk tasks.',
-        'Log route decisions with enough context to audit them later: request class, token estimates, model candidates, cache signal, queue signal, chosen route, fallback path, and outcome.',
+        'It fails when the optimized metric is wrong. Lower average latency with worse paid-user p99 is not SLO-aware, and lower cost with unsupported answers is not success. Stale telemetry can also create oscillation as many routers chase the same route that looked healthy seconds ago.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Imagine three incoming requests: a short support question, a long repository analysis, and a high-risk legal summary. Round robin treats them as peers. An SLO-aware router sees different token shapes, quality risk, and deadlines.',
-        'The support question may go to a cheaper model with a short queue. The repository analysis may need a long-context route with enough KV memory and a prefix-cache signal. The legal summary may need a stronger model plus verifier or citation checks, even if that costs more.',
-        'If the long-context route is under KV pressure, the router may queue, shed, or ask for a shorter context rather than damaging every active stream. That is the point: route choice is a fleet health decision, not only a model preference.',
+        'Three requests arrive: a 300-token support answer due in 2 seconds, a 90,000-token repo analysis due in 45 seconds, and a legal summary due in 12 seconds with high quality risk. Round robin may send all three to similar queues. An SLO router sends support to a cheap low-latency model, repo analysis to a long-context route with 14 GB KV headroom, and legal summary to a stronger model plus citation verifier.',
       ],
     },
     {
-      heading: 'How to tune it',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Start with simple policies and hard guardrails. Protect maximum prompt length, maximum expected output, per-tier deadlines, and known high-risk tasks before adding learned routing. A bad learned router can make incidents harder to debug.',
-        'Then add feedback. Compare predicted cost and latency with actual outcomes. Track when fallback routes saved a request and when they hid a deeper capacity issue. Route policy should improve from evidence, not from static intuition.',
-        'Finally, keep quality in the loop. A route that meets latency but produces unsupported answers is not successful. SLOs for LLM products often need both service metrics and answer-quality metrics.',
-      ],
-    },
-    {
-      heading: 'What to watch in production',
-      paragraphs: [
-        'The dangerous router is the one that looks efficient during normal load and collapses during a burst. Protect the control plane: routing decisions should remain fast, explainable, and conservative when telemetry is partial or the fleet is already unhealthy.',
-        'Watch decision churn. If similar requests bounce between routes because queue depth changes every second, the router may create oscillation instead of stability. Hysteresis, admission limits, and per-class budgets can matter more than a more clever scoring function.',
-        'Quality drift also needs its own alarm. A cheap route may satisfy latency for weeks while slowly failing harder prompts, new languages, or high-stakes domains. Sampled evaluation, verifier outcomes, and human escalations should feed routing policy, not sit in a separate quality report.',
-      ],
-    },
-    {
-      heading: 'Common misconception',
-      paragraphs: [
-        'The misconception is that a router is just a load balancer with model names attached. A normal load balancer tries to distribute work across similar backends. An LLM router often chooses among different costs, qualities, context limits, cache states, memory pressures, and risk levels.',
-        'That makes the routing decision part of product behavior. A different route can change latency, answer quality, citation reliability, and cost. The policy therefore belongs in the same conversation as SLO design, model evaluation, and incident response.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study LLM Continuous Batching, Length-Aware Batching, Chunked Prefill, PagedAttention, Prefix Caching, Tail Latency, Admission Control, Circuit Breakers, Semantic Cache, and Heterogeneous AI Compute Router. A useful exercise is to route the same prompt under three conditions: empty fleet, KV pressure, and p99 incident.',
+        'Study tail latency, SLOs, admission control, circuit breakers, continuous batching, length-aware batching, chunked prefill, PagedAttention, prefix caching, semantic caching, verifier routing, and heterogeneous accelerator scheduling. Then inspect route logs because route choice is product behavior.',
       ],
     },
   ],

@@ -220,155 +220,90 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for NVIDIA Dynamo Distributed Inference Control Plane. A distributed inference control-plane case study: disaggregated serving, KV-aware routing, multi-tier cache, worker pools, NIXL transfer, autoscaling, and engine coordination..",
+        'Read the control-plane view as a map of who knows what. The frontend sees a request, the router sees cached prefix records and worker load, prefill workers build key-value cache, and decode workers spend that cache one token at a time. Active means the system is making a routing or scaling decision from current state. Visited means the record has already been considered and can no longer change this decision.',
         {type:"callout", text:"Dynamo turns hidden serving state into router-visible records so phase split, KV locality, transfer cost, and scale decisions share one control surface."},
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'In the disaggregated-route view, prefill means processing the prompt once to create attention state. Decode means generating output tokens from that state. A safe inference rule is this: route to a remote prefill worker only when saved recompute time is greater than queueing plus key-value transfer time.',
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'A single inference engine can make one GPU useful. A distributed inference control plane makes a fleet useful. That distinction is the reason NVIDIA Dynamo-style systems exist. Modern LLM serving is not only a kernel problem, a batching problem, or a model-loading problem. It is a placement problem over requests, cache state, network links, worker pools, service objectives, and failures that happen while traffic is still arriving.',
-        'The pressure comes from the shape of generative AI workloads. A short chat turn, a long retrieval-augmented prompt, a tool-using agent trace, and a multimodal request do not stress the same part of the system. Prefill work burns through prompt tokens and builds KV cache. Decode work emits one token at a time and is sensitive to small latency changes. Repeated system prompts and shared retrieved context can make old KV state valuable. Once those facts matter, the platform needs a control plane above engines such as vLLM, SGLang, and TensorRT-LLM.',
+        'Large language model serving is hard because one request creates state that can be useful to later requests. A key-value cache stores the attention keys and values produced while reading the prompt, so repeated prefixes can avoid work. A distributed control plane is the layer that records this state and uses it to route traffic across many GPUs.',
+        'Dynamo exists for fleets where a single engine is no longer the whole system. The platform must decide which worker should prefill, which worker should decode, when to move cache blocks, and when to add capacity. The goal is lower user latency for the same hardware budget, not a prettier load balancer.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The naive design is familiar: put many identical inference workers behind a load balancer and choose round robin, random, or least connections. It is easy to deploy and it works for many stateless HTTP services. If all workers have the same model, the same memory pressure, no useful per-request state, and the same queue shape, the load balancer does not need to understand much.',
-        'LLM serving breaks those assumptions. A request is not just a request; it can create gigabytes of reusable KV state. A worker can be warm for one prefix and cold for another. A long prompt can consume prefill capacity while a small continuation waits behind it. A decode worker can look idle by connection count while its token-level latency is already too high. The result is waste that hides behind average utilization: recomputed prefixes, avoidable transfers, poor time to first token, bad inter-token latency, and autoscaling that adds the wrong kind of capacity.',
+        'The obvious approach is to run identical inference workers behind round robin or least-connections routing. That is a reasonable first design because most web services are close to stateless at the load balancer. If each request costs about the same and leaves no reusable state, connection count is often enough.',
+        'A second simple approach is to keep prefill and decode on the same GPU. That avoids cache transfer and makes failure handling easier. It works well for small traffic, short prompts, or a team that needs one reliable pool before it needs fine-grained phase control.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall appears when request cost stops matching request count. A 400-token chat turn and a 32,000-token retrieval prompt both look like one request to a blind load balancer. The long prompt can monopolize prefill capacity while short decodes wait, even when other GPUs hold useful cache for the same prefix.',
+        'The second wall is stale or missing state. A router that does not know prefix location, queue depth, transfer bandwidth, and deadline cannot tell whether reuse is cheaper than recompute. It may move cache for a tiny prompt, recompute a large prefix that was already warm, or autoscale decode when prefill is the real bottleneck.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core insight is to treat inference state as schedulable data. KV blocks, prefix ownership, cache residency, prefill availability, decode pressure, transfer bandwidth, queue depth, tenant priority, and SLO class all become records that the control plane can read. The system is no longer asking which worker has the fewest connections. It is asking which route gives this request the best chance of meeting its objective with the least wasted work.',
-        'That change turns routing into a constrained scoring problem. A cache hit is useful only if the worker can serve the request before the deadline. A remote prefill is useful only if KV transfer is cheaper than local recompute or queueing. A new replica is useful only if the bottleneck is capacity rather than locality or a congested fabric. The scheduler does not need perfect foresight; it needs enough state to avoid the obviously bad choices that a blind load balancer cannot see.',
+        'The core insight is to make serving state schedulable. Cache residency, worker role, queue depth, model placement, transfer path, tenant priority, and deadline become records that the router can score. The routing unit is no longer just a request; it is a request plus the state needed to serve it cheaply.',
+        'This changes the question from which worker is least busy to which path wastes the least scarce resource. Sometimes the answer is local recompute. Sometimes it is remote prefill followed by key-value transfer. Sometimes it is admission control because every path would miss the service objective.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A request enters with a model, prompt, tenant, deadline, and traffic class. The frontend normalizes that packet and asks the router for placement. The router checks whether the prefix is known, where useful KV blocks live, which prefill workers can absorb prompt work, which decode workers can protect token latency, and whether a transfer path is available. The answer may be local decode, remote prefill followed by KV movement, a cache-tier fetch, a fallback route, or rejection when no route can meet the contract.',
-        'The important object is the handoff record. It should identify the route, chosen engine, prefill worker, decode worker, cache hit or miss reason, KV block ids, transfer method, deadline, fallback path, and trace id. Disaggregated serving only works when this record is explicit. The prefill phase must produce KV that the decode phase can safely consume. The control plane also feeds autoscaling: rising time to first token points toward prefill pressure, rising inter-token latency points toward decode pressure, and falling cache hit rate points toward routing or eviction policy.',
-      ],
-    },
-    {
-      heading: 'How it works (2)',
-      paragraphs: [
-        'The control-plane view proves that the engine is only one node in the serving system. The router, cache tiers, KV transfer layer, worker pools, and autoscaler all participate in the decision. If any of those records are missing, the route becomes guesswork. The matrix of control records is not decoration; it is the minimal evidence a fleet-level scheduler needs in order to explain why work moved where it moved.',
-        'The disaggregated-route view proves a different lesson: prefill and decode are connected by a dependency edge, not by hope. A cold long prompt may need prefill first. A repeated prefix may skip that work and go directly to a warm decode path. A KV transfer can be a win, a tie, or a p99 disaster depending on fabric load and deadline. The visual is teaching that disaggregation is a conditional optimization. It wins only when phase separation plus transfer beats the simpler local route.',
+        'A request enters with a model name, prompt tokens, tenant, and latency target. The frontend normalizes that packet and asks the router for a route. The router checks prefix overlap, current worker load, cache block locations, transfer cost, and whether a prefill or decode pool is the limiting resource.',
+        'If the route is disaggregated, a prefill worker reads the prompt and creates key-value blocks. Those blocks move through a transfer layer to the decode worker or to a cache tier. The decode worker then generates tokens while the control plane records the route reason, cache hit reason, bytes moved, and latency outcome.',
+        'Autoscaling uses the same records. Rising time to first token points toward prefill pressure. Rising inter-token latency points toward decode pressure. Falling cache hit rate points toward routing, eviction, or workload mix rather than raw GPU count.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The design works because it makes the hidden state of LLM serving visible to policy. KV cache is expensive to create and valuable to reuse. Decode latency is fragile. Prefill demand arrives in bursts. Network transfer has a real cost. When those facts are modeled explicitly, the scheduler can choose routes that preserve useful state and isolate conflicting phases of work.',
-        'The practical invariant is not optimal scheduling. Production fleets are too dynamic for a neat global optimum. The invariant is that each route is made against current locality, capacity, transfer, and deadline evidence, and that the result is recorded. A cache-aware route can still be wrong. A cache-blind route cannot even say what it wasted. That auditability is what lets operators tune scoring, compare engines, and decide whether disaggregation is helping real traffic rather than a benchmark slice.',
+        'The correctness argument is an invariant about ownership and evidence. A decode worker may consume a cache block only after the prefill result is complete, identified for the same model and prefix, and reachable through the selected transfer path. If any part of that evidence is missing, the route must fall back to recompute or rejection.',
+        'The scheduling policy is heuristic, but the safety rule is not. Each accepted route has a recorded reason based on state that existed when the decision was made. That record lets the system compare predicted cost with actual latency and repair bad scoring without guessing after the fact.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The cost is real control-plane complexity. The platform now owns routing policy, cache metadata, worker health, transfer bookkeeping, topology awareness, observability, admission control, autoscaling, and recovery after partial failure. Metadata can become stale. Workers can die after a route is chosen. A transfer can complete after the deadline is already lost. The more the scheduler knows, the more carefully that knowledge must be aged, validated, and traced.',
-        'There is also a data-movement tax. Moving KV can save prompt recomputation, but it consumes memory bandwidth, network bandwidth, and scheduling time. Small prompts may be cheaper to recompute than to locate and move. Highly unique traffic may not reuse prefixes enough to justify a large cache hierarchy. A fleet with weak observability can end up with sophisticated policy that confidently routes on bad facts. The honest tradeoff is simple: Dynamo-style orchestration buys efficiency and control when state matters, but it raises the operating bar.',
+        'The fast path adds lookup and bookkeeping cost before generation begins. If prefix lookup takes 1 ms, route scoring takes 1 ms, and transfer setup takes 2 ms, the route has already spent 4 ms before model work. That cost is worth paying only when saved prefill or better queue placement is larger than the control-plane tax.',
+        'Memory cost grows with cached tokens. For a simple estimate, a 32-layer model with 32 attention heads, head dimension 128, and 2 byte values stores roughly 32 * 32 * 128 * 2 * 2 = 524,288 bytes per token for keys and values. Even after implementation details change the exact number, the behavior is clear: longer reusable prefixes quickly become a memory-management problem.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'The pattern is useful in high-volume assistants, enterprise copilots, coding agents, search and RAG products, batch generation systems, and multimodal services that mix short and long requests. These systems often have repeated system prompts, shared tool schemas, common retrieval templates, and tenants with different latency objectives. A control plane can use those repetitions instead of flattening them into generic work items.',
-        'A concrete case is a production assistant that handles short chat, long-context RAG, and tool-using agent sessions. Short chat may benefit from warm decode workers. RAG may need protected prefill capacity for long retrieved context. Agent sessions may reuse large tool schemas and instruction prefixes. Multimodal requests may add an encode stage before text generation. A single engine pool can serve all of this, but it cannot explain the best placement for each phase unless the platform records the phase, state, and outcome.',
+        'This pattern fits high-volume assistants, coding agents, search products, and retrieval-augmented generation systems. These services reuse system prompts, tool schemas, policy instructions, and retrieved context. A state-aware router can send repeated prefixes to workers that already paid the prefill cost.',
+        'It also fits mixed traffic where prefill and decode need different scaling. Long-context requests want prompt throughput, while short interactive requests want stable token cadence. Separate pools let an operator protect token latency without overprovisioning the prompt side.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'This is the wrong first tool for a small service where one well-tuned engine pool already meets the SLO. It also fails when the team cannot maintain trustworthy telemetry. Stale cache-residency records can send requests to the wrong worker. Missing transfer metrics can make a route look efficient while p99 latency burns. Autoscaling can add decode replicas when the real bottleneck is prefill, or add prefill capacity when a cache policy is throwing away useful prefixes.',
-        'The most common conceptual failure is benchmark theater. A disaggregated demo can look excellent on handpicked long prompts with repeated prefixes and then lose on real traffic with short prompts, cold prefixes, noisy neighbors, or fabric contention. A credible evaluation should report route reason, cache hit reason, KV bytes transferred, transfer latency, time to first token, inter-token latency, p99, fallback rate, and autoscale action. Without that ledger, the system may only be proving that the benchmark liked the scheduler.',
+        'The design fails when traffic has little reuse or when prompts are too short for cache locality to matter. In that case the router spends time maintaining records that rarely change a route. A simple engine pool can be cheaper and easier to debug.',
+        'It also fails when telemetry is untrusted. Stale cache records send requests to cold workers. Missing transfer metrics hide a fabric bottleneck. A sophisticated router using bad facts is worse than a simple router whose limits are visible.',
       ],
     },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study prefill/decode disaggregation first, because it explains why the request has phases. Then study KV cache layout, prefix caching, transfer fabrics, and cache eviction, because those decide whether state reuse is cheap enough to matter. After that, study SLO-aware routing and warm-pool autoscaling, because control planes should optimize user-facing latency rather than raw utilization.',
-        'The adjacent systems are vLLM for serving mechanics, SGLang for structured program execution, TensorRT-LLM for optimized NVIDIA runtime paths, Ray Serve and Kubernetes-native systems for deployment control, and observability tools that can connect route decisions to traces. The next mental model is this: an inference control plane is a distributed database of serving state plus a scheduler that spends that state carefully.',
-      ],
-    },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-
     {
       heading: 'Worked example',
       paragraphs: [
-        "Trace one representative example end-to-end so readers can watch state evolve across every step.",
-        "Keep the walkthrough concise and precise: at each step, write current state, action taken, and resulting output.",
-        "The goal is prediction, not a one-off demonstration.",
+        'Suppose request A has a 16,000-token prefix that takes 240 ms to prefill locally. Worker W7 already has 12,000 of those tokens cached, but it has a 30 ms decode queue. Moving the missing key-value blocks from prefill worker P2 to W7 is estimated at 25 ms, and route scoring costs 2 ms.',
+        'The local route costs about 240 ms before decode can start. The reuse route costs 2 ms of routing, 60 ms to prefill the 4,000 missing tokens, 25 ms to move blocks, and 30 ms of decode queueing, for 117 ms before decode. The router should choose reuse because it saves about 123 ms and keeps the route within a 150 ms time-to-first-token target.',
+        'Change the prefix to 1,000 tokens and the decision flips. If local prefill is 15 ms and transfer setup is still 25 ms, remote reuse loses before decode begins. The control plane is useful because it can make that difference explicit per request.',
       ],
     },
     {
-      heading: 'Learning map',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
+        'Primary sources are the Dynamo repository and documentation at https://github.com/ai-dynamo/dynamo and https://docs.nvidia.com/dynamo/latest/. Study the Dynamo sections on disaggregated serving, key-value aware routing, Planner, and key-value block management before relying on benchmark claims.',
+        'Next, study vLLM prefix caching, SGLang serving, TensorRT-LLM, NIXL transfer, Kubernetes Gateway API Inference Extension, queueing theory, and autoscaling. The useful mental model is a distributed database of serving state plus a scheduler that spends that state only when it beats recompute.',
       ],
     },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why NVIDIA Dynamo Distributed Inference Control Plane moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
 

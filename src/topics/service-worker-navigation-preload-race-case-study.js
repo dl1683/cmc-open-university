@@ -1,4 +1,4 @@
-﻿// Service worker navigation preload: start the HTML navigation fetch in
+// Service worker navigation preload: start the HTML navigation fetch in
 // parallel with service-worker boot so network-first routes avoid a cold-start
 // serial waterfall.
 
@@ -198,165 +198,75 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        "Read the animation as the execution trace for Service Worker Navigation Preload Race. How navigation preload races service-worker startup with the navigation request, then hands FetchEvent.preloadResponse to network-first HTML routes..",
-        "Active items are the current decision point. Visited markers are state that is already ruled out by proof, not by taste.",
-        "Found markers are outcomes now guaranteed true. If this is not visible, the animation can mislead.",
-        "At each frame, ask what changed, why that move is legal, and where the idea is strong or fragile.",
+        'Read the frames as a race between a service worker, a browser script that intercepts fetches, and the document network request. Active items are the current decision point, visited items already happened, and the found response is the one the fetch handler returns. The safe inference is that preload starts likely network work early without bypassing service-worker authority.',
         {type:"callout", text:"Navigation preload turns a cold-start waterfall into a controlled race where the service worker keeps authority while the browser starts the likely network winner early."},
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        'Service workers give web apps a programmable network layer. They can precache an app shell, serve offline pages, rewrite requests, route API traffic, and keep a site usable when the network is unreliable. The cost is that a controlled navigation may need to wake the service worker before the page can receive HTML. If the worker is cold, that startup time can sit in front of the real document request.',
-        'Navigation preload exists for the common case where the service worker is useful for fallback and routing, but the online path still wants fresh HTML from the network. Instead of waiting for service-worker startup and then starting the document fetch, the browser starts a special navigation request in parallel with worker boot. When the fetch handler runs, it can receive that already-started request through FetchEvent.preloadResponse.',
-        'The feature is not a new caching strategy. It is a race and handoff mechanism. It keeps the service worker in charge of the final response while removing a needless serial delay from network-first navigations.',
+        'A service worker is a browser script that can intercept fetches, serve cached files, and provide offline fallback. For a navigation request, the browser may need to wake a stopped worker before the page receives HTML. If the route almost always fetches fresh HTML online, that wake-up can delay the request that the app wanted anyway.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'A normal offline-capable navigation route often looks like this: handle document requests in the service worker, try the network first, and fall back to a cached shell or offline page if the network fails. This is a good product policy for many apps. Users get fresh HTML when online, but the app still has an answer when the network is down.',
-        'The wall is the ordering. On a cold navigation, the browser dispatches the request to the service worker, the worker process starts, the fetch event handler runs, and only then does the handler call fetch for the document. Even if the handler almost always chooses the network, the network request starts after the service-worker cold start. The page pays startup time plus network time on the critical path.',
+        'The obvious offline-capable route is network first, cache fallback. The fetch handler starts, calls fetch for the document, and returns a cached shell if the network fails. That policy is sound, but on a cold worker it serializes startup before the network request.',
       ],
     },
     {
-      heading: 'Why this hurts page load',
+      heading: 'The wall',
       paragraphs: [
-        'The first HTML response is one of the most important requests in the page-load path. It gates parsing, initial rendering, subresource discovery, and often hydration. Adding worker startup before that request is not like delaying an image below the fold. It can move time to first byte and first paint.',
-        'The delay is most visible when the worker has been stopped to save memory, when the device is slow, when the browser process is busy, or when the route code performs extra startup work. The site may have excellent caching and still feel slower online because the fresh navigation takes a serial service-worker detour before touching the origin.',
+        'The wall is the waterfall. If worker startup takes 180 ms and the origin HTML takes 320 ms, the old critical path is about 500 ms before handoff overhead. The user waits for work that could have overlapped.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Navigation preload changes the dependency graph. The browser is allowed to start the document network request as soon as it knows a controlled navigation is happening. At the same time, it starts or wakes the service worker. The two operations run in parallel. The fetch handler later receives a promise for the preloaded response.',
-        'The handler remains the authority. It can return the preload response, ignore it, use a cached fallback, or perform ordinary fetch logic if the preload is absent or failed. The invariant is simple: one response wins the navigation, but the request that usually wins online does not have to wait for the worker to become ready.',
+        'Start the navigation network request while the worker wakes, then hand the response promise to the fetch event. The handler still decides the final response through event.preloadResponse. Preload is not a cache policy; it is an overlap and handoff mechanism.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The service worker enables the feature during activation through registration.navigationPreload.enable(). Activation is the right phase because it prepares the newly active worker before future fetch events arrive. Once enabled, navigation fetch events can expose event.preloadResponse, a promise for the browser-started document request.',
-        'A typical handler first checks whether the request is a document navigation. For those requests, it awaits event.preloadResponse. If the promise resolves to a response, the handler can return it directly or clone it and update a cache before returning it. If the promise is missing, rejected, or unsuitable, the handler falls back to a normal network fetch or a cached shell.',
-        'The mechanism is selective. Hashed JavaScript, CSS, and image assets usually belong in a precache or ordinary HTTP cache. API calls need their own freshness and retry policy. POST writes need outbox or background sync semantics. Navigation preload is primarily for document navigations where the app wants fresh HTML online and a service-worker fallback offline.',
+        'During activation, the service worker enables registration.navigationPreload. On future navigations, the browser starts a special request and exposes it as event.preloadResponse. The handler awaits that promise, returns it when suitable, or falls back to ordinary fetch and cache logic when it is missing or rejected.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The latency improvement comes from replacing addition with overlap. Without preload, a cold navigation can look like worker boot plus handler execution plus origin request. With preload, the origin request and worker boot run at the same time. The critical path becomes closer to the slower of those two operations plus a small handoff cost.',
-        'Correctness comes from keeping the fetch event as the decision point. The browser-started request is not automatically committed to the page. It is an input to the handler. That means the same route can still enforce offline fallback, authorization rules, cache update policy, and error handling.',
-        'This distinction matters. A service worker is often installed because the app needs control. Navigation preload does not bypass that control. It removes unnecessary waiting when the route policy already says that a fresh network document is the preferred online answer.',
+        'Correctness comes from keeping one decision point. The browser-started response is only an input to the fetch handler, so offline fallback, authentication checks, cache updates, and error handling can still run. Latency improves because startup and network time overlap instead of adding together.',
       ],
     },
     {
-      heading: 'The preload header contract',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Preload requests can carry a Service-Worker-Navigation-Preload header. The default value tells the server that this navigation was started through the preload path. A site can change the header value through the navigation preload manager, but doing so should be treated as part of the cache and server contract.',
-        'If the server returns different HTML for preload requests, caches must be able to distinguish the variants. That usually means correct Vary behavior. Without it, a response intended for one request shape can be reused for another. The safest design is to avoid unnecessary response differences, and when differences are required, make them explicit and cache-safe.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Navigation preload can start network work that the handler later decides not to use. That is acceptable when the route is network-first and the preloaded response is the likely winner. It is wasteful for routes that are cache-first, offline-only, or expected to synthesize a response without touching the origin. The feature should follow the route table rather than being treated as a universal speed switch.',
-        'There is also complexity. The service worker must handle preload failures, unsupported browsers, duplicate-fetch risks, and cache variants. If the handler awaits event.preloadResponse and then starts a separate fetch without checking the result, the app can spend two document requests for one navigation. The win depends on consuming the handoff correctly.',
+        'Preload can waste a request if the handler later chooses a cached response. It is a good trade for network-first HTML and a bad trade for cache-first assets or synthetic responses. The implementation must handle unsupported browsers, rejected promises, duplicate-fetch bugs, and the Service-Worker-Navigation-Preload header.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'It wins for document navigations controlled by a cold service worker when the desired online behavior is fresh network HTML. Documentation sites, dashboards, commerce shells, authenticated apps, and news-like pages can all fit this profile. The user gets the latest page when online, but the app keeps a cached fallback when offline.',
-        'It is especially useful on mobile and memory-constrained environments, where workers are more likely to be stopped between visits. It also helps sites whose service-worker startup includes route-table setup, cache version checks, or module loading. The bigger the cold-start portion of the old waterfall, the more valuable the overlap becomes.',
+        'It fits documentation sites, dashboards, commerce pages, authenticated apps, and news-like pages that want fresh HTML online and a usable fallback offline. It helps most on mobile and memory-constrained devices, where workers are more likely to be stopped between visits.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The first failure mode is mistaking preload for offline support. A preloaded network response cannot help when the network is down. Offline behavior still requires installed cache entries, version management, and a route that returns the fallback when the network path fails.',
-        'The second failure mode is duplicate work. A handler that ignores event.preloadResponse and always calls fetch repeats the document request. Another version awaits the preload but does not catch rejection, turning a network failure into a broken navigation instead of a cache fallback. The preload path should be an optimization, not the only path.',
-        'The third failure mode is applying it too broadly. Static assets with content hashes, API requests with independent caching rules, and POST requests do not become better just because a navigation feature exists. They need their own data and cache policies.',
+        'Navigation preload does not provide offline support by itself. It fails when the handler ignores event.preloadResponse and performs a second fetch, or when a rejected preload breaks navigation instead of falling back. It also should not be applied to POST writes, hashed static assets, or APIs with separate cache rules.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A documentation PWA uses network-first HTML because the home page should show the latest release notes. It also precaches a versioned app shell so returning users can load something useful offline. Without navigation preload, a cold visit starts the service worker, runs the fetch handler, and only then asks the origin for the document.',
-        'After enabling navigation preload during activate, the browser starts the document request immediately when the controlled navigation begins. The worker wakes in parallel. The fetch handler checks the preload promise. If it resolves, the handler returns the fresh HTML and may update a cache. If it rejects, the handler falls back to the cached shell. The online path avoids the startup waterfall, while the offline path still works.',
-        'The team also audits its route table. HTML navigations use preload. Hashed assets use precache. API calls use ETag revalidation or application-specific caching. Offline writes use an outbox. That separation keeps navigation preload focused on the path where it actually improves latency.',
+        'A docs PWA has a 170 ms cold worker and a 280 ms HTML request. Without preload, time to first byte is roughly 450 ms plus handler overhead. With preload, both start together, so the critical path is closer to 280 ms; if the network fails, the handler still returns the cached shell.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary references include MDN NavigationPreloadManager at https://developer.mozilla.org/en-US/docs/Web/API/NavigationPreloadManager, MDN ServiceWorkerRegistration.navigationPreload at https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/navigationPreload, MDN NavigationPreloadManager.setHeaderValue at https://developer.mozilla.org/en-US/docs/Web/API/NavigationPreloadManager/setHeaderValue, and the web.dev navigation preload guide at https://web.dev/blog/navigation-preload.',
-        'Study Service Workers and Offline-First design before this topic, because preload only makes sense once fetch interception and cache fallback are clear. Then study Cache Storage versioned precache, HTTP Vary cache-key normalization, ETag revalidation, Resource Hints such as preload and preconnect, and tail-latency thinking. The deeper lesson is not just web-specific: if a control plane usually chooses a slow data-plane operation, start the data-plane operation early and hand it to the control plane safely.',
+        'Study MDN NavigationPreloadManager, ServiceWorkerRegistration.navigationPreload, FetchEvent.preloadResponse, the web.dev navigation preload guide, Cache Storage, HTTP Vary, ETag revalidation, and resource hints. The systems lesson is to overlap a likely data-plane operation while preserving the control-plane decision.',
       ],
     },
-      {
-      heading: 'The wall',
-      paragraphs: [
-        "Every topic in this pattern has a hard boundary where a tempting shortcut fails; define that boundary first.",
-        "State the exact invariant that must hold, show one operation sequence that can break it, and explain what changes after a failure and why.",
-        "If you can reproduce this wall in one example, the rest of the page is motivated.",
-      ],
-    },
-    {
-      heading: 'Learning map',
-      paragraphs: [
-        'Before this topic, check your prerequisites and map what is assumed, what is computed, and where this mechanism first appears in real systems.',
-        'After this topic, follow each unlock topic and test whether you can explain why this mechanism unlocks it.',
-        'Use the frame order to prove one invariant per frame and one cost consequence per major operation.',
-      ],
-    },
-
-    {
-      heading: 'Frame-by-frame checkpoints',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Pause on each state change and name exactly what data moved, which references changed, and why the move is legal.',
-            'State the invariant that must remain true before the next frame starts.',
-            'Track what changed in size, order, ownership, or topology for the operation you are watching.',
-            'Translate the active frame into a one-line explanation as if teaching a teammate.',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Micro checks',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Can you state one operation-level invariant in one sentence?',
-            'Can you derive the time cost from the frame sequence without referencing external formulas?',
-            'Can you name one hidden edge case where the naive implementation fails?',
-            'Can you transfer this mechanism to one system from a different domain?',
-          ],
-        },
-      ],
-    },
-
-    {
-      heading: 'Try this now',
-      paragraphs: [
-        'Build one counterexample input by hand and predict every animation frame before running it; compare your prediction to the trace.',
-        'Use this topic as a checkpoint: if you can explain why Service Worker Navigation Preload Race moves from input to output in the animation and where it fails, you are ready for the next topic.',
-      ],
-    },
-
-      {
-        heading: 'Sources and study next',
-        paragraphs: [
-          'Read one primary source, one implementation source, and one production case where this idea appears.',
-          'If they disagree on a detail, prefer the source with the clearest constraint and define the simplification for this animation.',
-          'Then choose three study topics: one prerequisite, one extension, and one case study for your next session.',
-        ],
-      },
-],
+  ],
 };
-

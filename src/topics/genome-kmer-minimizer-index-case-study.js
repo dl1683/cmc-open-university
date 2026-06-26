@@ -188,118 +188,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Long-read alignment starts with an ugly search problem. A read may be thousands of bases long, the reference may be billions of bases long, and the read can contain substitutions, insertions, deletions, and sequencing errors.',
-        'Full dynamic-programming alignment against every reference position is the wrong first operation. The aligner first needs a cheap way to ask: which reference regions are even worth aligning?',
-        'A minimizer index answers that question with a sparse sketch. It stores selected k-mers from the reference, looks up the same kind of selected k-mers from the read, and uses the shared hits as anchors for later alignment.',
+        'Read the animation as a narrowing search pipeline. A genome is a long string over A, C, G, and T, a k-mer is a substring of length k, and a minimizer is the chosen representative k-mer from a sliding window. Active windows are being sketched, visited minimizers have entered the index, and found anchors are shared minimizers between read and reference.',
+        'The safe inference rule is shared deterministic choice. If the read and reference contain the same error-free window and use the same ordering rule, they choose the same minimizer, so the index can create an anchor without storing every k-mer.',
         {type:'callout', text:'A minimizer index makes genome search tractable by preserving enough shared k-mer anchors to guide alignment while discarding most redundant seed lookups.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/5/57/Oxford_Nanopore_MinION_top_cropped.jpg', alt:'Hand holding an Oxford Nanopore MinION portable DNA sequencer.', caption:'Oxford Nanopore MinION top cropped.jpg by Cirosantilli2; CC BY-SA 4.0 via Wikimedia Commons.'},
       ],
     },
     {
-      heading: 'The naive baseline',
+      heading: 'Why this exists',
       paragraphs: [
-        'The simplest seed index stores every k-mer in the reference. For each read, compute every k-mer, look each one up, and extend from every matching position.',
-        'That baseline is reasonable. Exact k-mer matches are easy to hash, and a true alignment usually preserves many short exact substrings even when the full read is noisy.',
-        'The baseline breaks because it emits too many seeds. Long reads contain many k-mers, repetitive reference sequence creates huge hash buckets, and downstream chaining spends its time sorting and scoring anchors that were never informative.',
+        'Genome alignment asks where a read came from in a much larger reference. A read may be thousands of bases long, the reference may have billions of bases, and sequencing errors can insert, delete, or substitute bases.',
+        'Running full dynamic programming alignment at every reference position is far too expensive. The aligner first needs a cheap candidate generator that finds likely regions before exact alignment work begins.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to index every k-mer in the reference. For each read, compute every k-mer, look up matching reference positions, and extend from those hits.',
+        'This is reasonable because exact short matches are easy to hash and real alignments usually preserve many exact substrings. It also gives high sensitivity when errors are not too dense.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The hard part isn\'t finding any seed. It is finding enough useful seeds without drowning in redundant ones.',
-        'Indexing every k-mer gives high sensitivity, but many adjacent k-mers carry the same location signal. A read that shares ACGTAC with the reference doesn\'t need every overlapping k-mer in that stretch to prove the same candidate region.',
-        'Repetitive minimizers add another wall. A seed that occurs thousands of times doesn\'t narrow the search; it moves cost from the hash lookup into chaining and alignment.',
+        'The wall is seed explosion. Adjacent k-mers often say the same thing about location, so indexing all of them produces redundant hits that overload chaining and alignment.',
+        'Repetitive sequence creates another wall. A common k-mer may appear thousands of times in the reference, so one lookup can produce a huge bucket that does not narrow the search.',
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The core insight',
       paragraphs: [
-        'A minimizer index chooses one representative k-mer from each window of consecutive k-mers. The choice is deterministic: order the k-mers by a hash or lexical rule and keep the smallest one in the window.',
-        'Adjacent windows often choose the same minimizer, so the sketch stores far fewer entries than the full k-mer set. With a random ordering, minimizer density is roughly proportional to 2 divided by the window length plus one, so larger windows reduce seed count directly.',
-        'The selected k-mer isn\'t an alignment. It is an anchor candidate. The algorithm still needs filtering and chaining to decide whether the anchors describe one plausible read-to-reference path.',
-        'The invariant is shared selection. If the read and reference contain the same stretch and no error destroys the selected k-mer for a window, both sides choose the same representative. That shared representative is enough to create a seed without storing every overlapping k-mer.',
+        'A minimizer index stores a sparse sketch instead of the full k-mer set. For each window of consecutive k-mers, it keeps the smallest k-mer under a fixed ordering such as a hash order.',
+        'Overlapping windows often keep the same minimizer, so density drops while the sketch still leaves anchors across long shared regions. The index trades some sensitivity for a large reduction in candidate hits.',
       ],
     },
     {
-      heading: 'Data model',
+      heading: 'How it works',
       paragraphs: [
-        'The reference index is a hash table from minimizer value to reference positions. Each entry usually records the strand, coordinate, and enough metadata to recover the candidate location.',
-        'The read is sketched the same way as the reference. The mapper computes read minimizers, fetches reference buckets, drops buckets that are too repetitive, and turns the remaining matches into seed hits.',
-        'A seed hit has two coordinates: position on the read and position on the reference. Good hits from one alignment form a near-diagonal chain because both coordinates increase together.',
+        'During reference indexing, the builder slides a window across the reference, chooses the minimizer for each window, and stores the minimizer value with its reference coordinate and strand. Repeated adjacent selections can be compressed because they point to nearly the same region.',
+        'During query, the read is sketched with the same k, window size, and ordering rule. Each read minimizer looks up a bucket of reference positions, and high-frequency buckets can be capped or downweighted.',
+        'The aligner then chains hits by coordinate order. True anchors from one alignment form a near-diagonal pattern because read position and reference position increase together.',
       ],
     },
     {
-      heading: 'Mechanics',
+      heading: 'Why it works',
       paragraphs: [
-        'Pick k and a window size. Generate consecutive k-mers from the reference, slide the window, select the minimum in each window, and insert that minimizer into the position bucket. Repeated selections of the same minimizer in neighboring windows can be compressed.',
-        'For a read, repeat the sketching process. Each shared minimizer creates one or more candidate anchors. Buckets with too many positions are capped or downweighted because they usually come from repeats.',
-        'Chaining scores anchors by collinearity. A later anchor should appear later on the read and later on the reference, and the gap between anchors should be plausible. The best chain defines a band for base-level alignment.',
+        'The deterministic guarantee is local. The same sequence window produces the same minimizer under the same parameters, so an error-free shared window creates a shared seed.',
+        'The reliability argument is statistical. Long reads contain many windows, so losing some seeds to errors can still leave enough anchors for chaining. Random or repetitive hits tend to scatter and fail the ordered-chain test.',
       ],
     },
     {
-      heading: 'Worked intuition',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Take the k-mers ACG, CGA, GAT, ATT, TTA, and TAC with a window of three k-mers. The first window ACG/CGA/GAT chooses ACG. The next three windows all contain ATT, and ATT is the minimum under the chosen ordering.',
-        'Six overlapping k-mers collapse to two selected minimizer values in this small example: ACG and ATT. The sketch is smaller, but it still places anchors across the sequence.',
-        'If a sequencing error destroys one k-mer, the read can still share other minimizers nearby. If the window is too large, though, too many anchors disappear and sensitivity drops.',
+        'Index construction is linear in reference length plus storage for selected minimizers. With a random ordering, expected minimizer density is roughly 2 divided by w plus 1, where w is the window length in k-mers.',
+        'If w = 9, density is about 2/10, so a 3 billion base reference stores on the order of 600 million minimizer positions before compression and filtering. Doubling w roughly lowers lookup work but also increases the chance that true regions have too few anchors.',
       ],
     },
     {
-      heading: 'How the visual model teaches it',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The minimizer-sketch view shows the pipeline as a narrowing funnel. A long read becomes all k-mers, all k-mers become selected minimizers, minimizers become hash-table lookups, and the resulting hits become anchors. Each arrow removes work before the expensive alignment step.',
-        'The window table makes the compression concrete. Several neighboring windows can choose the same minimizer, so the index does not pay once per k-mer. That repeated choice is not a bug; it is the source of the density reduction.',
-        'The seed-chaining plot moves from one-dimensional strings to two-dimensional evidence. A true alignment produces anchors that rise together in read and reference coordinates. Off-diagonal hits are not merely low-quality; they tell the chaining layer that the seed was probably repetitive, noisy, or from the wrong locus.',
-      ],
-    },
-    {
-      heading: 'Correctness and reliability',
-      paragraphs: [
-        'The deterministic part is simple: the same sequence window produces the same minimizer under the same ordering. If a read and reference region share an error-free window, they share that minimizer.',
-        'The reliability argument is probabilistic. True homologous regions usually preserve many local seeds across a long read, while random noise produces scattered hits that fail the chaining test.',
-        'Chaining is the guardrail. It rejects isolated seed matches that don\'t preserve order and spacing. The final alignment is still approximate because repeats, large variants, and sequencing errors can remove or duplicate the seed evidence.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Building the index is linear in the reference length plus the cost of storing selected minimizers. Larger windows reduce memory and lookup work. Smaller windows increase sensitivity and produce more anchors.',
-        'Query cost is driven by read length, minimizer density, bucket size, and chaining. High-frequency buckets dominate runtime because one read minimizer can expand into thousands of reference hits.',
-        'k controls specificity. Small k creates large buckets and many false anchors. Large k makes seeds more unique but easier to lose to errors. The best parameters depend on read length, error rate, and reference repetitiveness.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Minimizer indexes fit long-read mapping because long reads can tolerate sparse seeding. The read is long enough that many windows survive even when some k-mers are corrupted.',
-        'They also work for fast approximate genomic search, overlap detection, and prefiltering before expensive alignment. The access pattern is exactly what a hash sketch is good at: cheap candidate generation followed by stricter validation.',
-        'They are also practical engineering structures. The index is compact enough to keep hot buckets in memory, the lookup path is easy to parallelize across reads, and the sketch gives the mapper a simple way to tune throughput by changing k, window size, and frequency caps.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Choose k from the error profile and reference size. Larger k makes random matches rarer, which is good for specificity, but it also makes a seed easier to destroy with one sequencing error. High-error reads usually need shorter k or denser seeding than polished reads.',
-        'Choose the window size from the speed and sensitivity budget. A larger window creates fewer minimizers and fewer lookups, but it also increases the chance that a true region has too few anchors. The right setting is not universal; it depends on read length, expected divergence, and how much downstream alignment cost the system can afford.',
-        'Measure bucket frequency, not just total index size. A small number of extremely common minimizers can dominate runtime. Production mappers usually cap, mask, or downweight high-frequency seeds and then verify that the cap does not erase important repetitive biology for the workload.',
-        'Keep the reference build reproducible. The same k, window size, ordering function, masking rules, strand handling, and versioned reference sequence must be used when indexing and querying. A silent parameter mismatch can look like poor biological sensitivity when it is really an index-contract bug.',
+        'Minimizer indexes are central in long-read mappers such as minimap2. They fit long noisy reads because the read is long enough to preserve many anchors even when individual bases are wrong.',
+        'The same sketching idea appears in overlap detection, approximate genomic search, metagenomic prefilters, and other systems that need candidates before expensive edit-distance or alignment computation.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'The structure struggles in low-complexity and highly repetitive sequence because the same minimizer appears in too many places. Filtering those seeds speeds the mapper but can hide real alignments in repeats.',
-        'It also fails when parameters don\'t match the data. Large k is brittle on high-error reads. Large windows miss short or weak homology. Small windows can make chaining the bottleneck.',
-        'A minimizer index is only a seeding layer. It doesn\'t call variants, assemble genomes, or prove the final alignment by itself.',
+        'The structure struggles in low-complexity and repetitive DNA because selected minimizers may occur too often. Filtering common seeds speeds the mapper but can hide real alignments inside biologically important repeats.',
+        'It also fails when parameters do not match data. Large k is brittle under high error rates, large windows can miss short homology, and small windows can make chaining the bottleneck.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Take sequence ACGATTAC with k = 3, giving k-mers ACG, CGA, GAT, ATT, TTA, and TAC. With window size w = 3 and lexical ordering, the first window ACG/CGA/GAT chooses ACG.',
+        'The second window CGA/GAT/ATT chooses ATT, the third GAT/ATT/TTA also chooses ATT, and the fourth ATT/TTA/TAC chooses ATT. Six k-mers produce two minimizer values, ACG and ATT, so the read keeps location evidence while skipping redundant lookups.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: minimap2 paper at https://academic.oup.com/bioinformatics/article/34/18/3094/4994778, minimap2 docs at https://lh3.github.io/minimap2/minimap2.html, and minimap2 source at https://github.com/lh3/minimap2.',
-        'Study Rolling Hash for deterministic sketches, Hash Table for buckets, Edit Distance for base-level alignment, BWA FM-index Read Alignment for short-read seeding, De Bruijn Graph Genome Assembly for k-mer graph use, and Pangenome Variation Graph for references that aren\'t single strings.',
+        'Read the minimap2 paper, minimap2 manual, and minimap2 source code for the practical implementation of minimizer seeding and chaining. Study hash tables, rolling hashes, edit distance, dynamic programming alignment, and compressed suffix or FM indexes next.',
+        'Then compare minimizers with syncmers and other sketching schemes. The useful question is always the same: how many candidate anchors are enough before exact alignment becomes cheaper than more indexing.',
       ],
     },
   ],

@@ -174,102 +174,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the stapled-status view as a cache freshness trace. The certificate authority signs a status response, the server stores it, and the server sends it with the TLS handshake. Active marks the proof currently being checked. Visited marks a proof that has already passed signature and time-window checks.',
+        {type:'callout', text:'OCSP stapling moves revocation from live client lookup to a server-cached signed proof with a strict freshness window.'},
+        'OCSP means Online Certificate Status Protocol. It lets a client learn whether a certificate is good, revoked, or unknown. A safe inference rule is this: a server may carry the proof, but only the certificate authority signature and freshness interval make it trustworthy.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A TLS certificate can become unsafe before its expiration date. The private key may leak, the certificate may be misissued, or the domain owner may need the CA to stop trusting a still-valid credential.',
-        'Expiration alone cannot solve that problem. A browser needs a revocation answer during connection setup, but a live revocation lookup on every connection adds latency, leaks which certificate the user is checking, and makes the CA responder part of page-load availability.',
-        'OCSP stapling is the compromise: the server fetches a responder-signed certificate-status object ahead of time, caches it, and sends it inside the TLS handshake. The client still verifies the responder signature and freshness window.',
-        {type:'callout', text:'OCSP stapling moves revocation from live client lookup to a server-cached signed proof with a strict freshness window.'},
+        'A TLS certificate proves that a public key belongs to a name, but certificates can be revoked before their normal expiration. The private key may be stolen, the certificate may have been issued incorrectly, or the owner may no longer control the domain. Clients therefore need revocation status, not just a valid certificate chain.',
+        'Live OCSP lookup asks the client to contact the certificate authority responder during connection setup. That adds latency, leaks browsing behavior to the responder, and creates a reliability problem when the responder is slow or unreachable. OCSP stapling moves the lookup to the server ahead of time.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The direct design is client-side OCSP. When a site presents a certificate, each client asks the OCSP responder whether that certificate is good, revoked, or unknown.',
-        'That design is attractive because the answer comes from the CA ecosystem, not from the web server being checked. It also keeps the server simple: no revocation cache, no refresh scheduler, and no staple to attach to the handshake.',
+        'The obvious approach is for every client to ask the OCSP responder whether the certificate is still good. That is direct and easy to reason about. The responder is the authority, so the client gets a signed answer from the party that can know revocation state.',
+        'A second simple approach is to ignore revocation unless the certificate has expired. That keeps handshakes fast. It also leaves stolen certificates usable until expiration, which can be months away.',
       ],
     },
     {
-      heading: 'Why the obvious approach breaks',
+      heading: 'The wall',
       paragraphs: [
-        'Live client checks make revocation compete with privacy and reliability. The responder can observe certificate checks, the handshake waits on another network path, and responder outages force clients into a bad choice: fail closed and break sites, or fail open and lose the revocation signal.',
-        'Caching a status answer is not enough by itself. A cached "good" response is evidence only for the exact certificate identity it names and only inside its validity interval. RFC 6960 says responses outside the thisUpdate and nextUpdate window should be treated as unreliable.',
+        'The wall is latency and availability. If every visitor to a large site performs a separate OCSP fetch, the responder becomes part of page load. If the responder fails, browsers must choose between blocking users and accepting a certificate whose status they could not check.',
+        'Privacy is another wall. A direct OCSP request can reveal that a client is visiting a site using a particular certificate. Even when transport is protected, the architecture adds a third-party lookup to a connection that otherwise could have stayed between client and server.',
       ],
     },
     {
-      heading: 'The core idea',
+      heading: 'The core insight',
       paragraphs: [
-        'OCSP stapling turns revocation into a signed, expiring metadata cache. The server does the fetching, but the responder does the signing and the client does the verification.',
-        'The cache key is certificate identity, not hostname text. The useful mental model is: CertID points to a signed status object; the status object points to a freshness interval; the TLS handshake carries that object to the client.',
-        'Stapling changes the data path, not the trust model. A malicious server can withhold a staple or serve an old one, but it cannot forge a fresh responder-signed "good" response for a revoked certificate.',
+        'The core insight is to cache a signed revocation proof at the server and staple it to the TLS handshake. The server cannot forge a good status because the response is signed by the certificate authority or delegated responder. The client can verify the signature without calling the responder live.',
+        'Freshness is the controlling invariant. The proof is useful only between its thisUpdate and nextUpdate times, and only for the certificate it names. Stapling trades live lookup for a bounded cache window.',
       ],
     },
     {
-      heading: 'How the mechanism works',
+      heading: 'How it works',
       paragraphs: [
-        'The server derives a CertID from the certificate and issuer, asks the OCSP responder for status, and receives a signed response containing status, producedAt, thisUpdate, nextUpdate, responder identity, and signature data.',
-        'The server stores that response beside the certificate deployment. During TLS negotiation, the client asks for status support with the status_request extension. In TLS 1.2, the response is delivered through the certificate-status path; in TLS 1.3, OCSP status can be carried as a CertificateEntry extension when requested.',
-        'The client verifies four things: the response is signed by an authorized responder, the response names this certificate, the response time window is acceptable, and the status is usable under local policy.',
+        'Before clients connect, the server asks the OCSP responder for certificate status. It receives a signed response that says good, revoked, or unknown and includes a validity interval. The server stores that response in a cache with a refresh schedule before nextUpdate.',
+        'During the TLS handshake, the client advertises support for certificate status in an extension. The server sends its certificate chain and includes the cached OCSP response. The client verifies the certificate chain, verifies the OCSP response signature, checks that the response names the certificate, and checks the time window.',
+        'If the response is valid and says good, the client can continue without a live responder fetch. If the response says revoked or fails validation, a strict client should reject the connection. If no staple appears, behavior depends on client policy and certificate features such as Must-Staple.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is a chain of guards. The CertID guard prevents reusing a response for the wrong certificate. The signature guard prevents the server from inventing status. The freshness guard prevents a once-valid answer from being treated as current forever.',
-        'The invariant is simple: every stapled response accepted by the client must match this certificate, come from an authorized responder, and be fresh at the time of validation. If any guard fails, the staple is not usable evidence.',
-        'The server cache can be untrusted because the cached object is self-authenticating. The server is responsible for availability and freshness, not for deciding revocation status.',
+        'The correctness argument is delegated proof with a time bound. The server is only a courier for a signed status object. Since the signature covers the certificate identity, status, and validity interval, the server cannot convert revoked into good without breaking the signature check.',
+        'The cache is safe only while fresh. A cached good response can hide a new revocation until the response expires, so the mechanism is not instant revocation. Its guarantee is that the client sees a recent authority-signed status without doing its own network lookup.',
       ],
     },
     {
-      heading: 'How to read the visualization',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'In the stapled-status view, follow the evidence as it moves from certificate identity to responder signature to server cache to TLS handshake to client verdict. The important transition is not the edge movement; it is the change from live per-client query to reusable signed proof.',
-        'In the freshness-risk view, read each matrix row as a guard on reuse. "good" and "revoked" are status values; thisUpdate and nextUpdate are time bounds; source and signature tell the client whether the response was authorized.',
-        'The stale-cache frames are the operational lesson. Once nextUpdate passes, the cache entry stops being proof. The server must refresh, fail policy, or alert before users discover the stale staple during handshakes.',
+        'Stapling changes per-client OCSP lookup into per-server refresh. If a site handles 1,000,000 TLS handshakes per hour and refreshes one response every 4 hours, the responder load drops from 1,000,000 client lookups per hour to a tiny number of server lookups. The handshake still carries extra bytes for the stapled response.',
+        'The operational cost is cache management. The server must refresh early enough, survive responder outages, monitor expiration, and serve the right proof for the right certificate. Shorter validity windows reduce stale-good risk but raise refresh pressure and failure sensitivity.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'OCSP stapling fits HTTPS sites, load balancers, CDNs, reverse proxies, and enterprise TLS gateways. It is most useful when many clients connect to the same certificate and direct client revocation checks would add latency or responder load.',
+        'It also supports privacy goals. The client receives status through the existing TLS connection instead of separately contacting a responder that can observe browsing patterns. For high-volume sites, the server is the better place to amortize revocation lookup.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Stapling fails when the server cache is stale, missing, or attached to the wrong certificate. Some clients soft-fail when no proof is present, so absence of a staple may not stop a connection. Must-Staple can make absence fatal, but then refresh outages become user-visible failures.',
+        'It also does not remove the stale-good window. If a certificate is revoked just after a good response is issued, clients may accept that proof until nextUpdate. The mechanism improves live lookup cost and privacy, but it cannot make revocation instantaneous.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'A CDN edge boots with a certificate for example.com. It computes the CertID, fetches an OCSP response, receives "good" with thisUpdate at 10:00 and nextUpdate at 22:00, and stores the signed bytes with the certificate version.',
-        'At 13:00, a browser connects and requests status. The edge staples the cached response. The browser checks the chain, checks the OCSP signature, checks the CertID, sees the time is inside the validity interval, and avoids a separate CA responder request.',
-        'At 20:00, the refresh job fetches the next response. If certificate automation rotates the leaf certificate at 21:00, the old staple is discarded because the CertID changed. A response for the previous certificate is not a valid cache hit.',
+        'Suppose a server receives an OCSP response at 10:00 with thisUpdate = 10:00 and nextUpdate = 22:00. It refreshes at 18:00 to leave a 4 hour safety margin. A client connects at 14:30 and receives the stapled response.',
+        'The client checks the responder signature, confirms the response is for the site certificate, sees status good, and verifies that 14:30 is between 10:00 and 22:00. No live OCSP request is needed. The client saved one network lookup while still relying on the authority signature.',
+        'If the certificate is revoked at 15:00, that 10:00 good response may still validate until 22:00 unless policy says otherwise. If the server fails to refresh and sends the same proof at 22:30, the client should reject it as expired. Freshness is the line between cache and stale evidence.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Stapling reduces client latency and improves privacy, but it moves work to the server fleet. Servers need cache storage, boot-time warmup, retry logic, time-skew tolerance, certificate-rotation hooks, responder outage handling, and alerting before nextUpdate.',
-        'Short response windows make revocation fresher but increase responder load and operational pressure. Long windows reduce load but slow the moment when clients stop accepting a certificate after revocation.',
-        'Client policy still matters. Some failures are treated as soft failures unless the certificate or local policy requires a staple. RFC 7633 describes the TLS Feature extension that can advertise status_request support, which is the basis for the "must-staple" idea.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Stapling fits public HTTPS services, CDNs, API gateways, and load-balanced fleets that can centralize certificate operations. One responder fetch can serve many handshakes without exposing each client visit to the responder.',
-        'It also fits systems that already treat certificate deployment as a versioned artifact. The staple becomes another expiring piece of signed metadata attached to the certificate version.',
-      ],
-    },
-    {
-      heading: 'Where it is the wrong tool',
-      paragraphs: [
-        'Stapling is less useful when certificates are extremely short-lived and clients rely on expiration instead of revocation freshness. It is also weak in environments where clients do not request or enforce stapled status.',
-        'It is not a general-purpose authorization mechanism. It answers a narrow question: what did an authorized responder say about this certificate status inside this time window?',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'The common failures are stale staples, wrong-certificate staples after rotation, missing staples on some load-balanced nodes, clocks outside the response window, responder certificates that are not authorized, and outage policies that nobody tested.',
-        'A subtler failure is treating "good" as stronger than it is. A "good" OCSP response means the responder did not report that CertID as revoked for the response interval. It does not prove the certificate will remain safe after the interval.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study TLS 1.3 Handshake for where certificate extensions live, ACME Order Challenge Certificate Issuance for how certificates are obtained, Transparency Log Witnessing Case Study for public certificate visibility, Cache Invalidation & Versioning for freshness mechanics, and TUF Update Metadata Case Study for another system built around signed expiring metadata.',
-        'Primary sources: RFC 6960 OCSP at https://www.rfc-editor.org/rfc/rfc6960, RFC 6066 TLS extensions at https://www.rfc-editor.org/rfc/rfc6066, RFC 8446 TLS 1.3 at https://www.rfc-editor.org/rfc/rfc8446, and RFC 7633 TLS Feature Extension at https://www.rfc-editor.org/rfc/rfc7633.',
+        'Primary sources are RFC 6960 for OCSP at https://www.rfc-editor.org/rfc/rfc6960, RFC 6066 for the TLS certificate status request extension at https://www.rfc-editor.org/rfc/rfc6066, and RFC 8446 for TLS 1.3 at https://www.rfc-editor.org/rfc/rfc8446.',
+        'Next, study certificate chains, CRLs, OCSP Must-Staple, TLS extensions, cache freshness, signed timestamps, CDN certificate management, and browser revocation policy. The reusable lesson is that a cache can carry authority only when signature scope and freshness are checked together.',
       ],
     },
   ],

@@ -188,86 +188,97 @@ export function* run(input) {
   else throw new InputError('Pick a Redis Streams view.');
 }
 
+
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        "Redis Streams exist because many applications need more than a simple queue but less than a full distributed log platform. A web service may need to append jobs, let several workers share the work, retry entries abandoned by crashed workers, inspect recent history, and cap memory growth. Redis Lists can push and pop, but they do not provide a rich replay and consumer-group model.",
-        "A stream is a named, append-oriented sequence of entries. Each entry has an ordered ID and field-value pairs. Producers append. Consumers read by ID, block waiting for new entries, or participate in a consumer group. Redis tracks group progress and pending deliveries on the server side.",
-        "The topic matters because Redis Streams sit in a useful middle zone. They are not Kafka. They are not a relational table. They are not a durable workflow engine. They are a compact operational log inside Redis, with enough delivery bookkeeping to build lightweight pipelines when Redis is already part of the architecture.",
+        'The stream view shows one Redis key acting as an append log. Active means a producer, consumer, or server command is touching an entry; visited means an entry already has an ID and position; found means Redis can prove the entry is available, pending, acknowledged, or trimmed.',
+        'The consumer-group view shows delivery state beside the log. The safe inference is that an acknowledged entry left the pending-entry list, while an unacknowledged entry can later be inspected or claimed by another consumer.',
         {type:"callout", text:"Redis Streams turn a Redis key into a compact append log plus server-side delivery state, so retry and replay live beside the data instead of inside each worker."},
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        "The naive approach is a Redis List. Producers LPUSH or RPUSH work, and workers pop items. This is simple and fast, but a popped item is no longer in the list. If the worker crashes after popping and before finishing the side effect, the work can disappear unless the application builds its own processing list and recovery protocol.",
-        "Another naive approach is Pub/Sub. Producers publish events, and subscribers receive them while connected. That is useful for live fanout, but it is not a replayable log. A disconnected consumer does not later ask for the messages it missed. There is no stream ID to resume from and no pending-entry list to inspect.",
-        "A third approach is to install a heavier log system. That may be the right decision for high-throughput, partitioned, long-retention event streams. But many teams only need a small in-memory pipeline, background job stream, or service-local event buffer. Redis Streams are for that space."
+        'Many applications need more than a queue and less than a full streaming platform. They need to append jobs, let workers share them, retry abandoned entries, inspect recent history, and cap memory growth.',
+        'Redis Streams exist for that middle ground. A stream stores ordered entries under one Redis key, and consumer groups add server-side progress and pending-delivery state.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious Redis queue is a List. Producers push items, workers pop items, and the structure is simple enough to understand in one minute.',
+        'A List becomes fragile when a worker crashes after popping but before finishing the side effect. Pub/Sub has the opposite problem: live subscribers see messages, but disconnected consumers cannot replay what they missed.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is ownership of delivery state. If the worker owns all progress state, a crash can hide whether work was never received, received but unfinished, or completed but not recorded.',
+        'A heavier log system can solve this, but it may be too much for a small Redis-backed job pipeline. The application wants replay and retry without operating a separate broker cluster.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        "The core insight is to separate the append log from the delivery bookkeeping. The stream stores entries in order. Consumer groups store progress over that stream. A group can deliver each entry to one consumer, remember that it was delivered, and later remove it from pending state when the consumer acknowledges completion.",
-        "This is not exactly-once execution. It is a practical at-least-once contract. If a worker receives an entry and dies before XACK, the entry remains pending. Another worker can inspect or claim it after it becomes stale. If the first worker performed the side effect before dying, the retry may perform it again unless the side effect is idempotent.",
-        "That distinction is the main lesson. Redis can remember delivery state, but the application must make business effects safe under retry."
+        'Separate the append log from delivery bookkeeping. The stream stores entries in ID order, while a consumer group stores last delivery and the pending-entry list for work handed to consumers.',
+        'That gives an at-least-once contract, not exactly-once effects. Redis can remember that an entry was delivered and not acknowledged, but the application must make side effects safe if that entry is retried.',
       ],
     },
     {
-      heading: 'The mechanism',
+      heading: 'How it works',
       paragraphs: [
-        "A producer appends with XADD. Redis assigns an ID, commonly based on milliseconds plus a sequence number, or accepts a valid caller-supplied ID. The ID is the ordering and resume handle. The payload is a list of field-value pairs, not a fixed relational schema. Consumers decide what fields mean.",
-        "A plain reader can use XRANGE to inspect a range or XREAD to block for new entries after an ID. A consumer group adds shared progress. XGROUP creates the group. XREADGROUP reads as a named consumer inside the group. Redis records delivered-but-unacknowledged entries in the pending-entry list. XACK removes completed entries from that pending state.",
-        "Recovery uses the same bookkeeping. XPENDING shows stuck work. XCLAIM or XAUTOCLAIM can transfer ownership of old pending entries to another consumer. Trimming uses MAXLEN or MINID to remove old history, either exactly or approximately. Internally, Redis stores stream entries compactly with radix-tree and listpack-style machinery so the structure does not behave like one large object per message."
+        'A producer appends with XADD. Redis assigns or validates an ID, stores field-value pairs, and keeps the entry in a compact radix-tree and listpack representation.',
+        'A consumer can read ranges with XRANGE or block for new entries with XREAD. A consumer group uses XREADGROUP, records delivered entries as pending, and removes them from pending state when XACK arrives.',
+        'Recovery uses the same state. XPENDING shows old unacknowledged entries, while XCLAIM or XAUTOCLAIM transfers stale work to another consumer that can retry it.',
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why it works',
       paragraphs: [
-        "The first visual proves the shape of the data structure. A producer appends to one stream key. Redis stores ordered entries compactly. A trim policy may delete old history. Consumer groups sit beside the stream rather than replacing it. That separation is why the same stream can be read by ranges, direct consumers, or groups.",
-        "The entry anatomy view proves the role of the ID. The ID is not just a timestamp decoration. It is how range scans, blocking reads, and resume points work. The payload fields carry application data, but the stream contract is organized around ordered IDs.",
-        "The consumer-group visual proves the reliability hook. The group has a last-delivered ID and a pending-entry list. Delivery moves an entry into pending state. Acknowledgment removes it. Claiming moves stale pending work to a new consumer. The pending list is the place to look when workers crash or stop acknowledging."
+        'The stream ID is the ordering and resume handle. Because every entry has a monotonic position, consumers can ask for entries after a known ID or inspect a bounded range.',
+        'The pending-entry list is the correctness hook for worker failure. If a consumer dies before XACK, Redis still has evidence that the entry was delivered but unfinished.',
+        'Correct business behavior still depends on idempotency. If a worker charged a card and died before XACK, the retry must detect the earlier charge or use an idempotency key.',
       ],
     },
     {
-      heading: 'Why the method works',
+      heading: 'Cost and complexity',
       paragraphs: [
-        "Redis Streams work because the server owns the small amount of coordination state that a plain queue leaves to the application. The stream keeps ordered history. The group keeps shared delivery progress. The pending-entry list keeps evidence that a message was handed to a worker but not finished.",
-        "This gives the application enough structure to recover common failures. If a consumer disconnects before reading, it can resume from an ID. If it receives work and dies before acknowledgment, another consumer can reclaim the pending entry. If old entries are no longer useful, trimming bounds the log.",
-        "The method is also fast because the structure is still Redis-shaped. It is in memory, command-driven, and compact. It does not try to provide every feature of a large broker. The limited contract is part of the appeal."
+        'The main cost is memory. A stream that is never trimmed keeps entries, IDs, fields, and group bookkeeping, so MAXLEN or MINID must match the replay window the product needs.',
+        'The second cost is retry semantics. A system processing 1,000 jobs per second with a 0.1 percent crash-after-side-effect rate can create one duplicate-risk job per second unless effects are deduplicated.',
+        'Range and pending scans also have behavior costs. Reading 100,000 entries is expensive even if the lookup is efficient, because Redis must walk, allocate replies, serialize data, and send it over the network.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Real-world uses',
       paragraphs: [
-        "The first cost is memory. A stream can grow forever if nobody trims it. MAXLEN gives a count-like cap. MINID gives an ID-based retention boundary. Approximate trimming is faster but less exact. Exact trimming gives tighter control but can do more work. The right policy depends on how far consumers may need to replay.",
-        "The second cost is semantic responsibility. Redis can redeliver pending work, but it cannot know whether sending an email, charging a card, writing a file, or calling another API already happened. Consumers should usually do the side effect first and XACK after success. That creates retry safety only if the side effect itself is idempotent or deduplicated.",
-        "The third cost is observability. A stream may receive new entries normally while one consumer quietly builds a huge pending list. Operators need lag, pending count, pending age, claim rate, acknowledgment rate, memory use, trim behavior, persistence settings, and replication health."
+        'Redis Streams fit background jobs, small event pipelines, telemetry buffers, cache invalidation, notification fanout with replay, and service-local audit trails. They are especially useful when Redis is already deployed and the stream is bounded.',
+        'Image processing is a clean case. A web server appends a job, workers read through a group, write the output path, and acknowledge only after storage succeeds.',
       ],
     },
     {
-      heading: 'Real use cases',
+      heading: 'Where it fails',
       paragraphs: [
-        "Redis Streams fit background jobs, lightweight event ingestion, activity feeds, telemetry buffers, cache invalidation, notification pipelines, and service-local workflows. They are especially attractive when Redis is already deployed and the workload needs replay and consumer groups without a separate broker cluster.",
-        "Image processing is a clean example. The web tier appends a job with XADD. Workers read through a consumer group. A worker downloads the image, writes the processed result, records an idempotency key or output path, and XACKs only after storage succeeds. If it dies before the acknowledgment, another worker claims the pending entry and checks whether the output already exists before retrying.",
-        "Streams are also useful for small audit trails or recent event history. XRANGE can inspect what happened. XREAD can tail new entries. Trimming keeps the history bounded once old entries are no longer needed."
+        'Streams fail when teams treat consumer groups as exactly-once execution. Duplicate effects are possible whenever a worker completes external work and fails before XACK.',
+        'They also fail under unsafe trimming. If old entries disappear before a slow consumer reads or claims them, Redis cannot reconstruct the missing history from the group metadata.',
+        'A stream is not Kafka. Long retention, partitioned replay, large fanout ecosystems, and cross-region log durability usually belong in a dedicated log platform.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        "The biggest misconception is that consumer groups create exactly-once effects. They do not. They create tracked delivery and acknowledgment. Duplicate processing is still possible whenever a consumer completes the business action but fails before XACK.",
-        "The second failure mode is unsafe trimming. If old entries are trimmed before a slow consumer reads or claims them, recovery may lose the history it needed. Retention must be set with consumer lag and failure recovery in mind.",
-        "The third failure mode is using Streams where a different Redis structure is clearer. Sorted sets are better for score order, due times, leaderboards, and sliding windows. Lists are better for very simple queues. Pub/Sub is better for ephemeral live broadcast. Kafka-style logs are better for long retention, partitioned replay, and a broader streaming ecosystem."
+        'A thumbnail service receives 10,000 image jobs per hour. XADD appends each job with an ID such as 1719000000000-42, and eight workers read from one consumer group.',
+        'Worker A reads job 500 and writes thumbnail thumb/500.jpg in 80 ms, but crashes before XACK. After a 60 second idle threshold, Worker B runs XAUTOCLAIM, sees job 500 pending, checks that thumb/500.jpg already exists, records success, and sends XACK.',
+        'If the stream keeps a MAXLEN near 200,000 entries, it retains about 20 hours at 10,000 jobs per hour. A consumer down for longer than that may lose replay history, so the trim cap must be tied to recovery time.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        "Study XADD, XRANGE, XREAD, XGROUP, XREADGROUP, XPENDING, XACK, XCLAIM, XAUTOCLAIM, MAXLEN, MINID, Redis persistence, and Redis replication next. Nearby curriculum topics include Message Queues, Kafka Log Case Study, Redis Sorted Set Dict and Skiplist, Idempotency and Exactly-Once Delivery, Transactional Outbox, Backpressure, and Write-Ahead Log.",
-        "The transferable lesson is to ask where the ownership state lives. A plain queue hides it in the worker. A stream with consumer groups stores it beside the log. That one design choice determines what happens when workers crash."
+        'Primary sources: Redis Streams documentation at https://redis.io/docs/latest/develop/data-types/streams/, XADD at https://redis.io/docs/latest/commands/xadd/, XREADGROUP at https://redis.io/docs/latest/commands/xreadgroup/, XPENDING at https://redis.io/docs/latest/commands/xpending/, XACK at https://redis.io/docs/latest/commands/xack/, and Redis stream source code in t_stream.c. These define the commands, IDs, consumer groups, and storage representation.',
+        'Study Message Queues, Kafka Log Case Study, Redis Sorted Set Dict and Skiplist, Idempotency and Exactly-Once Delivery, Transactional Outbox, Backpressure, and Write-Ahead Log. The key transfer is knowing where progress state lives.',
       ],
     },
   ],

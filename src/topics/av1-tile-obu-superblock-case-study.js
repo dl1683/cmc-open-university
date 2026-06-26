@@ -215,87 +215,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation from the outside inward. An OBU, or Open Bitstream Unit, is a packet-like container in the AV1 bitstream. A tile is a rectangular region of a video frame that can be decoded mostly independently, and a superblock is the large pixel block that AV1 recursively partitions into smaller prediction and transform units.',
+        'The safe inference rule is local independence with boundaries. If the visual puts work into separate tiles, those tile jobs can run on separate workers because each tile carries enough coded data for that region. If the visual descends into a superblock, the decoder is choosing how much spatial detail that part of the image needs.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        `A video codec is not just a way to store pictures smaller. It is a contract between an encoder, a decoder, a network, hardware blocks, browser pipelines, and conformance tests. The bitstream must say which state applies, which references are available, which regions can be decoded, and how local prediction decisions reconstruct pixels. AV1 uses OBUs, tiles, and superblocks to make that contract explicit.`,
-        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/09/YouTube_full-color_icon_%282017%29.svg', alt: 'YouTube logo', caption: 'YouTube adopted AV1 for bandwidth savings — AV1 achieves 30-50%% bitrate reduction over H.264 at equivalent quality. Source: Wikimedia Commons, Google, Public domain' },
-        `The design has competing goals. Compression improves when nearby pixels and nearby syntax can share prediction, entropy context, and reference information. Playback improves when the decoder can split work across cores, recover from localized damage, and know exactly which syntax object failed. AV1's nested structure is the compromise: global containers establish state, tiles make spatial work schedulable, and superblocks carry the local coding choices.`,
-        { type: 'callout', text: 'AV1 is royalty-free by design. The Alliance for Open Media created it specifically to break the patent licensing barriers that made H.265/HEVC adoption slow and expensive.' },
+        'AV1 exists because internet video is a bandwidth problem wearing a quality mask. A 4K stream at 60 frames per second contains about 497 million pixels per second before compression. No consumer network or storage system wants to move that raw signal.',
+                { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/0/09/YouTube_full-color_icon_%282017%29.svg', alt: 'YouTube logo', caption: 'YouTube adopted AV1 for bandwidth savings — AV1 achieves 30-50%% bitrate reduction over H.264 at equivalent quality. Source: Wikimedia Commons, Google, Public domain' },,
+                { type: 'callout', text: 'AV1 is royalty-free by design. The Alliance for Open Media created it specifically to break the patent licensing barriers that made H.265/HEVC adoption slow and expensive.' },,
+        'The format has to serve phones, browsers, TVs, encoders in data centers, and hardware decoders in chips. That means compression ratio is not enough. The bitstream also needs restart points, parallel work units, and block choices that let devices trade compute for bandwidth.',
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'The obvious approach',
       paragraphs: [
-        `The naive model is a folder of compressed images. Decode frame 1, then frame 2, then frame 3. If that were true, the bitstream could be a simple list of image blobs. But inter-frame video depends on reference frames, loop filters, probability contexts, prediction modes, motion vectors, temporal layers, and display timing. The decoder is not reading pictures. It is walking a state machine.`,
-        `A second naive answer is to divide every frame into many independent rectangles. That sounds perfect for parallelism: one tile per worker, merge the results, and move on. The problem is that compression likes shared context. Every boundary can limit prediction or context adaptation. More tiles may reduce wall-clock decode time on one device while increasing bitrate, overhead, or artifacts on another.`,
+        'The obvious approach is to encode the frame as one long sequence of pixels or small fixed blocks. A decoder could read left to right and reconstruct the picture in order. This is easy to imagine because it matches how a raw bitmap is stored.',
+        'A better first attempt is motion compensation: describe a block by pointing to similar pixels in a previous or nearby frame, then store only the difference. That is the core idea behind most video codecs. It saves many bits, but by itself it creates dependency chains that are hard to parallelize.',
       ],
     },
     {
-      heading: 'Where the naive model breaks',
+      heading: 'The wall',
       paragraphs: [
-        `The image-list model breaks at the first reference. Many frames are predicted from earlier or later decoded frames. A frame header does not merely describe pixels; it also selects reference slots, update rules, order hints, segmentation state, loop filter parameters, quantization, and tile layout. If that state is wrong, the tile data cannot be interpreted correctly.`,
-        `The rectangle model breaks at context. A tile is a coded region with syntax consequences, not a crop tool. Inside the tile, superblocks choose partition trees, intra or inter prediction, motion vectors, transform sizes, coefficient syntax, and entropy-coded residuals. Those choices must be decoded in a legal order and then reconstructed into the final frame. The hierarchy exists because the decoder needs both state and boundaries.`,
+        'The wall is that compression creates dependencies, and dependencies serialize work. If every block can refer freely to every other nearby block, many CPU cores sit idle while one chain finishes. For high-resolution playback, waiting on one serial decode path is visible as stutter.',
+        'Fixed small blocks also waste bits. A blue sky can be described with one large smooth region, while grass or text needs smaller partitions. A codec that uses one block size everywhere pays too much overhead on smooth regions or loses detail on complex regions.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        `The core insight is that the bitstream is a nested state machine. Sequence OBUs set stream-level facts such as profile and operating points. Frame headers set per-frame state and connect the current frame to the reference-frame graph. Tile group syntax names a range of tiles. Superblock syntax inside a tile describes the local decisions needed to reconstruct pixels.`,
-        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Data packet structure', caption: 'OBU (Open Bitstream Unit) packets carry AV1 frame data, sequence headers, and metadata in a self-describing binary format. Source: Wikimedia Commons, Oddbodz, Public domain' },
-        `That nesting is a data structure. It tells a parser what vocabulary is legal at each point. It tells a scheduler which work units can be handed to workers. It tells a conformance test where a stream broke. It tells an engineer whether a failure is a missing sequence header, an invalid reference update, a bad tile range, an entropy desynchronization, or a local superblock decision.`,
+        'The core insight is to separate container boundaries, parallel regions, and adaptive block shape. OBUs package the bitstream so a decoder knows what kind of data it is reading. Tiles carve a frame into independent rectangular jobs, and superblocks give each tile a recursive unit for adapting to image detail.',
+                { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/2/21/Packet_Switching.gif', alt: 'Data packet structure', caption: 'OBU (Open Bitstream Unit) packets carry AV1 frame data, sequence headers, and metadata in a self-describing binary format. Source: Wikimedia Commons, Oddbodz, Public domain' },,
+                { type: 'callout', text: 'Tiles enable parallel encoding and decoding. Each tile is independently decodable, so a 4K frame split into 4 tiles can use 4 CPU cores simultaneously.' },,
+        'This is a data-layout idea as much as a compression idea. The bitstream names coarse units that machines can schedule, then lets the codec spend more precision only where pixels need it. The format is not just asking what picture to draw; it is asking how work should be divided.',
       ],
     },
     {
-      heading: 'Mechanism and decode flow',
+      heading: 'How it works',
       paragraphs: [
-        `A decoder first establishes stream context from OBUs such as sequence headers and temporal delimiters. Then it parses frame-level syntax. Only after frame state is known can tile group data be interpreted. A tile group covers a range of tile indexes, and each tile contains coded superblocks. The superblock is where high-level bitstream structure meets the local image model.`,
-        { type: 'callout', text: 'Tiles enable parallel encoding and decoding. Each tile is independently decodable, so a 4K frame split into 4 tiles can use 4 CPU cores simultaneously.' },
-        `Inside a superblock, the decoder follows syntax for partitioning, prediction, transform, and residual coefficients. Some blocks are predicted from neighboring pixels. Some use motion vectors into reference frames. Some skip residuals; some carry transformed coefficient data. Entropy contexts and probability adaptation make the local syntax compact, but they also make state alignment critical. One wrong read can poison later symbols.`,
-        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'CPU die showing hardware complexity', caption: 'AV1 decode complexity is 3-4x higher than H.264 — hardware decode support is essential for mobile and embedded devices. Source: Wikimedia Commons, Intel/KL, Public domain' },
+        'A sequence header OBU gives global rules such as profile, dimensions, and coding features. A frame OBU carries frame-level information. Tile group data then contains encoded tile bytes, and inside each tile the decoder walks superblocks and their partitions.',
+                { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/4/4f/KL_Intel_i7_die.jpg', alt: 'CPU die showing hardware complexity', caption: 'AV1 decode complexity is 3-4x higher than H.264 — hardware decode support is essential for mobile and embedded devices. Source: Wikimedia Commons, Intel/KL, Public domain' },,
+        'Within a superblock, AV1 can split a large block into smaller rectangles when detail requires it. The encoder chooses prediction modes, transform sizes, quantization, and residual data. The decoder follows those choices exactly, reconstructs pixels, and writes them into the output frame.',
+                { type: 'callout', text: 'Superblocks in AV1 can be 128x128 pixels — four times the area of H.264\'s largest macroblock. Larger blocks capture smooth regions efficiently; recursive partitioning handles detail.' },,
       ],
     },
     {
-      heading: 'What the visual is proving',
+      heading: 'Why it works',
       paragraphs: [
-        `The bitstream-layout view proves the ordering constraint. Sequence state comes before frame state, frame state comes before tile groups, and tile groups lead into superblock reconstruction. The arrows are not decorative. They mean later syntax is only meaningful after earlier syntax has established the active state. A tile payload without the right frame context is not a self-contained image.`,
-        `The tile-decode view proves that tile count is an engineering knob. The grid shows spatial regions, the worker graph shows scheduling, and the plot shows the tradeoff: parallel value can rise with tile count while coding efficiency falls. The superblock table then zooms into what the tile contains. The tile boundary is the outer scheduling shape; the superblock decisions are the local compression substance.`,
-        { type: 'callout', text: 'Superblocks in AV1 can be 128x128 pixels — four times the area of H.264\'s largest macroblock. Larger blocks capture smooth regions efficiently; recursive partitioning handles detail.' },
+        'The correctness argument is contractual. The bitstream syntax tells the decoder how to parse each OBU, which frame state is available, where tile boundaries sit, and how each superblock is partitioned. If an encoder emits a conforming stream, a conforming decoder follows the same parse and reconstructs the same pixel values within the chosen precision.',
+        'Tiles work because the format restricts the dependencies that would cross the tile boundary. That restriction is a tax on compression, but it gives the scheduler a proof that tile workers do not need to wait on one another for ordinary reconstruction. Superblocks work because every recursive split covers the original region exactly once, so no pixels are lost or decoded twice.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'AV1 spends compute to save bandwidth. More prediction modes, larger superblocks, loop filters, and partition choices let the encoder find smaller descriptions, but search gets expensive. When input duration doubles, an exhaustive encoder has roughly twice as many frames to analyze, and each frame still carries a large decision tree.',
+                { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6d/Ssd-cache-benchmark.png', alt: 'Storage and bandwidth benchmarks', caption: 'AV1 encoding is 10-100x slower than H.264 but produces files 30-50%% smaller — a classic compute-vs-bandwidth tradeoff. Source: Wikimedia Commons' },,
+        'Tile count is also a cost knob. Four tiles can use four workers, but each boundary limits prediction across that boundary and can slightly increase bitrate. A streaming service may accept slower encoding once in a data center because every later viewer saves network bytes.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'AV1 fits large-scale video distribution, browser playback, conferencing, cloud gaming, screen sharing, and stored media where bandwidth or licensing cost matters. The access pattern is encode once or a few times, then decode many times. That favors a codec that spends extra compute during production to reduce repeated delivery cost.',
+        'Tiles matter in devices that have several CPU cores or hardware decode blocks. A phone does not only need the frame to be smaller; it needs the work to fit a power and latency budget. Parallel regions let the decoder finish a frame before the display deadline.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'AV1 is the wrong answer when encode latency is the main constraint and bandwidth savings are small. A live low-latency workflow may prefer a simpler codec or a faster preset because a late frame is a bad frame. Compression efficiency cannot pay back if the user waits for the encoder.',
+        'It also fails as a mental model if tiles are treated as free speed. Too many tiles can damage compression and create overhead. Hardware support, browser support, power use, and content type decide whether AV1 is an engineering win for a specific product.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Take a 3840 by 2160 frame and split it into a 2 by 2 tile grid. Each tile is 1920 by 1080 pixels, so four workers can decode four rectangular regions. If a frame budget is 16.7 ms for 60 fps, parallel tile work can be the difference between meeting the display deadline and missing it.',
+        'Inside one tile, use 128 by 128 superblocks. A 1920-wide tile has 15 superblocks across, and a 1080-high tile needs 9 rows rounded up to cover the edge, for about 135 superblock positions. Smooth sky regions may stay as large blocks, while text or tree edges split into smaller partitions.',
+        'Now compare payload behavior. If AV1 reduces a 12 Mbps H.264 stream by 35 percent, the stream becomes about 7.8 Mbps and saves 4.2 megabits every second per viewer. For 10,000 concurrent viewers, that is about 42 gigabits per second less delivery traffic, bought with more encode and decode complexity.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        `The method works because each layer narrows ambiguity. The sequence layer tells the decoder which stream rules apply. The frame layer tells it which references, probabilities, dimensions, and tile layout apply. The tile layer bounds a region of coded data. The superblock layer reconstructs local pixels from legal prediction and residual choices. Each layer is smaller than "decode the video" and larger than "read the next bit."`,
-        `This layered contract also helps correctness. A conformance decoder can reject invalid syntax at the layer where it becomes invalid. A production player can attach logs to the same layers: sequence header hash, frame number, reference slots, tile range, superblock coordinates, decode time, and error code. That is how a codec bitstream becomes observable enough to debug.`,
-      ],
-    },
-    {
-      heading: 'Cost and tradeoffs',
-      paragraphs: [
-        `Tiles buy parallelism, bounded work units, and sometimes better error isolation. They can also cost bitrate because they restrict prediction and context sharing across boundaries. They add syntax and scheduling overhead. They can make load balancing harder if one tile contains much more complex motion or residual data than another. A tile layout that helps a server encoder may not be best for a small phone decoder.`,
-        { type: 'image', src: 'https://upload.wikimedia.org/wikipedia/commons/6/6d/Ssd-cache-benchmark.png', alt: 'Storage and bandwidth benchmarks', caption: 'AV1 encoding is 10-100x slower than H.264 but produces files 30-50%% smaller — a classic compute-vs-bandwidth tradeoff. Source: Wikimedia Commons' },
-        `Superblocks buy local flexibility. AV1 can split, predict, transform, and code residuals in ways that fit local image structure. That flexibility improves compression, but it increases decoder complexity and test burden. Hardware decoders need fixed pipelines and bounded buffers. Software decoders need careful memory locality. Bitstream designers are constantly trading compression efficiency against parallelism, complexity, and predictability.`,
-      ],
-    },
-    {
-      heading: 'Real use cases',
-      paragraphs: [
-        `High-resolution playback is the obvious use. A 4K or 8K frame has enough pixels that a single serial decode path can waste available cores. Tiles let encoders create regions that browser, TV, phone, or hardware decoders can schedule in parallel. Live systems also care because decode delay affects glass-to-glass latency, not just average throughput.`,
-        `Tiles and OBUs also matter in diagnostics. A media service can keep a ledger of sequence-header facts, frame-header facts, tile ranges, superblock counts, reference slots, decode timing, and tile validation failures. That ledger separates different classes of bugs. A tile-boundary artifact is different from a missing reference frame, a corrupted OBU, a bad adaptive-bitrate segment, or a decoder worker starvation problem.`,
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        `Do not treat OBUs as harmless wrappers. If the parser loses OBU boundaries, length fields, or header state, the rest of the stream can become nonsense. Do not treat tile artifacts as purely visual. They may indicate invalid tile ranges, entropy context mismatch, broken reference state, worker ordering bugs, or data corruption. Do not treat superblocks as ordinary fixed blocks either; their partition trees and prediction decisions are part of the compressed syntax.`,
-        `The most common design mistake is asking one knob to solve every problem. More tiles do not always improve playback. Fewer tiles do not always improve quality enough to justify slower decode. Larger superblocks do not remove the need for careful partitioning. A codec pipeline has to choose for resolution, latency, decoder cores, content type, bitrate ladder, and conformance risk together.`,
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        `Study Video Codec Reference Frame DAG Case Study next to understand why frame headers carry reference-state consequences. Study Arithmetic & ANS Coding and Huffman Coding to understand why entropy context matters inside tile and superblock syntax. Study Adaptive Bitrate Manifest Ladder Case Study to connect bitstream choices to streaming delivery, and Data Structure Design Patterns Primer to recognize the nested-state-machine pattern.`,
-        `Primary sources: AV1 Bitstream and Decoding Process Specification at https://aomediacodec.github.io/av1-spec/, AV1 bitstream semantics source at https://github.com/AOMediaCodec/av1-spec/blob/master/07.bitstream.semantics.md, and AV1 technical overview at https://arxiv.org/pdf/2008.06091.`,
+        'Primary sources: the AV1 bitstream specification from the Alliance for Open Media, libaom documentation, dav1d decoder notes, and browser media documentation for playback support. Read those sources for syntax, then return to this page for the data-structure view of containers, tiles, and superblocks.',
+        'Study next by role. For compression, study entropy coding and transform coding. For systems, study video segment manifests, adaptive bitrate ladders, and hardware decode pipelines. For data layout, compare AV1 tiles with image tiling and matrix tiling in cache-aware kernels.',
       ],
     },
   ],

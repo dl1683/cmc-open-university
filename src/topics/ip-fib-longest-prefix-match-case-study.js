@@ -230,78 +230,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why This Exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'An IP router receives a packet, looks at the destination address, and must choose an outgoing interface before the next packet arrives. The hard part is that the routing system may know many overlapping truths about the same address. There is a default route for everything, a provider route for a large block, a regional route for a smaller block, and a customer or edge route for one subnet inside that region.',
-        'The forwarding information base, or FIB, exists because the hot path cannot run the whole routing protocol. BGP, static routes, connected interfaces, policy, metrics, and next-hop reachability all belong in route selection. Packet forwarding needs a compact data structure with one semantic contract: among all prefixes that match the destination, use the most specific one.',
+        'The animation shows packet forwarding through a forwarding information base, or FIB. A prefix is the leading bit pattern of an IP address, written with a length such as 203.0.113.0/24. A route-bearing trie node has a forwarding action. A lookup walks the destination address bits and remembers the deepest route-bearing node seen so far.',
+        'Active nodes are the current trie position or update target. Found nodes are candidate routes that match the destination. Compare nodes show prefixes that are being tested but do not win. The safe inference rule is that a missing deeper child cannot invalidate an already matched ancestor.',
         {type:'callout', text:'Longest-prefix match works because lookup remembers the deepest route-bearing ancestor while walking the destination address path.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/65/Radix_tree.svg', alt:'Radix tree diagram with compressed prefix branches', caption:'Radix tree diagram by Cmglee, via Wikimedia Commons, CC BY-SA 4.0.'},
       ],
     },
     {
-      heading: 'The Obvious Approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'A reasonable first implementation stores routes in a list and scans it for a match. Each route has a network prefix, a prefix length, and a next hop. For a small lab router, this is easy to write and easy to inspect: test whether the destination address shares the prefix bits, remember a matching entry, and forward using that entry.',
-        'The list approach teaches the rule but wastes the structure inside the addresses. If the list is unsorted, the first matching entry may be the default route even though a /24 appears later. If the list is sorted by prefix length, every lookup still pays for many failed tests. If the list is maintained under route churn, sorting and scanning become a data-plane tax caused by control-plane complexity.',
+        'A router must choose an outgoing interface for each packet. The routing system can know many overlapping routes for the same destination: a default route, a provider block, a regional block, and a customer subnet. Packet forwarding needs the most specific matching route without rerunning the routing protocol.',
+        'The routing information base, or RIB, is the control-plane set of candidate routes and policies. The FIB is the compiled data-plane structure used on the hot path. Longest-prefix match is the contract that makes overlapping CIDR routes deterministic.',
       ],
     },
     {
-      heading: 'The Wall',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The wall is overlap. Prefixes are not disjoint keys. A packet for 203.0.113.9 can match 0/0, 203/8, 203.0/16, and 203.0.113/24 at the same time. The answer is not the route with the lowest numeric address, the route learned first, or the route from the protocol with the most interesting story. The answer is the matching prefix with the greatest prefix length.',
-        'The second wall is separation of concerns. A router can spend real time deciding which route is best when BGP changes, but it cannot spend that time per packet. The routing information base is the policy-rich control-plane view. The FIB is the compiled packet-speed view. Mixing them makes forwarding slow, nondeterministic, and hard to update atomically.',
+        'The obvious approach is a list of routes. For each packet, scan the list, test whether the destination shares the route prefix, and keep the longest matching entry. This is easy to write and correct for a small lab table.',
+        'Sorting by prefix length improves early wins but does not remove the scan in the worst case. A table with 1,000,000 prefixes can still test many masks per packet. Updating the sorted list under churn also mixes control-plane work with data-plane lookup cost.',
       ],
     },
     {
-      heading: 'Core Insight',
+      heading: 'The wall',
       paragraphs: [
-        'Longest-prefix match becomes simple when the route table is shaped like the address space. A trie stores prefixes along paths of address bits. The root represents the default route. Moving downward consumes more destination bits. A route-bearing node is a candidate answer. The deepest candidate on the destination path is the most specific matching route.',
-        'The key variable is saved best. Lookup does not need to know in advance where the deepest match is. It walks the address path, and whenever it reaches a node with a forwarding action, it records that action as the best answer so far. If the next branch is missing, the lookup stops and returns the saved best. A failed descent is not a failed lookup when an ancestor route already matched.',
+        'The wall is overlap. A destination such as 203.0.113.9 may match 0.0.0.0/0, 203.0.0.0/8, 203.0.0.0/16, and 203.0.113.0/24. The answer is not the first route, the newest route, or the route with the largest block. It is the matching route with the greatest prefix length.',
+        'The second wall is packet rate. A software router or kernel datapath cannot afford broad per-packet scans when route count grows. The lookup must be bounded mainly by address width or hardware priority, not by the number of prefixes.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The core insight',
       paragraphs: [
-        'A production router usually builds the FIB from the selected routes in the RIB. BGP may offer several paths for the same prefix; static routes and connected routes may compete; next-hop reachability may change. After that selection step, the compiled FIB entry contains the destination prefix, next-hop action, output interface, and any hardware or software metadata needed for forwarding.',
-        'The trie in this case study is compressed for display: it jumps by visible chunks such as 203, 203.0, and 203.0.113. Real software routers often compress one-child paths with PATRICIA-style structures or LC-tries. Hardware routers often use TCAM, which compares many masked entries in parallel. Those implementations differ in machinery, but they preserve the same rule: find all matching prefixes, then choose the most specific match.',
-        'Updates preserve the same boundary. Inserting a /24 creates or updates a route-bearing node without changing the meaning of its /16 ancestor. Withdrawing the /24 removes that specific forwarding action, then cleanup may delete empty structural nodes. It must not delete the covering /16 route. A next-hop failure can affect many prefixes, so implementations need versioning or atomic publication so readers do not see a half-updated FIB.',
+        'Shape the data structure like the address. A trie stores prefixes along address-bit paths. The root can hold the default route. Each step down consumes more bits, so deeper matching route nodes are more specific.',
+        'The lookup variable is saved best. While walking the destination path, every route-bearing node becomes the best answer so far. If the next branch is missing, no deeper prefix on that path exists, so saved best is the longest matching prefix.',
       ],
     },
     {
-      heading: 'Visual Proof',
+      heading: 'How it works',
       paragraphs: [
-        'The lookup walk proves why first match is wrong. The destination 203.0.113.9 starts at default, then reaches 203/8, then 203.0/16, then 203.0.113/24. Every one of those prefixes is a valid match. The table of candidates makes the proof explicit: the /25 does not match, the /24 does match, and the prefix length orders the valid candidates.',
-        'The missing-child step proves the saved-best invariant. A lookup may run out of trie branches before it has consumed every destination bit. That only means there is no more-specific prefix stored for those next bits. The saved /24 still matches all addresses inside its block. Returning it is correct because no deeper matching route was found on the only path that could contain one.',
-        'The update view proves the fallback rule. When 203.0.113/24 is withdrawn, packets for 203.0.113.9 should not suddenly disappear if 203.0/16 still exists. The deepest remaining matching ancestor becomes the answer. That is why deletion logic must distinguish structural cleanup from route removal.',
+        'To insert 203.0.113.0/24, the FIB builder follows the first 24 address bits, creates structural nodes as needed, and stores the forwarding action at that node. To lookup 203.0.113.9, it starts at the root, records any default action, then follows the destination bits while updating saved best at each route-bearing node.',
+        'Real implementations compress the shape. A PATRICIA trie or LC-trie skips one-child stretches and compares chunks, while TCAM hardware compares masked entries in parallel and uses priority to choose the longest prefix. The machinery differs, but the semantic rule is unchanged.',
       ],
     },
     {
-      heading: 'Why It Works',
+      heading: 'Why it works',
       paragraphs: [
-        'Correctness comes from the prefix path. For a destination address, every matching prefix must be an ancestor on the path defined by that address. A prefix that differs in any consumed bit lies on another branch and cannot match. A prefix that is longer than the point where the path stops cannot be present as a matching route, because its branch was missing.',
-        'The saved-best variable is therefore enough. Initially it may hold the default route. Each time lookup reaches a matching route node, the new candidate is deeper than every earlier candidate and therefore more specific. When walking stops, no unseen route outside the path can match the destination, and no unseen deeper route on the path exists in the structure. The saved candidate is exactly the longest matching prefix.',
+        'For one destination address, every matching prefix must be an ancestor on that destination path. A prefix that differs in any consumed bit is on a different branch and cannot match. A prefix longer than the point where lookup stops cannot exist on the path because the needed child was missing.',
+        'Saved best is therefore sufficient. Each replacement of saved best is deeper than the previous one, so it is more specific. When the walk ends, no unseen off-path prefix can match, and no unseen on-path prefix exists. The saved action is exactly the longest matching prefix.',
       ],
     },
     {
-      heading: 'Cost and Tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A plain binary trie lookup is bounded by address width: at most 32 bit decisions for IPv4 and 128 for IPv6. That bound is independent of the number of routes, which is the point. Compressed tries reduce height by skipping deterministic one-child stretches and grouping child choices, but they need exact prefix checks so compression never invents a false match.',
-        'Memory and updates are the tax. A route table is not only keys; it stores next hops, output interfaces, adjacency information, counters, and sometimes hardware handles. Compressed software structures improve cache behavior but complicate insertion, deletion, and concurrent readers. TCAM gives parallel masked lookup with priority, but capacity, power, cost, and update behavior become hardware constraints.',
+        'A plain binary trie performs at most 32 steps for IPv4 and 128 steps for IPv6, independent of route count. Compressed tries reduce steps by grouping bits and improving cache locality, but they add checks so skipped bits still match. TCAM can answer in one parallel lookup, but it spends expensive silicon, power, and limited table capacity.',
+        'Updates have their own cost. Inserting a prefix can allocate nodes or update hardware entries. Withdrawing a prefix must remove only that route action, not the covering fallback route. Concurrent datapaths need epochs or atomic publication so each packet sees one consistent FIB version.',
       ],
     },
     {
-      heading: 'Uses and Failure Modes',
+      heading: 'Real-world uses',
       paragraphs: [
-        'Longest-prefix match is used in host routing tables, software routers, hardware routers, firewalls, load balancers, service meshes, eBPF datapaths, and CIDR policy engines. The fit is real whenever keys are hierarchical bit prefixes and the most-specific enclosing rule should win. The same idea appears in telemetry when traffic is aggregated by prefix and in policy engines when broad allow rules need narrower exceptions.',
-        'It is the wrong tool when keys are exact and unordered. A hash table is better for exact connection lookup. A balanced tree is better when predecessor or range order matters over arbitrary keys. A route-policy engine belongs before the FIB, not inside each packet lookup. The FIB should answer a compiled forwarding question, not rerun route selection.',
-        'The failure modes are operational. A stale next hop can blackhole traffic. A mixed old/new update can send packets inconsistently. A compressed trie without prefix verification can create false positives. A deletion bug can remove a fallback route. A hardware table can overflow and force unexpected software slow paths. The invariant to defend is simple: every packet sees one consistent FIB epoch and the deepest valid matching route in that epoch.',
+        'Longest-prefix match is used in host route tables, Linux fib_trie, software routers, hardware routers, firewalls, load balancers, eBPF LPM maps, service meshes, and CIDR policy engines. The fit is strongest when broad rules need narrower exceptions.',
+        'The same idea appears in telemetry aggregation. A system may count traffic for 10.0.0.0/8, then override or split 10.20.30.0/24 for a region or customer. Prefix hierarchy lets broad and narrow views coexist.',
       ],
     },
     {
-      heading: 'Study Next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Primary sources: RFC 1812, Requirements for IP Version 4 Routers, defines the most-specific matching route requirement at https://datatracker.ietf.org/doc/html/rfc1812. Linux kernel LC-trie notes describe fib_trie lookup and backtracking at https://docs.kernel.org/networking/fib_trie.html. For the compressed-trie foundation, study PATRICIA Trie and the Morrison paper linked from that topic.',
-        'Study Trie first if prefix paths are still unfamiliar. Study PATRICIA Trie for compressed shape, BGP Route Selection RIB Case Study for the control-plane side, eBPF LPM Trie CIDR Policy Case Study for software policy maps, Cilium eBPF Datapath Case Study for modern packet processing, and Hierarchical Heavy Hitters or Elastic Sketch for telemetry over the same prefix hierarchy.',
+        'Longest-prefix match is wrong for exact unordered keys. A connection table keyed by a five-tuple belongs in a hash table. A policy engine that needs arbitrary predicates should compile policy before lookup rather than put all logic inside the FIB.',
+        'Operational failures are more dangerous than algorithmic confusion. A stale next hop can blackhole traffic. A mixed update can send packets inconsistently. A compressed trie without verification can create false matches. A hardware table overflow can force slow software fallback.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Assume these routes: 0.0.0.0/0 to ISP-A, 203.0.0.0/8 to ISP-B, 203.0.113.0/24 to customer-C, and 203.0.113.128/25 to scrubbing-D. A packet for 203.0.113.9 matches the first three routes but not the /25. Saved best ends at /24, so the packet goes to customer-C.',
+        'A packet for 203.0.113.200 matches all four routes because 200 is inside the upper half covered by /25. Saved best becomes /25 and the packet goes to scrubbing-D. If the /25 is withdrawn, the same packet falls back to /24, not to default, because /24 remains the deepest matching ancestor.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: RFC 1812 Requirements for IP Version 4 Routers at https://datatracker.ietf.org/doc/html/rfc1812 and Linux fib_trie documentation at https://docs.kernel.org/networking/fib_trie.html. For compressed tries, study Morrison, PATRICIA, Practical Algorithm To Retrieve Information Coded In Alphanumeric, 1968.',
+        'Study trie, radix tree, PATRICIA trie, CIDR, BGP route selection, Linux routing, eBPF LPM trie maps, TCAM, and route update epochs next. The core exercise is to trace saved best on a route table with overlapping prefixes.',
       ],
     },
   ],

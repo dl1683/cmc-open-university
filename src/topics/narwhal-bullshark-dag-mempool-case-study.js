@@ -320,84 +320,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Narwhal is a DAG-based mempool for Byzantine validators. Its main idea is to separate reliable transaction dissemination from transaction ordering. Instead of making the consensus leader collect and re-broadcast all transaction data, validators and workers create certified batch vertices in a shared DAG. Consensus can then order references to data that has already been disseminated.',
-        'Bullshark is a consensus protocol that interprets that DAG. It uses deterministic anchors, strong support, waves, and topological ordering to turn the partially ordered DAG into a linear ledger. The useful mental model is two layers: Narwhal builds an availability-certified causal history; Bullshark reads commitment decisions out of that history.',
+        'The animation shows Narwhal and Bullshark, a design that separates transaction data dissemination from consensus ordering. Narwhal builds a certified directed acyclic graph, or DAG, of batches, and Bullshark deterministically orders that DAG.',
+        'Active nodes show certificates being linked or ordered, compare marks missing parents or insufficient votes, and found marks a batch that has enough support to be used by ordering. The safe inference rule is this: once a certificate names its parents and has quorum support, later ordering can refer to it by digest without moving the full batch again.',
         {type:'callout', text:'Narwhal moves byte dissemination out of the ordering bottleneck by making the mempool itself a certified DAG that Bullshark can deterministically linearize.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/c/c6/Topological_Ordering.svg', alt:'Directed acyclic graph arranged so all arrows point forward in topological order.', caption:'Topological ordering shows how a DAG can be read as a sequence while respecting causal edges. Source: Wikimedia Commons, David Eppstein, CC0'},
       ],
     },
     {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Consensus systems must both spread transaction bytes and agree on an order. When those jobs are fused, the ordering protocol can become clogged by data transfer, slow validators, or repeated retransmission.',
+        'Narwhal and Bullshark exist to decouple the jobs. The mempool makes data available and certified first, then consensus orders compact references to that already-available data.',
+      ],
+    },
+    {
       heading: 'The obvious approach',
       paragraphs: [
-        'The classic BFT approach asks a leader to propose transaction batches and gather votes. That is conceptually clean, but the leader can become the data bottleneck. If the leader has to move all transaction bytes, ordering progress is tied to one node\'s bandwidth and scheduling.',
-        'Another simple approach is to make the mempool an ordinary gossip layer and let consensus pull from it. That spreads bytes, but it leaves the ordering protocol with weaker evidence about who actually has the data. A digest in consensus is unsafe if honest parties cannot fetch the payload it names.',
+        'The obvious approach is leader-based consensus that proposes blocks containing transaction bytes. The leader gathers transactions, broadcasts a block, and replicas vote on the ordered block.',
+        'That is simple and works well at modest scale. It becomes fragile when the leader must be both the data broadcaster and the ordering coordinator under high throughput.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is the bandwidth bottleneck around the leader and the ordered block path. If every round depends on one leader pushing all bytes fast enough, slow broadcast becomes slow consensus.',
+        'Failures also tangle the two jobs. A leader that withholds data, equivocates, or sends bytes unevenly can force replicas to spend ordering time discovering that the data path was broken.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'Separate data availability from ordering, but make the separation cryptographic. Narwhal turns batch dissemination into certified DAG vertices. Bullshark then orders the certified history rather than dragging transaction bytes through every consensus proposal.',
-        'This is a data-structure idea before it is a blockchain idea. The mempool becomes a signed, content-addressed DAG with rounds, authors, parent certificates, and availability evidence. Consensus becomes a deterministic interpretation over that DAG.',
+        'Narwhal turns the mempool into a certified DAG. Validators create batches, collect signatures into certificates, and link each certificate to parent certificates from earlier rounds.',
+        'Bullshark then orders the DAG by deterministic rules over certificates and rounds. The ordering layer moves digests and votes, while the heavy transaction bytes have already been disseminated by the mempool layer.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'How it works',
       paragraphs: [
-        'The DAG-mempool view shows why a vertex is more than a batch pointer. It includes availability evidence and parent links to prior certified vertices. Those parent links make causal history inspectable.',
-        'The Bullshark-order view shows how a partial order becomes a ledger. Anchors and strong support identify what can be committed; deterministic topological ordering linearizes newly committed ancestors.',
+        'A validator packages transactions into a batch and broadcasts it. Other validators acknowledge the batch after receiving the data, and enough acknowledgments form a certificate for that batch digest.',
+        'Each new certificate references parents from the previous round, creating a DAG with causal edges. Bullshark selects leaders or anchors by round and commits certificates when enough linked structure proves that honest validators will see the same ordering evidence.',
       ],
     },
     {
-      heading: 'DAG mempool as a data structure',
+      heading: 'Why it works',
       paragraphs: [
-        'A Narwhal vertex contains a batch digest, author, round, parent certificates, and signatures or acknowledgments that prove enough validators have stored the data. Edges point backward to certified vertices from previous rounds. The graph is acyclic because rounds increase monotonically. The parent set is a causal-history commitment: a vertex does not only say "here are my transactions"; it says "these earlier certified batches were visible to me."',
-        'The certificate is the availability proof. With 3f + 1 validators, n - f acknowledgments show that enough replicas have the batch, so later validators and clients can fetch it even if f validators are faulty. This does not remove storage, fetch, or garbage-collection problems. It makes them explicit data-structure problems instead of hiding them inside the consensus leader.',
+        'Correctness starts with availability. A certificate means a quorum acknowledged the batch data, so ordering a certificate should not refer to unknown bytes under the normal fault assumptions.',
+        'Ordering correctness comes from quorum intersection and DAG causality. If two quorums overlap in at least one honest validator, conflicting histories cannot both gather independent support without sharing evidence that deterministic ordering rules can resolve.',
       ],
     },
     {
-      heading: 'Bullshark ordering',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A DAG is only a partial order. Bullshark turns it into a ledger order by selecting anchor vertices in waves and checking whether later DAG vertices strongly support those anchors. Once an anchor commits, each honest validator deterministically orders the newly reachable, previously unordered ancestors. That final step is topological sorting with a deterministic tie-breaker, not magic consensus dust.',
-        'This is why DAG-BFT can avoid some leader bottlenecks. Many validators keep producing vertices at the same time. Faults become missing vertices, invalid certificates, or failed waves rather than one leader blocking every transaction payload. A bad anchor may fail to commit, but honest parties can keep extending the DAG and interpret the next wave.',
+        'The cost shifts from leader broadcast to many-to-many dissemination. With 100 validators, a round of certificates can involve thousands of acknowledgments, but the work is spread rather than concentrated on one leader.',
+        'If batch size doubles, data bandwidth roughly doubles in the mempool layer, while consensus messages over digests change much less. The behavioral win is that ordering latency is less tied to one leader ability to push every byte.',
       ],
     },
     {
-      heading: 'Complete case study: Sui-style consensus evolution',
+      heading: 'Real-world uses',
       paragraphs: [
-        'The original Narwhal and Tusk paper framed the bottleneck bluntly: a better mempool, with reliable distribution and storage of transaction causal histories, can unlock high-throughput BFT ledgers. The paper reported large throughput improvements when Narwhal was composed with HotStuff, because the leader no longer re-sent transaction data in the ordering path.',
-        'Mysten Labs open-sourced Narwhal/Tusk and Bullshark as a high-throughput mempool and consensus engine. The Sui research-paper index later lists Mysticeti as a deployed continuation of the DAG-consensus lineage. For this curriculum, the sequence matters more than the brand: HotStuff teaches quorum certificates for ordering, Narwhal teaches certified data availability, Bullshark teaches deterministic ordering over a DAG, and Mysticeti teaches how far latency can be reduced when the DAG layer is redesigned again.',
+        'This design fits high-throughput Byzantine fault tolerant ledgers and blockchain systems where transaction dissemination is a major bottleneck. The access pattern is many validators receiving many batches before a final total order is chosen.',
+        'It is also useful for systems that want pipelining. While one set of certificates is being ordered, later rounds can keep disseminating data and building the DAG.',
       ],
     },
     {
-      heading: 'Systems lessons',
+      heading: 'Where it fails',
       paragraphs: [
-        'The clean separation is the main lesson. Mempool is not a bag of pending transactions; at this scale it is a replicated, signed, content-addressed DAG. Consensus is not responsible for dragging bytes around; it is responsible for choosing an order over already-certified data references. Execution and state sync then need to fetch data, validate certificates, apply transactions, and retain enough history for late peers.',
-        'This connects directly to Message Queue, Content-Addressed Merkle DAG Object Store, Topological Sort, HotStuff BFT Quorum Certificate Case Study, Distributed Tracing, Backpressure, and Rate Limiter. A production DAG-BFT system needs all of them: queues for inbound transactions, hashes for identity, graph indexes for ancestors, consensus certificates for safety, tracing for fetch paths, and backpressure for validators that fall behind.',
-        'The model also clarifies accountability. If a transaction is delayed, the operator can ask whether it was batched, certified, linked into the DAG, committed by an anchor, fetched for execution, or blocked in state application. Each stage has a different proof object and a different failure mode.',
+        'The design is complex. Operators must manage batch storage, certificate exchange, garbage collection, parent availability, equivocation handling, and backpressure between mempool and consensus.',
+        'It also needs enough network capacity for broad dissemination. If validators cannot exchange batch data fast enough, certifying a DAG does not remove the underlying bandwidth limit.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not confuse "DAG" with "no ordering." The DAG is a partial order plus evidence. The ledger still needs a deterministic linearization rule. Do not confuse availability certificates with execution success. A certified batch proves data was disseminated; it does not prove the transactions are valid, non-conflicting, or already applied to state.',
-        'Do not ignore garbage collection. If a node prunes a batch before all honest peers can fetch and execute it, certificates become frustrating proof objects pointing to missing data. Do not ignore duplicate transactions either. Many validators can include the same client transaction in different certified batches; execution or a transaction manager must deduplicate by transaction identity. Finally, DAG-BFT reduces leader bottlenecks but does not erase network, storage, crypto, or adversarial scheduling costs.',
-      ],
-    },
-    {
-      heading: 'Operational review',
-      paragraphs: [
-        'A validator implementation needs indexes by round, author, digest, parent, certificate, and commit status. It also needs fetch queues for missing batches, rate limits for peers, signature-verification accounting, and garbage-collection cuts tied to execution progress. The DAG is not useful if the node cannot find, fetch, and retain the vertices that certificates name.',
-        'A performance review should separate batch dissemination throughput, certificate formation latency, DAG construction, anchor commitment, deterministic ordering, execution, and state sync. Collapsing those into one transactions-per-second number hides whether the bottleneck is network, crypto, storage, consensus interpretation, or application execution.',
-        'Garbage collection is a safety topic, not just a disk topic. A node should prune only below cuts that are no longer needed for fetching, ordering, execution, or late-peer recovery. If pruning outruns those guarantees, certificates become pointers to missing evidence.',
+        'Suppose there are 10 validators and the fault model allows f = 3 Byzantine validators, so quorum is 2f + 1 = 7 signatures. Validator A broadcasts a 1 MB batch, receives 7 acknowledgments, and forms certificate A5 for round 5.',
+        'In round 6, other certificates include A5 as a parent. Bullshark can order A5 by digest once the DAG contains the required support pattern, without asking the leader to rebroadcast that 1 MB batch inside the ordering message.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Narwhal and Tusk at https://arxiv.org/abs/2105.11827, Facebook Research Narwhal/Tusk page at https://research.facebook.com/publications/narwhal-and-tusk-a-dag-based-mempool-and-efficient-bft-consensus/, Bullshark at https://arxiv.org/abs/2201.05677, partially synchronous Bullshark at https://arxiv.org/abs/2209.05633, Mysten Labs Narwhal repository at https://github.com/MystenLabs/narwhal, Sui Narwhal/Tusk open-source announcement at https://blog.sui.io/narwhal-tusk-open-source/, Mysticeti at https://arxiv.org/abs/2310.14821, and Sui research papers at https://docs.sui.io/references/research-papers.',
-        'Study Data Availability Sampling & Erasure Coding Case Study, Namespaced Merkle Tree Proof Case Study, HotStuff BFT Quorum Certificate Case Study, Byzantine Fault Tolerance: When Nodes Lie, Topological Sort, Graph BFS, Message Queue, Content-Addressed Merkle DAG Object Store, Merkle Tree, Distributed Tracing, Backpressure, and Rate Limiter next.',
+        'Primary sources: the Narwhal and Tusk paper, the Bullshark paper, and production documentation from systems that adopted DAG mempools. Use BFT consensus papers for quorum-intersection assumptions.',
+        'Study next: Byzantine fault tolerance, quorum certificates, DAG topological ordering, mempool design, reliable broadcast, HotStuff, data availability, and consensus garbage collection.',
       ],
     },
   ],

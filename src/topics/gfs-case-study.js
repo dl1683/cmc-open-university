@@ -193,78 +193,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The workload that forced GFS into existence',
+      heading: 'How to read the animation',
       paragraphs: [
-        'The Google File System is a lesson in designing from the real workload instead of from an inherited interface. Early Google storage was not dominated by people opening small files, editing them in place, and expecting workstation-style POSIX behavior. It was dominated by crawled web data, logs, index shards, batch jobs, and large derived files. Files were often huge. Reads were often long and sequential. Writes were often appends. Failures were not rare incidents; they were normal events in a fleet made from many commodity machines.',
-        'A conventional file system tries to make storage look like a reliable local disk. GFS starts from the opposite assumption. Machines fail, disks fail, networks drop messages, and applications can participate in recovery if the storage system gives them the right contract. The design is therefore less elegant in the abstract and more honest in production. It chooses high throughput, large-scale recovery, and simple operational repair over complete file-system generality.',
+        'Read the animation as a split between metadata control and byte movement. GFS means Google File System, a distributed file system built for large files on many commodity machines, and a chunk is a fixed-size piece of a file stored on chunkservers. Active nodes show the current master, client, or chunkserver action, visited nodes show known metadata or replicas, and found nodes show a chosen primary or healthy replica.',
+        'The safe inference rule is that the master owns names and leases, while chunkservers move data. If the data path goes through the master, the design has lost the main scalability boundary.',
         {type:'callout', text:'GFS works because compact metadata stays centralized while bulk data, mutation ordering, and repair move to the machines that own the bytes.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/9/9d/Wikimedia_Servers-0051_19.jpg', alt:'Rows of black server racks in a bright data center corridor.', caption:'Wikimedia server racks, photo by Helpameout, Wikimedia Commons, CC BY-SA 3.0.'},
       ],
     },
     {
-      heading: 'The naive design and why it breaks',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious design is to hide a distributed system behind a familiar file API and make every operation strongly file-system-like. A central server could track all names, all blocks, and all reads and writes. That fails for two reasons. First, the server becomes the data bottleneck. If every scan of every large file moves through the master, the master is no longer metadata; it is the entire system. Second, the consistency model becomes expensive. If thousands of workers append to shared outputs and every failure must preserve a perfect single-writer illusion, the system spends its time coordinating rather than moving data.',
-        'Another naive design is to remove the master entirely and make every chunkserver coordinate with every other chunkserver. That avoids one bottleneck but makes metadata and repair hard. File names, chunk handles, leases, version numbers, garbage collection, and replica placement need a source of truth. If every machine owns a fragment of that truth without a clean authority boundary, recovery turns into archaeology.',
+        'GFS exists because early Google workloads were dominated by crawled web data, logs, index shards, batch computation, and large append-heavy files. Failures were normal because the system ran across many commodity machines.',
+        'A conventional local-file illusion was the wrong target. The workload needed high throughput, automatic re-replication, and a consistency contract applications could handle during large distributed jobs.',
       ],
     },
     {
-      heading: 'The core idea: one master for metadata, many servers for bytes',
+      heading: 'The obvious approach',
       paragraphs: [
-        'GFS keeps a single master, but it gives the master the right job. The master stores compact metadata: the namespace, file-to-chunk mappings, chunk handles, lease information, version numbers, and the operation log. It does not sit in the middle of the bulk data path. A client asks the master where a chunk lives, caches the answer, and then reads or writes directly to chunkservers. The master is a control plane, not a pipe for bytes.',
-        'Files are divided into large chunks, famously 64 MB in the original paper. That size is not arbitrary. Large chunks reduce the number of master lookups, reduce metadata size, and match long streaming reads. They also make replication and placement decisions chunky enough to manage. The cost is real: small files waste attention, hot chunks can form, and random tiny updates are not the target workload. GFS wins because it knows what it is optimizing for.',
-        'Replication is built into the storage model. Each chunk has multiple replicas on different chunkservers. The master tracks where replicas should live and uses heartbeats to learn what is actually alive. When a chunkserver disappears, the system schedules re-replication from healthy copies. Reliability comes from continuous detection and repair, not from pretending individual machines are reliable.',
+        'The obvious distributed design is one central file server that handles names and bytes. Clients ask the server for data, and every read and write flows through that server.',
+        'Another obvious design is to remove the master and let storage machines coordinate everything among themselves. That avoids one central authority but makes naming, repair, leases, versioning, and garbage collection hard to reason about.',
       ],
     },
     {
-      heading: 'How writes work',
+      heading: 'The wall',
       paragraphs: [
-        'The subtle part of GFS is mutation ordering. When a client wants to write a chunk, the master grants a lease to one replica, making it the primary. The client pushes the data to all replicas, often through a pipeline chosen for network efficiency. Then the client asks the primary to perform the mutation. The primary chooses the serial order for mutations on that chunk and tells the secondary replicas to apply the same order. This lets replicas agree on byte changes without sending every decision back through the master.',
-        'The lease is the boundary between central authority and local sequencing. The master decides which replica is allowed to order mutations. The primary orders the actual mutations while its lease is valid. If the primary fails, the master can grant a new lease after the old one expires and after versioning rules prevent stale replicas from silently rejoining as if nothing happened.',
-        'This pattern appears all over distributed systems: a control plane grants authority, then a data-plane actor uses that authority locally until it expires. Leases are useful because they are weaker than permanent ownership and cheaper than asking a central authority for every tiny decision. They are also dangerous if clocks, expiry, and stale state are not handled carefully.',
+        'The wall is separating control from throughput. A central server can keep metadata consistent, but it becomes a bottleneck if it also carries every file scan and append.',
+        'Fully decentralized metadata hits a different wall. When machines fail and rejoin, the system needs a clear source of truth for chunk handles, replica locations, and stale-copy detection, or recovery becomes guesswork.',
       ],
     },
     {
-      heading: 'Record append and application-aware correctness',
+      heading: 'The core insight',
       paragraphs: [
-        'Record append is one of the most educational parts of GFS because it refuses to overpromise. Many workers can append records to the same file without agreeing on exact offsets in advance. GFS chooses the offset and guarantees that each successful append is written atomically at least once. That is enough for many data-processing pipelines where records have checksums, IDs, or other self-validating structure.',
-        'The phrase "at least once" matters. Under failure, GFS may leave padding or duplicate records. Readers must tolerate invalid regions and deduplicate if exact record identity matters. This is not a defect hidden in the fine print; it is a contract. GFS moves complexity out of the storage layer only because the applications using it can handle that complexity more cheaply. A crawler or indexing pipeline can skip bad records, detect duplicates, and recompute derived data. A banking ledger cannot accept the same bargain.',
-        'This is why GFS is such a strong curriculum topic. It teaches that correctness is not a single global setting. Correctness lives at the boundary between the system and the workload. If the application can cheaply validate records, the storage layer does not need to provide the same guarantee as a transactional database. If the application cannot tolerate duplicates or gaps, GFS-style record append is the wrong abstraction.',
+        'GFS keeps one master for compact metadata and keeps bulk bytes on chunkservers. Clients ask the master where chunks live, cache that answer, and then read or write directly against chunkservers.',
+        'The chunk size is large, famously 64 MB in the original paper. Large chunks reduce metadata volume and master lookups, which fits long streaming reads and append-heavy batch jobs.',
       ],
     },
     {
-      heading: 'Why the design works',
+      heading: 'How it works',
       paragraphs: [
-        'GFS works because the master owns only the state that benefits from centralization. Names, chunk handles, leases, and the operation log are compact and need a consistent authority. Bulk data is large and benefits from parallel movement. That split lets the master be simple without being in the hottest path. Clients cache metadata, chunkservers handle bytes, and background repair handles normal failures.',
-        'The design also works because it chooses a workload-specific consistency model. It does not try to make every mutation behave like a local file-system write. It gives enough structure for append-heavy distributed computation and expects applications to validate records. That combination made sense for Google indexing pipelines: jobs could be rerun, outputs could be checked, and duplicate records were cheaper than global coordination.',
-        'Finally, GFS works because it treats repair as a first-class loop. Heartbeats, checksums, chunk versions, re-replication, garbage collection, and master log replay are not side details. They are the system. A distributed storage design is not defined only by the successful read path. It is defined by what happens after a disk silently corrupts data, a rack disappears, a master restarts, or a chunkserver returns with stale replicas.',
+        'A file is split into chunks, and each chunk has replicas on multiple chunkservers. The master stores namespace metadata, file-to-chunk mappings, chunk versions, lease state, and an operation log.',
+        'For a write, the master grants a lease to one replica, making it the primary for that chunk. The client pushes data to replicas, then asks the primary to choose the mutation order, and secondaries apply that same order.',
+        'For record append, clients can append concurrently without choosing offsets themselves. GFS chooses an offset and provides atomic append at least once, while applications handle padding or duplicate records when failures occur.',
       ],
     },
     {
-      heading: 'Where the idea travels',
+      heading: 'Why it works',
       paragraphs: [
-        'HDFS borrowed much of the same shape: a metadata authority, large blocks, data nodes, replication, and batch-friendly access. Modern object stores and data-lake systems do not copy GFS directly, but they often preserve the same separation between naming/control metadata and large immutable data objects. Log systems, warehouse file formats, and lakehouse tables also inherit the lesson that storage can be simpler when data is written in large chunks and higher layers own schema, indexing, and transactional meaning.',
-        'The design is also a useful comparison point for systems that made different choices. A database storage engine cares about low-latency updates, page-level recovery, and transaction isolation. A content-addressed object store cares about immutable blobs and hashes. A distributed transactional file system cares more about namespace semantics. GFS is not a universal answer; it is a sharp answer to a particular cluster workload.',
+        'The design works because metadata is small and benefits from a single authority, while file data is large and benefits from parallel movement. The master can make placement and lease decisions without sitting in the hot data path.',
+        'The write protocol works because one primary orders mutations during a lease interval. Replicas that apply the same ordered mutations converge, and stale replicas can be detected through versioning and repaired by the master.',
       ],
     },
     {
-      heading: 'Failure modes and design warnings',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A single master can become a bottleneck if metadata grows too large, clients fail to cache, or workloads create too many tiny files. Large chunks help streaming throughput but make small-file-heavy workloads awkward. Primary leases simplify write ordering but require careful handling of expiry, stale replicas, and chunk versions. Record append helps many producers write to one file, but it pushes duplicate handling and validation into application logic.',
-        'The operational warning is that background repair must keep up with failure. Replication is only useful if under-replicated chunks are detected and copied before the next failure removes the remaining copies. Checksums are only useful if clients and chunkservers actually verify them. A storage system that depends on repair needs metrics for missing replicas, corrupt chunks, re-replication lag, master log health, and hot chunk pressure.',
+        'Client data throughput scales with chunkservers and network paths, not with master bandwidth. If a job reads 1,000 chunks from 100 chunkservers, the work can spread across the fleet after the metadata lookups are cached.',
+        'The master still pays for metadata, heartbeats, lease management, garbage collection, and re-replication scheduling. Doubling the number of files hurts master metadata more than doubling the size of a few large files, which is why the design favors large files.',
       ],
     },
     {
-      heading: 'What to remember',
+      heading: 'Real-world uses',
       paragraphs: [
-        'GFS is not important because every modern system should copy its exact architecture. It is important because it shows how much simpler a system can become when it is honest about the workload. Large files, streaming reads, append-heavy writes, and recoverable batch jobs lead to a different design than tiny files and transactional updates.',
-        'The deep lesson is the split of responsibility: centralize compact metadata, distribute bulk data movement, use leases for local ordering, repair continuously, and make the application contract explicit. When a design tells you exactly what it will not guarantee, it is often more useful than a design that pretends to guarantee everything.',
+        'GFS fit Google batch processing pipelines that read large inputs, append outputs, tolerate recomputation, and validate records at the application layer. MapReduce-style jobs are the natural companion workload.',
+        'The design influenced later distributed storage systems. The general pattern of a metadata control plane plus many data-plane storage workers appears in HDFS and many object or blob storage architectures.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'GFS is a poor fit for many tiny files, low-latency random writes, POSIX-style overwrites, and workloads that need strict transactional file semantics. The large chunk and relaxed append contract are taxes, not accidents.',
+        'It also depends on applications tolerating the record-append contract. A crawler output file can skip duplicate or invalid records, but a financial ledger cannot accept duplicate committed transactions as a normal recovery case.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A 1 GB file uses 16 chunks when chunks are 64 MB. With three replicas per chunk, the cluster stores 48 chunk replicas, and the master stores compact metadata that maps 16 chunk handles to replica locations.',
+        'If a client reads the whole file, it asks the master for locations and then streams chunks directly from chunkservers. If one chunkserver dies, the master sees missed heartbeats and schedules a new replica from one of the remaining copies until the replication target is restored.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: "The Google File System" at https://research.google.com/archive/gfs-sosp2003.pdf. Study MapReduce Case Study, Bigtable Case Study, Write-Ahead Log (WAL), Distributed Locks: What They Can Promise, Sharding & Partitioning, Idempotency & Exactly-Once Delivery, S3 Object Storage Case Study, and LSM Compaction Strategies next.',
+        'Read the original Google File System paper by Ghemawat, Gobioff, and Leung, then compare it with the HDFS architecture guide. Study leases, replication, checksums, write-ahead logs, chunk placement, and MapReduce next.',
+        'Then compare GFS with object storage, distributed databases, and consensus-backed metadata systems. The key question is which correctness promises belong in storage and which can safely move to the application.',
       ],
     },
   ],

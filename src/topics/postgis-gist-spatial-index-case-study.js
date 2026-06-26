@@ -210,11 +210,17 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read the animation as a two-stage test. The active path is the cheap bounding-box path through the GiST index; the found path is the exact geometry predicate that decides the final rows.',
+        'A bounding box is the smallest rectangle that contains a geometry. If the query box and a row box do not overlap, the actual shapes cannot intersect, so the row is safe to discard before expensive geometry code runs.',
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'PostGIS spatial indexing exists because exact geometry predicates are too expensive to run against every row in a large table. A city boundary, parcel polygon, transit line, or delivery zone can have many vertices. Testing exact intersection against millions of geometries is a poor first move.',
-        'The index solves a cheaper first problem: which geometries might match? It stores bounding boxes so PostgreSQL can quickly find candidates whose rectangles overlap the query rectangle. Then exact spatial predicates remove false positives.',
-        'This is a production case study in lossy prefiltering. The index is not the final truth. It is a way to avoid asking the expensive truth question for rows that clearly cannot match.',
+        'PostGIS stores shapes such as points, roads, parcels, and city boundaries inside PostgreSQL. Exact spatial predicates such as ST_Intersects can be expensive because a polygon may have thousands of edges and because a table may have millions of rows.',
+        'A spatial index exists to avoid running exact geometry math on rows that cannot possibly match. It asks a cheaper question first: do the rectangular envelopes even overlap.',
         {type:'callout', text:'A spatial index wins by rejecting impossible rows with cheap envelopes before exact geometry spends real CPU.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/6/6f/R-tree.svg', alt:'Diagram of an R-tree with red object rectangles grouped inside blue bounding boxes.', caption:'R-tree example showing grouped bounding rectangles for spatial search. Image by Skinkie and Radim Baca, public domain, via Wikimedia Commons.'},
       ],
@@ -222,77 +228,74 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is a sequential scan: evaluate ST_Intersects or another spatial predicate against every geometry. That is correct but slow when the table is large or the predicate is complex.',
-        'Another shortcut is to assume the index answers the geometry question exactly. That is wrong. The index stores bounding boxes. Two boxes can overlap even when the actual polygons do not. The exact predicate is still required for correctness.',
-        'A third shortcut is to create an index and stop thinking. Spatial indexes only help when the query exposes an index-aware predicate, the planner chooses the access path, and the bounding boxes are selective enough to reduce exact checks.',
+        'The obvious approach is a sequential scan. PostgreSQL reads every geometry, runs ST_Intersects against the query shape, and keeps the rows whose exact shapes intersect.',
+        'That approach is correct and sometimes fine for small tables. It becomes wasteful when a map viewport touches 2,000 parcels out of 20,000,000 because 19,998,000 exact predicate checks only prove absence.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The wall',
       paragraphs: [
-        'The core insight is two-stage filtering. First, use a cheap rectangle predicate to find possible matches. Second, run the exact geometry predicate only on candidates. The first stage is fast and lossy. The second stage is slower and exact.',
-        'GiST is PostgreSQL\'s generalized tree access method. For PostGIS geometry, it exposes R-tree-like behavior over bounding boxes: tree nodes summarize spatial regions, and a query descends only into branches whose boxes might overlap the query.',
-        'This pattern works because many spatial queries are selective. If a small query window touches a few city blocks, the bounding-box stage can discard most parcels before exact geometry work begins.',
-        'The important mental shift is that "spatial index" does not mean "index every point of the shape." It means storing a compact envelope that can reject impossible matches quickly. The exact shape comes back only after candidate reduction.',
+        'The wall is that exact geometry work does not shrink until the database has a way to rule rows out. A road line with 5,000 vertices may be quick to reject by rectangle but slow to test exactly against a complex boundary.',
+        'A plain B-tree cannot solve this because spatial search is not ordered by one scalar key. The database needs a tree whose internal nodes summarize regions of space, so one failed overlap test can reject a whole branch.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is lossy prefiltering. GiST gives PostgreSQL a generalized search tree; PostGIS uses it to store bounding boxes that behave like an R-tree over spatial envelopes.',
+        'The index can prove some rows impossible. It cannot prove every positive match, because overlapping rectangles may contain shapes that do not intersect. Correctness comes from pairing the cheap negative proof with an exact recheck on candidates.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A common query uses an index-aware predicate such as ST_Intersects. PostGIS can attach a bounding-box comparison that uses a GiST index on the geometry column. The planner then has a candidate access path instead of only a sequential scan.',
-        'The index returns possible matches: geometries whose boxes overlap the query condition. Because boxes can overlap even when the underlying geometries do not, the executor rechecks candidates with the exact spatial predicate. This is why EXPLAIN plans for spatial queries often show index conditions, filters, and rechecks.',
-        'The data shape matters. Compact polygons have tight boxes and prune well. Long skinny roads, large regions, or complex shapes with lots of empty space inside their bounding boxes can produce many false positives. Subdividing large geometries can improve selectivity because smaller pieces have tighter boxes.',
-        'The planner still estimates costs. Statistics, table size, predicate shape, and selectivity determine whether the GiST path is chosen. If most rows match, a sequential scan can be reasonable.',
-        'A practical debugging session starts with EXPLAIN ANALYZE. Check whether the index appears, whether the index condition contains a bounding-box predicate, how many rows were estimated, how many rows actually appeared, and how many candidates the exact filter removed.',
-      ],
-    },
-    {
-      heading: 'What the visual is proving',
-      paragraphs: [
-        'The first graph proves the split between index prefilter and exact predicate. SQL reaches the planner, the planner chooses GiST, GiST checks bounding boxes, candidates flow to an exact predicate, and only exact hits become rows.',
-        'The two-stage table proves that lossy indexes are not bugs. The bounding-box check is fast because rectangle keys are compact. The exact predicate is slower because geometry semantics are richer. Recheck is the bridge between speed and correctness.',
-        'The planner-pitfall view proves why spatial queries still get slow: missing indexes, non-index-aware functions, huge geometry boxes, stale estimates, and weak selectivity all defeat the intended access path.',
+        'A query such as ST_Intersects(geom, query_polygon) can expose an index-aware bounding-box condition. The planner considers a GiST index scan, estimates candidate count, and chooses it when the candidate path looks cheaper than scanning the table.',
+        'The GiST scan descends through bounding boxes. Branches whose boxes do not overlap the query box are skipped. Leaf entries whose boxes do overlap become candidates, and the executor then runs the exact spatial predicate on those candidates.',
+        'Data shape controls the benefit. Compact parcels have tight boxes, while long roads or large administrative regions can have boxes with much empty space. Those shapes create false positives that survive the index and get filtered later.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because bounding boxes are cheap summaries. If two boxes do not overlap, the underlying geometries cannot intersect. That negative result is exact. Only the positive result is uncertain and needs recheck.',
-        'It also works because spatial locality gives the tree something to prune. Nearby geometries share bounding regions, so the tree can eliminate whole branches of space when the query window is small.',
-        'The model generalizes beyond PostGIS: many spatial systems use approximate spatial envelopes, tiles, cells, or bounding volumes to reduce the number of exact geometry operations.',
+        'The correctness argument starts with containment. If geometry A intersects geometry B, then the bounding box of A must overlap the bounding box of B. Therefore a non-overlap at the box level is a sound reason to reject a row.',
+        'The reverse is not guaranteed. Box overlap only says the exact shapes might intersect, so the executor must recheck candidates with the real predicate. This division gives speed without changing the answer.',
       ],
     },
     {
-      heading: 'Cost and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Spatial query cost depends on selectivity. Compact geometries with tight bounding boxes prune well. Huge polygons, long skinny lines, and shapes with large empty bounding boxes can produce many false positives, forcing expensive exact checks.',
-        'The index also costs storage and write maintenance. Inserts, updates, and deletes must update the GiST structure. Bulk loading, vacuuming, statistics, and geometry transformations can all affect plan quality.',
-        'There is a modeling tradeoff. Simplifying or subdividing geometries can improve index behavior, but it adds preprocessing complexity and can change how downstream queries are written.',
-        'There is a query-design tradeoff as well. Transforming geometries inside the predicate can hide the indexed expression unless the index was built on that same expression. Sometimes the right fix is not a new database setting; it is making the query and index speak the same shape language.',
+        'The best case is proportional to the number of tree branches visited plus the number of exact candidate checks. If a query window hits 2,000 parcels out of 20,000,000, the index can replace millions of exact checks with a small tree walk and about 2,000 rechecks.',
+        'The worst behavior appears when the bounding boxes are not selective. If a country polygon covers half the table or a long diagonal line has a giant envelope, the index returns many candidates and exact geometry becomes the dominant cost.',
+        'Writes also pay. Inserts and updates maintain the GiST tree, and changing geometries can split pages or make statistics stale. The index buys read pruning by spending storage and write maintenance.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'PostGIS GiST indexes win in parcel lookup, geofencing, map filtering, routing support, nearest-area prefilters, delivery zones, environmental overlays, and any query where a spatial predicate would otherwise scan a large table.',
-        'A complete case: a parcels table has millions of polygons, and the query asks for parcels intersecting a city boundary. The GiST index first finds parcels whose boxes overlap the city boundary box. ST_Intersects then checks exact geometry on the candidates.',
-        'A serious performance review uses EXPLAIN ANALYZE to compare estimated rows, actual rows, index candidates, and exact-filter removals. That tells whether the problem is missing access path, bad estimates, poor selectivity, or expensive exact checks.',
-        'That evidence also tells whether a data-modeling fix, such as subdivision, is better than tuning planner settings.',
+        'GiST spatial indexes fit map viewports, parcel lookup, geofencing, environmental overlays, delivery zones, and routing prefilters. The common access pattern is selective spatial search: a small region is compared with a much larger table.',
+        'They are also useful before expensive exact work. A nearest-area or intersection query can use the index to build a short candidate set, then spend CPU only where geometry semantics matter.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Where it fails',
       paragraphs: [
-        'A GiST spatial index is not a guarantee that every spatial query will be fast. It is also not a replacement for exact geometry predicates. The index stores bounding boxes, so false positives are expected.',
-        'Another misconception is that any function over geometry can use the index. The query must use an index-aware predicate or explicit bounding-box condition that the planner can turn into an index path.',
-        'For dynamic systems, maintenance matters too. Updates change index pages, statistics drift, and geometry transformations can hide the indexed expression. The practical habit is to keep the indexed expression and query predicate aligned, then inspect the plan when behavior changes.',
-        'A final failure is ignoring coordinate systems and units. Geometry transformed to another SRID, distance computed in unsuitable units, or mixed geography and geometry assumptions can make a query correct-looking but operationally wrong.',
+        'It fails when the query hides the indexed expression. Transforming the geometry inside the predicate, using a non-index-aware function, or comparing incompatible spatial types can leave the planner with no usable GiST path.',
+        'It also fails as a complete answer for correctness. The index stores envelopes, not exact shapes. Applications that skip the exact predicate can return false positives whenever boxes overlap but shapes do not.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Official sources: PostGIS spatial indexing workshop at https://postgis.net/workshops/postgis-intro/indexing.html, PostGIS spatial-index FAQ at https://postgis.net/documentation/faq/spatial-indexes/, ST_Intersects documentation at https://postgis.net/docs/ST_Intersects.html, PostgreSQL GiST documentation at https://www.postgresql.org/docs/current/gist.html, and PostGIS data management notes at https://postgis.net/docs/using_postgis_dbmanagement.html. Study R-Tree Spatial Index, PostgreSQL Query Planner Case Study, Database Indexing, 2D Range Tree Orthogonal Search, and Quadtree Spatial Index & Map Tiles next.',
+        'Suppose a parcels table has 20,000,000 polygons and a city query window covers about 1 percent of the map. A sequential exact scan runs 20,000,000 ST_Intersects checks. If each exact check averages 40 microseconds, the predicate work alone is about 800 seconds before caching and parallelism help.',
+        'With a GiST index, the tree walk may visit 30,000 bounding boxes and return 220,000 candidates. If exact rechecks cost the same 40 microseconds, that part costs about 8.8 seconds, plus index traversal. If subdivision cuts false positives to 40,000 candidates, exact work drops to about 1.6 seconds.',
+        'The result is still exact because every candidate is rechecked. The speedup comes from proving absence cheaply for rows whose boxes do not overlap the query envelope.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: PostGIS spatial indexing workshop at https://postgis.net/workshops/postgis-intro/indexing.html, PostGIS spatial-index FAQ at https://postgis.net/documentation/faq/spatial-indexes/, ST_Intersects documentation at https://postgis.net/docs/ST_Intersects.html, PostgreSQL GiST documentation at https://www.postgresql.org/docs/current/gist.html, and PostGIS data management notes at https://postgis.net/docs/using_postgis_dbmanagement.html.',
+        'Study R-Tree Spatial Index for the spatial tree model, PostgreSQL Query Planner Case Study for path choice, Quadtree Spatial Index & Map Tiles for grid-style partitioning, and Database Indexing for the difference between lookup keys and physical storage.',
       ],
     },
   ],

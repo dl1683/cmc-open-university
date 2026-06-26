@@ -168,34 +168,25 @@ export const article = {
     {
       heading: 'How to read the animation',
       paragraphs: [
-        'The "checkpoint cycle" view traces steady-state operation: a transaction emits WAL, the WAL is flushed for durability, dirty buffers accumulate, and the checkpointer periodically writes those buffers and records a redo pointer. Active nodes are the current stage of the write path. Found nodes are durable state. Compare nodes are surfaces whose freshness is in question.',
-        'The "crash replay" view traces recovery after a power loss. Shared buffers vanish (removed nodes). The durable artifacts remain: WAL segments, checkpoint control state, and data pages with page LSNs. Active nodes are recovery stages. The key question at each frame is whether a given data page already includes the WAL record being considered.',
+        'Read the checkpoint view as two clocks. The WAL clock advances when transactions create durable log records, and the data-file clock advances when dirty pages are written to relation files. Active nodes show the current write or recovery step, found nodes show durable state, compare nodes show a page or checkpoint whose freshness is being tested, and removed nodes show memory lost in the crash.',
+        'The safe inference is the write-ahead rule. If a data page reaches disk with page LSN 500, WAL through 500 must already be durable. Recovery can then decide record by record whether the disk page is stale enough to need redo.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/b/b0/PostgreSQL%27s_Internal_Architecture.svg',
           alt: 'PostgreSQL internal architecture showing processes, shared memory, and disk files',
           caption: 'PostgreSQL internal architecture: backend processes, shared buffers, WAL buffers, and on-disk storage. WAL sits between transaction intent and durable data files.',
         },
-        {
-          type: 'note',
-          text: 'The graph separates two clocks. Transaction order is the WAL clock -- it advances with every commit. Data-file writeback is the storage clock -- it advances when dirty pages reach disk. Checkpoints keep these two clocks close enough that the distance recovery must replay stays bounded.',
-        },
       ],
     },
     {
       heading: 'Why this exists',
       paragraphs: [
-        {
-          type: 'quote',
-          attribution: 'PostgreSQL WAL introduction (docs)',
-          text: 'Using WAL results in a significantly reduced number of disk writes, because only the log file needs to be flushed to disk to guarantee that a transaction is committed, rather than every data file modified by the transaction.',
-        },
-        'A single UPDATE to a row in PostgreSQL can dirty a heap page, one or more index pages, a visibility map page, and a free-space map page. If every commit had to wait for all those pages to reach their final positions on disk, a 100-byte row update would trigger four or more scattered synchronous writes. Commit latency would depend on the slowest page, and group commit -- batching multiple transactions into one fsync -- would be nearly impossible.',
+        'A database must make commit durable without forcing every changed heap and index page to disk before returning to the client. Shared buffers are memory and vanish on crash. Data files can be behind the last committed transaction by many seconds.',
+        'WAL means write-ahead log: a sequential record of changes that reaches durable storage before the affected data page is trusted. Checkpoints bound recovery by recording a redo pointer, which is the WAL position where crash replay can safely begin.',
         {
           type: 'callout',
           text: 'ACID requires that a committed transaction survive a crash. Shared buffers vanish on restart. Data files on disk may be arbitrarily behind the last commit. The database needs a way to reconstruct consistent state before accepting connections.',
         },
-        'WAL and checkpoints solve both problems at once. A commit becomes durable when a compact, sequential log record is flushed. The scattered data pages can be written later, in any order, by background processes. If the server crashes before those pages reach disk, the log contains enough information to rebuild them. Checkpoints bound how far back in the log recovery must start.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/4/42/PostgreSQL_processes_1.svg',
@@ -207,36 +198,21 @@ export const article = {
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The simplest durability story is force-in-place: before returning from COMMIT, write every modified page to its relation file and fsync. This couples commit latency to random I/O -- one transaction touching a heap page, a TOAST page, and three index pages requires five scattered writes before the application gets a response.',
-        {
-          type: 'code',
-          language: 'text',
-          body: '-- Force-in-place commit (hypothetical)\nBEGIN;\nUPDATE orders SET status = \'shipped\' WHERE id = 42;\n-- Must fsync: heap page 117, index page 8, index page 203, vm page 4\n-- 4 random writes, each ~0.5-2ms on SSD, serialized\nCOMMIT;  -- returns after all 4 fsyncs complete (~2-8ms)',
-        },
-        'Force-in-place also wastes work. Ten transactions may update ten different rows on the same heap page. Forcing the page after each commit writes ten intermediate versions of a page whose final state could be captured in one write. Under high concurrency, the same page may be dirtied and flushed dozens of times per second.',
+        'The obvious durable design is force-in-place commit. When a transaction changes four pages, write all four pages to their final files and fsync them before reporting commit. That makes recovery simple because the data files are current at each commit boundary.',
+        'The opposite simple design is deferred writeback. Return commit after memory changes and let the operating system flush pages later. That is fast until a power loss turns acknowledged commits into missing or half-written data.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/a/ae/Disk-structure2.svg',
           alt: 'Hard disk structure showing tracks, sectors, and clusters',
           caption: 'Disk geometry: tracks (A), sectors (B, C), and clusters (D). Random I/O forces the disk head to seek between scattered sectors. Sequential WAL writes stay on contiguous sectors, avoiding seek latency entirely.',
         },
-        'The opposite extreme is pure deferred writeback: return from COMMIT the instant memory changes and let the OS flush pages whenever it wants. This gives sub-microsecond commit latency until a power loss turns committed rows into missing rows. No log, no recovery, no guarantees.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is the gap between commit durability and data-page durability. Force-in-place closes it at unacceptable cost. Pure deferral ignores it and hopes for the best. Any intermediate approach must answer one question: when the server crashes with dirty pages in memory, which committed changes have reached disk and which have not?',
-        {
-          type: 'table',
-          headers: ['Approach', 'Commit latency', 'Crash behavior', 'Fundamental problem'],
-          rows: [
-            ['Force-in-place', 'Random I/O bound (ms per dirty page)', 'No recovery needed', 'Couples commit speed to page scatter; kills throughput'],
-            ['Pure deferred', 'Sub-microsecond', 'Committed data lost', 'No durability guarantee at all'],
-            ['WAL + checkpoint', 'Sequential log fsync (~0.1-0.5ms batched)', 'Redo from checkpoint', 'Must maintain ordering invariants and manage WAL retention'],
-          ],
-        },
-        'Without a log, there is no way to distinguish a page that was dirtied by a committed transaction from one dirtied by an aborted transaction. There is no way to know which pages are behind and which are current. The database cannot recover because it has no record of intent.',
+        'Force-in-place couples commit latency to random I/O. A 100 byte row update can dirty a heap page and two index pages, so the client waits for several scattered writes instead of one sequential log flush. Under concurrency, the same hot page may be written repeatedly before its final state is stable.',
+        'Deferred writeback has no recovery proof. After a crash, the server cannot tell which pages contain committed changes, which contain aborted changes, and which are half old. The system needs a durable intent record that can explain or rebuild every page.',
         {
           type: 'callout',
           text: 'The invariant that makes WAL work: no data page may reach disk unless every WAL record describing that page is already durable. This is the write-ahead rule. If a page is on disk, the log can explain it. If a page is not on disk, the log can rebuild it.',
@@ -246,186 +222,65 @@ export const article = {
     {
       heading: 'The core insight',
       paragraphs: [
-        'Separate the "what happened" log from the "where it lives" data files. Make the log sequential and durable at commit time. Let the data files catch up later under rules that recovery can verify.',
-        {
-          type: 'diagram',
-          alt: 'PostgreSQL WAL checkpoint and recovery data flow',
-          label: 'Two paths from transaction to durable state',
-          body: 'Transaction\n    |\n    v\nWAL buffer --> WAL flush (sequential fsync)\n    |                |\n    v                v\nShared buffers    Durable log on disk\n(dirty pages)        |\n    |                v\n    v          Checkpoint: redo pointer\nCheckpointer        |\n    |                v\n    v          Recovery reads from here\nData files on disk',
-          text: 'Transaction\n    |\n    v\nWAL buffer --> WAL flush (sequential fsync)\n    |                |\n    v                v\nShared buffers    Durable log on disk\n(dirty pages)        |\n    |                v\n    v          Checkpoint: redo pointer\nCheckpointer        |\n    |                v\n    v          Recovery reads from here\nData files on disk',
-        },
-        'Three ordering stamps tie the system together:',
-        {
-          type: 'bullets',
-          items: [
-            'Log Sequence Number (LSN): a byte offset into the WAL stream. Every WAL record has one. It is the global clock of intent.',
-            'Page LSN (pd_lsn): stored in every 8 KB data page header. Records the LSN of the last WAL record applied to that page. It is each page\'s local clock.',
-            'Redo LSN: written into the checkpoint record and pg_control. Marks where recovery must begin reading. It is the recovery starting gun.',
-          ],
-        },
-        'Recovery compares page LSNs against WAL record LSNs to decide what to redo and what to skip. If a page is already up-to-date, redo skips it. If a page is stale, redo applies the record. This comparison makes the entire recovery process idempotent.',
+        'Separate the record of what happened from the files that store the current page images. Commit only needs durable WAL through the commit record. Data pages can be written later as long as every page write obeys the write-ahead rule.',
+        'Page LSNs make this separation checkable. Each page stores the LSN of the newest WAL record reflected on that page. During redo, PostgreSQL compares the page LSN with the WAL record LSN and applies the record only when the page is behind.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'When a transaction modifies a page, PostgreSQL constructs one or more WAL records describing the change and copies them into the WAL buffer. The buffer in shared memory is marked dirty. At commit, the server calls XLogFlush to ensure all WAL records up to and including the commit record are flushed to disk. Group commit batches this: if multiple transactions are committing simultaneously, one fsync can cover all of them.',
-        {
-          type: 'code',
-          language: 'c',
-          body: '/* Simplified from src/backend/access/transam/xlog.c */\n/* The write-ahead contract in two lines: */\nif (page->pd_lsn > LogwrtResult.Flush)\n    XLogFlush(page->pd_lsn);\n/* Translation: before writing a data page to disk,\n   ensure the WAL up to that page\'s LSN is already flushed. */',
-        },
+        'A transaction modifies buffers and emits WAL records. At commit, PostgreSQL flushes WAL through the commit record, often batching several commits into one fsync. Background writer and checkpointer processes later write dirty pages to data files after ensuring the page LSN is covered by flushed WAL.',
+        'A checkpoint writes enough dirty pages and metadata to publish a new redo pointer. After a crash, recovery reads checkpoint state, starts at that redo pointer, and scans WAL forward. For each record, it reads the target page, checks the page LSN, applies redo if needed, and skips work already present.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/e/ef/PostgreSQL_pageLayout.svg',
           alt: 'PostgreSQL data page layout showing header with page LSN, line pointers, and tuple data',
           caption: 'Physical layout of a PostgreSQL data page. The page header contains pd_lsn -- the Log Sequence Number of the last WAL record applied to this page. Recovery uses this stamp to decide whether a page needs redo.',
         },
-        {
-          type: 'bullets',
-          items: [
-            'WAL segments: WAL is split into 16 MB segment files (default). Segments are named by their starting LSN. pg_wal/ holds the active segments. Old segments are recycled or archived.',
-            'Dirty buffer writes: the background writer and checkpointer write dirty pages from shared buffers to data files. They obey the write-ahead rule -- checking that the page LSN has been flushed to WAL before writing the page.',
-            'Page LSN update: when a WAL record is applied to a buffer, the page header\'s pd_lsn is set to that record\'s LSN. This stamp persists to disk when the page is eventually written.',
-            'Full-page images (FPI): after a checkpoint, the first modification to any page logs the entire 8 KB page image into WAL. This protects against torn pages -- a partial write where the OS writes half an 8 KB page before crashing. FPIs are expensive (they inflate WAL volume) but they close the torn-page hole.',
-          ],
-        },
-        'The checkpoint process runs periodically (every checkpoint_timeout seconds, default 300) or when WAL volume approaches max_wal_size. It iterates all dirty buffers, writes them to disk respecting the write-ahead rule, then writes a checkpoint record to WAL and updates pg_control with the new redo LSN.',
-        {
-          type: 'code',
-          language: 'text',
-          body: '-- Key checkpoint parameters (PostgreSQL 16 defaults)\ncheckpoint_timeout       = 300s    -- max time between checkpoints\nmax_wal_size             = 1GB     -- WAL triggers checkpoint when exceeded\ncheckpoint_completion_target = 0.9 -- spread writes over 90% of interval\nfull_page_writes         = on      -- log full page after checkpoint',
-        },
-        'checkpoint_completion_target controls I/O smoothing. With a 300-second timeout and a target of 0.9, the checkpointer spreads its dirty-page writes over 270 seconds instead of blasting them all at once. This reduces latency spikes but means dirty pages live longer in shared buffers.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument rests on three properties that together make crash recovery safe:',
-        {
-          type: 'table',
-          headers: ['Property', 'What it guarantees', 'What breaks without it'],
-          rows: [
-            ['Write-ahead rule', 'Every data page on disk is backed by durable WAL', 'A page on disk could contain changes with no log to explain them'],
-            ['Page LSN ordering', 'Recovery can tell whether a page already includes a WAL record', 'Redo might apply a change twice, corrupting the page'],
-            ['Redo pointer bound', 'Recovery starts from a known consistent point', 'Recovery would have to replay from the beginning of WAL history'],
-          ],
-        },
-        'The write-ahead rule ensures that if a page reached disk before the crash, the WAL can explain every change on that page. If a page did not reach disk, the WAL can rebuild it from the last known good state. There is no third case.',
-        'Page LSNs make redo idempotent. A WAL record says "change page P at LSN L." If page P on disk already has pd_lsn >= L, the change is already present and redo skips it. If pd_lsn < L, redo applies the change. This means recovery can safely re-encounter records whose effects were partially flushed before the crash.',
+        'The correctness argument has two parts. First, the write-ahead rule guarantees that any data page found on disk is backed by durable WAL that can explain it. Second, page LSN comparison makes redo idempotent, so seeing the same WAL record again cannot apply the same change twice.',
+        'The checkpoint does not prove that all later data pages are current. It proves recovery can start from a known earlier point and reach a consistent state by replaying the WAL suffix. Once replay reaches the end of durable WAL, committed physical changes have been restored and uncommitted versions remain invisible under MVCC rules.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/1/1f/PostgreSQL_mvcc.svg',
           alt: 'PostgreSQL MVCC showing multiple tuple versions visible to different transactions',
           caption: 'PostgreSQL MVCC: multiple tuple versions coexist on the same page. WAL recovery restores page contents physically; MVCC visibility rules (clog/pg_xact) decide which versions are logically visible. Recovery does not need undo logging because uncommitted versions are simply invisible.',
         },
-        {
-          type: 'note',
-          text: 'PostgreSQL does not use undo logging. Uncommitted transactions leave their tuple versions on disk, but MVCC visibility rules (clog/pg_xact) ensure those versions are invisible to readers after recovery. Redo makes the physical pages correct; visibility decides which tuple versions count.',
-        },
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Cost axis', 'What you pay', 'What controls it'],
-          rows: [
-            ['Commit latency', 'One sequential WAL fsync per commit group', 'commit_delay, wal_sync_method, storage latency'],
-            ['WAL volume', '~1-3x the modified data size; more with full-page writes', 'full_page_writes, checkpoint frequency, wal_compression'],
-            ['Checkpoint write pressure', 'All dirty pages flushed over the completion target window', 'shared_buffers size, checkpoint_completion_target, I/O bandwidth'],
-            ['Recovery time', 'Proportional to WAL distance between redo pointer and crash point', 'checkpoint_timeout, max_wal_size'],
-            ['WAL storage', 'Retained segments from redo pointer to current position', 'max_wal_size, replication slots, archiving'],
-          ],
-        },
-        'The dominant steady-state cost is WAL fsync latency. Every committed transaction waits for its WAL records to be durable. On a server doing 10,000 TPS with group commit batching 20 transactions per fsync, that is 500 fsyncs/second. Each fsync on a fast NVMe SSD takes 50-200 microseconds. On a slow cloud volume with 1-2ms fsync, the same workload can stall.',
+        'The main steady-state cost is WAL flush latency and WAL volume. If a workload commits 10,000 transactions per second and group commit batches 25 transactions per fsync, storage must handle about 400 WAL fsyncs per second. Full-page images after checkpoints can add 8 KB per first-modified page, which can temporarily multiply WAL generation.',
+        'Recovery time grows with the WAL distance from the redo pointer to the crash point. A 512 MB gap may replay in seconds on fast storage, while a 20 GB gap can mean minutes of startup delay. Shorter checkpoint intervals reduce recovery time but increase background write pressure.',
         {
           type: 'callout',
           text: 'Full-page images are the largest WAL amplification factor. Immediately after a checkpoint, every first-modified page logs an extra 8 KB. On a write-heavy system with 32 GB of shared_buffers, the post-checkpoint FPI burst can temporarily double WAL generation rate.',
         },
-        'Recovery time scales linearly with the WAL distance between the redo pointer and the crash point. A 1 GB WAL gap with mostly heap updates recovers in roughly 10-30 seconds on modern hardware. A 10 GB gap after a long checkpoint interval or a missed checkpoint can mean minutes of downtime.',
-        {
-          type: 'code',
-          language: 'text',
-          body: '-- Monitoring WAL generation rate and checkpoint health\nSELECT pg_current_wal_lsn();              -- current WAL write position\nSELECT pg_wal_lsn_diff(                   -- bytes of WAL since last checkpoint\n  pg_current_wal_lsn(),\n  checkpoint_lsn\n) FROM pg_control_checkpoint();\n\n-- If this grows faster than your storage can fsync,\n-- commit latency will spike.',
-        },
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'An e-commerce order service runs PostgreSQL 16 with 8 GB shared_buffers, checkpoint_timeout = 300s, and max_wal_size = 2 GB. The system processes 5,000 orders per second, each touching a heap page, two index pages, and a free-space map page.',
-        {
-          type: 'table',
-          headers: ['Time', 'Event', 'WAL position', 'Dirty pages', 'Redo pointer'],
-          rows: [
-            ['T+0s', 'Checkpoint completes', '0/A000000', '0', '0/A000000'],
-            ['T+30s', '150K commits, FPI burst subsides', '0/A800000', '~12,000', '0/A000000'],
-            ['T+120s', '600K commits, steady WAL rate', '0/C000000', '~48,000', '0/A000000'],
-            ['T+120s', 'Power failure -- crash', '--', 'Lost (RAM)', '0/A000000'],
-            ['T+120s', 'Recovery starts at redo 0/A000000', '0/C000000', '--', '--'],
-            ['T+128s', 'Redo complete, DB opens', '0/C000000', '0', '0/C000000'],
-          ],
-        },
-        'Recovery replays ~512 MB of WAL (from 0/A000000 to 0/C000000). For each WAL record, it reads the target page from disk, compares pd_lsn against the record LSN, applies the change if the page is behind, and skips it if the page is current. Pages that the checkpointer had already flushed before the crash are skipped. Pages still dirty only in lost shared buffers are rebuilt from the log.',
-        {
-          type: 'code',
-          language: 'text',
-          body: '-- Recovery decides per-record, per-page:\n-- Record LSN: 0/A123456, targets page (1663, 16384, 12345), block 7\n-- Read page from disk, check pd_lsn:\n--   pd_lsn = 0/A100000  -->  0/A100000 < 0/A123456  -->  apply\n--   pd_lsn = 0/A200000  -->  0/A200000 > 0/A123456  -->  skip',
-        },
-        {
-          type: 'image',
-          src: 'https://upload.wikimedia.org/wikipedia/commons/2/2e/PostgreSQL_xid_cycle.svg',
-          alt: 'PostgreSQL transaction ID cycle showing wraparound behavior',
-          caption: 'PostgreSQL transaction IDs are 32-bit and wrap around. Each WAL record is stamped with the transaction that generated it. Recovery uses these stamps plus commit status (clog) to determine which transactions were committed at crash time.',
-        },
-        'After recovery, PostgreSQL performs an immediate checkpoint to advance the redo pointer past the crash point. Future recovery will not replay the same WAL again.',
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        'WAL plus checkpoints is the durability backbone of every PostgreSQL deployment, from single-node developer databases to multi-terabyte production clusters. The same mechanism enables features far beyond crash recovery:',
-        {
-          type: 'bullets',
-          items: [
-            'Streaming replication: standbys receive and replay WAL segments from the primary in near-real-time. The same redo logic used for crash recovery powers continuous replication. A standby is a permanently-recovering server.',
-            'Point-in-time recovery (PITR): by archiving WAL segments to object storage, an operator can restore a base backup and replay WAL up to any specific timestamp. This turns the WAL stream into a time machine for the entire database.',
-            'pg_basebackup: takes a filesystem-level backup while the server runs. The backup is consistent because WAL records captured during the backup window can repair any pages that were mid-write.',
-            'Logical replication and change data capture: logical decoding reads committed WAL records and translates them into row-level change events. Tools like Debezium consume these events for CDC pipelines.',
-            'pg_rewind: after a failover, pg_rewind uses WAL to "rewind" a former primary to a point where it can follow the new primary, avoiding a full re-sync.',
-          ],
-        },
+        'WAL and checkpoints power ordinary PostgreSQL crash recovery, physical base backups, point-in-time recovery, and streaming replication. A standby is effectively a server that keeps running recovery as new WAL arrives from the primary.',
+        'The same design lesson appears outside PostgreSQL. Durable logs let systems acknowledge compact sequential writes first and repair scattered state later. The hard part is preserving the ordering stamps that make replay safe.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/9/99/PostgreSQL_dump_restore.svg',
           alt: 'PostgreSQL backup and restore flow showing pg_dump and pg_restore paths',
           caption: 'PostgreSQL backup and recovery paths. Physical backups (pg_basebackup) rely on WAL replay to reach consistency. Logical backups (pg_dump/pg_restore) are self-contained but cannot provide point-in-time recovery between snapshots.',
         },
-        {
-          type: 'note',
-          text: 'A standby server in streaming replication is architecturally identical to a server performing crash recovery -- it continuously applies WAL records from the primary. The only difference is that crash recovery ends when the WAL runs out, while a standby waits for more.',
-        },
-        'The design also explains why database performance tuning often starts with WAL. Commit latency, checkpoint write spikes, replication lag, backup speed, and recovery time are all aspects of the same WAL pipeline.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Cause', 'Consequence', 'Mitigation'],
-          rows: [
-            ['Dishonest fsync', 'Storage says "flushed" but data is in volatile cache', 'Committed WAL lost on power failure; silent data loss', 'Use batteries (BBU), disable write cache, or use data-integrity-capable storage'],
-            ['Torn page without FPI', 'full_page_writes = off and OS writes half an 8 KB page', 'Page is internally inconsistent; recovery cannot fix it', 'Never disable full_page_writes in production'],
-            ['Unbounded WAL growth', 'Stale replication slot holds back WAL recycling', 'pg_wal fills disk; server halts to avoid corruption', 'Monitor slot lag; set max_slot_wal_keep_size'],
-            ['Checkpoint storm', 'checkpoint_completion_target too low or I/O too slow', 'All dirty pages flushed at once; latency spike for transactions', 'Spread checkpoints; provision adequate I/O bandwidth'],
-            ['Long recovery after crash', 'Large max_wal_size and infrequent checkpoints', 'Minutes of downtime replaying WAL', 'Tighten checkpoint_timeout or max_wal_size based on recovery SLA'],
-          ],
-        },
-        'The most dangerous failure is dishonest fsync. In 2018, the PostgreSQL community discovered that some Linux filesystem configurations silently dropped fsync errors, meaning the database believed WAL was durable when it was not. PostgreSQL 12 added additional fsync error handling, but the root issue is hardware and OS behavior outside the database.',
+        'WAL cannot protect against storage that lies about fsync. If the disk or filesystem says WAL is durable while data remains only in volatile cache, the database can acknowledge a commit that disappears after power loss. Hardware and operating system behavior are part of the correctness boundary.',
+        'Checkpoints can also become a latency hazard. If dirty pages accumulate faster than storage can flush them, requested checkpoints write aggressively and foreground transactions feel the I/O pressure. Replication slots or broken archiving can hold old WAL and fill pg_wal until the server stops accepting writes.',
         {
           type: 'image',
           src: 'https://upload.wikimedia.org/wikipedia/commons/2/2b/Unaligned_write_on_512e_HDD.svg',
@@ -436,32 +291,27 @@ export const article = {
           type: 'callout',
           text: 'A checkpoint is not a backup. It advances the redo pointer and allows old WAL to be recycled. Once old WAL is gone, the state before the checkpoint is unrecoverable. For point-in-time recovery, you need WAL archiving -- a separate mechanism that copies segments to durable storage before they are recycled.',
         },
-        'Another subtle failure: if shared_buffers is much larger than the system can flush in one checkpoint cycle, the checkpointer falls behind. When that happens, PostgreSQL can trigger an "immediate" checkpoint, which writes all dirty pages as fast as possible and causes visible latency spikes. This shows up in logs as "checkpoints are occurring too frequently."',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose an order service commits 5,000 orders per second for 120 seconds after a checkpoint. WAL advances from 0/A000000 to 0/C000000, roughly 512 MB, while 48,000 data pages remain dirty in memory. A power loss removes shared buffers but leaves WAL and the last checkpoint record on disk.',
+        'On restart, PostgreSQL begins at redo LSN 0/A000000 and scans forward. A WAL record at 0/A123456 for page P is applied if P has page LSN 0/A100000 and skipped if P has page LSN 0/A200000. After replay reaches 0/C000000, committed orders are present again and a later checkpoint advances the redo pointer.',
         {
-          type: 'code',
-          language: 'text',
-          body: '-- Diagnosing checkpoint pressure in PostgreSQL logs:\n-- LOG: checkpoints are occurring too frequently (28 seconds apart)\n-- HINT: Consider increasing the configuration parameter "max_wal_size".\n\n-- Check current checkpoint stats:\nSELECT checkpoints_timed,       -- scheduled checkpoints (normal)\n       checkpoints_req,          -- forced checkpoints (potential problem)\n       buffers_checkpoint,       -- pages written by checkpointer\n       maxwritten_clean          -- bgwriter stopped early (I/O pressure)\nFROM pg_stat_bgwriter;',
+          type: 'image',
+          src: 'https://upload.wikimedia.org/wikipedia/commons/2/2e/PostgreSQL_xid_cycle.svg',
+          alt: 'PostgreSQL transaction ID cycle showing wraparound behavior',
+          caption: 'PostgreSQL transaction IDs are 32-bit and wrap around. Each WAL record is stamped with the transaction that generated it. Recovery uses these stamps plus commit status (clog) to determine which transactions were committed at crash time.',
         },
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: PostgreSQL WAL introduction at https://www.postgresql.org/docs/current/wal-intro.html, WAL configuration at https://www.postgresql.org/docs/current/wal-configuration.html, WAL internals at https://www.postgresql.org/docs/current/wal-internals.html, runtime WAL settings at https://www.postgresql.org/docs/current/runtime-config-wal.html, and pg_waldump documentation at https://www.postgresql.org/docs/current/pgwaldump.html. The ARIES paper by Mohan et al. (1992) is the foundational work on write-ahead logging with physiological redo.',
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Write-Ahead Log (WAL) -- the general principle of logging intent before modifying data.',
-            'Prerequisite: PostgreSQL Buffer Pool Clock Sweep -- how shared buffers are managed and how dirty pages are selected for eviction.',
-            'Extension: PostgreSQL Streaming Replication -- how standbys continuously replay WAL from the primary.',
-            'Extension: MVCC Internals and VACUUM -- how PostgreSQL handles visibility of uncommitted and aborted transactions without undo logs.',
-            'Contrast: InnoDB double-write buffer -- MySQL/InnoDB uses a different torn-page protection mechanism instead of full-page images in WAL.',
-            'Contrast: SQLite rollback journal -- SQLite logs the original page before modification (undo) rather than the change (redo), a fundamentally different recovery model.',
-          ],
-        },
-        'The engineering question for WAL tuning is not "should I use WAL?" -- you have no choice. The useful questions are: how much WAL am I generating, how fast can my storage fsync it, how long can I tolerate recovery, and are my archiving and replication slots keeping up with the generation rate.',
+        'Primary sources: PostgreSQL WAL introduction at https://www.postgresql.org/docs/current/wal-intro.html, WAL configuration at https://www.postgresql.org/docs/current/wal-configuration.html, WAL internals at https://www.postgresql.org/docs/current/wal-internals.html, runtime WAL settings at https://www.postgresql.org/docs/current/runtime-config-wal.html, and pg_waldump at https://www.postgresql.org/docs/current/pgwaldump.html.',
+        'Study ARIES for the classic recovery model, PostgreSQL buffer management for dirty-page behavior, PostgreSQL streaming replication for continuous WAL replay, MVCC internals for visibility after recovery, and SQLite rollback journal as a contrasting undo-style design.',
       ],
     },
   ],
 };
-

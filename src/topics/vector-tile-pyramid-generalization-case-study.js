@@ -197,113 +197,21 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'A map can contain far more geometry than a phone or browser should download for one view. The user needs a few visible streets, labels, and polygons, not the whole source database.',
-        'A vector tile pyramid stores encoded map features by zoom, x, y, layer, and version. The server sends only the tiles needed for the viewport, and the client styles those features locally.',
-        {type:'callout', text:'A vector tile pyramid turns spatial queries into versioned cache keys, with each zoom level carrying only the detail that can be rendered usefully.'},
-      ],
-    },
-    {
-      heading: 'The obvious approach and the wall',
-      paragraphs: [
-        'The obvious approach is to send raw GeoJSON for the visible area or query the database on every pan and zoom. That is workable for small maps and admin tools.',
-        'The wall is repeated spatial work. Popular regions get requested constantly, low zooms would contain too much detail, and raw coordinates plus unused attributes waste bandwidth.',
-      ],
-    },
-    {
-      heading: 'Core insight',
-      paragraphs: [
-        'Make the map a cacheable hierarchy. Each z/x/y tile owns a bounded square of the world at one zoom level. Lower zooms use generalized geometry and fewer features; higher zooms carry more local detail.',
-        'The cache key must include the layer set, style or schema version, and source data version. Without explicit versions, stale tiles look correct enough to be dangerous.',
-      ],
-    },
-    {
-      heading: 'Animation notes',
-      paragraphs: [
-        'In the tile-pyramid view, follow the source geometry as it becomes a small number of cache keys. The server is not merely drawing a map ahead of time; it is turning spatial queries into versioned objects that a CDN can serve repeatedly.',
-        'In the generalization view, read each zoom rule as an editorial decision backed by a data-structure constraint. A z6 tile cannot preserve every driveway, vertex, and attribute from the source database. It must preserve the information that matters at that scale while keeping the encoded tile small enough to render quickly.',
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The pipeline clips source features to tile boundaries, simplifies them by zoom, quantizes coordinates into tile extent units, encodes features by layer, and writes bytes to cache.',
-        'The client decodes the tile and renders the same feature data under the current style. A tile buffer keeps lines and polygons from breaking at tile edges.',
-        'Each layer is a contract between producer and renderer. The road layer may carry class, name, shield, bridge, tunnel, and rank fields; a landuse layer may carry category and priority; a points-of-interest layer may carry type and display metadata. A sloppy layer schema creates bloated tiles and brittle styles.',
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The pyramid works because viewports align with a small set of tile keys. Panning reuses many existing tiles, zooming moves to another level of the hierarchy, and CDNs can serve hot tiles without running spatial queries.',
-        'Generalization is correct when it preserves the intended visual meaning for the zoom. It is not a promise to preserve every source vertex at every scale.',
-        'Quantization also matters. Vector tiles usually encode coordinates in a local tile extent, such as 4096 units. That makes payloads compact and renderer-friendly, but it means clipping, simplification, buffering, and coordinate rounding have to agree or the user sees cracks, jitter, and labels that drift from their features.',
-      ],
-    },
-    {
-      heading: 'Cost and behavior',
-      paragraphs: [
-        'Preprocessing spends CPU once so rendering can be cheap many times. Storage grows across zoom levels, but each request becomes a small set of cacheable objects.',
-        'Tile size is controlled by feature filtering, simplification tolerance, attribute selection, and coordinate quantization. When those rules are weak, low-zoom tiles get huge and high-zoom maps jitter or show seams.',
-        'Invalidation is the hidden systems problem. A road edit affects the high-zoom tiles it crosses, lower-zoom generalized tiles that summarize it, search or label indexes that mention it, and cache entries keyed by data version. A production pipeline needs an explicit affected-tile ledger, not a vague hope that cache expiry will clean everything up.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Vector tiles fit public basemaps, fleet maps, geospatial dashboards, and mobile maps where the same regions are viewed repeatedly under different styles.',
-        'They also fit products that need client-side styling. The server can ship geometry and attributes once, while the client switches between day mode, night mode, traffic overlays, accessibility styles, or tenant-specific styling without downloading a new raster image for every change.',
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'Do not use the same detail at every zoom. Do not omit buffers around tile edges. Do not key cache entries only by z/x/y if style, schema, or source data can change. Do not ship sensitive attributes just because the current style hides them.',
-        'Vector tiles are also not a substitute for exact geospatial analysis. A simplified tile is a display artifact. If a legal boundary, measurement, routing decision, or safety rule needs source precision, use the authoritative source geometry or a purpose-built spatial index, not the generalized tile seen by the renderer.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Suppose the source database has a residential road made of 600 vertices. At z16, the tile may keep nearly all of it because the user is looking at street scale. At z10, those vertices collapse into a much simpler line, minor service roads may be dropped, and only attributes needed for styling remain. At z6, the residential road may disappear entirely while motorways and major arterials remain.',
-        'That is not data loss in the serving system; it is the point of the hierarchy. The full source database still exists. The tile pyramid stores display-appropriate views of that source for each zoom level.',
-      ],
-    },
-    {
-      heading: 'Implementation guidance',
-      paragraphs: [
-        'Design tile schemas before optimizing geometry. Each layer should expose only the attributes needed by styles and interactions at that zoom. Extra attributes increase payload size and can leak information even when the current style does not display them.',
-        'Make invalidation explicit. Source edits should map to affected tile ranges, style or schema changes should create new cache keys, and clients should be able to roll between versions without mixing incompatible layers.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A city map updates a new bike lane. The edit touches the authoritative road table once, but it affects many derived objects: high-zoom street tiles, lower-zoom generalized road summaries, label-placement caches, and style-specific cache keys.',
-        'A disciplined tile pipeline computes the affected tile envelope across zooms, regenerates those tiles with the new data version, leaves old cached tiles addressable until clients roll forward, and then purges stale keys. Without that ledger, some users see the old road, others see the new road, and debugging becomes a cache archaeology problem.',
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        'Generalization can lie if the rules are not product-aware. Dropping a minor road may be fine for a sightseeing map and unacceptable for emergency response. Simplifying a coastline may be fine visually and wrong for parcel or flood-boundary work.',
-        'The renderer also has responsibilities the tile cannot solve alone. Label collision, icon priority, feature picking, and cross-tile symbol placement require client-side logic. A good tile pyramid gives the renderer enough data without pretending that encoding bytes is the whole map.',
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        'Track tile size, feature count, vertex count, cache hit rate, regeneration latency, and stale-version age by zoom and layer. A single average hides the usual problem: one dense urban layer or one low-zoom rule can dominate payload and render cost.',
-        'Treat privacy as part of schema review. Attributes that are not styled can still ship to the client and be inspected. The tile producer should strip fields that are unnecessary for rendering, interaction, or accessibility.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Primary sources: Mapbox Vector Tile Specification at https://mapbox.github.io/vector-tile-spec/ and Mapbox vector tile standards at https://docs.mapbox.com/data/tilesets/guides/vector-tiles-standards/. Study Quadtree Spatial Index, Hierarchical Geospatial Cells, R-tree, CDN Request Flow, and Content-Defined Chunking next.',
-      ],
-    },
+    { heading: 'How to read the animation', paragraphs: [
+      'Read the pyramid as a cache plan for map geometry. Active nodes show features being clipped, simplified, encoded, and turned into z/x/y keys.',
+      'A vector tile is encoded feature data, not a rendered image. Zoom chooses scale, x and y choose the square, layers separate feature types, and versions keep cache entries honest.',
+      {type:'callout', text:'A vector tile pyramid turns spatial queries into versioned cache keys, with each zoom level carrying only the detail that can be rendered usefully.'},
+    ] },
+    { heading: 'Why this exists', paragraphs: ['A map database can hold far more geometry than one viewport should fetch. Vector tile pyramids send bounded, reusable chunks at the detail level the screen can use.'] },
+    { heading: 'The obvious approach', paragraphs: ['The obvious approach is a database query for the current bounding box on every pan and zoom. That works for small tools, but popular regions repeat the same spatial work constantly.'] },
+    { heading: 'The wall', paragraphs: ['The wall is scale mismatch. Low zooms cannot carry every driveway, vertex, and hidden attribute without becoming huge and visually noisy.'] },
+    { heading: 'The core insight', paragraphs: ['The core insight is to precompute display-appropriate tiles by zoom. Each tile owns a bounded square, a layer contract, and a data version.'] },
+    { heading: 'How it works', paragraphs: ['The pipeline clips source features to tile bounds plus buffer, simplifies by zoom, quantizes coordinates into tile extent units, and encodes layers and attributes. The client fetches visible keys and renders the same feature data under the current style.'] },
+    { heading: 'Why it works', paragraphs: ['Correctness is scoped to display, not survey truth. A tile is correct when it preserves the intended visual meaning for its zoom, layer, and version.'] },
+    { heading: 'Cost and complexity', paragraphs: ['Preprocessing spends CPU before requests arrive. At request time, cost behaves like visible tile count times tile size, so weak low-zoom generalization can dominate render time.'] },
+    { heading: 'Real-world uses', paragraphs: ['Vector tiles fit basemaps, mobile maps, fleet dashboards, logistics tools, and geospatial analytics. They are strongest when users pan, zoom, pick features, and restyle layers repeatedly.'] },
+    { heading: 'Where it fails', paragraphs: ['A generalized tile is not authoritative geometry. Legal boundaries, routing decisions, and safety measurements need source data and a purpose-built spatial index.'] },
+    { heading: 'Worked example', paragraphs: ['A road with 600 source vertices may keep 520 vertices at z16, 60 vertices at z10, and disappear at z6 while motorways remain. A road edit must invalidate the high-zoom street tiles and any lower-zoom summaries whose derived shape changes.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: Mapbox Vector Tile Specification at https://mapbox.github.io/vector-tile-spec/ and Mapbox vector tile standards at https://docs.mapbox.com/data/tilesets/guides/vector-tiles-standards/. Study quadtrees, R-trees, CDN cache keys, and tile invalidation ledgers next.'] },
   ],
 };

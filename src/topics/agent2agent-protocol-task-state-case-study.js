@@ -299,96 +299,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'The problem',
+      heading: 'How to read the animation',
       paragraphs: [
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt:'Network of interconnected agents', caption:'Agent-to-agent communication mirrors internet routing: discovery, capability negotiation, and structured message exchange across trust boundaries. Source: Wikimedia Commons, The Opte Project, CC BY 2.5'},
-        'Agent systems stop being simple when one agent needs another agent to do real work. A travel assistant may need a payments agent. A coding assistant may need a deployment agent. An enterprise assistant may need HR, IT, procurement, and legal agents. These systems are often built by different teams, run behind different boundaries, and use different internal tools. They still need a way to discover each other, delegate work, exchange status, and deliver results.',
-        'Agent2Agent, or A2A, addresses that boundary. The central design choice is opacity. A client agent should not need access to the remote agent internal prompts, tool graph, memory, or private reasoning. It should be able to inspect a capability manifest, send a task-oriented message, follow public task state, receive artifacts, and apply its own trust and authorization rules around the interaction.',
+        'The agent-card view shows discovery for Agent2Agent, or A2A, a protocol for agents delegating tasks to other agents across boundaries. An Agent Card is a capability manifest: it tells the client what the remote agent claims to support, which endpoints and auth schemes it uses, and which input and output modes are available. Active nodes show identity, capability, and interface checks.',
+        'The task-state view shows delegated work as a state machine. A task is the durable unit of work, messages are interaction events, and artifacts are outputs. The safe inference is that the client should trust public task state and artifacts, not the remote agent internal prompts or private tool graph.',
       ],
     },
     {
-      heading: 'The naive approach',
+      heading: 'Why this exists',
       paragraphs: [
-        'The naive approach is to treat every remote agent as a custom API. The client stores a hard-coded endpoint, invents a payload shape, polls some status route, and learns by convention whether the final response is a result, an error, a progress note, or a request for more input. This can work for one integration, but each new agent adds another private contract.',
-        'Another naive approach is to collapse remote agents into tools. A tool call is usually synchronous and narrow: call this function with these arguments. Delegated agent work is often long-running, interactive, multi-modal, and policy-sensitive. A remote agent may need to ask for clarification, request authorization, stream progress, produce files, or continue a task later. That needs a task protocol, not just a function call.',
+        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/d/d2/Internet_map_1024.jpg', alt:'Network of interconnected agents', caption:'Agent-to-agent communication mirrors internet routing: discovery, capability negotiation, and structured message exchange across trust boundaries. Source: Wikimedia Commons, The Opte Project, CC BY 2.5'},
+        'Agent systems become distributed when one agent needs another to do real work. A travel agent may need payments, a coding agent may need deployment, and an enterprise assistant may need HR, IT, procurement, and legal agents. Those agents often live behind different owners, tools, policies, and credentials.',
+        'A2A exists to make that boundary explicit. The client needs to discover capabilities, send a task, follow state, handle interruptions, receive artifacts, and apply its own trust policy. It should not need the remote agent private prompt, memory, reasoning, or tool graph.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious integration is a custom API per remote agent. Store an endpoint, invent a payload, call it, poll a status route, and parse whatever response shape the team chose. This works for one integration.',
+        'Another obvious move is to model every remote agent as a synchronous tool call. That fits narrow functions but not long-running delegated work. A remote agent may need clarification, authorization, progress updates, files, cancellation, or later continuation.',
       ],
     },
     {
       heading: 'The wall',
       paragraphs: [
-        'The wall is interoperability plus control. A client needs to know who the remote agent claims to be, what skills it exposes, what authentication it requires, what inputs and outputs it supports, which protocol binding to use, and whether cached metadata is still valid. If discovery is loose, the client can route work to the wrong service, use the wrong credential, or trust stale capabilities.',
-        'Task coordination creates another wall. Long-running work has state transitions. A task can be submitted, working, waiting for input, waiting for authorization, completed, failed, rejected, or canceled. If these states are hidden in prose, the client cannot build reliable polling, streaming, retry, cancellation, approval, or user-interface behavior. Protocol shape matters because it becomes the public state machine between independent systems.',
+        'Custom APIs do not compose. Each new agent has a different discovery shape, authentication rule, progress convention, error model, and result format. Clients end up with private adapters instead of a shared delegation protocol.',
+        'Task coordination is the harder wall. Work can be submitted, working, input-required, authorization-required, completed, failed, rejected, or canceled. If those states appear only as prose, clients cannot build reliable polling, streaming, retry, cancellation, or user-interface behavior.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
         {type:'callout', text:'A2A\\u2019s key design: opacity. A client agent should not need access to the remote agent\\u2019s internal prompts, tool graph, memory, or reasoning. It only sees the Agent Card (capabilities), Task (state machine), Messages (interaction), and Artifacts (results).'},
-        'A2A separates discovery, task coordination, and result delivery. The Agent Card is a manifest and routing data structure. The Task is the durable unit of delegated work. Messages are interaction events. Artifacts are outputs. Parts carry concrete payloads such as text, files, or structured data. This gives both sides a shared vocabulary without exposing implementation internals.',
-        'The deeper insight is that agent collaboration should look like distributed workflow, not prompt concatenation. A client can ask a remote agent to do a job, then observe public state and artifacts. The remote agent remains responsible for its own tools, memory, policies, and execution. This keeps the boundary narrow enough to secure and stable enough to compose.',
+        'A2A separates discovery, task coordination, and result delivery. The Agent Card is routing data, the Task is durable work state, Messages carry interaction, and Artifacts carry deliverables. Parts hold concrete payloads such as text, files, or structured data.',
+        'The insight is that agent collaboration should look like distributed workflow, not prompt concatenation. The remote agent owns its internal tools and policies. The client owns selection, authorization, monitoring, and trust around the public protocol surface.',
       ],
     },
     {
-      heading: 'What the visualization shows',
+      heading: 'How it works',
       paragraphs: [
-        'The Agent Card view shows discovery as a sequence of checks. The client fetches a well-known card, validates identity and interface details, considers signatures or cache validators when present, reads authentication requirements, and matches skills to the work. The card is not marketing text; it is the routing table for a remote agent.',
-        'The task-state view shows why delegated work needs an explicit lifecycle. SendMessage creates or continues a task. The server may store state, start workers, stream updates, configure push notifications, and produce artifacts. The state diagram highlights nonterminal interruptions such as input required and authorization required, then separates terminal states such as completed, failed, rejected, and canceled.',
-      ],
-    },
-    {
-      heading: 'Mechanics',
-      paragraphs: [
-        'A client begins by discovering a candidate agent. It fetches the Agent Card from a known location or registry, checks that the origin and declared identity match expectations, chooses a supported interface, and obtains the required credential. It then matches the advertised skills and input/output modes against the task. If an extended card exists for authenticated clients, the public card should remain conservative and avoid leaking privileged internal details.',
-        'Work begins with a message. The server returns or updates a Task object with an id, status, metadata, optional history, and eventually artifacts. The client can poll, subscribe to streaming updates, request cancellation, or receive push notifications if configured. Messages are for interaction and status. Artifacts are for durable outputs. That distinction matters because a progress message should not be mistaken for the final deliverable.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Consider an enterprise onboarding assistant. A manager asks it to prepare onboarding for a new employee. The primary assistant discovers three remote agents: HR, IT, and procurement. It reads their Agent Cards, verifies endpoints and authentication schemes, and selects skills such as create onboarding checklist, provision laptop, create account requests, and schedule orientation. It sends scoped, task-oriented messages instead of exposing one broad internal credential to every worker.',
-        'The HR agent may complete quickly and return an artifact checklist. The IT agent may enter an authorization-required state before creating accounts. The procurement agent may stream inventory status, then push a notification when the laptop order is approved. Internally, each remote agent may use MCP tools, databases, queues, policy engines, and human approval systems. A2A coordinates agent-to-agent work; it does not replace the internal tool boundary.',
+        'A client starts by discovering a candidate agent and fetching its card. It checks origin, identity, supported protocol binding, auth schemes, skills, input modes, output modes, version, and cache freshness. If an authenticated extended card exists, the public card should stay conservative.',
+        'Work begins with a message that creates or continues a Task. The server returns a task id, status, metadata, optional history, and later artifacts. The client can poll, stream updates, cancel, or receive push notifications when configured.',
+        'Messages and artifacts have different jobs. A progress message can ask for input or report state, while an artifact is a durable output such as a report, ticket, file, or structured record. Treating progress text as final output is a common protocol bug.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'It works because it makes the coordination state explicit while preserving implementation privacy. The client does not need to inspect the remote agent chain of thought or internal tool plan. It only needs a contract: what task was accepted, what state it is in, what input or authorization is required, what artifacts were produced, and whether the task is terminal.',
-        'It also works because discovery becomes data-driven. A client can compare agent identity, protocol binding, skill ids, authentication schemes, input modes, output modes, and version information before sending work. That does not prove the remote agent is competent or safe, but it prevents many integration failures that come from guessing.',
+        'It works because coordination state is explicit while implementation stays private. The client can observe accepted, working, input-required, authorization-required, completed, failed, rejected, or canceled without inspecting chain of thought. That is enough to build retries, UI, and audit logs.',
+        'The correctness argument is boundary preservation. If the client chooses an agent from verified card data, sends scoped task messages, and advances only according to public task states, then it can coordinate work without assuming remote internals. Artifacts provide durable outputs that survive reconnects and process restarts.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'A2A adds protocol surface area. Servers must implement card hosting, authentication, task storage, state transitions, artifact handling, streaming or push delivery, cancellation semantics, and error reporting. Clients must handle stale cards, version drift, reconnects, duplicate notifications, partial artifacts, and remote refusal. For a small internal integration, a direct API may be simpler.',
-        'The protocol also leaves important policy choices to the application. Who may list tasks? Who may cancel a task? How long are artifacts retained? Are push URLs authenticated and protected from SSRF? What happens if a task is canceled while a worker is already performing an external side effect? These are not solved by naming the protocol; they must be designed.',
+        'A2A adds protocol surface. Servers must host cards, authenticate clients, store tasks, implement state transitions, handle artifacts, support streaming or push, define cancellation, and report errors. Clients must handle stale cards, duplicate messages, reconnects, version drift, partial artifacts, and refusal.',
+        'Cost behaves with task duration and artifact size. A one-second query may not justify the protocol overhead, while a two-hour onboarding workflow benefits from durable state. For small internal integrations, a direct API can be cheaper until long-running state or multi-agent composition appears.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A2A wins when independent agents need durable, observable delegation. It is useful for enterprise workflows, multi-vendor agent systems, domain-specialist agents, long-running research tasks, customer-service escalations, and operations flows where one agent coordinates several others without absorbing their internals.',
-        'It is especially strong when results are artifacts rather than chat turns. Reports, tickets, files, structured records, approvals, and generated plans need durable handles and lifecycle state. A task id gives the client something to monitor and resume after network loss, process restart, or user handoff.',
+        'A2A fits enterprise workflows, domain-specialist agents, customer-service escalation, operations flows, procurement, onboarding, research delegation, and multi-vendor agent systems. It is strongest when one coordinator needs several independent agents without absorbing their internals.',
+        'It is especially useful when results are artifacts rather than chat turns. Reports, tickets, approvals, generated files, and structured records need durable handles. A task id gives the client something to monitor, resume, cancel, and audit.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'A2A fails if teams treat a compatible card as proof of quality or trust. The card can say what the agent claims to do; it cannot prove the agent will do it well, safely, cheaply, or legally. Clients still need allow lists, evaluation, budgets, audit logs, user consent, and human review for high-impact operations.',
-        'It also fails when task state is treated as decoration. If servers emit vague status text instead of clear states, clients cannot automate. If artifacts are not durable, final outputs can be lost. If task listing lacks per-client authorization, one client may discover another client work. If push notifications are not idempotent, retries can trigger duplicate downstream actions.',
+        'A compatible card is not proof of quality or trust. It tells the client what the agent claims to support, not whether it will work safely, cheaply, legally, or accurately. Clients still need allow lists, evaluation, budgets, audit logs, consent, and human review for high-impact work.',
+        'It also fails when state is vague. If servers emit status prose instead of clear states, clients cannot automate. If artifacts are not durable or task listing lacks authorization, outputs can be lost or exposed across tenants.',
       ],
     },
     {
-      heading: 'Failure modes to test',
+      heading: 'Worked example',
       paragraphs: [
-        'Test spoofed Agent Cards, stale cache entries, downgraded protocol bindings, missing authentication scopes, cross-tenant task ids, duplicate SendMessage retries, cancellation races, webhook replay, webhook SSRF, partial artifact delivery, and status streams that reconnect after an interruption. Each test should specify the expected state transition and the durable record left behind.',
-        'Also test A2A and MCP composition. A remote agent may receive an A2A task, then use MCP tools internally. The outer protocol should not grant blanket tool authority. The worker still needs local authorization, least privilege, tracing, rate limits, and policy checks for every tool or resource it touches.',
+        'An onboarding assistant receives a request for one new employee. It discovers three remote agents: HR, IT, and procurement. It reads cards, verifies authentication, and sends scoped tasks: create checklist, provision accounts, and order laptop.',
+        'The HR task completes in 14 seconds and returns a checklist artifact. The IT task enters authorization-required because account creation touches privileged systems. The procurement task streams inventory updates, then completes 2 hours later with a purchase-order artifact.',
+        'The coordinator never receives the remote agents internal prompts or tool plans. It sees task ids, states, messages, and artifacts. If the procurement push notification repeats, idempotency on the task id prevents duplicate downstream actions.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources for this topic include the A2A specification at https://a2a-protocol.org/latest/specification/, the A2A and MCP comparison at https://a2a-protocol.org/latest/topics/a2a-and-mcp/, and the A2A project repository at https://github.com/a2aproject/A2A.',
-        'Good next topics are Model Context Protocol Case Study, JSON-RPC Protocol Case Study, Agent Tool Permission Lattice, OAuth PKCE Token Lifecycle Case Study, Zanzibar Authorization Case Study, Contract Net Agent Task Allocation, Blackboard Architecture Agent Coordination, Message Queue, Distributed Tracing, Temporal Workflow Case Study, Rate Limiter, Prompt Injection Threat Model, and AI Audit Evidence Packet Case Study.',
+        'Primary sources are the A2A specification, the A2A and MCP comparison, and the A2A project repository. Read task state, Agent Card, artifacts, authentication, push notification, and cancellation sections before designing a client.',
+        'Study next: Model Context Protocol for local tool context, JSON-RPC Protocol for request-response mechanics, OAuth PKCE Token Lifecycle for delegated authorization, Zanzibar Authorization for cross-tenant access, Contract Net Agent Task Allocation for delegation theory, Distributed Tracing for observability, and Prompt Injection Threat Model for trust boundaries.',
       ],
     },
   ],

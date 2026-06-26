@@ -254,100 +254,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'Read each frame as before, action, and after. Before is the local variables, stack frame, heap object identities, and program counter before one operation. Action is the executed step, and after is the smallest state change that step caused.',
+        'Object ids are the important visual detail. If xs and ys point to heap object 17, a mutation through ys must change what xs later sees. The safe inference rule is that a trace explains a later value only when the alias edge and the mutation both appear.',
+        {type:'callout', text:'A useful code trace records before/action/after state with object identity, so runtime behavior can be replayed instead of merely described.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'A model can read code text and still miss what the code does at runtime. Mutation, aliases, exceptions, loop edges, and returns are state changes, not just words in a file. An execution trace state diff records those changes one step at a time.',
-        'Each event stores a source location, stack frame, locals, heap object ids, aliases, control-flow edge, exception or return value, and the before/action/after diff. This is the data-structure version of the Code World Models idea: teach models what code does by showing machine state transitions.',
-        {type:'callout', text:'A useful code trace records before/action/after state with object identity, so runtime behavior can be replayed instead of merely described.'},
+        'A model can read code text and still miss what the code does at runtime. Mutation, aliases, exceptions, loop edges, returns, and IO are state changes, not just words in a file. An execution trace state diff records those changes one step at a time.',
+        'This matters for teaching and for code-world-model data. A transcript that says line 8 ran is weak when the lesson is that a shared list changed through another name. A state diff can show the causal edge that a value-only log hides.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious teaching data is a transcript: show the code, print variable values after each line, and save the final answer. That is enough for straight-line arithmetic and short examples because the reader can infer the missing state.',
-        'The wall appears with real programs. If xs and ys point to the same list, printing only variable values hides the alias. If an exception jumps to a handler, a line list hides the control-flow edge. If a loop repeats the same line, a transcript can show where the program was but not why the next state is different.',
+        'The obvious approach is to print variable values after each line. That is enough for straight-line arithmetic because the reader can infer the missing state. It is also easy to store and easy to display.',
+        'The next approach is a line-by-line transcript with comments. That helps a human, but it still confuses location with semantics. A program can visit the same line many times and produce different state because the heap, stack, or control-flow edge changed.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall appears with aliases and nonlocal control flow. If xs and ys reference the same list, printing only values can make the later return look surprising. If an exception jumps to a handler, a plain line list hides why the next program counter changed.',
+        'The wall also appears with scale. Full snapshots after every step are simple, but a 10,000-step trace with 1 MB snapshots would store about 10 GB. Delta records and checkpoints are needed so the trace remains inspectable and replayable.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The trace must describe state transitions, not line visits. The stable unit is a before/action/after diff keyed by program counter and object identity. A later event should be explainable from the previous state plus the action that ran.',
-        'The CWM paper reports mid-training on observation-action trajectories from Python interpreter and agentic Docker environments, with step-by-step Python execution simulation as a central research target: https://arxiv.org/abs/2510.02387. The local Code World Models Breakdown notes sharpen the same point: the value lies less in code text than in verified execution and verification factories.',
-      ],
-    },
-    {
-      heading: 'How to inspect a trace',
-      paragraphs: [
-        'Inspect a trace as a chain of state transitions. Each event should answer four questions: where was execution, what action ran, what state existed before, and what changed afterward. A line number alone is not enough. The trace must preserve frames, heap identity, aliases, control-flow edges, and exceptional exits.',
-        'The best trace is replayable. Starting from a checkpoint, a verifier should be able to apply the recorded events and reconstruct later state. If the trace is only prose, it may be useful for a human explanation but weak as training data or as evidence for a model repair.',
+        'The stable unit is a state transition, not a visited line. A transition names the program counter, stack frame, relevant heap ids, pre-state, operation, post-state, and proof context. Later state should be reconstructible from earlier state plus the recorded operation.',
+        'The trace is a semantic ledger for execution. It records the facts needed to replay behavior before adding prose summaries or model-facing compression. That order matters because a summary can be useful only if the underlying state change is still checkable.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A basic trace event has a program counter, operation kind, pre-state, post-state, and proof context. Pre-state and post-state name object identity, not just printed values. If xs and ys both point to the same list, a mutation through ys updates the same heap object that xs later reads. Without alias information, the model sees a surprising value change with no causal edge.',
-        'The same event log also records control flow. Function calls create frames, loops update the next program counter, exceptions move through handlers, and returns transfer values back to callers. That makes the trace close to a write-ahead log for program semantics: append the raw event first, derive summaries later, and keep enough information to replay the result.',
+        'A basic event stores the source location, operation kind, frame id, locals, heap object ids, aliases, control-flow edge, exception or return value, and before/action/after diff. Names point to object ids rather than independent copies of values. A mutation changes the object, and all aliases see that same object later.',
+        'The event log also records control flow. Calls create frames, returns transfer values to callers, loops update the next program counter, and exceptions move through handlers. Periodic checkpoints bound replay time, while deltas keep storage smaller than full snapshots.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument is local reconstruction. For each event, the verifier should be able to start from the before-state, apply the recorded action semantics, and obtain the after-state. If this holds for every event and the control-flow edges connect in order, the whole trace replays.',
-        'Aliases are the main reason object identity matters. The invariant is that every name referring to the same mutable object must point to the same heap id. A mutation changes the object, not each variable separately. That invariant lets the trace explain changes that value-only logs make mysterious.',
+        'The correctness argument is local reconstruction. For each event, a verifier starts from the before-state, applies the recorded operation semantics, and checks that it obtains the after-state. If every event checks and control-flow edges connect, the whole trace replays.',
+        'The alias invariant is the key. Every name that refers to the same mutable object must carry the same heap id until an assignment changes that reference. That invariant lets the trace explain value changes that a print log makes mysterious.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Full snapshots are simple but expensive. Delta traces are smaller but require periodic checkpoints so replay remains bounded. Semantic annotations can explain why a span matters, but they are not a substitute for state. A safe compressor keeps hashes, checkpoints, and verifier hooks so the compressed trace can be checked against the original execution.',
-        'The important design line is symbolic plus neural. A symbolic interpreter can produce exact state. A neural model can learn summaries, skip boring spans, and inject semantic context. The production structure should let the neural side compress or predict while the symbolic side verifies reconstruction, especially around aliasing, exceptions, IO, and nondeterminism.',
+        'Full snapshots cost O(steps times state size). Delta traces cost closer to O(changed state) per step, plus checkpoint storage. If a 10,000-step run changes 2 KB per step and checkpoints 1 MB every 500 steps, the trace is about 40 MB instead of 10 GB.',
+        'The engineering cost is runtime-specific modeling. Python, Rust, JVM, GPU kernels, databases, and distributed workflows expose different state. A good format must name what it does not model, because IO, clocks, seeds, shared memory, and network events can break replay.',
       ],
     },
     {
-      heading: 'Where it wins',
+      heading: 'Real-world uses',
       paragraphs: [
-        'State-diff traces win when the learning target is execution behavior: predicting the next state, explaining a wrong output, debugging a repair, or training a model to reason about mutation and control flow. They also give a trajectory store a verifiable input instead of a loose natural-language explanation.',
+        'State-diff traces are useful for debugger education, model training on next-state prediction, repair debugging, verified agent trajectory stores, and interpreters that need explainable execution. They teach mutation and control flow better than plain code text. They also give a verifier something concrete to replay.',
+        'They are especially useful in curricula that move from arithmetic to heap mutation, function frames, exceptions, generators, IO, and concurrency. Each added feature can be taught as one more kind of state transition. The learner sees why a program changed, not only where it was.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'This structure is heavy for simple examples and incomplete when the runtime state is not well defined. Python, Rust, JVM, GPU kernels, databases, and distributed workflows need different state models. A trace that omits IO, clocks, seeds, or shared memory can replay cleanly in the small example and still fail on the real bug.',
+        'It fails when the trace omits the state that caused the behavior. A trace without object identity cannot teach aliasing, and a trace without exception objects cannot teach handler flow. A trace without IO, seeds, or clock values may replay the toy example but fail on the real bug.',
+        'It can also be too heavy for simple lessons. A short pure function may need only an expression tree and final value. The trace format should scale down to the concept being taught instead of forcing every topic to carry a full runtime dump.',
       ],
     },
     {
-      heading: 'Evaluation signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Evaluate a trace format by replay success, alias preservation, exception-path coverage, heap-object identity accuracy, checkpoint size, compression ratio, and whether a model trained on it improves next-state prediction rather than only final-answer prediction. The target is not a pretty transcript; it is a verified sequence of semantic changes.',
-        'A strong corpus includes boring straight-line examples and hard cases: mutation through aliases, closures, recursion, exceptions, generators, IO, nondeterminism, and concurrency. The trace should make the hidden state visible enough that a learner can explain why the next value changed.',
+        'Consider a Python function that sets xs = [1], sets ys = xs, calls ys.append(2), and returns xs. A value transcript says xs is [1], append happened, return is [1, 2]. The missing fact is that xs and ys shared heap object 17.',
+        'The state-diff trace records xs -> 17 and ys -> 17 before append. The append event changes object 17 from [1] to [1, 2]. The return event reads xs -> 17, so the returned value follows from the alias invariant instead of from a memorized pattern.',
       ],
     },
     {
-      heading: 'Compression and curriculum',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Trace compression should be staged. Early lessons can keep full state snapshots because the point is clarity. Larger corpora need deltas, checkpoints, hashes, and summary spans. The compression must never erase the very state transition the learner is supposed to understand. If aliasing is the lesson, object identity must survive. If exception control flow is the lesson, the thrown object and handler edge must survive.',
-        'A good curriculum builds from small traces to real runtimes. Start with local variables and arithmetic. Add heap objects and aliases. Add function frames. Add exceptions. Add IO and nondeterminism. Add concurrency only after students can explain why single-threaded state changes are represented as before/action/after diffs.',
-      ],
-    },
-    {
-      heading: 'What to remember',
-      paragraphs: [
-        'An execution trace state diff is a semantic ledger for code. It records before/action/after state, not just visited lines. That makes it useful for code world models, verified agent trajectories, repair debugging, and teaching mutation-heavy programs.',
-        'The deep lesson is that code understanding needs runtime evidence. Source text says what might happen. A replayable trace says what did happen and why the state changed.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'Take a Python function that creates a list, assigns a second variable to that same list, appends through the second variable, and returns the first. A text transcript says "append happened." A state-diff trace records xs -> object 17, ys -> object 17, object 17 changed from [1] to [1, 2], and return read object 17. That is the data needed for a model to learn mutation semantics rather than memorize a surface pattern.',
-        'In a trajectory store, this trace becomes a training example, a debugging artifact, and a verifier input. The model can be asked to predict the next state, explain why an output changed, or decide whether a proposed patch changes the failing path. The same structure links naturally to Verified Agent Trajectory Store, Distributed Tracing, Write-Ahead Log, and Interpreter Dispatch Table & Threaded Code.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Do not store trace prose when the learner needs state. Do not drop alias edges, exception objects, IO events, seeds, or timing metadata just because they are rare. Do not train on traces that cannot be replayed.',
-        'Primary sources: CWM at https://arxiv.org/abs/2510.02387 and the Meta research page at https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/. Study Code World Models Case Study, Verified Agent Trajectory Store, Dynamic Scratchpad Execution Trace Case Study, Abstract Agent Operation Graph, Rust Borrow Checker Ownership Trace, JVM Happens-Before Execution Trace, Financial Contract Lifecycle Event Model, Double-Entry Payment Ledger Execution Trace, Distributed Tracing, Write-Ahead Log, Interpreter Dispatch Table & Threaded Code, Parser Design Patterns Primer, and Execution-as-a-Service Verifier Economy Case Study next.',
+        'Study Code World Models, dynamic program tracing, Python interpreter semantics, write-ahead logs, distributed tracing, record-replay debugging, and debugger data models. Then study Verified Agent Trajectory Store, Dynamic Scratchpad Execution Trace Case Study, Abstract Agent Operation Graph, Rust Borrow Checker Ownership Trace, JVM Happens-Before Execution Trace, and Interpreter Dispatch Table and Threaded Code.',
+        'The next exercise is to trace one aliasing example and one exception example. For each event, write the before-state, action, after-state, and the invariant that makes the transition checkable. If the trace cannot reconstruct the output, it is still a caption rather than evidence.',
       ],
     },
   ],

@@ -198,97 +198,67 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The handshake view traces trust construction left to right: ClientHello negotiates, ServerHello selects, Certificate and CertificateVerify bind identity, Finished authenticates the transcript, and application data flows only after all checks pass. Active nodes are the current trust-building step. Found nodes are commitments already locked in.',
-        'The key-schedule view shows derivation flow. Secrets enter on the left (optional PSK, fresh ECDHE), pass through HKDF stages, get contextualized by the transcript hash, and split into per-direction traffic keys on the right. Each edge is a derivation dependency, not a message on the wire.',
-        'Watch for the separation between authentication (certificate, signature, MAC) and key derivation (HKDF, transcript hash). TLS 1.3 keeps these roles distinct so that compromising one mechanism does not automatically break the other.',
+    { heading: 'How to read the animation', paragraphs: [
+        'Read the handshake as a sequence of transcript-bound secrets. Active nodes are the messages currently being sent or the key derivation step currently producing a new traffic secret.',
+        'A transcript is the ordered bytes of handshake messages seen so far, and HKDF is the hash-based key derivation function TLS 1.3 uses to turn shared secrets into separate keys. The safe inference rule is that each later key is bound to both fresh key exchange material and the exact transcript that negotiated it.',
         {type:'callout', text:'TLS 1.3 builds trust by deriving keys from fresh secrets and then authenticating the exact transcript that selected them.'},
         {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/7/73/Full_TLS_1.3_Handshake.svg', alt:'Timeline diagram of a full TLS 1.3 handshake between client and server.', caption:'Full TLS 1.3 handshake diagram, Fleshgrinder and The People from The Tango! Desktop Project, public domain, via Wikimedia Commons.'},
       ],
     },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        'Application protocols begin with an unsafe assumption: bytes sent over a network arrive privately and unchanged. Real networks give no such guarantee. Attackers can read packets, replay them, inject new ones, tamper with negotiation, impersonate servers, and record traffic for later decryption. HTTP by itself defends against none of that.',
-        'TLS 1.3 (RFC 8446) turns an untrusted transport into an authenticated, encrypted record stream. It answers several questions simultaneously: which cryptographic algorithms do the peers agree on? How do they create a fresh shared secret without transmitting it? How does the client know the server owns the requested hostname? How do both sides prove that no attacker altered the handshake? How are application keys separated from handshake keys?',
+    { heading: 'Why this exists', paragraphs: [
+        'TLS 1.3 exists to let a client and server create encrypted, authenticated traffic keys over an untrusted network. The network can read, delay, replay, and modify packets, so the protocol must turn unauthenticated bytes into shared keys only when the parties agree on what happened.',
+        'The handshake key schedule is the part that separates secrets by purpose. Handshake traffic, application traffic, exporter keys, and resumption secrets must not collapse into one reusable key, because one leak or misuse would then endanger every phase.',
       ],
     },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious idea is to encrypt with a pre-shared password or server secret. If both sides already hold a symmetric key, they can protect messages with authenticated encryption. That works after setup, but pushes the hardest problem backward: how did the client and server safely get the same key? Sending the key over the connection exposes it to anyone watching.',
-        'A second idea is to use the server\'s long-term RSA private key to encrypt a session secret chosen by the client. TLS 1.2 in RSA key-transport mode worked this way: the client generated a random pre-master secret, encrypted it under the server\'s RSA public key, and sent the ciphertext. Both sides derived session keys from that shared value. This is simple and requires only one key-exchange message.',
+    { heading: 'The obvious approach', paragraphs: [
+        'The obvious approach is to run Diffie-Hellman once, get a shared secret, and use it directly as the encryption key. Diffie-Hellman is a method where two parties create a shared secret over a public channel without sending the secret itself.',
+        'A second obvious approach is to authenticate only the server certificate and then trust the rest of the negotiation. That misses downgrade and transcript-substitution attacks, where an attacker tries to make the parties believe they agreed to different parameters.',
       ],
     },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'RSA key transport has a fatal long-term weakness: forward secrecy is absent. If an attacker records every ciphertext today and steals the server\'s RSA private key next year, every recorded session becomes readable. The session secret was encrypted directly under that key, so a single key compromise unlocks the entire archive. TLS 1.2 allowed this mode, and many deployments used it.',
-        'Encryption alone is also not enough. A man-in-the-middle can alter the ClientHello, strip stronger cipher suites, substitute a different certificate, or make the peers disagree about negotiated parameters. A protocol that encrypts data but does not authenticate the negotiation is vulnerable at the exact moment security parameters are chosen. TLS must bind version, cipher suite, key shares, extensions, certificate identity, signature, and traffic secrets to one transcript. If any earlier byte changes, a later verification step must fail.',
+    { heading: 'The wall', paragraphs: [
+        'The wall is key separation and agreement. One raw shared secret does not say which cipher suite, protocol version, server identity, extensions, or handshake messages created it.',
+        'If the transcript is not authenticated, an attacker can tamper with negotiation even if it cannot compute the final secret. If secrets are not separated by phase, a key used for one purpose can become dangerous when reused for another purpose.',
       ],
     },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'TLS 1.3 solves both problems with two interlocking mechanisms: mandatory ephemeral Diffie-Hellman for forward secrecy, and the transcript hash as the binding spine of the handshake.',
-        'Forward secrecy comes from ECDHE (Elliptic Curve Diffie-Hellman Ephemeral). Each side generates a throwaway key pair for every connection. They exchange public shares in ClientHello and ServerHello, then independently compute the same shared secret using elliptic-curve scalar multiplication. The ephemeral private keys are discarded after derivation. Even if the server\'s long-term certificate key is later compromised, past session secrets remain safe because they depended on ephemeral keys that no longer exist.',
-        'Transcript binding comes from hashing every handshake message into a running digest. CertificateVerify signs that digest with the server\'s certificate key, proving the certificate owner participated in this exact negotiation. Finished messages MAC the transcript with keys derived from the ephemeral secret. If an attacker changed any negotiation byte, the hash changes, and verification fails. The certificate now authenticates identity rather than transporting secrets, which is why TLS 1.3 removed RSA key exchange entirely.',
+    { heading: 'The core insight', paragraphs: [
+        'The core insight is to derive a tree of secrets from inputs that include the Diffie-Hellman shared secret and hashes of the transcript. HKDF extracts entropy and expands it with labels, so each key is tied to a purpose and phase.',
+        'The Finished message authenticates the transcript using a key derived from the handshake secret. If either side saw different handshake bytes, its Finished verification fails, so the protocol catches tampering before application data is trusted.',
       ],
     },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The TLS 1.3 full handshake completes in one round trip (1-RTT), down from two in TLS 1.2. The client sends ClientHello containing supported versions, cipher suites, signature algorithms, named groups, SNI, ALPN, and one or more ECDHE key shares. Sending the key share speculatively in the first message is what eliminates the extra round trip: the client guesses which curve the server will pick.',
-        'The server replies with ServerHello, selecting compatible parameters and contributing its own key share. Both sides now independently compute the same ECDHE shared secret. From this point, everything after ServerHello is encrypted under handshake traffic keys derived from the shared secret plus the transcript hash so far. The server sends its certificate chain, a CertificateVerify signature over the transcript hash, and a Finished MAC. These three messages travel in one flight, all encrypted.',
-        'The client validates the certificate chain to a trusted root, checks hostname coverage, verifies the CertificateVerify signature against the transcript, and checks the server\'s Finished MAC. If everything passes, the client sends its own Finished and both sides derive application traffic keys. Application data can flow immediately after the client\'s Finished.',
+    { heading: 'How it works', paragraphs: [
+        'The client sends ClientHello with supported versions, cipher suites, extensions, and key shares. The server replies with ServerHello choosing parameters and providing its key share, which lets both sides compute the same Diffie-Hellman shared secret.',
+        'TLS 1.3 then uses HKDF-Extract and HKDF-Expand-Label to derive handshake traffic secrets, handshake encryption keys, application traffic secrets, and later exporter or resumption secrets. Certificate and CertificateVerify authenticate the server identity, while Finished authenticates the transcript.',
       ],
     },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The handshake\'s security rests on three invariants maintained across every step. First, the ECDHE shared secret is fresh per connection because both key pairs are ephemeral. An attacker who does not know either private key cannot compute the shared secret, even with full network visibility. This is the discrete-logarithm hardness assumption on the chosen elliptic curve (typically x25519 or P-256).',
-        'Second, the transcript hash accumulates every handshake byte into a single digest. CertificateVerify signs this digest, so the signature is valid only if the signer saw the same ClientHello, ServerHello, and extensions the client saw. If an attacker altered any field, the client\'s local transcript hash diverges from what was signed, and verification fails. This prevents downgrade attacks: stripping a strong cipher from the offer changes the hash.',
-        'Third, Finished messages MAC the full transcript with keys derived from the ECDHE secret. Both sides must produce the correct MAC, which proves they computed the same shared secret and saw the same transcript. A man-in-the-middle running two separate handshakes (one with each peer) would need to produce Finished MACs consistent with both transcripts, which requires knowing the ephemeral secrets of both sessions.',
+    { heading: 'Why it works', paragraphs: [
+        'The correctness argument is that both honest parties derive the same secrets only if they used the same cryptographic inputs. The Diffie-Hellman exchange gives a shared secret, and transcript hashes bind the derived keys to the messages that selected protocol parameters.',
+        'Authentication closes the loop. The certificate chain tells the client which public key belongs to the server name, CertificateVerify proves the server controls the private key, and Finished proves the transcript was not silently changed.',
       ],
     },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'A full TLS 1.3 handshake costs one network round trip, two elliptic-curve scalar multiplications (one per side for ECDHE), one signature verification (CertificateVerify), certificate-chain validation, transcript hashing, and HKDF key derivation. In most deployments, network latency dominates CPU cost. The 1-RTT design saves 50-100ms compared to TLS 1.2\'s 2-RTT handshake on typical internet links.',
-        'Certificate operations add operational cost beyond the handshake itself: issuance, renewal, private-key custody, hostname coverage, revocation strategy (OCSP stapling or CRL), and clock correctness across the fleet. TLS 1.3 simplified cipher-suite negotiation by removing insecure options (RC4, CBC-mode, RSA key exchange, static DH), which reduces the configuration surface but means older clients that only support removed modes cannot connect.',
-        'Session resumption with PSK (pre-shared key from a previous handshake) can skip certificate verification and reduce the handshake to a single round trip with lower CPU. 0-RTT resumption eliminates even that round trip for the first application data, but introduces replay risk: captured 0-RTT bytes can be resent by an attacker, so only idempotent, replay-safe operations belong in early data. The key schedule section of the animation shows how PSK and ECDHE secrets feed separate derivation paths.',
+    { heading: 'Cost and complexity', paragraphs: [
+        'A full TLS 1.3 handshake costs one round trip before application data under ordinary 1-RTT mode. On a 100 ms network path, that round trip adds about 100 ms before the first protected request can complete, before counting certificate validation and server processing.',
+        'CPU cost comes from key exchange, certificate signature verification, HKDF operations, and AEAD setup, where AEAD means authenticated encryption with associated data. HKDF hashes are cheap compared with public-key operations, but every connection still pays parsing, validation, and state-machine complexity.',
       ],
     },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        'TLS 1.3 is the correct default for HTTPS, APIs, service-to-service calls, database connections, message brokers, package registries, and any protocol needing confidentiality and integrity over an untrusted network. Every major browser, web server, and cloud load balancer supports it. HTTP/2 requires TLS in practice, and HTTP/3 (QUIC) embeds TLS 1.3 directly into the transport.',
-        'The mandatory forward secrecy and simplified negotiation also matter for compliance and auditing. TLS 1.3 removed the ability to passively decrypt traffic with the server\'s RSA key, which broke some enterprise middlebox inspection setups but closed the archival-compromise vulnerability for everyone else. Organizations that need traffic inspection must now use explicit proxies with their own certificate authority, making the interception visible rather than silent.',
+    { heading: 'Real-world uses', paragraphs: [
+        'TLS 1.3 protects HTTPS, HTTP/2, HTTP/3 through QUIC, database connections, service mesh traffic, APIs, package registries, and many mobile app backends. The access pattern is repeated client-server connections where confidentiality and server authentication are required.',
+        'The key schedule also supports exporters and resumption. Exporters let protocols derive extra keys from the TLS connection, while resumption lets later connections use a pre-shared key created by a previous handshake.',
       ],
     },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        'TLS protects bytes in transit. It does not decide whether a user may call an API, whether a JWT audience is correct, whether a cookie resists cross-site scripting, whether an OAuth scope grants access, or whether a WebAuthn assertion should be accepted. Those are application-layer checks. TLS gives them a protected channel; it does not replace them.',
-        'TLS also cannot protect data before encryption or after decryption. Malware on the client, compromised server code, unsafe logging, memory disclosure, and misconfigured reverse proxies that forward plaintext across networks assumed to be safe all expose data outside the transport layer. A padlock icon means the channel to the authenticated endpoint passed TLS checks, not that the endpoint itself is trustworthy in every sense.',
-        'Common deployment failures include disabling certificate validation in development and shipping that code, trusting a private CA too broadly, letting certificates expire, losing private keys, and terminating TLS at a proxy then forwarding plaintext internally. 0-RTT early data deserves special care: it can be replayed, so payments, login mutations, and inventory changes must not ride in 0-RTT unless the application layer has its own idempotency and replay handling.',
+    { heading: 'Where it fails', paragraphs: [
+        'TLS does not prove the application is safe. It can encrypt a request to the right server while the application still accepts replayed actions, broken authorization, bad certificate deployment, or secrets leaked above the TLS layer.',
+        'It also depends on correct implementation and policy. Weak random number generation, bad certificate validation, unsupported legacy fallback, side-channel bugs, or mishandled session tickets can break the security story even when the RFC design is sound.',
       ],
     },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'A browser connects to api.example.com. Its ClientHello includes SNI api.example.com, ALPN h2, cipher suites (TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256), supported groups (x25519, P-256), signature algorithms (ECDSA-SHA256, RSA-PSS-SHA256), and an x25519 key share. This single message is 200-300 bytes.',
-        'The server picks TLS 1.3, selects TLS_AES_256_GCM_SHA384 with x25519, and returns its own x25519 public key share in ServerHello. Both sides compute the 32-byte ECDHE shared secret by multiplying their private scalar against the other\'s public point. From here, every subsequent message is encrypted under handshake traffic keys derived via HKDF from the shared secret and transcript hash.',
-        'The server sends its certificate chain (leaf covering *.example.com, intermediate, root omitted because the client already trusts it), then CertificateVerify: a signature over the transcript hash using the leaf certificate\'s private key. Then Finished: a MAC over the full transcript. The client verifies the chain, hostname, signature, and MAC. If any check fails, the connection aborts before any application data is sent. On success, both sides derive application traffic keys and begin exchanging HTTP/2 frames under AEAD encryption.',
+    { heading: 'Worked example', paragraphs: [
+        'Suppose a browser connects to example.com with TLS_AES_128_GCM_SHA256 and x25519. The network round trip is 80 ms, certificate verification takes 4 ms, and HKDF plus symmetric setup takes 1 ms, so the visible full-handshake setup cost is about 85 ms before server application processing.',
+        'Both sides compute the same x25519 shared secret and derive handshake traffic keys. The server sends Certificate, CertificateVerify, and Finished under handshake encryption, and the client checks that Finished matches the transcript hash it computed locally.',
+        'If an attacker changed the cipher suite in ClientHello, the client and server transcript hashes differ. Finished verification fails, so application traffic keys are not accepted even though packets still arrived over the network.',
       ],
     },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary source: RFC 8446 (TLS 1.3) at https://www.rfc-editor.org/rfc/rfc8446. The key-schedule diagrams in Section 7.1 repay slow reading. RFC 5280 defines X.509 certificate path validation. RFC 7748 specifies x25519 and x448 key exchange.',
-        'Prerequisite: Diffie-Hellman key exchange and elliptic-curve basics. If the phrase "both sides compute the same shared secret without sending it" feels like magic, study DH first. Extension: TLS 1.3 Resumption & 0-RTT Ticket Cache for PSK binders, ticket lifecycle, and replay boundaries. Related: ACME Order Challenge Certificate Issuance for automated certificate management, QUIC Transport for TLS 1.3 embedded in a UDP transport, and Finite State Machine for modeling the handshake as ordered protocol state.',
+    { heading: 'Sources and study next', paragraphs: [
+        'Primary source: RFC 8446 at https://www.rfc-editor.org/rfc/rfc8446, especially sections 2, 4, 7, 8, and Appendix E. The RFC defines the TLS 1.3 handshake, transcript hashes, key schedule, resumption, and 0-RTT limits.',
+        'Study Diffie-Hellman key exchange, HKDF, AEAD ciphers, certificate chains, Certificate Transparency, TLS resumption, QUIC, and 0-RTT replay next. The useful next question is which secret protects which bytes and which transcript each secret commits to.',
       ],
     },
   ],

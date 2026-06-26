@@ -186,287 +186,56 @@ export function* run(input) {
   else throw new InputError('Pick a contraction-hierarchy view.');
 }
 
-export const article = {
-  sections: [
-    {
-      heading: 'How to read the animation',
-      paragraphs: [
-        'The animation has two views. "Preprocess" shows the offline pipeline: rank vertices by importance, contract low-ranked ones, run witness searches, and emit shortcuts. "Fast query" shows the online payoff: a bidirectional upward search on the compressed graph, then shortcut unpacking into the original road sequence.',
-        {
-          type: 'bullets',
-          items: [
-            'Active (highlighted) nodes are the current decision point: a vertex being ranked, a neighbor pair under witness search, or an upward edge being relaxed.',
-            'Compare marks show original low-level paths that the witness search must beat to avoid adding a shortcut.',
-            'Found marks are durable artifacts: assigned ranks, committed shortcuts, and final route metadata.',
-          ],
-        },
-        {
-          type: 'note',
-          text: 'Safe inference rule: if every path from u to w that avoids v costs more than weight(u,v) + weight(v,w), then a shortcut u-w with that combined weight is required before v can be hidden from future queries.',
-        },
-      ],
-    },
-    {
-      heading: 'Why this exists',
-      paragraphs: [
-        {
-          type: 'quote',
-          text: 'The key idea is to add shortcut edges to the graph during a preprocessing phase so that a subsequent query phase can avoid exploring low-degree vertices altogether.',
-          attribution: 'Geisberger, Sanders, Schultes, Delling, "Contraction Hierarchies: Faster and Simpler Hierarchical Routing in Road Networks" (2008), Section 1',
-        },
-        'A road router answers the same question all day: given a source, a target, and a travel profile, return an exact shortest route fast enough for an interactive product. The graph can contain tens of millions of vertices and edges, but the physical topology changes far more slowly than requests arrive. A continental road graph might update once a day; the service handles thousands of queries per second.',
-        {type:'callout', text:'Contraction hierarchies buy fast routes by turning stable road topology into ranked shortcuts with witness-proofed distance preservation.'},
-        {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/31/Road-movement-hierarchy.svg', alt:'A road network diagram with arrows moving from local access roads through collection, distribution, transition, and main movement.', caption:'Hierarchy of traffic movement in road networks. Source: Wikimedia Commons, Ftrebien, CC0 1.0.'},
-        'Running a full shortest-path search for every request wastes that stability. Dijkstra is exact but expands broadly from the source. A* uses geometry to bias the search, but it still rediscovers the same local streets, connectors, arterials, and highway entrances on query after query. Every request pays for structure that has not changed since the last map build.',
-        'Contraction hierarchies move stable work into preprocessing. They build a shortcut graph that preserves shortest-path distances for a chosen metric, then answer queries by searching mostly upward through that hierarchy. The result touches far fewer vertices and unpacks shortcuts only for the final route.',
-        {
-          type: 'table',
-          headers: ['Scale marker', 'Typical value'],
-          rows: [
-            ['European road graph', '~18M vertices, ~42M edges'],
-            ['Preprocessing time', '5-30 minutes (depends on metric and order quality)'],
-            ['Query: plain Dijkstra', '~500,000 vertices settled per query'],
-            ['Query: CH', '~500-1,000 vertices settled per query'],
-            ['Speedup factor', '500x-1,000x fewer settled vertices'],
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'The obvious approach',
-      paragraphs: [
-        'The obvious exact baseline is Dijkstra with a priority queue. Settle the unsettled vertex with the smallest tentative distance, relax outgoing edges, stop when the target is settled. Correctness is clean as long as edge weights are nonnegative.',
-        'A reasonable improvement is A*. Use a lower-bound heuristic -- typically straight-line distance divided by maximum road speed -- to focus the search toward the target. This is often much faster than uninformed Dijkstra and easy to combine with turn costs.',
-        {
-          type: 'diagram',
-          text: 'Dijkstra from S:\n  settles outward in all directions\n  visits ~500K vertices on a continental graph\n  finds shortest path to T after broad expansion\n\nA* from S toward T:\n  biases toward T using heuristic\n  visits ~50K-200K vertices (geometry helps)\n  still rediscovers local streets near S and T\n\nCH query from S to T:\n  forward search climbs upward from S\n  reverse search climbs upward from T\n  meets at a high-ranked vertex\n  visits ~500-1,000 vertices total',
-          label: 'Search footprint comparison on the same graph',
-        },
-        'Both baselines remain important. Contraction hierarchies do not replace the concept of shortest path; they specialize it for a graph that will be queried many times under the same metric. The question is whether expensive preprocessing is worth buying smaller online searches.',
-        {
-          type: 'table',
-          headers: ['Approach', 'Stored before query', 'Query behavior', 'Main limit'],
-          rows: [
-            ['Dijkstra', 'Original weighted graph', 'Expands outward by smallest tentative distance', 'Repeats broad exploration for every request'],
-            ['A*', 'Graph + admissible heuristic', 'Prefers nodes closer to target', 'Still rediscovers local structure each time'],
-            ['CH', 'Ranks, shortcuts, unpack metadata', 'Bidirectional upward search on compressed graph', 'Pays preprocessing time and update complexity'],
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        'The wall is repeated exploration. A long route starts in local streets, climbs to larger roads, crosses a high-level corridor, then descends near the destination. Plain query-time search repeats that climb-cross-descend discovery for every source-target pair.',
-        {
-          type: 'diagram',
-          text: 'Road hierarchy (informal, but real):\n\n  highway          ========================\n                  /                        \\\n  arterial     --/--                    --\\--\n              /      \\                /      \\\n  collector  /        \\              /        \\\n            /          \\            /          \\\n  local    S  . . . . .  ramp    ramp  . . . .  T\n\nDijkstra re-discovers this staircase on every query.\nCH encodes it once: low-rank local vertices are contracted,\nhigh-rank highway vertices survive, shortcuts skip the stairs.',
-          label: 'The informal road hierarchy that CH formalizes',
-        },
-        'A standard shortest-path algorithm treats this hierarchy as an accident of edge weights. It has no precomputed proof that certain local intersections can be skipped safely. The hard part is the word "safely" -- it is easy to add a shortcut that seems plausible. It is harder to guarantee that removing a low-importance vertex does not lose a shortest path or invent a cheaper-than-real route.',
-        {
-          type: 'note',
-          text: 'Bidirectional Dijkstra halves the search radius but still settles tens of thousands of vertices per query. ALT (A* with landmarks and triangle inequality) does better but still lacks precomputed shortcuts. The wall is not just direction -- it is redundant local expansion.',
-        },
-      ],
-    },
-    {
-      heading: 'The core insight',
-      paragraphs: [
-        'Encode the road hierarchy as vertex ranks and preserve distances while removing low-ranked vertices. Contract unimportant vertices first. If a shortest path between two remaining neighbors would have gone through the contracted vertex, add a shortcut edge with the same cost.',
-        'A shortcut is not a new road. It is a compressed certificate that a lower-level path exists and has a known weight. The shortcut stores enough unpacking metadata to recover the original sequence of road edges for turn-by-turn output, geometry, and audit.',
-        {
-          type: 'diagram',
-          text: 'Before contraction:\n  A --1-- B --1-- C --1-- D        (B and C are low-rank)\n\nContract B (rank 1):\n  Witness search: is there an A-to-C path avoiding B with cost <= 2?\n  No witness found.  Add shortcut A --2-- C.\n  A ======2====== C --1-- D\n\nContract C (rank 2):\n  Witness search: is there an A-to-D path avoiding C with cost <= 3?\n  No witness found.  Add shortcut A --3-- D.\n  A ============3============ D\n\nQuery uses only upward edges:\n  forward:   S -> A -> D    (shortcuts skip B, C)\n  reverse:   T -> D\n  Unpack A-D -> A-C-D -> A-B-C-D   (recursive)',
-          label: 'Contraction, witness search, and shortcut creation',
-        },
-        'After many contractions, any shortest path can be represented as a path that climbs in rank from the source to some high-ranked meeting area and climbs in rank from the target in the reverse direction. The bidirectional upward query exploits that shape.',
-        {
-          type: 'note',
-          text: 'The witness search is the correctness guardrail. It checks whether an alternate path already preserves the distance. If a witness exists, no shortcut is needed. If no witness exists within the cost bound, the shortcut is required. The entire construction depends on this check being correct.',
-        },
-      ],
-    },
-    {
-      heading: 'How it works',
-      paragraphs: [
-        'The system has two phases: offline preprocessing and online query.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Phase 1: Preprocessing -- contract vertices in importance order.\nfunction buildHierarchy(graph) {\n  const order = computeContractionOrder(graph);\n  for (const v of order) {\n    for (const u of inNeighbors(graph, v)) {\n      for (const w of outNeighbors(graph, v)) {\n        if (u === w) continue;\n        const viaV = weight(u, v) + weight(v, w);\n        const witness = boundedDijkstra(graph, u, w, {\n          forbidden: v, maxCost: viaV\n        });\n        if (witness.cost > viaV) {\n          graph.addShortcut({\n            from: u, to: w, weight: viaV,\n            unpackMiddle: v   // enough to recurse\n          });\n        }\n      }\n    }\n    graph.setRank(v, order.indexOf(v));\n    graph.markContracted(v);\n  }\n}',
-        },
-        'Preprocessing assigns an importance rank to every vertex. Low-importance vertices (dead-end streets, residential intersections) are contracted first. High-importance vertices (highway interchanges, major junctions) survive near the top. Importance can consider edge difference (shortcuts added minus edges removed), contracted-neighbor count, hierarchy depth, and domain-specific road class.',
-        'When contracting vertex v, examine every incoming-outgoing neighbor pair (u, w). Run a bounded Dijkstra from u to w in the graph that forbids v. If the shortest such path costs more than weight(u,v) + weight(v,w), the preprocessor adds a shortcut u-w. Otherwise the distance is already preserved and no shortcut is needed.',
-        {
-          type: 'code',
-          language: 'javascript',
-          text: '// Phase 2: Query -- bidirectional upward search.\nfunction chQuery(hierarchy, source, target) {\n  const fwd = new MinHeap();  // forward from source\n  const rev = new MinHeap();  // backward from target\n  fwd.insert(source, 0);\n  rev.insert(target, 0);\n  let bestCost = Infinity, meetVertex = null;\n\n  while (!fwd.empty() || !rev.empty()) {\n    if (!fwd.empty()) {\n      const [u, du] = fwd.extractMin();\n      if (du >= bestCost) { fwd.clear(); continue; }\n      for (const e of upwardEdges(hierarchy, u)) {\n        const nd = du + e.weight;\n        if (nd < fwd.dist(e.to)) {\n          fwd.decrease(e.to, nd);\n          if (nd + rev.dist(e.to) < bestCost) {\n            bestCost = nd + rev.dist(e.to);\n            meetVertex = e.to;\n          }\n        }\n      }\n    }\n    // symmetric for rev using upward edges in reversed graph\n  }\n  return unpackPath(hierarchy, source, meetVertex, target);\n}',
-        },
-        'At query time, the forward search starts at the source and follows only edges to higher-ranked vertices. The reverse search does the same from the target in the reversed graph. When a vertex has been reached by both sides, it is a meeting candidate. The search stops when no unsettled upward path can improve the best known meeting distance.',
-        'The returned path is compressed: it contains shortcuts. Unpacking expands each shortcut into its stored middle vertex and recurses until only original edges remain. The final output uses those original edges for geometry, turn-by-turn instructions, and ETA.',
-        {
-          type: 'table',
-          headers: ['Phase', 'Input', 'Output', 'Runs when'],
-          rows: [
-            ['Rank computation', 'Road graph + metric', 'Importance order for all vertices', 'Once per map version + metric'],
-            ['Contraction', 'Graph + order', 'Shortcut edges with unpack references', 'Once per map version + metric'],
-            ['Forward query', 'Source vertex', 'Upward tentative distances from source', 'Every route request'],
-            ['Reverse query', 'Target vertex', 'Upward tentative distances from target', 'Every route request'],
-            ['Meet scan', 'Both distance tables', 'Best meeting vertex and cost', 'Every route request'],
-            ['Unpack', 'Compressed path with shortcuts', 'Original edge sequence', 'Every route request'],
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        'The correctness argument is induction over contractions. When vertex v is contracted, every shortest path between remaining neighbors u and w that passed through v is replaced by a shortcut of equal cost. Paths that did not use v remain in the graph. Contracting one vertex therefore preserves all shortest-path distances among the remaining vertices for the preprocessed metric.',
-        'After all contractions, the hierarchy contains enough shortcuts so that any original shortest path has an equivalent that rises in rank to a highest-ranked vertex and then falls. The bidirectional upward query finds that representation by climbing from both ends.',
-        {
-          type: 'bullets',
-          items: [
-            'Distance invariant: after each contraction, shortest-path distances among uncontracted vertices are unchanged for the preprocessed metric.',
-            'Shortcut invariant: every shortcut has the same cost as the concrete lower-level path it replaces and stores enough references to recover that path.',
-            'Query invariant: forward and reverse searches only traverse edges toward higher-ranked vertices, so they search the compressed representation instead of reopening local detail.',
-            'Audit invariant: a returned route can be unpacked into original edges under the same map version and metric profile used during search.',
-          ],
-        },
-        'Unpacking preserves route meaning because every shortcut is backed by a stored lower-level path. The shortcut graph is the search artifact; the original graph remains the route artifact.',
-        {
-          type: 'note',
-          text: 'The proof depends on witness search correctness. If the witness search has a bug -- stopping too early, not forbidding v properly, or using the wrong cost bound -- a required shortcut can be omitted and the hierarchy will return wrong distances. This is the single most dangerous implementation error in the entire system.',
-        },
-      ],
-    },
-    {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        {
-          type: 'table',
-          headers: ['Operation', 'Typical cost', 'What drives growth'],
-          rows: [
-            ['Preprocessing', 'Minutes to hours for continental graph', 'Witness searches * neighbor-pair checks per vertex'],
-            ['Shortcut storage', '1.5x-3x original edge count', 'Contraction order quality; bad orders cause shortcut explosion'],
-            ['Query (settled vertices)', '500-1,000 on a European road graph', 'Rank distribution and graph structure'],
-            ['Query (wall-clock)', 'Sub-millisecond', 'Cache locality of upward adjacency lists'],
-            ['Shortcut unpacking', 'O(path length) recursive expansion', 'Depth of shortcut nesting'],
-            ['Metric update', 'Full rebuild or customization pass', 'Fraction of shortcuts affected by weight changes'],
-            ['Topology update', 'Partial or full rebuild', 'Number of shortcuts that touched the changed edge'],
-          ],
-        },
-        'The payoff is query speed. A good hierarchy turns a route request from broad graph exploration into a small upward search plus shortcut unpacking. Settled vertices drop by two to three orders of magnitude on road networks with good contraction order.',
-        'The tax is preprocessing time and shortcut storage. Preprocessing can take minutes or hours depending on graph size, order quality, and witness-search limits. The shortcut graph is typically 1.5x-3x the original edge count but can explode with bad order or complex turn restrictions.',
-        {
-          type: 'quote',
-          text: 'A good node ordering is the key to a practical contraction hierarchy. It determines the number of shortcuts, preprocessing time, and query speed.',
-          attribution: 'Geisberger et al. (2008), Section 4',
-        },
-        'Metric rigidity is the operational cost. Free-flow travel-time shortcuts become invalid when the service needs live traffic, avoid-toll, truck, bike, or weather-aware weights. Customizable contraction hierarchies (CCH) separate topology preprocessing from metric application, but the simple static form assumes one stable metric.',
-        'Topology changes are harder than weight changes. A road closure, new road, or changed turn restriction can invalidate any shortcut that used that edge. A production router needs rebuild, partial update, fallback search, or overlay logic.',
-      ],
-    },
-    {
-      heading: 'Worked example',
-      paragraphs: [
-        'Trace the animation chain S-A-B-C-D-T with edge weights S-A=2, A-B=1, B-C=1, C-D=1, D-T=2.',
-        {
-          type: 'table',
-          headers: ['Step', 'Action', 'Witness check', 'Result'],
-          rows: [
-            ['1. Rank vertices', 'B=rank 1 (minor), C=rank 2 (local), A=rank 3, D=rank 4 (hub)', '--', 'Contraction order: B, C, A, D'],
-            ['2. Contract B', 'Check pair (A, C) via B: cost = 1+1 = 2', 'Dijkstra A-to-C avoiding B: no cheaper path exists', 'Add shortcut A-C, weight 2, unpack via B'],
-            ['3. Contract C', 'Check pair (A, D) via C: cost = 2+1 = 3 (using shortcut A-C)', 'Dijkstra A-to-D avoiding C: no cheaper path exists', 'Add shortcut A-D, weight 3, unpack via C'],
-            ['4. Query S to T', 'Forward: S(0)->A(2)->D(5). Reverse: T(0)->D(2).', 'Meet at D: 5+2=7 is best', 'Compressed path: S-A-D-T, cost 7'],
-            ['5. Unpack', 'A-D is a shortcut (unpack via C) -> A-C-D. A-C is a shortcut (unpack via B) -> A-B-C.', '--', 'Final path: S-A-B-C-D-T, cost 7'],
-          ],
-        },
-        {
-          type: 'diagram',
-          text: 'After preprocessing:\n\n  rank 4 (hub):     D\n                   / \\\n  rank 3:         A   T      (original edges S-A, D-T survive)\n                  |           plus shortcuts: A-C (wt 2), A-D (wt 3)\n  rank 2:         C\n                  |\n  rank 1 (minor): B           contracted -- skipped at query time\n                  |\n                  S\n\nQuery searches UPWARD only:\n  forward:  S -> A -> D  (using shortcut A-D)\n  reverse:  T -> D\n  meet at D, cost = 2+3+2 = 7',
-          label: 'The hierarchy after contracting B and C',
-        },
-        'The shortcut A-D is safe only because witness search found no cheaper A-to-D path avoiding the contracted vertices. If another road already connected A to D at cost 3 or less, the shortcut would be unnecessary memory. If witness search missed a cheaper path, the hierarchy would return wrong distances.',
-      ],
-    },
-    {
-      heading: 'Real-world uses',
-      paragraphs: [
-        {
-          type: 'table',
-          headers: ['Use case', 'Why CH fits', 'What the service stores'],
-          rows: [
-            ['Car navigation', 'Stable road topology, many queries per second', 'CH per metric profile (car, truck, pedestrian)'],
-            ['Fleet routing / VRP', 'Distance matrix between N stops needs N^2 queries', 'Precomputed CH makes each query sub-millisecond'],
-            ['Map-matching (HMM)', 'Viterbi transition probabilities need road distance between GPS candidates', 'CH query replaces Dijkstra in inner loop'],
-            ['Isochrone computation', 'Reachable area from a point within time budget', 'CH-based one-to-many search'],
-            ['Map tile preview', 'Route preview on hover needs sub-50ms response', 'CH avoids full search on every mouse move'],
-          ],
-        },
-        'The common access pattern is many online queries over a graph whose structure is reused. CH fits when the route profile can be precomputed or customized in batches. A car profile with stable legal access and a daily traffic snapshot is friendlier than a request that changes constraints on every call.',
-        {
-          type: 'code',
-          language: 'text',
-          text: 'Production route response record:\n{\n  path:           [S, A, B, C, D, T],\n  cost:           7,\n  metric:         "car-free-flow-v3",\n  graph_version:  "2024-06-15T04:00:00Z",\n  traffic_snap:   "live-2024-06-15T14:32:00Z",\n  shortcuts_used: ["A-D (via C, via B)"],\n  turn_rules:     "v2024.6",\n  eta_seconds:    420\n}',
-        },
-        'Without graph version, metric profile, and traffic snapshot, the service cannot replay a route, explain an ETA, or know whether a disputed shortcut came from stale data.',
-        {
-          type: 'note',
-          text: 'The case-study lesson is amortization. CH is not only a graph algorithm; it is a systems design that trades offline compute and versioned artifacts for lower online latency. The same pattern appears in database indexes, compiled shaders, and precomputed lookup tables.',
-        },
-      ],
-    },
-    {
-      heading: 'Where it fails',
-      paragraphs: [
-        {
-          type: 'bullets',
-          items: [
-            'Per-request cost changes: live traffic, truck restrictions, avoid-toll preferences, weather closures, and time-dependent turn costs break the assumption that one preprocessed metric serves many queries. Each distinct metric needs its own hierarchy or a customization layer.',
-            'Shortcut explosion: poor contraction order can produce more shortcuts than original edges, bloating memory and slowing queries. Turn-expanded graphs (where state includes the incoming edge) compound the problem because the vertex count multiplies.',
-            'Witness search bugs: too aggressive a witness bound omits a required shortcut, returning wrong distances. Too conservative a bound adds unnecessary shortcuts and wastes memory. Both errors are silent until a specific query hits the affected path.',
-            'Small or rare-query graphs: if the graph has fewer than ~10,000 vertices or queries are infrequent, plain Dijkstra or A* is simpler, correct, and fast enough. CH preprocessing cost cannot be amortized.',
-            'Topology instability: frequent road closures, construction, or map edits invalidate shortcuts that touched the changed edges. The router needs rebuild, partial repair, or fallback search -- not stale hierarchy data.',
-          ],
-        },
-        {
-          type: 'table',
-          headers: ['Failure mode', 'Symptom', 'Mitigation'],
-          rows: [
-            ['Stale metric', 'Route ignores current traffic or road closure', 'Customizable CH, live overlay, or fallback A*'],
-            ['Shortcut explosion', 'Memory grows past budget; query not faster than A*', 'Better contraction order; simpler turn model'],
-            ['Witness bug', 'Distance returned is wrong for specific vertex pairs', 'Exhaustive validation against Dijkstra on random pairs'],
-            ['Topology change', 'Shortcut references a deleted or modified edge', 'Incremental rebuild or full repreprocessing'],
-          ],
-        },
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        {
-          type: 'table',
-          headers: ['Source', 'What it covers'],
-          rows: [
-            ['Geisberger, Sanders, Schultes, Delling, "Contraction Hierarchies" (2008)', 'Original paper: construction, witness search, query algorithm, European road graph experiments'],
-            ['https://algo2.iti.kit.edu/schultes/hwy/contract.pdf', 'Full text of the original CH paper'],
-            ['Dibbelt, Strasser, Wagner, "Customizable Contraction Hierarchies" (2016), arxiv:1402.0402', 'Separates topology preprocessing from metric customization -- handles multiple travel profiles'],
-            ['OSRM (Open Source Routing Machine)', 'Production CH-based router; open-source reference implementation'],
-            ['Luxen, Vetter, "Real-time routing with OpenStreetMap data" (2011)', 'OSRM design paper showing CH in a production map service'],
-          ],
-        },
-        {
-          type: 'bullets',
-          items: [
-            'Prerequisite: Dijkstra Search -- the exact shortest-path algorithm whose work CH amortizes. Also priority queues and bidirectional search.',
-            'Extension: A* Search -- the heuristic baseline CH replaces; understanding A* clarifies what CH gains and loses.',
-            'Production variant: Customizable Contraction Hierarchies (CCH) -- separates topology from metric, enabling multi-profile routing without full rebuild.',
-            'Adjacent case study: HMM Map Matching with Viterbi -- uses CH queries in the inner loop to compute road-distance transition probabilities.',
-            'Contrasting alternative: partition-based routing (PUNCH, CRP) -- trades different update and memory tradeoffs for similar query speed.',
-          ],
-        },
-      ],
-    },
-  ],
-};
+
+export const article = { sections: [
+  { heading: 'How to read the animation', paragraphs: [
+    'The preprocess view shows offline work on a mostly stable road graph. Active nodes are vertices being ranked or contracted, compare paths are witness searches, and found edges are shortcuts that preserve distances.',
+    'The fast-query view shows the online payoff. The search climbs upward through ranked edges, skips low-level vertices through shortcuts, then unpacks shortcuts back into original road edges for the route response.',
+  ] },
+  { heading: 'Why this exists', paragraphs: [
+    'A road router answers many shortest-path queries over a graph whose topology changes slowly. Running Dijkstra from scratch for every source and target repeats the same local-street exploration all day.',
+    'Contraction hierarchies move that repeated work into preprocessing. They rank vertices, hide low-importance intersections, and add shortcuts so later exact queries visit far fewer nodes.',
+    {type:'callout', text:'Contraction hierarchies buy fast routes by turning stable road topology into ranked shortcuts with witness-proofed distance preservation.'},
+    {type:'image', src:'https://upload.wikimedia.org/wikipedia/commons/3/31/Road-movement-hierarchy.svg', alt:'A road network diagram with arrows moving from local access roads through collection, distribution, transition, and main movement.', caption:'Hierarchy of traffic movement in road networks. Source: Wikimedia Commons, Ftrebien, CC0 1.0.'},
+  ] },
+  { heading: 'The obvious approach', paragraphs: [
+    'The obvious exact baseline is Dijkstra with a priority queue. It is correct for nonnegative edge weights, but it expands broadly before it proves the target distance.',
+    'A* is the next reasonable step. A geographic lower bound points the search toward the target, but the query still rediscovers local streets, ramps, and connectors that many other queries already explored.',
+  ] },
+  { heading: 'The wall', paragraphs: [
+    'The wall is repeated local expansion. A long route usually climbs from local roads to arterials or highways, crosses a high-level corridor, then descends near the destination.',
+    'A query-time algorithm without stored hierarchy pays that climb and descent every time. It has no certificate saying which low-level vertices can be skipped without changing the shortest distance.',
+  ] },
+  { heading: 'The core insight', paragraphs: [
+    'Contract low-importance vertices while preserving distances among the remaining vertices. If the shortest path from neighbor u to neighbor w would pass through contracted vertex v, add a shortcut u-w with the same cost.',
+    'The witness search is the guardrail. If another path from u to w avoiding v is no more expensive, no shortcut is needed; otherwise the shortcut is required before v can be hidden.',
+  ] },
+  { heading: 'How it works', paragraphs: [
+    'Preprocessing chooses a contraction order, usually putting minor streets low and major junctions high. For each vertex v, it checks neighbor pairs and runs bounded witness searches to decide which shortcuts must be added.',
+    'A query runs bidirectional upward search. The forward side starts at the source and follows only edges to higher-ranked vertices; the reverse side does the same from the target in the reversed graph; the best meeting vertex gives the compressed path.',
+  ] },
+  { heading: 'Why it works', paragraphs: [
+    'Correctness is an induction over contractions. When v is removed, every shortest path among remaining vertices that needed v is represented by an equal-cost shortcut, while paths not using v remain unchanged.',
+    'After all contractions, any shortest path has an equivalent representation that climbs in rank to a peak and then descends. The bidirectional upward query finds that representation, and unpacking preserves the original road sequence.',
+  ] },
+  { heading: 'Cost and complexity', paragraphs: [
+    'The query cost can drop from hundreds of thousands of settled vertices to hundreds or a few thousand on large road graphs. If Dijkstra settles 500000 vertices and CH settles 800, the online work is about 625x smaller before unpacking.',
+    'The tax is preprocessing and memory. Witness searches can take minutes or hours on continental graphs, shortcuts may grow edge storage by 1.5x to 3x, and each metric profile needs rebuilding or customization.',
+  ] },
+  { heading: 'Real-world uses', paragraphs: [
+    'Contraction hierarchies fit car navigation, distance matrices for fleet routing, map matching, isochrones, and route previews. The common access pattern is many queries over a graph and metric that are stable enough to amortize preprocessing.',
+    'They also support systems work beyond maps. The same trade appears whenever a service builds an expensive index once so online requests can use a smaller search surface.',
+  ] },
+  { heading: 'Where it fails', paragraphs: [
+    'It fails when edge weights change per request. Live traffic, truck restrictions, toll avoidance, weather, and time-dependent turn costs can invalidate shortcuts unless the system uses customization, overlays, or fallback search.',
+    'It also fails with bad contraction order or witness bugs. A bad order can create shortcut explosion, while an omitted required shortcut can silently return wrong distances for specific pairs.',
+  ] },
+  { heading: 'Worked example', paragraphs: [
+    'Use the animation path S-A-B-C-D-T with weights S-A=2, A-B=1, B-C=1, C-D=1, and D-T=2. Contract B first; the A-to-C route through B costs 2, and no avoiding witness costs 2 or less, so add shortcut A-C with weight 2.',
+    'Contract C next; A-to-D through C costs 3, so add shortcut A-D with weight 3 when no avoiding witness is cheaper. Query S to T uses S-A-D-T with cost 2+3+2=7, then unpacks A-D into A-C-D and A-C into A-B-C.',
+  ] },
+  { heading: 'Sources and study next', paragraphs: [
+    'Primary sources: Geisberger, Sanders, Schultes, and Delling on Contraction Hierarchies; Dibbelt, Strasser, and Wagner on Customizable Contraction Hierarchies; and OSRM design material. Study Dijkstra, bidirectional search, witness search, and route unpacking next.',
+    'Then compare A*, ALT landmarks, Customizable Route Planning, turn-expanded graphs, traffic overlays, and HMM map matching. The engineering question is whether preprocessing is stable enough to buy lower online latency.',
+  ] },
+] };

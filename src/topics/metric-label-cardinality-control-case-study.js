@@ -239,78 +239,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Dimensional metrics are powerful because labels let teams ask operational questions without creating a new metric for every slice. A service can expose one request counter and use labels for method, status, route, region, version, and tenant tier. Dashboards and alerts can then aggregate across the dimensions that matter.',
-        'The same mechanism can break the monitoring system. A time series is the metric name plus the full set of label values. Every unique combination creates storage, index, memory, and query work. Metric label cardinality control exists so observability remains reliable during incidents instead of becoming another system that fails under surprise input.',
+        'The series-explosion view starts with one metric name and adds label values until the number of time series multiplies. A time series is one metric name plus one exact set of label values. Active nodes create new label combinations, found nodes are stored series, and compare nodes show the guardrail checking whether a label belongs in metrics.',
+        'The guardrail-pipeline view shows where the system can stop unsafe labels before storage. The safe inference is that bounded labels such as method or status preserve aggregate questions, while unbounded labels such as user id or trace id create per-request storage pressure. The goal is not fewer labels everywhere; it is labels whose value sets are controlled.',
         {type:'callout', text:'Metric labels are schema, not scratch space: bounded dimensions keep aggregates useful while high-cardinality facts move to traces and logs.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The obvious approach is to put every useful field into labels. If a user id, session id, email, trace id, raw URL, customer id, pod UID, or request UUID might help a future investigation, why not make it groupable? The wall is multiplicative. One field with millions of possible values can turn a cheap counter into millions of active series.',
-        'The opposite shortcut is to drop labels blindly. That can make the bill smaller while destroying the meaning of the metric. A request counter without status code cannot separate success from failure. A latency histogram without route may hide the one endpoint that is burning the SLO. Cardinality control is schema design, not panic deletion.',
+        'Dimensional metrics let teams answer operational questions from one instrumented counter or histogram. Labels such as route, method, status, region, and version let a dashboard aggregate or split the same measurement. That is why metrics work for alerts and SLOs.',
+        'The same mechanism can overload the monitoring system. Every unique label combination creates series metadata, chunks, indexes, write-ahead log traffic, and query fan-out. Cardinality control exists so observability stays available during the incident it is supposed to explain.',
       ],
     },
     {
-      heading: 'Core insight',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A metric label should be an aggregate dimension. It should answer questions such as which route is slow, which status class is rising, which region is unhealthy, or which deployment version regressed. It should not be a convenient place to store arbitrary request context. Metrics are optimized for repeated aggregate queries, not for per-request forensic search.',
-        'The practical rule is to put bounded operational dimensions in metrics and unbounded facts in logs, traces, or event stores. Method, status, coarse route template, region, availability zone, deployment version, and tenant tier can be safe when managed. User ids, emails, session ids, raw paths, trace ids, and arbitrary error strings usually belong outside metric labels.',
+        'The obvious approach is to add every useful field as a label. User id, session id, request id, email, raw URL, pod UID, and error string all sound useful during debugging. If they are labels, they can be grouped in dashboards.',
+        'The opposite shortcut is to delete labels until the bill drops. That can destroy the metric. A request counter without status cannot separate success from failure, and a latency histogram without route can hide the endpoint that is burning the SLO.',
       ],
     },
     {
-      heading: 'Data structures and mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'Prometheus-style systems identify a series by metric name plus labels. Internally, the active head must remember recent chunks, series metadata, label indexes, postings lists, WAL records, and bookkeeping. A query first uses label matchers to select series, then reads chunks over a time range. Cardinality therefore affects ingestion, memory, disk, compaction, and query fanout at the same time.',
-        'The multiplication is easy to underestimate. Five methods times ten status values times eighty route templates is four thousand possible combinations before adding instance, region, version, or tenant tier. Add a product id with two thousand values and the same metric can reach millions of series. Observed combinations may be smaller than the full cross product, but a traffic shift or bad release can discover the missing combinations quickly.',
-        'A guardrail pipeline treats labels as data that can be checked before ingestion. Instrumentation libraries can restrict label names. OpenTelemetry Collector processors can drop or transform attributes. Prometheus relabeling can remove unsafe target labels. Remote-write gateways can route, aggregate, or reject streams. Approximate data structures such as HyperLogLog, Count-Min Sketch, and heavy-hitter tables can estimate distinct values and find the labels causing growth without storing exact maps for every stream.',
-        'Histograms deserve special care. Each label combination is multiplied by bucket labels, plus sum and count series. A high-cardinality label on a histogram is therefore more expensive than the same label on a simple gauge. This is why latency metrics need route templates and bounded dimensions even more than basic counters do.',
+        'The wall is multiplication. Five methods times 12 status values times 200 route templates is 12,000 possible series before instance, region, version, or tenant are included. Add a user_id label with 1,000,000 values and the same metric can become millions of active series.',
+        'Histograms multiply the damage because each label combination has bucket series plus sum and count. A high-cardinality label on request duration is therefore more expensive than the same label on a simple gauge. The backend pays in memory first, then slow ingestion and slow queries.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A metric label should be an aggregate dimension, not a place to stash request facts. It should answer questions like which route is slow, which status class is rising, or which region is unhealthy. If a value mostly identifies one request or one person, it belongs in traces, logs, or events instead.',
+        'Cardinality control is schema design. Bounded labels stay in metrics because they preserve fast aggregate questions. Unbounded facts move to systems built for search and investigation, then exemplars or logs can link back when needed.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A metrics backend identifies each series by metric name and labels. On ingestion, it must allocate or find the series, append the sample, update indexes, and keep recent chunks in memory. A new label value is not just a string; it can create new active state.',
+        'Guardrails can run in instrumentation libraries, collectors, relabeling rules, and remote-write gateways. They can drop forbidden labels, replace raw URLs with route templates, cap values, aggregate streams, or reject metrics that exceed tenant budgets. Approximate counters and heavy-hitter sketches can find which labels are driving growth without storing every bad combination forever.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'Cardinality control works because most operational decisions need aggregates, not individual identities. An alert needs to know that checkout 500s are rising in one region. It usually does not need one active time series per user. By keeping metrics low-cardinality, the system preserves fast dashboards and alerts while traces and logs carry high-cardinality context for investigation.',
-        'The policy also works because it catches mistakes before they become expensive state. Once a labelset is accepted into active storage, the TSDB has to allocate and index it. Dropping or aggregating at the edge is cheaper than recovering a saturated metrics backend. The earlier the control point, the less data must be cleaned up later.',
+        'The correctness argument is that aggregates remain meaningful when labels represent stable dimensions. Summing across instances, splitting by route, or alerting by status works because each label has a clear operational meaning. Removing request identity from labels does not remove the count; it prevents the count from fragmenting into one series per request.',
+        'The safety invariant is bounded growth. If every accepted label has a budgeted value set, series count grows with known service dimensions rather than arbitrary user input. The system can then size memory and query fan-out instead of discovering the shape during an outage.',
       ],
     },
     {
-      heading: 'Where it is useful',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'This discipline is useful in every system with self-service instrumentation. Microservices, Kubernetes, serverless functions, edge fleets, ML platforms, and multi-tenant SaaS products all let many teams emit metrics. Without a label policy, one deployment can damage shared monitoring for everyone.',
-        'It is also useful for AIOps and automated incident response. These systems need clean aggregate signals to detect anomalies and rich context to explain them. If every user id becomes a time series, the signal layer drowns before the analysis layer can help. Low-cardinality metrics plus trace exemplars, logs, and structured events give automation a cleaner input.',
+        'Cost follows active series. If one series uses about 3 KB of head memory after metadata, chunks, and indexes are counted, 100,000 active series uses about 300 MB while 5,000,000 uses about 15 GB. Exact numbers vary by backend, but the behavior is stable: series count dominates before sample count does.',
+        'Doubling scrape rate doubles samples, while doubling a high-cardinality label can double series and index pressure. Query cost also follows fan-out. A query over 50 route series is different from a query over 500,000 user series even if both cover the same five-minute window.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Cardinality control is required in Prometheus-compatible metrics, multi-tenant SaaS monitoring, Kubernetes clusters, edge fleets, serverless platforms, and ML serving systems. The shared access pattern is many teams emitting metrics into a shared backend. One bad label shape can damage dashboards and alerts for everyone.',
+        'It is also a prerequisite for automation. Alerting, anomaly detection, and incident triage need clean aggregate signals. High-cardinality facts still matter, but they should be searchable in logs, attached to traces, or sampled through exemplars rather than turned into metric dimensions.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'Cardinality control fails when it becomes a blanket ban on useful dimensions. Some higher-cardinality labels are justified if they are bounded, budgeted, and tied to real operating questions. A route template label may have hundreds of values and still be essential. A tenant tier label may be critical. The decision should be based on budget, query value, and growth behavior, not on a fixed fear of large numbers.',
-        'It also fails when teams use metrics as a replacement for logs and traces. Metrics are for aggregate measurement. Logs are for searchable facts. Traces are for request paths and causal context. Trying to turn metrics into a per-request database creates the worst combination: expensive series state with poor forensic detail.',
+        'Cardinality control fails when it becomes blind deletion. Some labels with many values are justified if they are bounded, budgeted, and necessary. Route template can have hundreds of values and still be the dimension that makes the latency SLO actionable.',
+        'It also fails when emergency drops are treated as invisible. Dropping user_id may be safe for an aggregate counter, but dropping route from a latency histogram may make the dashboard lie. Every mitigation should state which questions remain valid and which are temporarily lost.',
       ],
     },
     {
-      heading: 'Operational signals',
+      heading: 'Worked example',
       paragraphs: [
-        'Track active series by tenant, service, metric, and label name. Watch new-series rate, samples ingested per second, head memory, WAL volume, compaction pressure, remote-write queue lag, query latency, query fanout, and top label pairs by series count. A cardinality incident often appears first as a sudden new-series spike, then as memory pressure and slow queries.',
-        'Good dashboards separate volume from cardinality. High sample rate on a bounded set of series is a scaling problem. Low sample rate across millions of series is a schema problem. Alert on both. Also keep examples of rejected or transformed labelsets so teams can fix instrumentation without guessing which emitter caused the guardrail to fire.',
-        'Budget signals should be owned by the emitting team, not only by the observability team. A service dashboard should show its active series, newest labels, largest metrics, and budget headroom next to latency and error panels. That makes label growth visible before it becomes a shared platform emergency.',
+        'A service exposes http_request_duration_seconds with method, status, route, region, and version. With 4 methods, 6 status classes, 120 route templates, 3 regions, and 5 versions, the upper bound is 43,200 label combinations before histogram buckets. With 12 buckets plus sum and count, that can mean 604,800 series.',
+        'If a developer adds raw_path and 80,000 distinct paths appear, the upper bound becomes billions even though observed traffic may hit only a fraction. A guardrail replaces raw_path with route = /users/{id} and stores the concrete path in logs or traces. The metric keeps the route-level aggregate, and investigation still has the exact request context elsewhere.',
       ],
     },
     {
-      heading: 'Incident response',
+      heading: 'Sources and study next',
       paragraphs: [
-        'The response path is identify, isolate, mitigate, repair. Identify the metric and label causing series growth. Isolate the service, deployment, target, or collector route that emits it. Mitigate by dropping the bad label, replacing raw paths with templates, aggregating at the edge, sampling examples, or routing the stream to cheaper storage. Repair the instrumentation so the emergency rule can be removed.',
-        'Do not treat emergency drops as invisible. Dropping user_id from a counter may be correct. Dropping route from a latency histogram may make an SLO dashboard lie. Every mitigation should state which questions remain valid and which are temporarily unavailable. After the incident, add tests or review rules so the same label shape cannot re-enter through another emitter.',
-        'The durable repair is usually close to code. Replace raw URLs with route templates, cap free-form error labels, remove request identifiers, add metric review to instrumentation changes, and write regression checks that fail when forbidden label names appear. Collector rules buy time; source fixes prevent recurrence.',
-      ],
-    },
-    {
-      heading: 'What to study next',
-      paragraphs: [
-        'Primary sources are the Prometheus data model at https://prometheus.io/docs/concepts/data_model/, Prometheus metric and label naming guidance at https://prometheus.io/docs/practices/naming/, the OpenTelemetry metrics data model at https://opentelemetry.io/docs/specs/otel/metrics/data-model/, and OpenTelemetry Prometheus/OpenMetrics compatibility at https://opentelemetry.io/docs/specs/otel/compatibility/prometheus_and_openmetrics/.',
-        'Study Prometheus TSDB Case Study for the storage engine affected by cardinality, Monarch Time Series Case Study for large-scale metrics systems, HyperLogLog and Count-Min Sketch for approximate control loops, OpenTelemetry Collector Case Study for edge policy, Metric Exemplars Trace Correlation for linking aggregate signals to traces, Log Template Drain Parser for keeping logs countable, Trace Context & Baggage Propagation for high-cardinality request context, and AIOps Incident Response for the automation layer that consumes these signals.',
+        'Primary sources are the Prometheus data model at https://prometheus.io/docs/concepts/data_model/, Prometheus metric naming guidance at https://prometheus.io/docs/practices/naming/, and the OpenTelemetry metrics data model at https://opentelemetry.io/docs/specs/otel/metrics/data-model/. Use these sources for mechanism claims before relying on secondary summaries.',
+        'Study Prometheus TSDB for storage behavior, Metric Exemplars Trace Correlation for safe trace links, HyperLogLog and Count-Min Sketch for approximate counting, OpenTelemetry Collector for edge policy, and Log Template Drain Parser for keeping logs countable. Start with the topic that explains the data shape, then move to the production system.',
       ],
     },
   ],

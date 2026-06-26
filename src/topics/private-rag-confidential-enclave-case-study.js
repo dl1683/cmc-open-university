@@ -185,93 +185,56 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        "RAG turns private data into model context. That is useful, but it widens the leak surface: the query, embedding, vector index access pattern, top-k ids, retrieved chunks, citations, prompt, answer, cache key, and trace can all reveal sensitive facts.",
-        "The reasonable first attempt is ordinary enterprise security: TLS, encryption at rest, a private network, tenant ids, IAM checks, and access-controlled vector storage. Those controls matter. They do not protect the moment where the retrieval worker decrypts data, embeds the query, ranks chunks, and writes telemetry.",
-        "A confidential-enclave RAG design protects data in use. The retrieval path runs inside an attested boundary, receives scoped keys only after policy approval, and emits an answer trace that can be audited without dumping raw private payloads into ordinary logs.",
-        {type:"callout", text:"Private RAG only works when privacy follows every retrieval artifact: query, embedding, chunk, citation, cache key, and trace."},
+        'Read the RAG path as a protected dataflow. Active nodes show private state being handled, compare nodes show state that should not leak, and found nodes show evidence that can support an answer. RAG means retrieval-augmented generation: retrieve relevant documents, place selected text in model context, and generate an answer grounded in those sources.',
+        'The leakage map teaches that the secret is not only document text. Embeddings, top-k ids, cache keys, timing, snippets, and traces can also reveal what the user asked or which document mattered. The safe inference is that every artifact needs a release rule.',
+        {type:'callout', text:'Private RAG only works when privacy follows every retrieval artifact: query, embedding, chunk, citation, cache key, and trace.'},
       ],
     },
-    {
-      heading: 'The wall',
-      paragraphs: [
-        "The wall is not only document text. Embeddings can leak semantic content. Top-k ids can reveal which matter, patient, customer, or source was relevant. Timing and cache hits can expose repeated queries. Citation snippets can leak text that the user was allowed to use in context but the product was not allowed to store in telemetry.",
-        "Policy checks after retrieval are too late. If raw chunks were already written to logs, cached under broad keys, or sent to a shared model endpoint, the leak happened before the final answer policy ran. Privacy has to be designed into the retrieval state model.",
-      ],
-    },
-    {
-      heading: 'Core insight and state model',
-      paragraphs: [
-        "The core record starts with an attestation result: measured worker image, runtime configuration, enclave or TEE identity, signing certificate or measurement, tenant, policy version, and key-release decision. Keys are scoped to the tenant, corpus, session, and operation.",
-        "The protected RAG state includes query text, embedding vector, index handle, search parameters, candidate chunk ids, retrieved text, source provenance, ACL scope, freshness, rerank score, context-pack decision, model route, output, and citation map.",
-        "The leakage ledger is just as important. It defines which fields may leave the boundary, which must be hashed, which must be bucketed, which must be redacted, and which must be omitted. A private RAG system without a trace schema usually leaks through its debugging tools first.",
-      ],
-    },
-    {
-      heading: 'Mechanism',
-      paragraphs: [
-        "The worker first proves what code and configuration it is running. A key service checks the attestation document against policy and releases only the keys needed for this tenant and corpus. If the measurement, signer, debug mode, workload identity, or policy version is wrong, the request stops before private data is decrypted.",
-        "Embedding, vector search, reranking, chunk filtering, and context packing run inside the protected boundary or under equivalent data-in-use controls. The retriever returns more than text: it returns source id, chunk id, ACL scope, quote id, freshness, and provenance so the answer can be checked later.",
-        "The output path separates answer safety from log safety. A user may be allowed to see a citation, while the platform log may only keep a source id, quote id, policy hash, score bucket, and count. Those are different release decisions.",
-        "The context pack should be treated as a structured object, not as a string blob. Each chunk needs a reason for release, a source pointer, a quote boundary, and a policy result. That makes later filtering possible. If the context is just concatenated text, the system has no clean place to remove a denied passage or prove which sentence supported a claim.",
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        "The RAG path view separates the system into trust-boundary steps: query intake, attestation, key release, embedding, encrypted index access, chunk selection, LLM answer, citation proof, and redacted audit. The important lesson is that privacy is not one box on the edge. It has to stay attached to every state transition.",
-        "The leakage map view shows why private RAG is a data-structure problem as much as a security problem. Logs, cache keys, top-k ids, embeddings, timing buckets, and citation snippets are all ledgers. If those ledgers are not typed and scoped, they become accidental side channels.",
-        "The highlighted controls also show the difference between redaction and denial. Redaction keeps a safe derived fact, such as a source id or count. Denial prevents a value from leaving the boundary at all. Production systems need both because some fields can be summarized safely and others cannot.",
-      ],
-    },
-    {
-      heading: 'Why it works',
-      paragraphs: [
-        "The security argument is a narrowing of trust. Instead of trusting every host process, operator, log sink, cache, and model route, the system trusts a measured worker plus a key-release policy. The worker can only read the data its attestation and scope allow.",
-        "The audit argument is provenance. Every released answer should point back to source ids, chunk ids, quote ids, policy versions, and model routes. The trace must let an auditor explain why an answer was allowed without exposing the private query or full documents again.",
-        "This is not a correctness proof for RAG. The enclave can protect the wrong chunk just as well as the right one. Retrieval quality, citation support, prompt-injection defense, stale-index handling, and answer evaluation still need ordinary RAG controls.",
-      ],
-    },
-    {
-      heading: 'Costs and tradeoffs',
-      paragraphs: [
-        "Private RAG is slower and harder to operate than ordinary RAG. It adds attestation, key release, image measurement, stricter cache scopes, redacted tracing, enclave lifecycle management, and sometimes hardware or accelerator constraints.",
-        "Caching becomes less efficient because keys must include tenant, corpus, policy, measurement, and release scope. Index management becomes harder because encrypted or enclave-local indexes are less flexible than a shared vector service. Observability becomes harder because the most useful debug fields are often the fields you cannot log.",
-        "The production question is whether the narrower trust boundary is worth the latency, memory, and operational cost. It often is for regulated documents, high-value intellectual property, legal matter files, healthcare data, private code, and multi-party clean rooms.",
-        "There is also a developer-productivity cost. Engineers lose the habit of dumping prompts, chunks, and model outputs into a log line. They need replay packets, synthetic fixtures, redaction-aware debug views, and separate break-glass procedures. Without those tools, teams either fly blind or quietly bypass the privacy design during incidents.",
-      ],
-    },
-    {
-      heading: 'Production uses',
-      paragraphs: [
-        "A law firm can let an assistant search matter files while keeping raw documents out of shared logs. A healthcare workflow can retrieve patient-specific notes under tenant-scoped keys and store only redacted audit facts. A code assistant can search private repositories and release only cited snippets allowed by policy.",
-        "A concrete legal query might enter as raw text inside the enclave, become an embedding inside the boundary, retrieve three scoped chunks, and return two cited claims. The telemetry outside the boundary records tenant id, policy version, source ids, quote ids, score buckets, and denial counts. It does not record the query or full chunks.",
-        "Data clean rooms use the same pattern. One party can bring data, another can bring model or analysis code, and the key-release policy can require attestation before either side's sensitive asset is decrypted for computation.",
-      ],
-    },
-    {
-      heading: 'Operational guidance',
-      paragraphs: [
-        "Start by classifying every field in the RAG path: query, embedding, index id, candidate id, chunk text, score, prompt, output, citation, trace, cache key, and metric label. Decide which fields are raw secrets, which are safe derived facts, and which are safe only after hashing, bucketing, or policy filtering.",
-        "Make attestation failure boring and common in tests. The system should fail closed when the worker image changes, a debug flag is enabled, a signer is wrong, a policy version is stale, or a key request asks for a broader corpus than the session allows. If those cases are not exercised, the first real failure will happen during an upgrade.",
-        "Keep quality evaluation separate from privacy evaluation. Retrieval recall, answer faithfulness, and citation coverage still need ordinary RAG tests, but privacy tests should inspect traces, cache keys, metrics, replay artifacts, and denial paths. A system can answer correctly and still leak through its observability layer.",
-      ],
-    },
-    {
-      heading: 'Limits and failure modes',
-      paragraphs: [
-        "The easiest failure is logging raw chunks for convenience. The second easiest is treating embeddings, top-k ids, and cache keys as harmless metadata. They are often enough to infer the user, corpus, or query class.",
-        "Enclaves also do not remove application-level risk. Prompt injection can still steer the model. Stale evidence can still produce a wrong answer. Overbroad chunk release can still expose irrelevant private text. A model route outside the boundary can still receive context that policy should have denied.",
-        "Operational details matter. Debug-mode enclaves, unsigned images, broad KMS policies, stale measurements, shared caches, and unredacted traces can collapse the trust story even when the retrieval algorithm is otherwise sound.",
-      ],
-    },
-    {
-      heading: 'Sources and study next',
-      paragraphs: [
-        'Primary sources: Google Confidential Space at https://cloud.google.com/confidential-computing/confidential-space/docs, Azure confidential computing at https://learn.microsoft.com/en-us/azure/confidential-computing/overview, NVIDIA Confidential Computing at https://docs.nvidia.com/confidential-computing/latest/, AWS Nitro Enclaves overview at https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave.html, and AWS Nitro Enclaves attestation at https://docs.aws.amazon.com/enclaves/latest/user/set-up-attestation.html.',
-        'Study Confidential GPU Inference Attestation Case Study for protected model serving, Enclave Secret Release Policy Case Study for key gating, RAG Pipeline for retrieval basics, Claim Graph & Source Ledger for citation support, PII Redaction Token Span Pipeline for trace safety, and SLO-Aware LLM Request Router for production routing.',
-      ],
-    },
+    { heading: 'Why this exists', paragraphs: [
+      'Private RAG lets a model answer from sensitive corpora such as legal matters, patient records, private code, or customer documents. Ordinary access control protects storage, but the retrieval worker eventually decrypts text, computes embeddings, ranks chunks, and writes telemetry. That is the moment data is in use.',
+      'A confidential enclave narrows who and what must be trusted during that moment. The worker proves its measured code and configuration through attestation, receives scoped keys, and emits only policy-approved answer and audit fields.',
+    ] },
+    { heading: 'The obvious approach', paragraphs: [
+      'The obvious enterprise approach is TLS, encryption at rest, IAM checks, tenant ids, and an access-controlled vector database. Those controls are necessary and often sufficient for ordinary internal search. They do not protect raw text after the service decrypts it for retrieval.',
+      'Another common approach is to redact logs after the fact. That misses embeddings, top-k ids, cache keys, and snippets that may already have left the protected path. Privacy needs to shape the state model before retrieval runs.',
+    ] },
+    { heading: 'The wall', paragraphs: [
+      'The wall is side-channel data. A top-k id can reveal that a merger document, diagnosis note, or security incident matched the query. A cache hit can reveal repeated interest. A citation snippet can leak text that the user may read but the platform must not store.',
+      'Policy checks at the final answer are too late. If chunks were logged, cached under broad keys, or sent to an external model route before policy ran, the leak already happened. The retrieval path itself must be inside the privacy boundary or under equivalent controls.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Treat every RAG artifact as typed security state. Query text, embedding vector, index handle, candidate id, chunk text, source id, citation span, model route, cache key, metric label, and trace field each need a release rule. Some can leave as hashes or buckets; others must not leave at all.',
+      'The invariant is scoped release. A worker gets keys only after attestation matches policy, and every outbound field is checked against tenant, corpus, session, and purpose. The answer path and the log path are different release decisions.',
+    ] },
+    { heading: 'How it works', paragraphs: [
+      'The client sends a query to a worker that can produce an attestation document. A key service checks the measurement, signer, debug status, workload identity, tenant, and policy version. Only then does it release keys for the allowed corpus and operation.',
+      'Embedding, vector search, reranking, chunk filtering, context packing, and citation mapping run inside the protected boundary or under the same data-in-use policy. The trace records source ids, quote ids, score buckets, model route, and denial counts instead of raw private text.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The security argument is trust reduction. Instead of trusting every host process, operator, log sink, cache, and debug tool, the system trusts a measured worker and a key-release policy. Data can be decrypted only inside the approved runtime.',
+      'The audit argument is provenance without payload. An answer can point to source ids, chunk ids, quote ids, and policy versions without storing the query or full document outside the boundary. That gives reviewers evidence while avoiding a second leak through observability.',
+    ] },
+    { heading: 'Cost and complexity', paragraphs: [
+      'Private RAG adds attestation latency, key-service dependency, image measurement, stricter cache scopes, redacted tracing, enclave lifecycle work, and hardware constraints. Debugging becomes harder because the most useful fields are the fields the system is not allowed to log.',
+      'Caching behavior changes. A normal cache key might use a query embedding and corpus id; a private cache key may also need tenant, policy version, measurement, release scope, and expiration. That lowers hit rate but prevents cross-scope reuse.',
+    ] },
+    { heading: 'Real-world uses', paragraphs: [
+      'A law firm can search matter files while ordinary platform logs keep only source ids and policy hashes. A healthcare assistant can retrieve patient notes under scoped keys and store redacted audit facts. A code assistant can search private repositories while preserving citation provenance.',
+      'Data clean rooms use the same structure. One party brings data, another brings code, and secret release depends on measured execution rather than broad platform trust. The common pattern is protected computation plus narrow evidence export.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'An enclave does not make retrieval correct. It can protect stale chunks, irrelevant chunks, or prompt-injected chunks. Citation support, freshness, access control, and answer evaluation still need ordinary RAG tests.',
+      'The design also fails through operational shortcuts. Debug enclaves, unsigned images, broad KMS policies, shared caches, unredacted traces, and emergency log dumps can collapse the trust story. Privacy must be tested in incident paths, not only in the happy path.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'A legal tenant asks what contract C-184 says about termination fees. The enclave embeds the query, searches a scoped index, retrieves 5 candidate chunks, and selects 2 quote spans for the answer. The outside trace records tenant hash, policy version 17, source ids, quote ids, score buckets, and one denied chunk count.',
+      'The raw query, embedding vector, full chunks, and prompt do not leave the protected boundary. An auditor can later see that quote Q2 from source S91 supported the answer and that policy 17 allowed release to this user. The audit path proves support without becoming a copy of the matter file.',
+    ] },
+    { heading: 'Sources and study next', paragraphs: [
+      'Primary sources: Google Confidential Space at https://cloud.google.com/confidential-computing/confidential-space/docs, Azure confidential computing at https://learn.microsoft.com/en-us/azure/confidential-computing/overview, NVIDIA Confidential Computing at https://docs.nvidia.com/confidential-computing/latest/, AWS Nitro Enclaves overview at https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave.html, and AWS Nitro Enclaves attestation at https://docs.aws.amazon.com/enclaves/latest/user/set-up-attestation.html.',
+      'Study RAG Pipeline, confidential GPU inference attestation, enclave secret release policy, PII redaction, claim-source ledgers, prompt-injection defense, and SLO-aware model routing before trusting this with sensitive production data.',
+    ] },
   ],
 };

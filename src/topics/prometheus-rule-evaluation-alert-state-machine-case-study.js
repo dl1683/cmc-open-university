@@ -163,109 +163,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'Metrics are raw observations. Operators need repeatable derived series and alerts that evaluate the same way at 3 a.m. as they do when someone is staring at a graph. Prometheus rules turn PromQL expressions into scheduled work.',
-        'Recording rules materialize derived time series. Alerting rules turn expression results into alert instances with state: inactive, pending, firing, and resolved. Alertmanager then handles grouping, silencing, inhibition, routing, and notification.',
-        'The key problem is continuity. A graph can show that a service is unhealthy now. An alerting system must know whether the same service was unhealthy on the last tick, how long the condition has remained true, and whether it has already notified someone.',
+        'Read each rule tick as one scheduled evaluation of a PromQL expression. PromQL is Prometheus Query Language, and an instant vector is the set of time series returned at one evaluation time. Active nodes show the expression being evaluated; found nodes show label sets that became recorded samples or alert instances.',
+        'In the alert-state view, one label set is one alert identity. Pending means the condition is true but has not stayed true for the required for-window. Firing means the same identity survived enough ticks to notify Alertmanager.',
         {type:'callout', text:'Prometheus alerting works by giving each returned label set its own state machine over scheduled rule ticks.'},
       ],
     },
     {
-      heading: 'The obvious approach and its wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The first approach is to put the PromQL expression directly in every dashboard and alert. If a dashboard needs a request rate, paste the query. If a graph spikes, page someone. At small scale this is fast and easy to inspect.',
-        'That breaks when expressions become shared infrastructure. Copied queries drift. Expensive joins and rates run again and again. A one-sample spike can page a human. A missing series can make an alert look healthy. A high-cardinality label can turn one service incident into hundreds of alert instances.',
-        'The missing structure is identity over time. Prometheus must know which label set is the same alert as last tick, how long it has stayed active, and whether an expensive expression should be stored once instead of recomputed everywhere.',
+        'A metric is a measured number over time, such as request count or CPU seconds. Operators need rules because a raw graph does not remember whether a condition stayed true long enough to wake a person. Prometheus rules turn repeated PromQL expressions into scheduled work with durable names and alert state.',
+        'Recording rules store derived time series. Alerting rules create alert instances from expression results. The reason both exist is operational consistency: the same calculation should feed dashboards, pages, and runbooks instead of being pasted differently in every place.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to put the full PromQL query directly in a dashboard or alert. That works for one service and one engineer because the query is visible and easy to change. It also feels cheap because no extra stored series is created.',
+        'For alerting, the obvious approach is to page whenever a threshold is crossed. If error rate is above 2 percent now, send the alert now. That catches simple failures, but it treats every single evaluation as equally trustworthy.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Copied queries drift. One dashboard may use a five-minute rate while the alert uses one minute, so the graph and page disagree during the same incident. Expensive expressions also run again in every consumer instead of once on a rule schedule.',
+        'Instant threshold paging flaps on noise. A missing metric can return no series and look healthy. A label such as pod or path can split one service outage into hundreds of alert identities, so the wall is not syntax; it is identity and continuity over time.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'A rule group is a scheduled batch job over the TSDB. On each tick, Prometheus evaluates a PromQL expression at an evaluation timestamp and receives an instant vector. Each vector element has a value and a label set.',
-        'Recording rules turn those vector elements into new samples under a chosen metric name. They are materialized PromQL expressions with a freshness bound set by the evaluation interval.',
-        'Alerting rules use the label set as the identity key for a state machine. The same expression can track `service="api"`, `service="checkout"`, and `service="billing"` independently because each returned label set owns its own pending timer and firing lifecycle.',
+        'A rule group is a small batch job that wakes up on a fixed interval. It evaluates a query at one timestamp and receives a vector of labeled results. For a recording rule, each result becomes a new sample under a chosen metric name.',
+        'For an alerting rule, the label set is the key of a state machine. The same expression can track service="checkout" and service="api" independently because each returned label set owns its own pending timer, firing state, and resolution path.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Scrapes append raw samples to the TSDB. A rule group wakes up on its interval and runs each rule expression against those stored samples. The output is not a scalar unless the query says so. It is usually a vector of label sets.',
-        'For a recording rule, Prometheus writes the vector back as derived time series. Dashboards and alerts can then query the recorded series instead of repeating a long expression. This trades storage and freshness lag for cheaper, more consistent reads.',
-        'For an alerting rule, Prometheus compares the current vector to the previous alert instances. If a label set appears and there is no `for` duration, it can fire immediately. If a `for` duration exists, the instance enters pending and must remain active across evaluation ticks until the duration is satisfied.',
-        'When an active alert disappears from the vector, it resolves or clears according to its lifecycle. Prometheus decides alert state. Alertmanager decides notification behavior: grouping, deduplication, silencing, inhibition, routing, and delivery.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the rule-tick view, follow samples into the TSDB, then watch the rule group wake up and run PromQL. The decisive object is the vector. Its label sets define how many recorded series or alert instances the rule will create.',
-        'The recording-rule frame shows a materialized expression. Raw counters become rates, rates become service aggregates, and aggregates become alert inputs. Each step saves repeated query work but adds one more derived series that can lag behind raw samples.',
-        'In the alert-state view, read each label set as its own small state machine. Pending is not a weak firing state. It is a timer that says the expression is currently true but has not yet stayed true long enough to page.',
-        'The bad-rule matrix shows the common repairs. Add a `for` window for flapping, aggregate away labels that are not part of the incident identity, and use rule tests so a query that returns no series is caught before production.',
+        'Prometheus scrapes raw samples into its time-series database. A rule group then runs its rules in order at the configured evaluation interval. A recording rule writes the vector result back as derived series, so later queries can read the recorded metric instead of recomputing the full expression.',
+        'An alerting rule compares the current vector with prior alert instances. If a label set appears for the first time and the rule has a for-window, that instance becomes pending. If it remains present until the window is satisfied, it becomes firing and Prometheus sends it to Alertmanager for routing and notification.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The invariant is that alert state is attached to label-set identity, not to a graph pixel or a human memory of yesterday\'s query. If the same label set appears on every relevant tick for the full `for` window, the condition was continuously true under the rule schedule.',
-        'Recording rules work for the same reason materialized views work. If many readers need the same expensive expression, one scheduled evaluation can produce a named time series that becomes the shared contract for dashboards, alerts, and runbooks.',
-        'The boundary with Alertmanager works because state and notification are different jobs. Prometheus knows whether a rule is firing. Alertmanager knows who should be notified, which alerts should be grouped, and which ones are silenced or inhibited.',
+        'The invariant is that alert state belongs to label-set identity, not to a graph pixel or a human memory of a query. If the same label set appears on every relevant tick during the for-window, the rule has evidence that the condition persisted under the schedule. If it disappears, the state clears because continuity was broken.',
+        'Recording rules are correct when consumers agree to treat the recorded series as the named result of the expression at rule-evaluation time. They trade freshness for shared work. Alertmanager stays separate because Prometheus decides whether a condition is firing, while Alertmanager decides who hears about it.',
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        'Rule cost is driven by how many series the PromQL expression touches and how many vector elements it returns. Cutting an evaluation interval from 60 seconds to 15 seconds can multiply rule-query load by four. A wide query over 500000 series can hurt even if it returns only ten alerts.',
+        'The human cost is label design. A short for-window catches fast failures but pages on noise. A long for-window lowers noise but delays detection. Adding pod as an alert label can turn one checkout outage into 300 alert instances if 300 pods cross the same threshold.',
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        'Recording rules are used for service-level indicators, burn-rate inputs, expensive dashboard aggregates, and precomputed rates that many teams read. They work when the derived metric has a stable meaning and the evaluation lag is acceptable.',
+        'Alerting rules are used for symptoms that need state: high error ratio, exhausted disk, missing scrape targets, slow rule evaluation, and budget burn. They fit incidents where a label set maps to a real operational owner, such as service, cluster, or region.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Rules fail when they hide absence. If a target stops exporting a metric, a threshold expression may return no vector element, so no alert fires. Absence needs explicit absent-style checks when missing telemetry is itself a failure.',
+        'They also fail as an event-processing system. Prometheus samples at scrape and evaluation times; it does not preserve every request or exact event order. For exact per-event workflows, use logs, traces, queues, or a stream processor instead of trying to force that job into alert rules.',
       ],
     },
     {
       heading: 'Worked example',
       paragraphs: [
-        'Start with raw `http_requests_total` counters by service, status, instance, and route. A recording rule computes a five-minute rate. Another rule sums by service and status class. A third expression divides errors by total requests to produce a service-level error ratio.',
-        'An alerting rule checks whether the checkout service error ratio is greater than 2 percent for 10 minutes. On the first tick where `service="checkout"` appears in the vector, the alert becomes pending. If the same label set stays active for the full window, it becomes firing and is sent to Alertmanager.',
-        'If the expression includes `pod` as an alert label, one bad deployment can create hundreds of alert instances. If the expression aggregates to `service`, the alert identity matches the incident: checkout is unhealthy. The label set is not formatting. It is the key of the state machine.',
+        'Suppose checkout has 100000 requests in five minutes and 3500 of them are 5xx errors. A recording rule computes error_ratio = 3500 / 100000 = 0.035, or 3.5 percent, for label set service="checkout". The alert threshold is 2 percent for 10 minutes with a 30-second evaluation interval.',
+        'At tick 0 the label set appears and becomes pending. After 20 ticks, 10 minutes have passed, so the same label set becomes firing if it never dropped below threshold. If the rule also kept pod in the alert labels across 80 pods, the same incident could create up to 80 pending timers instead of one service-level alert.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Sources and study next',
       paragraphs: [
-        'Rule cost is dominated by the series touched by the PromQL expression and by the number of vector elements returned. Short intervals improve freshness but increase query load. Long intervals reduce load but slow detection.',
-        'Recording rules add storage and can hide freshness lag if readers forget they are derived data. Chained recording rules can make that lag harder to see because each step depends on the previous scheduled result.',
-        'Alert rules carry a human cost. A short `for` window catches problems quickly but flaps on noise. A long window reduces noise but can miss fast-burning incidents. Extra labels help routing only when they do not explode alert cardinality.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'Prometheus rules win for repeated aggregates, SLO burn-rate inputs, expensive dashboard expressions, and alerts that need stable per-label state.',
-        'They are strongest when a derived metric should become a shared contract. A recorded service error ratio can feed dashboards, alerts, and incident runbooks without every consumer rewriting the same PromQL.',
-        'They also make alert behavior reviewable. A rule file can be code-reviewed, unit-tested with promtool, and tied to a runbook instead of living as an invisible query in one dashboard panel.',
-      ],
-    },
-    {
-      heading: 'Where it is the wrong tool',
-      paragraphs: [
-        'Rules are not a replacement for exploratory queries. During debugging, direct PromQL in a graph is faster and less permanent than creating a recorded series.',
-        'Rules are not an event-processing engine. They observe scraped samples at evaluation times. If the system needs exact event ordering, durable workflows, or per-request traces, use logs, tracing, queues, or a stream processor.',
-        'Prometheus also does not own notification policy. Do not pack grouping, silencing, escalation, and inhibition into alert expressions. Alertmanager exists so the rule can state the condition and the notification layer can decide delivery.',
-      ],
-    },
-    {
-      heading: 'Failure modes',
-      paragraphs: [
-        'High-cardinality alert labels are the most visible failure. Putting `pod`, `path`, `user_id`, or `request_id` into alert identity can turn one incident into a notification storm.',
-        'Missing series are quieter and often worse. If a target stops exporting a metric, an expression can return no vector element, which may look like no alert. Use absent-style checks when absence itself is failure.',
-        'PromQL vector matching and aggregation mistakes can silently change meaning. A bad join can duplicate series. Aggregating away the wrong label can hide the failing shard. Keeping the wrong label can split one incident into many. Rule tests exist because these bugs are hard to see by inspection.',
-      ],
-    },
-    {
-      heading: 'Primary references',
-      paragraphs: [
-        'Prometheus recording rules documentation: https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/.',
-        'Prometheus alerting rules documentation: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/.',
-        'Prometheus alerting overview and Alertmanager boundary: https://prometheus.io/docs/alerting/latest/overview/.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Prometheus TSDB Case Study next to understand what rule queries read. Study Sliding Window and SLO Error Budget Burn Rate Alert to understand why alert windows and rates behave the way they do.',
-        'Study Metric Label Cardinality Control before writing production alerts. Study Alertmanager Routing and Inhibition Tree for the notification layer. Study Grafana Dashboard Query Transform Graph for the dashboard side of the same query pipeline.',
+        'Primary sources: Prometheus recording rules documentation, Prometheus alerting rules documentation, Prometheus alerting overview, and Alertmanager documentation. Study the Prometheus TSDB case study next because rule queries read that storage engine.',
+        'For related concepts, study metric label cardinality control, sliding-window rates, SLO burn-rate alerting, and notification routing. The practical next skill is to write rule tests with promtool so query meaning is checked before production.',
       ],
     },
   ],

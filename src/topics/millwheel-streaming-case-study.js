@@ -209,89 +209,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'Why this exists',
+      heading: 'How to read the animation',
       paragraphs: [
-        'MillWheel exists because many useful computations do not arrive as neat daily files. Ads are clicked now, fraud signals arrive now, monitoring events arrive now, and users expect dashboards or alerts before the next batch job. A streaming system has to process an unbounded input while machines fail, messages repeat, and events arrive out of order.',
-        'A stateless stream processor is simple. Read a message, run a callback, emit a result, acknowledge the message. That model works for filtering, parsing, and routing. It fails for the workloads that made MillWheel important: per-user counters, session windows, anomaly detectors, joins against recent history, and alerts that depend on what happened earlier for the same key.',
-        'The real problem is state plus time plus failure. If a worker increments a per-key count and crashes before the update is durable, the next worker may miss the event. If it emits an alert and then crashes before acknowledging input, replay may emit the alert again. If event time differs from processing time, a window can close before a late record arrives. MillWheel treats those problems as the streaming contract rather than as application footnotes.',
+        'The stream-graph view follows one keyed record through input, computation, persistent state, timer, output, and acknowledgment. A key is the partitioning value, such as campaign id or account id, that decides which state the record may update. Active nodes are doing the current effect, found nodes are durable, and compare nodes show where replay could repeat work.',
+        'The watermark-and-timer view separates event time from processing time. Event time is when the data says the event happened; processing time is when the system sees it. The safe inference is that a timer may fire when the watermark passes its time, but late data still follows the declared policy.',
         {type:'callout', text:'MillWheel makes streaming correct by coupling per-key state, timers, input acknowledgments, and output effects into one replay-safe contract.'},
       ],
     },
     {
-      heading: 'The obvious approach and the wall',
+      heading: 'Why this exists',
       paragraphs: [
-        'The first reasonable attempt is to put a message queue in front of a fleet of workers. Each worker reads a record, updates memory, writes output, and acknowledges the record. If a worker fails, the queue redelivers unacknowledged records. This gives at-least-once processing with a small amount of infrastructure, and for stateless tasks it is often enough.',
-        'The wall appears as soon as memory becomes part of correctness. Suppose a campaign counter is kept in worker RAM. Rebalancing moves the campaign to another worker and the count disappears. Persist the count after every record and another problem appears: the record may be retried after the state update but before the output is acknowledged. The count is now too high unless the system can identify and suppress duplicate effects.',
-        'Time creates a second wall. Processing order is not event order. A click from 10:01 can arrive after the system has already processed 10:03 records. If a five-minute window emits when processing time reaches 10:05, it may miss delayed events. If it waits forever, output never becomes final. A streaming system needs a principled estimate of event-time progress and a policy for late data.',
-        'MillWheel is the point where streaming becomes a distributed systems problem. It is not just faster batch. It is a runtime for computations that remember keyed history, schedule event-time work, and recover from crashes without letting retries corrupt state or outputs.',
+        'Many useful computations cannot wait for a daily batch. Ads, fraud signals, monitoring events, and user actions arrive continuously, and the business wants current counters, alerts, and decisions. A stream processor must handle unbounded input while machines fail and records arrive out of order.',
+        'MillWheel exists because stateful streaming is not just a queue plus callbacks. Per-key counters, session windows, joins, and alerts all remember history. Once state and outputs matter, replay after failure can corrupt answers unless the runtime owns the processing contract.',
       ],
     },
     {
-      heading: 'Core model',
+      heading: 'The obvious approach',
       paragraphs: [
-        'MillWheel programs are graphs of computations over streams. Records enter the graph, computations transform or route them, and state is partitioned by key. The key is the unit that lets the system scale and recover: all records for the same logical entity can update the same persistent state, while different keys can be distributed across workers.',
-        'The core insight is that state, timers, and acknowledgments must be part of one processing discipline. A record is not safely handled just because user code ran. It is safely handled when the state changes and output commitments that depend on it are durable enough for the system to survive replay.',
-        'MillWheel also makes logical time explicit. Event time is a property of the data. Processing time is when the system happens to see the data. Low watermarks estimate how far event time has advanced. Timers let user code ask the system to call back when a logical time boundary is reached. This is the model later generalized by the Dataflow and Beam programming model.',
+        'The obvious design is a message queue feeding workers. A worker reads a record, updates memory, emits output, and acknowledges the message. If the worker crashes, the queue redelivers records that were not acknowledged.',
+        'That works for stateless parsing or routing. It is also easy to operate at first because the queue owns retry and workers own code. The design becomes fragile when the worker memory is part of the answer.',
       ],
     },
     {
-      heading: 'Mechanism',
+      heading: 'The wall',
       paragraphs: [
-        'A MillWheel computation receives records from input streams and emits records to output streams. Each record has a key. User code can read and write persistent state for that key. State is not an optional cache; it is the durable memory of the computation. If a worker fails, another worker can recover the key state and continue processing future records.',
-        'The runtime tracks delivery and duplicate suppression. In a retrying system, a downstream computation may see a record more than once unless the system records enough identity and progress information to recognize repeats. MillWheel was designed so user code can be written against strong processing semantics rather than manually building deduplication into every operator.',
-        'Timers are stored durably as well. A window close timer is part of the computation state. If a worker crashes after setting the timer, the recovered worker must still fire it. This matters for windows, stale-session cleanup, delayed alerts, and joins where old state must eventually expire.',
-        'Low watermarks carry event-time progress through the graph. They are not proofs that no earlier event can ever appear. They are system estimates that let computations make progress. When a low watermark passes a window end, the system can fire timers for that window. Late data then follows the application policy: update a correction, drop the event, emit a late result, or keep extra state until a longer allowed-lateness horizon expires.',
-        'Outputs are coordinated with state updates. If a computation updates per-key state and emits a derived record, recovery must not lose one effect while keeping the other. MillWheel makes this a runtime responsibility. Modern systems express the same idea through checkpointed state, transactional sinks, idempotent writes, or exactly-once protocols over replayable logs.',
+        'The wall is failure between effects. A worker can update a per-key count and crash before acknowledging input, so replay may count the record twice. It can emit an alert and crash before recording progress, so replay may emit the alert twice.',
+        'Time adds a separate wall. A click with event time 10:01 can arrive after records from 10:04. If the system closes the 10:01 window too early, it misses the click; if it waits forever, users never see results. Streaming needs a time-progress signal and a late-data policy.',
       ],
     },
     {
-      heading: 'Worked example',
+      heading: 'The core insight',
       paragraphs: [
-        'Consider an advertising metric pipeline. Each click record has a campaign id, an event timestamp, and a unique record id. The computation groups by campaign id, updates a rolling count, and emits an aggregate for each minute. A worker sees two clicks for campaign 9, updates the count in persistent state, and sets a timer for the minute boundary.',
-        'Now the worker crashes after processing the second click. If the input system redelivers that click, the recovered computation must not count it twice. The runtime needs a record identity or equivalent progress marker tied to the state update. If the timer had already been registered, it must survive as well. If the output aggregate was emitted before the crash, downstream handling must avoid making the output effect twice.',
-        'Add event time. A click with event time 10:01 arrives at processing time 10:04. The 10:01 window may still be open if the low watermark has not passed the end of that window. Later, the watermark moves past 10:02 and the timer fires. The computation emits the aggregate for the window. A still-later 10:01 click is late data. The page should teach that lateness is not a bug in the queue. It is a normal property of distributed event streams, and the system needs a declared policy for it.',
-        'The same structure appears in fraud detection. The key is a card or account. State holds recent transaction counts and amounts. Timers expire old events from the rolling window. Alerts are output records. A failure between state update and alert emission cannot be allowed to produce a missed alert or an uncontrolled duplicate. The whole pipeline rests on the contract between keyed state, replay, timers, and output effects.',
+        'MillWheel makes per-key state, timers, acknowledgments, and output effects one runtime contract. A record is safely processed only when the dependent state and output commitments are durable enough for recovery. User code is not expected to rebuild those guarantees from raw queue behavior.',
+        'The key is the unit of order and recovery. Millions of keys can be distributed across machines, but each key has a durable logical history. Timers become part of that history, so a crash cannot erase the future callback that closes a window or expires old state.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A computation receives records from input streams and emits records to output streams. Each record carries a key, and user code reads or writes persistent state for that key. If a worker fails, another worker can recover the key state and continue.',
+        'The runtime tracks progress and duplicate suppression around input records. Timers are stored durably and fire when processing policy says they are eligible. Low watermarks move event-time progress through the graph so computations can emit window results without waiting forever.',
       ],
     },
     {
       heading: 'Why it works',
       paragraphs: [
-        'The correctness argument starts with per-key serialization. If all updates for a key are applied through a single logical state record, then user code can reason about that key as a sequence. The system may distribute millions of keys across workers, but each key still has a durable history.',
-        'The second invariant is replay safety. A retried record must not create a new logical effect if the previous attempt already committed that effect. Systems implement this with record identifiers, persisted progress, transactional writes, or idempotent output protocols. The exact mechanism differs, but the required property is the same: recovery may repeat physical work, but it should not repeat the logical state transition.',
-        'The third invariant is event-time monotonicity through watermarks. A watermark only moves forward. Computations can use that monotone signal to decide when a class of timers is eligible to fire. The signal is an estimate, so late data policy remains part of the application contract. The system is correct when it applies that policy consistently, not when it pretends late data cannot exist.',
-        'MillWheel works because it refuses to hide these invariants inside user callbacks. It gives the runtime ownership of persistent state, timers, and delivery coordination. That is the difference between a library that processes messages and a stream processor that can run stateful applications at scale.',
+        'Correctness starts with per-key serialization. If updates for one key are applied through one logical state record, user code can reason about that key as a sequence even while other keys run elsewhere. Distribution changes placement, not the meaning of the key history.',
+        'The replay invariant is that repeated physical work must not repeat the logical effect. A retried record should not create a second count increment or a second external output if the first attempt already committed. Systems implement this with record ids, persisted progress, transactional sinks, or idempotency keys, but the required property is the same.',
       ],
     },
     {
-      heading: 'Costs and tradeoffs',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'The price of MillWheel-style streaming is coordination. Durable state writes add latency and storage load. Deduplication metadata consumes space. Timers must be stored, sharded, scanned, and recovered. Watermarks can be too conservative, delaying output, or too aggressive, increasing late data. Output guarantees depend on sinks that can participate in the contract.',
-        'Key skew is a practical limit. Partitioning by key scales only if the hot keys are not too hot. A single campaign, account, customer, or device can receive enough traffic to dominate one worker. The system can move keys across workers, but it cannot split one key without changing the user-visible semantics. Heavy-key mitigation often needs application-level aggregation, salting, or a different data model.',
-        'State growth is another tax. Windowed computations need retention rules. Joins need expiration. Fraud and feature pipelines need enough history to be useful but not so much that every key becomes a long-lived storage leak. A stream processor that can keep state forever will eventually be asked to keep too much state unless the application names its cleanup policy.',
-        'Exactly-once language also hides sink complexity. A runtime can make its internal state replay-safe, but an external email API, payment API, or database may not support atomic commit with the stream processor. In those cases the system must use idempotency keys, transactional sinks, or accept weaker semantics. The honest question is always end-to-end: what happens if the process crashes after the side effect but before progress is recorded?',
+        'The cost is coordination on every stateful effect. Durable state writes add latency, timers consume storage and scan work, and duplicate-suppression metadata grows with the replay horizon. Doubling the number of active keys can double state entries even if total event rate stays flat.',
+        'Watermarks trade latency against completeness. A conservative watermark delays output because the system waits longer for late data. An aggressive watermark emits sooner but increases late corrections or drops. The behavior is a policy choice, not a constant hidden behind O notation.',
       ],
     },
     {
-      heading: 'Where it wins and fails',
+      heading: 'Real-world uses',
       paragraphs: [
-        'MillWheel-like systems win when the application needs low-latency stateful decisions over unbounded streams. Ad metrics, fraud scoring, monitoring, abuse detection, online feature computation, sessionization, streaming joins, and near-real-time personalization all fit the pattern. The common access pattern is many keyed histories updated incrementally by incoming events.',
-        'They are a poor fit for computations that only need occasional full-table recomputation, heavy global optimization, or simple stateless event routing. Batch systems are often cheaper and easier for large historical backfills. A message queue plus stateless workers is often enough for enrichment or notification dispatch. A database trigger or materialized view may be better when the source of truth is already a transactional database and the scale is modest.',
-        'A common misconception is that streaming is only about lower latency. MillWheel shows that the deeper issue is correctness under continuous change. Once a program uses event time, per-key state, and external effects, the runtime has to specify how time advances, how state survives, and how replay is made safe. Without those contracts, low latency just produces wrong answers sooner.',
+        'MillWheel-style systems fit ad counters, fraud scoring, monitoring, abuse detection, online features, sessionization, streaming joins, and near-real-time personalization. The access pattern is many keyed histories updated incrementally by an unbounded event stream. Each key needs memory, time, and recovery semantics.',
+        'The same ideas appear in later systems such as Google Dataflow, Apache Beam, and Apache Flink. The vocabulary differs, but the work stays familiar: keyed state, event time, timers, windows, watermarks, checkpoints, and output guarantees. MillWheel is useful because it exposes the contract early and plainly.',
       ],
     },
     {
-      heading: 'What the animation teaches',
+      heading: 'Where it fails',
       paragraphs: [
-        'The stream graph view shows the real unit of work: a record arrives, is routed by key, updates durable state, may set a timer, and emits output only under a replay-safe discipline. The point is not the arrows themselves. The point is that state and output are coupled through failure recovery.',
-        'The watermarks and timers view shows why a stream processor needs two clocks. Processing time is when the system sees records. Event time is when the records say the events happened. Watermarks let the runtime make bounded progress in event time, and late data policy handles the cases where the estimate was not enough.',
-        'The recovery rows are the important part to keep in mind. Input retry, state persistence, durable timers, and output contracts must agree. If any one of those layers is weaker than the rest, the pipeline inherits the weaker guarantee.',
+        'Key skew can break the scaling model. If one campaign or account receives 40 percent of all events, one key becomes hot even if the cluster has many workers. Splitting that key requires changing the application semantics or adding a pre-aggregation layer.',
+        'External side effects are another weak point. A runtime can make internal state replay-safe, but an email API or payment API may not support atomic commit with stream progress. The system then needs idempotency keys, transactional sinks, or an honest weaker guarantee.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Google paper PDF at https://research.google.com/pubs/archive/41378.pdf, Google Research page at https://research.google/pubs/millwheel-fault-tolerant-stream-processing-at-internet-scale/, and ACM DOI at https://dl.acm.org/doi/10.14778/2536222.2536229.',
-        'Study Google Dataflow Model Case Study next for the programming model that grew out of these ideas: event time, windows, triggers, and allowed lateness. Study Kafka Log Case Study to separate durable event storage from stateful stream computation. Study Flink Checkpointing Case Study to see barrier snapshots as a different execution mechanism for similar goals. Study Backpressure & Flow Control because watermarks and checkpoints both suffer when downstream work slows. Study RocksDB LSM Case Study because many stream processors store keyed state in LSM-backed state stores. Study Two-Phase Commit when external sinks need stronger end-to-end effects.',
+        'A click pipeline groups by campaign id and emits one-minute counts. Campaign 9 receives records r1 at 10:00:12 and r2 at 10:00:40, so state count becomes 2 and a timer is set for 10:01:00. If the worker crashes after r2, recovery must not let replay count r2 again.',
+        'At processing time 10:01:08, the watermark passes 10:01:00 and the timer fires with count 2. A late click r3 with event time 10:00:50 arrives at 10:01:20. The application policy decides whether to emit a correction count of 3, drop r3, or keep the window open longer next time.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources are the Google MillWheel paper at https://research.google.com/pubs/archive/41378.pdf, the Google Research page at https://research.google/pubs/millwheel-fault-tolerant-stream-processing-at-internet-scale/, and the ACM DOI at https://dl.acm.org/doi/10.14778/2536222.2536229. Use these sources for mechanism claims before relying on secondary summaries.',
+        'Study Google Dataflow Model for event-time windows, Kafka Log for durable input, Flink Checkpointing for barrier snapshots, RocksDB LSM for keyed state stores, Two-Phase Commit for external sinks, and Backpressure and Flow Control for slow downstream behavior. Start with the topic that explains the data shape, then move to the production system.',
       ],
     },
   ],

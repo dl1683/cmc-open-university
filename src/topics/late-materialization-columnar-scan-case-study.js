@@ -173,108 +173,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
+      heading: 'How to read the animation',
+      paragraphs: [
+        'The column-pruning view shows cheap evidence columns being read before wide payload columns. Evidence columns are fields used for filtering or joining, such as tenant_id, status, timestamp, and join keys. Payload columns are expensive fields such as JSON, long strings, blobs, or nested structs.',
+        'The row-id handoff view shows the intermediate result as positions, not full rows. A row id is a stable reference to a logical row inside the scan. The safe inference is that if row ids are preserved, the engine can fetch payload values later without changing query meaning.',
+        {type: 'callout', text: 'Late materialization keeps a candidate set alive until predicates prove which rows deserve expensive payload reads.'},
+      ],
+    },
+    {
       heading: 'Why this exists',
       paragraphs: [
-        'Late materialization exists because many queries discard most rows before they need wide payload columns. Reading, decoding, and allocating those payloads early wastes I/O, CPU, and memory bandwidth.',
-        'The practical problem is row-shaped thinking. A query result is row-shaped, but execution does not have to become row-shaped until the plan proves which rows survive.',
-        {type: 'callout', text: 'Late materialization keeps a candidate set alive until predicates prove which rows deserve expensive payload reads.'},
+        'SQL returns rows, but a query engine does not have to build rows early. Many analytic queries discard most rows before they need wide payload columns. Reading and decoding those payloads first wastes I/O, CPU, memory bandwidth, and allocation.',
+        'Late materialization delays assembling full rows until filters and joins prove which rows survive. It exists because columnar storage can read different columns at different times. The query result is row-shaped; the execution path can remain column-shaped longer.',
       ],
     },
     {
       heading: 'The obvious approach',
       paragraphs: [
-        'The obvious approach is early materialization: read all needed columns, build rows, then filter and join those rows. That keeps operators simple.',
-        'The wall is wasted payload work. If a timestamp predicate keeps 3% of rows, reading JSON blobs for the other 97% was unnecessary.',
+        'The obvious approach is early materialization. Read every column the query might need, build row objects or tuples, then filter, join, and project. This keeps operators simple because every step sees a complete row.',
+        'That approach is reasonable for narrow rows or nonselective queries. If the query returns most rows and needs most columns, carrying full rows may be cheaper than maintaining row-id structures. The problem appears when a cheap predicate removes most rows before payload columns are needed.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is wasted payload work. If a table has 100 million rows and a predicate keeps 3 percent, early materialization reads payloads for 97 million rows that disappear. The wider and harder-to-decode the payload, the more visible the waste.',
+        'The second wall is compression layout. Columnar files often compress pages or row groups, and fetching one sparse row from many pages can be expensive. Late materialization needs a cost model, not a blanket rule to delay everything.',
       ],
     },
     {
       heading: 'The core insight',
       paragraphs: [
-        'The core state is a candidate set: selection vectors, row-id lists, dense ranges, bitmaps, or dictionary wrappers. That state tells later operators which rows remain worth fetching.',
-        'Columnar storage makes the idea practical because predicate columns, join keys, and payload columns can be read at different times.',
-      ],
-    },
-    {
-      heading: 'How the visual model teaches it',
-      paragraphs: [
-        'In the column-pruning view, watch the plan separate cheap evidence from expensive payload. Date, tenant, status, and join keys are used to prove which row positions remain alive. Message bodies, JSON, structs, and blobs stay cold until the plan has fewer rows to fetch.',
-        'In the row-id handoff view, focus on the row-id set as the real intermediate result. The engine is carrying positions through filters and joins. A row-shaped result appears only near the end, after the candidate set is small enough to justify fetching payload values.',
+        'The core state is a candidate set. It can be a selection vector, bitmap, row-id list, dense range, or dictionary wrapper. This state records which logical rows are still alive after each predicate or join.',
+        'As long as the candidate set preserves row identity, payload fetch can move later. The engine spends cheap work on narrow columns first, then pays expensive decoding only for survivors. The boundary where payload is fetched becomes a planning decision.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The plan reads cheap predicate columns first, uses statistics or page indexes to skip regions, evaluates filters, carries row ids or selections forward, and fetches wide columns only for survivors.',
-        'DuckDB documents vector/DataChunk execution: https://duckdb.org/docs/current/internals/vector.html. Parquet page indexes describe page-level statistics: https://parquet.apache.org/docs/file-format/pageindex/. MonetDB/X100 explains vectorized execution and late materialization tradeoffs: https://www.cidrdb.org/cidr2005/papers/P19.pdf.',
-        'The handoff representation can change as the candidate set changes. Dense survivors may stay as a range or a selection vector. Sparse survivors may become row-id lists. Set-heavy operations may use bitmaps. Dictionary vectors can represent selected or repeated values without copying the underlying payload.',
+        'The scan reads metadata and cheap columns first. Statistics, zone maps, and Parquet page indexes can skip whole chunks. Vectorized filters produce a survivor set, and joins or runtime filters may shrink it further.',
+        'When the survivor set is small or the downstream operator finally needs payload values, the engine fetches late columns for those row ids. Dense survivor sets may stay as ranges or selection vectors. Sparse sets may become row-id lists or bitmaps.',
       ],
-    },
-    {
+    },    {
       heading: 'Why it works',
       paragraphs: [
-        'It works because filters and joins often reduce candidate rows before payload values are needed. If row identity is preserved, payload fetch can happen later without changing query semantics.',
-        'Correctness depends on row-id stability. The engine must preserve the mapping from candidate positions to the original columns until materialization occurs.',
-        'The important correctness question is not whether the row has been physically assembled. It is whether every operator can still map its candidate positions back to the same logical row. As long as that mapping is stable, delaying value fetch changes performance, not meaning.',
+        'Correctness depends on stable mapping. Every candidate position must still point to the same logical row across all columns. If row id 42 survived the status filter, later fetching payload[42] must retrieve the payload for that same row.',
+        'The optimization changes timing, not meaning. A filter on tenant_id and a later JSON extraction produce the same result whether JSON is decoded before or after the filter, provided the candidate set is exact. That is the invariant the animation makes visible.',
       ],
     },
     {
-      heading: 'Cost and behavior',
+      heading: 'Cost and complexity',
       paragraphs: [
-        'Late materialization can create random access if row ids are sparse and payload columns are compressed in large pages. Sometimes early materialization of a hot narrow column is better.',
-        'A robust engine chooses by selectivity, value width, compression block size, cache locality, and downstream operators. Delaying everything blindly can simply move cost later.',
-        'Compression interacts with the decision. If a payload page must be decompressed as a whole, fetching one row from many pages may be worse than scanning a compact region once. That is why good engines use statistics, page indexes, clustering, and cost models instead of treating late materialization as a universal rule.',
+        'Late materialization saves work when selectivity is low and payload columns are wide. If 100 million rows have a 2 KB JSON payload, early decoding touches about 200 GB of JSON. If predicates keep 3 million rows, late decoding touches about 6 GB, before compression effects.',
+        'The cost is bookkeeping and possible random access. A sparse row-id list can force reads from many compressed pages, and each page may need full decompression. Cost as behavior means the engine should delay expensive columns only when saved payload work exceeds row-id and late-fetch overhead.',
       ],
     },
     {
-      heading: 'Planner decision rule',
+      heading: 'Real-world uses',
       paragraphs: [
-        'A useful planner asks a concrete question: will the early operators shrink the candidate set enough to justify carrying row identity instead of carrying payload values? The answer depends on estimated selectivity, row-id density, page clustering, column width, compression block layout, and whether downstream joins or runtime filters can reduce the set again.',
-        'The planner should also distinguish latency from total work. A dashboard query may prefer a path that returns the first rows quickly, while a batch export may prefer a sequential scan that burns less total CPU. Late materialization is one knob in that plan, not a moral rule about how engines should always execute.',
-      ],
-    },
-    {
-      heading: 'Operational questions',
-      paragraphs: [
-        'When a query is slow, ask where the engine crossed from column evidence to row payload. Did it decode JSON before filtering by tenant? Did it fetch wide strings before a semi join removed most row ids? Did a runtime filter arrive early enough to avoid payload work, or did it arrive after the expensive scan had already happened?',
-        'Those questions make execution plans easier to read. Look for candidate counts after each filter, late-column fetch counts, page skips, materialized bytes, and whether survivor positions are dense or scattered. The goal is not to memorize an operator name; it is to see whether the plan spends expensive work before or after it has earned that expense.',
-      ],
-    },
-    {
-      heading: 'Where it wins',
-      paragraphs: [
-        'It wins for columnar logs, analytics tables, Parquet scans, wide JSON payloads, nested columns, selective predicates, semi joins, and runtime-filtered fact scans.',
-        'It is strongest when early predicates use narrow columns and late columns are expensive to decode or allocate.',
-        'It also wins in teaching because it separates logical query meaning from physical execution shape. SQL describes rows, but the engine can move through column vectors, row ids, bitmaps, and dictionaries before it finally returns rows to the user.',
+        'It wins in columnar logs, security analytics, event tables, Parquet scans, wide JSON payloads, selective metadata filters, semi joins, and runtime-filtered fact scans. These workloads often reject most rows using narrow fields before needing large payloads.',
+        'It also helps explain modern execution engines. Systems such as DuckDB, columnar lakehouse readers, and vectorized databases can carry vectors, dictionaries, and selection masks before returning rows. SQL describes the result, not the physical order of work.',
       ],
     },
     {
       heading: 'Where it fails',
       paragraphs: [
-        'It fails when predicates are not selective, when row ids scatter across too many compressed pages, or when a join expands cardinality before payload fetch.',
-        'It also does not fix a bad plan. If the query must read nearly every payload value, late materialization adds bookkeeping without saving work.',
-        'It can also make debugging harder because the row a user imagines does not exist as one physical object until late. Engine instrumentation has to show candidate counts, skipped pages, row-id density, and late fetch volume, or the optimization becomes invisible and difficult to tune.',
+        'It fails when predicates are not selective. If 95 percent of rows survive and the query needs the payload for nearly all of them, late materialization adds selection bookkeeping without saving much. A direct scan can be faster.',
+        'It also fails when survivors are scattered across many compressed pages. Fetching one row from each of 10,000 pages can be worse than scanning a compact column region once. Good engines use clustering, statistics, page indexes, and measured selectivity to choose.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'A security log table stores timestamp, tenant_id, status, request_path, message, headers, and JSON payload. The query filters one tenant and status=500, then extracts two JSON fields. A late-materializing engine reads timestamp, tenant_id, and status first, skips row groups using metadata, builds row ids for survivors, and decodes JSON only for the remaining rows.',
-        'If only 3% of rows survive, the saved work is not subtle. The engine avoids scanning, decompressing, decoding, and allocating payload values for the 97% of rows the query discards.',
-        'Now change the query: remove the tenant filter and request every JSON payload for the last day. Late materialization saves little because nearly every row survives. The same engine should choose a more direct scan path and avoid paying selection bookkeeping for a candidate set that stays dense.',
+        'A security log table has 100 million rows. Columns timestamp, tenant_id, status, and request_path average 40 bytes together, while JSON payload averages 2,000 bytes. The query asks for one tenant, status=500, and two JSON fields.',
+        'Early materialization reads about 100 million times 2,040 bytes, or 204 GB before compression. Late materialization reads the 4 GB of cheap columns first. Suppose filters keep 3 percent, or 3 million rows; then JSON decoding reads about 6 GB of payload instead of 200 GB.',
+        'If the tenant filter is removed and 90 million rows survive, late materialization reads 4 GB of cheap columns plus about 180 GB of payload and pays selection overhead. The correct planner follows the numbers, not the name of the optimization.',
       ],
     },
     {
-      heading: 'Implementation checklist',
+      heading: 'Sources and study next',
       paragraphs: [
-        'A practical implementation needs stable row identifiers, per-column access paths, statistics that can reject chunks early, a way to represent survivor sets at different densities, and a clear materialization boundary. Without those pieces, the term late materialization becomes a slogan rather than an execution strategy.',
-        'The telemetry should make the decision visible: rows scanned, rows surviving each predicate, row groups skipped, late columns fetched, payload bytes decoded, row-id density, and materialization time. Those numbers tell you whether the optimization saved work or only added a more complex path.',
-        'For learners, the key habit is to trace what exists after each operator. If the intermediate state is a row object, the engine has already materialized. If the intermediate state is a set of positions plus references to columns, the engine is still preserving the option to avoid work.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Selection Vector Filter Pipeline, Dictionary Vector Copy Avoidance, Runtime Bloom Filter Join Pruning, Parquet Page Index & Column Offset, Block Range Index & Zone Maps, Apache Arrow Columnar Memory Case Study, DuckDB Vectorized Execution Case Study, and SQL Join Algorithms Primer next.',
+        'Primary sources: MonetDB/X100 on vectorized execution at https://www.cidrdb.org/cidr2005/papers/P19.pdf, DuckDB vector internals at https://duckdb.org/docs/stable/internals/vector.html, and Parquet page index documentation at https://parquet.apache.org/docs/file-format/pageindex/.',
+        'Study selection vectors, dictionary vectors, runtime Bloom filters, zone maps, Parquet row groups and pages, Apache Arrow memory layout, vectorized execution, join algorithms, and cost-based query planning next.',
       ],
     },
   ],
